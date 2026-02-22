@@ -1,0 +1,47 @@
+# Daisy / embedded build outputs
+build/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# macOS cruft
+.DS_Store
+__MACOSX/
+._*
+
+# Allow VSCode tasks only
+!.vscode/
+!.vscode/tasks.json
+
+# --- Build artifacts ---
+build/
+out/
+dist/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.o
+*.a
+*.elf
+*.map
+*.hex
+*.bin
+*.lst
+*.d
+*.su
+
+# --- Logs ---
+*.log
+
+# --- macOS / Finder junk ---
+.DS_Store
+**/.DS_Store
+__MACOSX/
+._*
+
+# --- Windows junk ---
+Thumbs.db

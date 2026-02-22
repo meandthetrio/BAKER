@@ -1,0 +1,86 @@
+#include "params.h"
+
+#include "util/scopedirqblocker.h"
+#include <cmath>
+
+void Params::Init()
+{
+    const PerformParamsTargets init_t{};
+    targets_buf_[0] = init_t;
+    targets_buf_[1] = init_t;
+
+    // Main writes to the buffer that is NOT published.
+    published_idx_.store(0, std::memory_order_relaxed);
+    write_idx_ = 1;
+
+    current = PerformParamsCurrent{};
+}
+
+PerformParamsTargets& Params::EditTargets()
+{
+    return targets_buf_[write_idx_ & 1];
+}
+
+const PerformParamsTargets& Params::TargetsForUI() const
+{
+    const uint8_t idx = published_idx_.load(std::memory_order_acquire);
+    return targets_buf_[idx & 1];
+}
+
+void Params::PublishTargets()
+{
+    // Protect the swap + copy from being interrupted by the audio callback.
+    daisy::ScopedIrqBlocker irq;
+
+    const uint8_t new_published = write_idx_ & 1;
+    published_idx_.store(new_published, std::memory_order_release);
+
+    // Flip to the other buffer for subsequent edits.
+    write_idx_ ^= 1;
+
+    // Seed the new write buffer from the latest published values.
+    targets_buf_[write_idx_ & 1] = targets_buf_[new_published];
+}
+
+float Params::SmoothToward(float current_v, float target_v, float coeff)
+{
+    // current += (target - current) * coeff
+    return current_v + (target_v - current_v) * coeff;
+}
+
+void Params::AudioBlockTick(float sample_rate, size_t block_size)
+{
+    if(sample_rate <= 0.0f || block_size == 0)
+        return;
+
+    constexpr float smoothing_time_sec = 0.005f; // 5ms shared smoothing time
+    const float     dt_block_sec       = (float)block_size / sample_rate;
+
+    // Exponential (RC-style) one-pole:
+    // coeff = 1 - exp(-dt / tau)
+    float coeff = 1.0f - std::exp(-dt_block_sec / smoothing_time_sec);
+    if(coeff < 0.0f)
+        coeff = 0.0f;
+    else if(coeff > 1.0f)
+        coeff = 1.0f;
+
+    const uint8_t idx = published_idx_.load(std::memory_order_acquire);
+    const auto&   t   = targets_buf_[idx & 1];
+
+    // Smooth floats
+    current.master_level = SmoothToward(current.master_level, t.master_level, coeff);
+    current.delay_mix    = SmoothToward(current.delay_mix, t.delay_mix, coeff);
+    current.reverb_mix   = SmoothToward(current.reverb_mix, t.reverb_mix, coeff);
+    current.sat_drive    = SmoothToward(current.sat_drive, t.sat_drive, coeff);
+    current.lpf_cutoff_hz = SmoothToward(current.lpf_cutoff_hz, t.lpf_cutoff_hz, coeff);
+    current.lfo_rate_hz   = SmoothToward(current.lfo_rate_hz, t.lfo_rate_hz, coeff);
+    current.lfo_depth     = SmoothToward(current.lfo_depth, t.lfo_depth, coeff);
+    current.env_attack_ms = SmoothToward(current.env_attack_ms, t.env_attack_ms, coeff);
+    current.env_decay_ms  = SmoothToward(current.env_decay_ms, t.env_decay_ms, coeff);
+    current.env_amount    = SmoothToward(current.env_amount, t.env_amount, coeff);
+
+    // Bools snap immediately
+    current.delay_on  = t.delay_on;
+    current.reverb_on = t.reverb_on;
+    current.sat_on    = t.sat_on;
+}

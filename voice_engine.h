@@ -46,7 +46,7 @@ struct Voice
     uint8_t    velocity      = 0;
     uint8_t    _pad0         = 0;
     uint8_t    vel_layer     = 0;
-    uint8_t    _pad1         = 0;
+    uint8_t    source_layer  = 0;
     uint32_t   start_id      = 0; // monotonic allocation id (used for Oldest Note stealing)
 
     const Sample* sample = nullptr;
@@ -74,11 +74,13 @@ struct Voice
     float old_pos   = 0.0f;
     float old_ratio = 1.0f;
     float old_gain  = 0.0f;
+    uint8_t old_source_layer = 0;
     bool  old_gate  = false;
     int8_t old_dir  = 1;
     float new_pos   = 0.0f;
     float new_ratio = 1.0f;
     float new_gain  = 0.0f;
+    uint8_t new_source_layer = 0;
     float new_fade_in = 0.0f; // 0..1 for new head
     float new_fade_in_step = 0.0f; // per-sample increment for new head
     EnvStage new_env_stage = EnvStage::Off;
@@ -152,6 +154,9 @@ class VoiceEngine
                       float env_decay_ms,
                       float env_amount);
     void SetLfoWave(uint8_t wave);
+    void SetEngineTuneSemitones(uint8_t layer, float semitones);
+    void SetEngineGainDb(uint8_t layer, float db);
+    void SetEngineLoopEnabled(uint8_t layer, bool enabled);
     void SetLoopMode(LoopMode mode)
     {
         loop_mode_.store(static_cast<uint8_t>(mode), std::memory_order_relaxed);
@@ -190,6 +195,10 @@ class VoiceEngine
     float env_attack_ms_ = 5.0f;
     float env_decay_ms_  = 120.0f;
     float env_amount_    = 0.5f;
+    static constexpr uint8_t kEngineLayerCount = 2;
+    float engine_tune_semitones_[kEngineLayerCount] = {0.0f, 0.0f};
+    float engine_gain_linear_[kEngineLayerCount]    = {1.0f, 1.0f};
+    bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};
     GlobalLFO lfo_;
     float sweep_phase_rate_  = 0.0f;
     float sweep_dir_rate_    = 1.0f;
@@ -229,6 +238,7 @@ class VoiceEngine
                      const Sample* sample,
                      uint8_t note,
                      uint8_t velocity,
+                     uint8_t source_layer,
                      uint8_t vel_layer,
                      uint32_t start_id);
     void StartStopFade_(Voice& v);

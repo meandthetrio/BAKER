@@ -15,6 +15,12 @@ enum class UiScreenId : uint8_t
     Macro,
     SdBrowse,
     SampleEdit,
+    Start,
+    PerformMenu,
+    PerformEngine,
+    PerformKeyzone,
+    PerformAdsr,
+    PerformEmphasis,
     COUNT
 };
 
@@ -36,6 +42,8 @@ struct UiScreen
     void (*OnExit)(UiScreenCtx&);
     bool (*OnEvent)(UiScreenCtx&, const UiInputEvent&);
     void (*Render)(UiScreenCtx&);
+    using UiOnEnterFn = bool(*)(UiScreenCtx&);
+    UiOnEnterFn on_enter = nullptr;
 };
 
 static constexpr uint8_t kUiStackMax = 8;

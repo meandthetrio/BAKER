@@ -507,3 +507,23 @@
   - No “half restored” state.
 - Fail conditions
   - UI freeze, stuck busy, corrupted saves, load restores only some fields, audio glitches.
+
+## ENGINE_0.1 — Load/Tune/Gain/OneShot
+- Setup
+  - Navigate `START -> PERFORM -> ENGINE` and select target layer (`A`/`B`) with POD1.
+- Actions
+  - Focus `LOAD`, press `RClick` to open SD browser, select a WAV.
+  - Verify return to ENGINE and confirm sample name + waveform are shown.
+  - Focus `TUNE`, turn R encoder to `+12`, then back to `0`.
+  - Focus `GAIN`, turn R encoder to `-12dB`, then back to `0dB`.
+  - Focus `MODE`, toggle `OneShot`/`Loop`.
+- Expected results
+  - SD select loads into selected layer; waveform + sample name render on ENGINE.
+  - Tune and gain changes publish safely (no zipper/clicks).
+  - Play mode toggles and affects looping behavior.
+  - Overlay shows layer/sample/tune/gain/mode and worker state/progress.
+- Fail conditions
+  - Wrong layer is loaded, missing waveform/name, or navigation breaks.
+  - Tune/gain edits cause audible zippering/clicks.
+  - MODE toggle has no effect on looping behavior.
+  - Overlay fields do not match current ENGINE state.

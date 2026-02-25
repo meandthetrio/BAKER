@@ -26,6 +26,10 @@ static constexpr float kPitchModSemitones  = 2.0f;
 static constexpr float kLockCutoffMinHz    = 80.0f;
 static constexpr float kLockCutoffMaxHz    = 12000.0f;
 static constexpr float kMacroSmoothSec     = 0.005f;
+static constexpr float kEngineTuneMinSemitones = -48.0f;
+static constexpr float kEngineTuneMaxSemitones = 48.0f;
+static constexpr float kEngineGainMinDb = -48.0f;
+static constexpr float kEngineGainMaxDb = 12.0f;
 
 // Voice pool lives in fast RAM (DTCM). Uses `mem_regions.h` section macro.
 ADSR2_SECTION(".dtcmram") static Voice g_voice_pool[VoiceEngine::kMaxVoices];
@@ -293,6 +297,31 @@ void VoiceEngine::SetLfoWave(uint8_t wave)
     lfo_wave_ = (wave == 0) ? 0 : 1;
 }
 
+void VoiceEngine::SetEngineTuneSemitones(uint8_t layer, float semitones)
+{
+    layer &= 1u;
+    if(semitones < kEngineTuneMinSemitones)
+        semitones = kEngineTuneMinSemitones;
+    if(semitones > kEngineTuneMaxSemitones)
+        semitones = kEngineTuneMaxSemitones;
+    engine_tune_semitones_[layer] = semitones;
+}
+
+void VoiceEngine::SetEngineGainDb(uint8_t layer, float db)
+{
+    layer &= 1u;
+    if(db < kEngineGainMinDb)
+        db = kEngineGainMinDb;
+    if(db > kEngineGainMaxDb)
+        db = kEngineGainMaxDb;
+    engine_gain_linear_[layer] = std::pow(10.0f, db / 20.0f);
+}
+
+void VoiceEngine::SetEngineLoopEnabled(uint8_t layer, bool enabled)
+{
+    engine_loop_enabled_[layer & 1u] = enabled;
+}
+
 void VoiceEngine::StartStopFade_(Voice& v)
 {
     if(v.stop_fade_active)
@@ -321,6 +350,7 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.pos = 0.0f;
     v.ratio = 1.0f;
     v.gain = 0.0f;
+    v.source_layer = 0;
     v.vel_layer = 0;
     v.vel_brightness = 1.0f;
     v.fade_in = 0.0f;
@@ -332,6 +362,8 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.new_pos = 0.0f;
     v.new_ratio = 1.0f;
     v.new_gain = 0.0f;
+    v.old_source_layer = 0;
+    v.new_source_layer = 0;
     v.new_fade_in = 0.0f;
     v.new_fade_in_step = 0.0f;
     v.new_env_stage = EnvStage::Off;
@@ -426,6 +458,7 @@ void VoiceEngine::StartVoice_(Voice& v,
                               const Sample* sample,
                               uint8_t note,
                               uint8_t velocity,
+                              uint8_t source_layer,
                               uint8_t vel_layer,
                               uint32_t start_id)
 {
@@ -434,6 +467,7 @@ void VoiceEngine::StartVoice_(Voice& v,
         v.state    = VoiceState::Idle;
         v.note     = note;
         v.velocity = velocity;
+        v.source_layer = source_layer & 1u;
         v.vel_layer = vel_layer;
         v.start_id = start_id;
         return;
@@ -442,6 +476,7 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.state    = VoiceState::Playing;
     v.note     = note;
     v.velocity = velocity;
+    v.source_layer = source_layer & 1u;
     v.vel_layer = vel_layer;
     v.start_id = start_id;
 
@@ -549,6 +584,7 @@ void VoiceEngine::NoteOff_(uint8_t note)
             v.pos   = v.new_pos;
             v.gain  = v.new_gain;
             v.ratio = v.new_ratio;
+            v.source_layer = v.new_source_layer;
             v.fade_in = v.new_fade_in;
             v.fade_in_step = v.new_fade_in_step;
             SetEnvelopeRelease(v.new_env_stage, v.new_env_level, v.new_env_r_step, sample_rate_);
@@ -574,6 +610,7 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                 const uint8_t note = e.note;
                 const uint8_t vel  = e.velocity;
                 const uint8_t sample_index = static_cast<uint8_t>(e.value & 0xFFu);
+                const uint8_t source_layer = sample_index & 1u;
                 uint8_t vel_layer = static_cast<uint8_t>((e.value >> 8) & 0xFFu);
                 if(vel_layer > 1)
                     vel_layer = 1;
@@ -611,6 +648,7 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                         const float old_fin = (v.fade_in < 1.0f) ? v.fade_in : 1.0f;
                         const float old_env = (v.env_level < 1.0f) ? v.env_level : 1.0f;
                         v.old_gain = v.gain * old_fin * old_env;
+                        v.old_source_layer = v.source_layer;
                         v.old_gate = v.gate;
                         v.old_dir  = v.dir;
 
@@ -623,6 +661,7 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                         }
                         v.new_ratio = ComputeRatio(note, sample->root_key);
                         v.new_gain = vel01 * kVoiceAmpScale;
+                        v.new_source_layer = source_layer;
                         v.new_fade_in = 0.0f;
                         v.new_fade_in_step = ComputeFadeStep(sample_rate_);
                         v.new_gate = true;
@@ -651,7 +690,7 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                     }
                     else
                     {
-                        StartVoice_(v, sample, note, vel, vel_layer, start_id);
+                        StartVoice_(v, sample, note, vel, source_layer, vel_layer, start_id);
                         v.mod_env.Trigger(env_attack_ms_, env_decay_ms_);
                     }
 
@@ -716,6 +755,24 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
     const SampleEdit edit = current_edit_;
     const Sample* edit_sample = edit_sample_;
+    float engine_tune_scale[kEngineLayerCount] = {};
+    float engine_gain_linear[kEngineLayerCount] = {};
+    bool  engine_loop_enabled[kEngineLayerCount] = {};
+    for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
+    {
+        float tune = engine_tune_semitones_[layer];
+        if(tune < kEngineTuneMinSemitones)
+            tune = kEngineTuneMinSemitones;
+        if(tune > kEngineTuneMaxSemitones)
+            tune = kEngineTuneMaxSemitones;
+        engine_tune_scale[layer] = std::pow(2.0f, tune / 12.0f);
+
+        float gain = engine_gain_linear_[layer];
+        if(gain < 0.0f)
+            gain = 0.0f;
+        engine_gain_linear[layer] = gain;
+        engine_loop_enabled[layer] = engine_loop_enabled_[layer];
+    }
 
     float cutoff_norm = 0.0f;
     if(active_lock_.enabled)
@@ -917,6 +974,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             uint32_t end = v.sample->length;
             uint32_t ls_i = v.sample->loop_start;
             uint32_t le_i = v.sample->loop_end;
+            const uint8_t old_layer = v.old_source_layer & 1u;
+            const uint8_t new_layer = v.new_source_layer & 1u;
             bool loop_enabled = v.sample->loop_enabled;
             float edit_gain = 1.0f;
             if(use_edit)
@@ -928,6 +987,19 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 le_i = e.loop_end;
                 loop_enabled = (e.loop_enable != 0);
                 edit_gain = e.gain;
+            }
+            if(engine_loop_enabled[new_layer])
+            {
+                if(!loop_enabled)
+                {
+                    loop_enabled = true;
+                    ls_i = start;
+                    le_i = end;
+                }
+            }
+            else
+            {
+                loop_enabled = false;
             }
             const float length_f = static_cast<float>(end);
             const float ls = static_cast<float>(ls_i);
@@ -951,10 +1023,10 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 new_pos = length_f - 1.0f;
             }
 
-            const float old_ratio = v.old_ratio * pitch_scale;
-            const float new_ratio = v.new_ratio * pitch_scale;
-            const float old_gain = v.old_gain * edit_gain;
-            const float new_gain = v.new_gain * edit_gain;
+            const float old_ratio = v.old_ratio * engine_tune_scale[old_layer] * pitch_scale;
+            const float new_ratio = v.new_ratio * engine_tune_scale[new_layer] * pitch_scale;
+            const float old_gain = v.old_gain * edit_gain * engine_gain_linear[old_layer];
+            const float new_gain = v.new_gain * edit_gain * engine_gain_linear[new_layer];
             float x = v.xfade_pos;
             const float x_step = v.xfade_step;
             float new_fade = v.new_fade_in;
@@ -1118,6 +1190,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 v.pos  = v.new_pos;
                 v.gain = v.new_gain;
                 v.ratio = v.new_ratio;
+                v.source_layer = v.new_source_layer;
                 v.fade_in = v.new_fade_in;
                 v.fade_in_step = v.new_fade_in_step;
                 v.env_stage = v.new_env_stage;
@@ -1145,7 +1218,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             }
 
             float pos = v.pos;
-            const float ratio = v.ratio * pitch_scale;
+            const uint8_t source_layer = v.source_layer & 1u;
+            const float ratio = v.ratio * engine_tune_scale[source_layer] * pitch_scale;
             bool use_edit = (edit_sample != nullptr && v.sample == edit_sample);
             SampleEdit e = edit;
             uint32_t start = 0;
@@ -1164,7 +1238,20 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 loop_enabled = (e.loop_enable != 0);
                 edit_gain = e.gain;
             }
-            const float gain  = v.gain * edit_gain;
+            if(engine_loop_enabled[source_layer])
+            {
+                if(!loop_enabled)
+                {
+                    loop_enabled = true;
+                    ls_i = start;
+                    le_i = end;
+                }
+            }
+            else
+            {
+                loop_enabled = false;
+            }
+            const float gain  = v.gain * edit_gain * engine_gain_linear[source_layer];
             const float length_f = static_cast<float>(end);
             const float ls = static_cast<float>(ls_i);
             const float le = static_cast<float>(le_i);

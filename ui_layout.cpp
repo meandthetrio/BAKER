@@ -6,6 +6,7 @@
 #include <cstdio>
 
 using namespace daisy;
+static constexpr bool kShowGlobalStatus = false;
 
 UiLayout UiLayout_Default()
 {
@@ -23,7 +24,10 @@ void UiDraw_Header(OledPager& oled, const UiLayout& l, const char* title, const 
 {
     char buf[32];
     oled.SetCursor(l.x, l.y_header);
-    std::snprintf(buf, sizeof(buf), "%s %s", title ? title : "", status ? status : "");
+    if(status && status[0] != '\0')
+        std::snprintf(buf, sizeof(buf), "%s %s", title ? title : "", status);
+    else
+        std::snprintf(buf, sizeof(buf), "%s", title ? title : "");
     oled.WriteString(buf, Font_6x8, true);
 }
 
@@ -37,8 +41,14 @@ void UiDraw_Footer(OledPager& oled, const UiLayout& l, const char* hint)
 
 void BuildStatus(const AppState& app, char* out, size_t n)
 {
+    (void)app;
     if(!out || n == 0)
         return;
+    if(!kShowGlobalStatus)
+    {
+        out[0] = '\0';
+        return;
+    }
     const char seq = app.seq_running ? '1' : '0';
     const char plk = app.plock_apply_enabled ? '1' : '0';
     const char* lfo = WaveChar(app.lfo_wave.load(std::memory_order_relaxed));

@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 using namespace daisy;
 
@@ -43,6 +44,1107 @@ static int ToPct01(float x)
 static char DstChar(uint8_t dst)
 {
     return (dst == static_cast<uint8_t>(ModDest::FilterCutoff)) ? 'C' : 'P';
+}
+
+struct Font5x7
+{
+    static constexpr int W = 5;
+    static constexpr int H = 7;
+
+    static void GetGlyphRows(char c, uint8_t out_rows[H])
+    {
+        if(c >= 'a' && c <= 'z')
+            c = static_cast<char>(c - 'a' + 'A');
+
+        auto set = [&](std::initializer_list<uint8_t> rows)
+        {
+            int i = 0;
+            for(auto r : rows)
+                out_rows[i++] = r;
+        };
+
+        if(c == ' ')
+        {
+            set({0, 0, 0, 0, 0, 0, 0});
+            return;
+        }
+
+        switch(c)
+        {
+            case '0': set({0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110}); return;
+            case '1': set({0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110}); return;
+            case '2': set({0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111}); return;
+            case '3': set({0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110}); return;
+            case '4': set({0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010}); return;
+            case '5': set({0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110}); return;
+            case '6': set({0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110}); return;
+            case '7': set({0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000}); return;
+            case '8': set({0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110}); return;
+            case '9': set({0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100}); return;
+            default: break;
+        }
+
+        switch(c)
+        {
+            case 'A': set({0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001}); return;
+            case 'B': set({0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110}); return;
+            case 'C': set({0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110}); return;
+            case 'D': set({0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110}); return;
+            case 'E': set({0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111}); return;
+            case 'F': set({0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000}); return;
+            case 'G': set({0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110}); return;
+            case 'H': set({0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001}); return;
+            case 'I': set({0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110}); return;
+            case 'J': set({0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100}); return;
+            case 'K': set({0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001}); return;
+            case 'L': set({0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111}); return;
+            case 'M': set({0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001}); return;
+            case 'N': set({0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001}); return;
+            case 'O': set({0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110}); return;
+            case 'P': set({0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000}); return;
+            case 'Q': set({0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101}); return;
+            case 'R': set({0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001}); return;
+            case 'S': set({0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110}); return;
+            case 'T': set({0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100}); return;
+            case 'U': set({0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110}); return;
+            case 'V': set({0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100}); return;
+            case 'W': set({0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001}); return;
+            case 'X': set({0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001}); return;
+            case 'Y': set({0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100}); return;
+            case 'Z': set({0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111}); return;
+            default: break;
+        }
+
+        switch(c)
+        {
+            case '-': set({0, 0, 0, 0b11111, 0, 0, 0}); return;
+            case '.': set({0, 0, 0, 0, 0, 0b00100, 0b00100}); return;
+            case ':': set({0, 0b00100, 0b00100, 0, 0b00100, 0b00100, 0}); return;
+            case '/': set({0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0, 0}); return;
+            case '_': set({0, 0, 0, 0, 0, 0, 0b11111}); return;
+            case '>': set({0b10000, 0b01000, 0b00100, 0b00010, 0b00100, 0b01000, 0b10000}); return;
+            case '<': set({0b00001, 0b00010, 0b00100, 0b01000, 0b00100, 0b00010, 0b00001}); return;
+            case '?': set({0b01110, 0b10001, 0b00010, 0b00100, 0b00100, 0, 0b00100}); return;
+            default: break;
+        }
+
+        set({0b11111, 0b10001, 0b00010, 0b00100, 0b00100, 0, 0b00100});
+    }
+};
+
+static void DrawTinyString(OledPager& d, const char* str, int x, int y, bool on)
+{
+    const int char_w = Font5x7::W + 1;
+    for(int i = 0; str[i] != '\0'; ++i)
+    {
+        uint8_t rows[Font5x7::H] = {};
+        Font5x7::GetGlyphRows(str[i], rows);
+        for(int yy = 0; yy < Font5x7::H; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < Font5x7::W; ++xx)
+            {
+                if((row >> (Font5x7::W - 1 - xx)) & 1)
+                {
+                    const int px = x + i * char_w + xx;
+                    const int py = y + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    }
+}
+
+static int TinyStringWidth(const char* str)
+{
+    if(str == nullptr || str[0] == '\0')
+        return 0;
+    const int char_w = Font5x7::W + 1;
+    int count = 0;
+    for(; str[count] != '\0'; ++count)
+    {
+    }
+    return count * char_w - 1;
+}
+
+static constexpr int32_t kMainMenuCount = 3;
+static const char* kMenuLabels[kMainMenuCount] = {"LOAD", "RECORD", "PERFORM"};
+static constexpr int32_t kPerformMenuCount = 4;
+static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS"};
+
+static int32_t NextMenuIndex(int32_t current, int32_t delta)
+{
+    static const int32_t order[kMainMenuCount] = {0, 1, 2};
+    int32_t pos = 0;
+    for(int32_t i = 0; i < kMainMenuCount; ++i)
+    {
+        if(order[i] == current)
+        {
+            pos = i;
+            break;
+        }
+    }
+    pos += delta;
+    while(pos < 0)
+        pos += kMainMenuCount;
+    while(pos >= kMainMenuCount)
+        pos -= kMainMenuCount;
+    return order[pos];
+}
+
+static int32_t NextPerformMenuIndex(int32_t current, int32_t delta)
+{
+    static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3};
+    int32_t pos = 0;
+    for(int32_t i = 0; i < kPerformMenuCount; ++i)
+    {
+        if(order[i] == current)
+        {
+            pos = i;
+            break;
+        }
+    }
+    pos += delta;
+    while(pos < 0)
+        pos += kPerformMenuCount;
+    while(pos >= kPerformMenuCount)
+        pos -= kPerformMenuCount;
+    return order[pos];
+}
+
+constexpr int kIconW = 61;
+constexpr int kIconH = 29;
+constexpr int kIconStride = 8;
+
+static const uint8_t kIconLoadDisk61x29[kIconH * kIconStride] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf0,
+    0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x3f, 0xff, 0xf8, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x44, 0x01, 0x24, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x84, 0x71, 0x24, 0x00, 0x00, 0x30,
+    0x60, 0x21, 0x04, 0x89, 0x3c, 0x04, 0x00, 0x30,
+    0x60, 0x61, 0x04, 0xa9, 0x04, 0x0c, 0x00, 0x30,
+    0x60, 0xe1, 0x04, 0x89, 0x04, 0x1c, 0x00, 0x30,
+    0x61, 0xe1, 0x04, 0x71, 0x04, 0x3c, 0x00, 0x30,
+    0x63, 0xe1, 0x03, 0xfe, 0x04, 0x7c, 0x00, 0x30,
+    0x67, 0xe1, 0x00, 0x00, 0x04, 0xfc, 0x00, 0x30,
+    0x6f, 0xff, 0x3f, 0xff, 0xe5, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x40, 0x00, 0x17, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x4f, 0xff, 0x97, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x40, 0x00, 0x17, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x43, 0xfe, 0x17, 0xff, 0xff, 0xf0,
+    0x6f, 0xff, 0x40, 0x00, 0x15, 0xff, 0xff, 0xf0,
+    0x67, 0xe1, 0x40, 0x00, 0x14, 0xfc, 0x00, 0x30,
+    0x63, 0xe1, 0x41, 0xfc, 0x14, 0x7c, 0x00, 0x30,
+    0x61, 0xe1, 0x40, 0x00, 0x14, 0x3c, 0x00, 0x30,
+    0x60, 0xe1, 0x40, 0x70, 0x14, 0x1c, 0x00, 0x30,
+    0x60, 0x61, 0x40, 0x00, 0x14, 0x0c, 0x00, 0x30,
+    0x60, 0x21, 0x40, 0x00, 0x14, 0x04, 0x00, 0x30,
+    0x60, 0x00, 0xff, 0xff, 0xf8, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf0,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const uint8_t kIconRecordTape61x29[kIconH * kIconStride] = {
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+    0xbf, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe8,
+    0xa0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x28,
+    0xa8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa8,
+    0xa4, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xc1, 0x28,
+    0xa2, 0x38, 0x00, 0x00, 0x00, 0x00, 0xe2, 0x28,
+    0xa1, 0x37, 0xff, 0xff, 0xff, 0xff, 0x64, 0x28,
+    0xa0, 0x28, 0x00, 0x00, 0x00, 0x00, 0xa0, 0x28,
+    0xa0, 0x28, 0x7f, 0xff, 0xff, 0xf0, 0xa0, 0x28,
+    0xa0, 0x28, 0xff, 0xff, 0xff, 0xf8, 0xa0, 0x28,
+    0xa0, 0x29, 0xf8, 0x80, 0x08, 0xfc, 0xa0, 0x28,
+    0xa0, 0x29, 0xf7, 0x87, 0xef, 0x7c, 0xa0, 0x28,
+    0xa0, 0x29, 0xed, 0x83, 0xcd, 0xbc, 0xa0, 0x28,
+    0xa0, 0x29, 0xe8, 0xb3, 0xa8, 0xbc, 0xa0, 0x28,
+    0xa0, 0x29, 0xed, 0xb3, 0xcd, 0xbc, 0xa0, 0x28,
+    0xa0, 0x29, 0xf7, 0x87, 0xef, 0x7c, 0xa0, 0x28,
+    0xa0, 0x29, 0xf8, 0x80, 0x08, 0xfc, 0xa0, 0x28,
+    0xa0, 0x29, 0xff, 0xff, 0xff, 0xfc, 0xa0, 0x28,
+    0xa0, 0x28, 0xfc, 0x00, 0x01, 0xf8, 0xa0, 0x28,
+    0xa0, 0x2c, 0x33, 0xff, 0xfe, 0x61, 0xa0, 0x28,
+    0xa1, 0x37, 0x77, 0xc0, 0x1f, 0x77, 0x64, 0x28,
+    0xa2, 0x38, 0x6f, 0xc0, 0x1f, 0xb0, 0xe2, 0x28,
+    0xa4, 0x1f, 0xdf, 0xff, 0xff, 0xdf, 0xc1, 0x28,
+    0xa8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa8,
+    0xa0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x28,
+    0xbf, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe8,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8,
+};
+
+static const uint8_t kIconPerformMpc61x29[kIconH * kIconStride] = {
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+    0x87, 0xbd, 0xef, 0x7b, 0xcf, 0xff, 0xff, 0xc8,
+    0x87, 0xbd, 0xef, 0x7b, 0xce, 0x0f, 0xff, 0xc8,
+    0x87, 0xbd, 0xef, 0x7b, 0xce, 0xef, 0xf0, 0xc8,
+    0x87, 0xbd, 0xef, 0x7b, 0xce, 0xef, 0xf6, 0xc8,
+    0x80, 0x00, 0x00, 0x00, 0x0e, 0xef, 0xf6, 0xc8,
+    0x87, 0xbd, 0xef, 0x7b, 0xce, 0xef, 0xf6, 0xc8,
+    0x87, 0xbd, 0xef, 0x7b, 0xce, 0xee, 0x36, 0xc8,
+    0x87, 0xbd, 0xef, 0x7b, 0xce, 0xee, 0xb6, 0xc8,
+    0x87, 0xbd, 0xef, 0x7b, 0xce, 0xee, 0xb6, 0xc8,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0xe0, 0x86, 0x08,
+    0x80, 0x00, 0x00, 0x00, 0x0f, 0xff, 0xff, 0xc8,
+    0x80, 0x00, 0x00, 0x00, 0x0f, 0xff, 0xff, 0xc8,
+    0x89, 0x11, 0x11, 0x20, 0x00, 0x00, 0x00, 0x08,
+    0x89, 0x11, 0x11, 0x20, 0x00, 0x00, 0x00, 0x08,
+    0x89, 0x11, 0x11, 0x20, 0x00, 0x00, 0x00, 0x08,
+    0x89, 0x11, 0x11, 0x20, 0xa0, 0x14, 0x02, 0x88,
+    0x89, 0x11, 0x11, 0x21, 0xb0, 0x36, 0x06, 0xc8,
+    0x8b, 0xbb, 0xbb, 0xa3, 0xb8, 0x77, 0x0e, 0xe8,
+    0x8b, 0xbb, 0xbb, 0xa3, 0xb8, 0x77, 0x0e, 0xe8,
+    0x8b, 0xbb, 0xbb, 0xa3, 0xf8, 0x7f, 0x0f, 0xe8,
+    0x8b, 0xbb, 0xbb, 0xa1, 0xf0, 0x3e, 0x07, 0xc8,
+    0x8f, 0xff, 0xff, 0xe0, 0xe0, 0x1c, 0x03, 0x88,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8,
+};
+
+static const uint8_t kIconPerformEngine61x29[kIconH * kIconStride] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xc6, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x1d, 0xce, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0xfe, 0x00,
+    0x00, 0x00, 0x00, 0x01, 0x81, 0xfe, 0x1f, 0xc0,
+    0x01, 0xff, 0xff, 0xf5, 0xe1, 0xf8, 0x07, 0xc0,
+    0x00, 0x00, 0x00, 0x01, 0xe0, 0xf0, 0x03, 0x80,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x60, 0x81, 0x80,
+    0x00, 0x00, 0x00, 0x00, 0x03, 0xe1, 0x21, 0xe0,
+    0x00, 0x00, 0x00, 0x00, 0x03, 0xe1, 0x21, 0xe0,
+    0x00, 0x08, 0x00, 0x00, 0x00, 0x60, 0xc1, 0x80,
+    0x00, 0x18, 0xc0, 0x00, 0x00, 0x70, 0x01, 0x80,
+    0x00, 0x14, 0xc0, 0x1c, 0xe0, 0xf0, 0x07, 0xe0,
+    0x3f, 0xf5, 0xf8, 0x9f, 0xe0, 0xfc, 0x0f, 0xc0,
+    0x3f, 0xf5, 0x3d, 0xff, 0xfe, 0x1f, 0xfe, 0x00,
+    0x30, 0x87, 0x00, 0xf8, 0x7e, 0x1f, 0xfe, 0x00,
+    0x30, 0x07, 0x00, 0x70, 0x1c, 0x1d, 0xee, 0x00,
+    0x30, 0x02, 0x03, 0xe0, 0x0c, 0x00, 0xc0, 0x00,
+    0x30, 0x00, 0x03, 0xc3, 0x8f, 0x00, 0x00, 0x00,
+    0x30, 0x00, 0x03, 0xc3, 0x8f, 0x00, 0x00, 0x00,
+    0x30, 0x00, 0x00, 0xe1, 0x8c, 0x00, 0xc0, 0x00,
+    0x38, 0x00, 0x20, 0xe0, 0x1c, 0x00, 0x70, 0x00,
+    0x3f, 0xff, 0xf1, 0xf0, 0x3e, 0x0e, 0x7c, 0x00,
+    0x3f, 0xff, 0xf1, 0x9f, 0xfe, 0x00, 0x7c, 0x00,
+    0x00, 0x00, 0x20, 0x1f, 0xe0, 0x00, 0xe0, 0x00,
+    0x00, 0x00, 0x00, 0x38, 0xe0, 0x00, 0x80, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const uint8_t kIconPerformKeyzone61x29[kIconH * kIconStride] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0xf6, 0x0f, 0x9e, 0x01, 0xf2, 0x60, 0x00,
+    0x01, 0xf7, 0x08, 0x13, 0x01, 0x02, 0x60, 0x00,
+    0x3f, 0xfc, 0x08, 0x03, 0x7d, 0xf3, 0xe1, 0xe0,
+    0x31, 0xff, 0x08, 0x0e, 0x7d, 0x00, 0x60, 0x60,
+    0x31, 0xf7, 0x08, 0x10, 0x01, 0x00, 0x60, 0x60,
+    0x30, 0x04, 0x0f, 0x9e, 0x01, 0xf0, 0x60, 0x60,
+    0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60,
+    0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60,
+    0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60,
+    0x3f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe0,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x38, 0x63, 0x71, 0x0c, 0x3b, 0x0c, 0x30, 0xe0,
+    0x38, 0x63, 0x71, 0x0c, 0x3b, 0x0c, 0x30, 0xe0,
+    0x38, 0x63, 0x71, 0x0c, 0x3b, 0x0c, 0x30, 0xe0,
+    0x38, 0x63, 0x71, 0x0c, 0x3b, 0x0c, 0x30, 0xe0,
+    0x38, 0x63, 0x71, 0x0c, 0x3b, 0x0c, 0x30, 0xe0,
+    0x38, 0x63, 0x71, 0x0c, 0x3b, 0x0c, 0x30, 0xe0,
+    0x38, 0x63, 0x71, 0x8c, 0x3b, 0x0c, 0x30, 0xe0,
+    0x3f, 0xf7, 0x77, 0xff, 0x7b, 0xdf, 0xfb, 0xe0,
+    0x3d, 0xf7, 0x77, 0xdf, 0x7b, 0xdf, 0xfb, 0xe0,
+    0x3f, 0xf7, 0x77, 0xff, 0x7b, 0xff, 0xfb, 0xe0,
+    0x3f, 0xf7, 0x77, 0xff, 0x7b, 0xdf, 0xfb, 0xe0,
+    0x3d, 0xf7, 0x77, 0xff, 0x7b, 0xdf, 0xfb, 0xe0,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const uint8_t kIconPerformAdsr61x29[kIconH * kIconStride] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00,
+    0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x00,
+    0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0xfe, 0x00,
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x90, 0xf0, 0x00,
+    0x00, 0x20, 0x00, 0x00, 0x00, 0x60, 0xf0, 0x00,
+    0x00, 0x20, 0x10, 0x00, 0x00, 0xf0, 0xc4, 0x00,
+    0x00, 0x00, 0x0c, 0x00, 0x03, 0x18, 0xc2, 0x00,
+    0x00, 0x40, 0x03, 0x0f, 0xe0, 0x08, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0xf0, 0x00, 0x08, 0x00, 0x80,
+    0x00, 0x80, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+    0x01, 0x80, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x10, 0x00, 0x18, 0x00,
+    0x02, 0x00, 0x01, 0x00, 0x10, 0x00, 0x04, 0x00,
+    0x02, 0x00, 0x01, 0x00, 0x10, 0x00, 0x00, 0x00,
+    0x0c, 0x08, 0x01, 0xf7, 0x70, 0xe4, 0x01, 0x80,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x02, 0x01, 0x0f, 0xe0, 0x7e, 0x0f, 0x01, 0x00,
+    0x02, 0x01, 0x0f, 0xe0, 0x7e, 0xbf, 0xc1, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0f, 0x8f, 0xc0, 0x00, 0x70, 0x0c, 0x0f, 0xc0,
+    0x0f, 0x8f, 0xc0, 0x00, 0x70, 0x0c, 0x0f, 0xc0,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const uint8_t kIconPerformEmphasis61x29[kIconH * kIconStride] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x80,
+    0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80,
+    0x06, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x7f, 0x80,
+    0x3f, 0xc0, 0x3e, 0x00, 0x00, 0x00, 0x07, 0x80,
+    0x0f, 0x00, 0x3e, 0x00, 0x00, 0xf8, 0x1f, 0x80,
+    0x0f, 0x00, 0x3e, 0x00, 0x00, 0xf8, 0xb9, 0x00,
+    0x08, 0x80, 0x00, 0x00, 0x00, 0x00, 0x61, 0x00,
+    0x00, 0x00, 0x3e, 0x7c, 0x78, 0xf8, 0xc0, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x80, 0x00,
+    0x00, 0x3e, 0x3e, 0x7c, 0xfc, 0xe7, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x10, 0x00,
+    0x1f, 0x3e, 0x22, 0x7e, 0x7c, 0x70, 0x30, 0x00,
+    0x00, 0x00, 0x1c, 0x00, 0x03, 0x80, 0x38, 0x00,
+    0x1f, 0x38, 0xc3, 0xe0, 0x78, 0x03, 0xff, 0x00,
+    0x1f, 0x33, 0x80, 0x7f, 0xc0, 0x00, 0x10, 0x00,
+    0x00, 0x06, 0x38, 0x00, 0x00, 0xc0, 0x10, 0x00,
+    0x1f, 0x18, 0x5c, 0x00, 0x01, 0x80, 0x10, 0x00,
+    0x00, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0xc6, 0x00, 0x00, 0x08, 0xc0, 0x22, 0x00,
+    0x3e, 0x1f, 0xe0, 0x00, 0x38, 0xe0, 0x63, 0x80,
+    0x18, 0x07, 0xc0, 0x00, 0x78, 0xf0, 0xe3, 0xc0,
+    0x00, 0x01, 0x80, 0x00, 0x3f, 0xf0, 0xff, 0xc0,
+    0x00, 0x00, 0x1f, 0xfe, 0x3f, 0xf0, 0xff, 0xc0,
+    0x00, 0x00, 0x00, 0x00, 0x1f, 0xe0, 0x7f, 0x80,
+    0x05, 0xd7, 0xff, 0xfe, 0x0f, 0xc0, 0x3f, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static void DrawBitmap1bpp(OledPager& disp,
+                           int x,
+                           int y,
+                           int w,
+                           int h,
+                           int stride,
+                           const uint8_t* data,
+                           bool on)
+{
+    for(int row = 0; row < h; ++row)
+    {
+        const uint8_t* line = data + (row * stride);
+        for(int col = 0; col < w; ++col)
+        {
+            const uint8_t byte = line[col >> 3];
+            const int bit = 7 - (col & 7);
+            if((byte >> bit) & 0x1)
+                disp.DrawPixel(x + col, y + row, on);
+        }
+    }
+}
+
+static void DrawMainMenuFriendStyle(OledPager& d, int selected)
+{
+    constexpr int kDisplayW = 128;
+    constexpr int kDisplayH = 64;
+    constexpr int kListLeftX = 2;
+    constexpr int kListGapY = 6;
+
+    d.Fill(false);
+
+    const int text_h = Font5x7::H;
+    int max_label_w = 0;
+    for(int32_t i = 0; i < kMainMenuCount; ++i)
+    {
+        const int w = TinyStringWidth(kMenuLabels[i]);
+        if(w > max_label_w)
+            max_label_w = w;
+    }
+    const int total_h = (kMainMenuCount * text_h) + ((kMainMenuCount - 1) * kListGapY);
+    const int start_y = (kDisplayH - total_h) / 2;
+    const int list_w = max_label_w;
+    const int icon_area_x = list_w + 4;
+    const int icon_area_w = kDisplayW - icon_area_x;
+
+    for(int32_t i = 0; i < kMainMenuCount; ++i)
+    {
+        const bool is_selected = (i == selected);
+        const char* label = kMenuLabels[i];
+        const int text_x = kListLeftX;
+        const int text_y = start_y + i * (text_h + kListGapY);
+        if(is_selected)
+        {
+            const int pad = 1;
+            int rect_x0 = text_x - pad;
+            int rect_y0 = text_y - pad;
+            int rect_x1 = text_x + list_w + pad;
+            int rect_y1 = text_y + text_h + pad;
+            if(rect_x0 < 0) rect_x0 = 0;
+            if(rect_y0 < 0) rect_y0 = 0;
+            if(rect_x1 >= kDisplayW) rect_x1 = kDisplayW - 1;
+            if(rect_y1 >= kDisplayH) rect_y1 = kDisplayH - 1;
+            d.DrawRect(rect_x0,
+                       rect_y0,
+                       rect_x1,
+                       rect_y1,
+                       true,
+                       true);
+            DrawTinyString(d, label, text_x, text_y, false);
+        }
+        else
+        {
+            DrawTinyString(d, label, text_x, text_y, true);
+        }
+
+        if(is_selected)
+        {
+            const uint8_t* icon = nullptr;
+            int icon_w = 0;
+            int icon_h = 0;
+            int icon_stride = 0;
+            if(i == 0)
+            {
+                icon = kIconLoadDisk61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
+            else if(i == 1)
+            {
+                icon = kIconRecordTape61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
+            else if(i == 2)
+            {
+                icon = kIconPerformMpc61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
+            if(icon != nullptr && icon_area_w > icon_w)
+            {
+                const int icon_x = icon_area_x + (icon_area_w - icon_w) / 2;
+                const int icon_y = (kDisplayH - icon_h) / 2;
+                DrawBitmap1bpp(d,
+                               icon_x,
+                               icon_y,
+                               icon_w,
+                               icon_h,
+                               icon_stride,
+                               icon,
+                               true);
+            }
+        }
+    }
+}
+
+static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
+{
+    constexpr int kDisplayW = 128;
+    constexpr int kDisplayH = 64;
+    constexpr int kListLeftX = 2;
+    constexpr int kListGapY = 6;
+
+    d.Fill(false);
+
+    const int text_h = Font5x7::H;
+    int max_label_w = 0;
+    for(int32_t i = 0; i < kPerformMenuCount; ++i)
+    {
+        const int w = TinyStringWidth(kPerformMenuLabels[i]);
+        if(w > max_label_w)
+            max_label_w = w;
+    }
+    const int total_h = (kPerformMenuCount * text_h) + ((kPerformMenuCount - 1) * kListGapY);
+    const int start_y = (kDisplayH - total_h) / 2;
+    const int list_w = max_label_w;
+    const int icon_area_x = list_w + 4;
+    const int icon_area_w = kDisplayW - icon_area_x;
+
+    for(int32_t i = 0; i < kPerformMenuCount; ++i)
+    {
+        const bool is_selected = (i == selected);
+        const char* label = kPerformMenuLabels[i];
+        const int text_x = kListLeftX;
+        const int text_y = start_y + i * (text_h + kListGapY);
+        if(is_selected)
+        {
+            const int pad = 1;
+            int rect_x0 = text_x - pad;
+            int rect_y0 = text_y - pad;
+            int rect_x1 = text_x + list_w + pad;
+            int rect_y1 = text_y + text_h + pad;
+            if(rect_x0 < 0) rect_x0 = 0;
+            if(rect_y0 < 0) rect_y0 = 0;
+            if(rect_x1 >= kDisplayW) rect_x1 = kDisplayW - 1;
+            if(rect_y1 >= kDisplayH) rect_y1 = kDisplayH - 1;
+            d.DrawRect(rect_x0,
+                       rect_y0,
+                       rect_x1,
+                       rect_y1,
+                       true,
+                       true);
+            DrawTinyString(d, label, text_x, text_y, false);
+        }
+        else
+        {
+            DrawTinyString(d, label, text_x, text_y, true);
+        }
+
+        if(is_selected)
+        {
+            const uint8_t* icon = nullptr;
+            int icon_w = 0;
+            int icon_h = 0;
+            int icon_stride = 0;
+            if(i == 0)
+            {
+                icon = kIconPerformEngine61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
+            else if(i == 1)
+            {
+                icon = kIconPerformKeyzone61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
+            else if(i == 2)
+            {
+                icon = kIconPerformAdsr61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
+            else if(i == 3)
+            {
+                icon = kIconPerformEmphasis61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
+            if(icon != nullptr && icon_area_w > icon_w)
+            {
+                const int icon_x = icon_area_x + (icon_area_w - icon_w) / 2;
+                const int icon_y = (kDisplayH - icon_h) / 2;
+                DrawBitmap1bpp(d,
+                               icon_x,
+                               icon_y,
+                               icon_w,
+                               icon_h,
+                               icon_stride,
+                               icon,
+                               true);
+            }
+        }
+    }
+}
+
+static bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        const int32_t next = NextMenuIndex(static_cast<int32_t>(ctx.app->main_menu_index), e.value);
+        ctx.app->main_menu_index = static_cast<uint8_t>(next);
+        ctx.app->ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+static bool MainMenu_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return false;
+
+    const uint8_t selected = static_cast<uint8_t>(ctx.app->main_menu_index % kMainMenuCount);
+    switch(selected)
+    {
+        case 0:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::SdBrowse);
+        case 1:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::Fx);
+        case 2:
+        default:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformMenu);
+    }
+}
+
+static void MainMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    const int selected = static_cast<int>(ctx.app->main_menu_index % kMainMenuCount);
+    DrawMainMenuFriendStyle(*ctx.display, selected);
+}
+
+static bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        const int32_t next = NextPerformMenuIndex(static_cast<int32_t>(ctx.app->perform_menu_index), e.value);
+        ctx.app->perform_menu_index = static_cast<uint8_t>(next);
+        ctx.app->ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+static bool PerformMenu_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return false;
+
+    const uint8_t selected = static_cast<uint8_t>(ctx.app->perform_menu_index % kPerformMenuCount);
+    switch(selected)
+    {
+        case 0:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformEngine);
+        case 1:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformKeyzone);
+        case 2:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformAdsr);
+        case 3:
+        default:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformEmphasis);
+    }
+}
+
+static void PerformMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    const int selected = static_cast<int>(ctx.app->perform_menu_index % kPerformMenuCount);
+    DrawPerformMenuFriendStyle(*ctx.display, selected);
+}
+
+static constexpr uint8_t kPerformLayerCount = 2;
+static constexpr int32_t kEngineRowCount = 4;
+static constexpr int32_t kEngineRowLoad = 0;
+static constexpr int32_t kEngineRowTune = 1;
+static constexpr int32_t kEngineRowGain = 2;
+static constexpr int32_t kEngineRowOneShot = 3;
+
+static int ClampInt(int v, int lo, int hi)
+{
+    if(v < lo)
+        return lo;
+    if(v > hi)
+        return hi;
+    return v;
+}
+
+static const char* LayerName(uint8_t layer)
+{
+    return (layer & 1u) ? "B" : "A";
+}
+
+static const char* PlayModeName(uint8_t mode)
+{
+    return (mode == 0) ? "ONESHOT" : "LOOP";
+}
+
+static void ExtractBaseName(const char* path, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+    out[0] = '\0';
+    if(!path || path[0] == '\0')
+        return;
+
+    const char* base = path;
+    for(const char* p = path; *p != '\0'; ++p)
+    {
+        if(*p == '/' || *p == '\\')
+            base = p + 1;
+    }
+    std::snprintf(out, out_n, "%s", base);
+}
+
+static void FormatSignedInt(int v, char* out, size_t out_n)
+{
+    if(v > 0)
+        std::snprintf(out, out_n, "+%d", v);
+    else
+        std::snprintf(out, out_n, "%d", v);
+}
+
+static void FormatDb(int v, char* out, size_t out_n)
+{
+    if(v > 0)
+        std::snprintf(out, out_n, "+%ddB", v);
+    else
+        std::snprintf(out, out_n, "%ddB", v);
+}
+
+static void PublishEngineLayerParams(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.params)
+        return;
+
+    const uint8_t layer = ctx.app->perform_layer & 1u;
+    PerformParamsTargets& t = ctx.params->EditTargets();
+    t.engine_tune_semitones[layer] = static_cast<float>(ctx.app->engine_tune_semitones[layer]);
+    t.engine_gain_db[layer] = static_cast<float>(ctx.app->engine_gain_db[layer]);
+    t.engine_loop_mode[layer] = (ctx.app->engine_play_mode[layer] != 0);
+    ctx.params->PublishTargets();
+}
+
+static void EngineRefreshLoadedMetadata(AppState& app)
+{
+    const uint32_t applied_gen = app.sd_applied_gen.load(std::memory_order_relaxed);
+    if(applied_gen == app.engine_seen_applied_gen)
+        return;
+
+    app.engine_seen_applied_gen = applied_gen;
+    const uint8_t slot = app.sd_current_slot.load(std::memory_order_relaxed) & 1u;
+    const Sample& s = app.sd_slots[slot];
+    if(s.pcm != nullptr && s.length > 0)
+    {
+        std::snprintf(app.engine_sample_path[slot],
+                      sizeof(app.engine_sample_path[slot]),
+                      "%s",
+                      app.sd.last_loaded_path);
+        ExtractBaseName(app.sd.last_loaded_path,
+                        app.engine_sample_name[slot],
+                        sizeof(app.engine_sample_name[slot]));
+    }
+    app.engine_load_target_layer = 0xFFu;
+    app.engine_load_from_perform = false;
+    app.ui_dirty = true;
+}
+
+static void DrawWaveformPreview(OledPager& d,
+                                const Sample& sample,
+                                const SampleEdit* edit,
+                                int x,
+                                int y,
+                                int w,
+                                int h)
+{
+    if(w < 3 || h < 3)
+        return;
+
+    const int x0 = x;
+    const int y0 = y;
+    const int x1 = x + w - 1;
+    const int y1 = y + h - 1;
+    d.DrawRect(x0, y0, x1, y1, true, false);
+
+    if(sample.pcm == nullptr || sample.length == 0)
+        return;
+
+    uint32_t start = 0;
+    uint32_t end = sample.length;
+    if(edit)
+    {
+        SampleEdit e = *edit;
+        SampleEdit_Clamp(e, sample.length);
+        start = e.start_frame;
+        end = e.end_frame;
+    }
+    if(end <= start + 1)
+        return;
+
+    const uint32_t frames = end - start;
+    const int draw_w = w - 2;
+    const int mid = y0 + h / 2;
+    const int amp_h = (h - 2) / 2;
+    for(int px = 0; px < draw_w; ++px)
+    {
+        const uint32_t seg0 = start + (frames * static_cast<uint32_t>(px)) / draw_w;
+        uint32_t seg1 = start + (frames * static_cast<uint32_t>(px + 1)) / draw_w;
+        if(seg1 <= seg0)
+            seg1 = seg0 + 1;
+        if(seg1 > end)
+            seg1 = end;
+
+        int16_t mn = 32767;
+        int16_t mx = -32768;
+        for(uint32_t i = seg0; i < seg1; ++i)
+        {
+            const int16_t v = sample.pcm[i];
+            if(v < mn)
+                mn = v;
+            if(v > mx)
+                mx = v;
+        }
+        const int y_top = mid - (static_cast<int>(mx) * amp_h) / 32768;
+        const int y_bot = mid - (static_cast<int>(mn) * amp_h) / 32768;
+        const int xx = x0 + 1 + px;
+        int top = y_top;
+        int bot = y_bot;
+        if(top < y0 + 1) top = y0 + 1;
+        if(bot > y1 - 1) bot = y1 - 1;
+        if(bot < top)
+            bot = top;
+        for(int yy = top; yy <= bot; ++yy)
+            d.DrawPixel(xx, yy, true);
+    }
+}
+
+static void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return;
+
+    EngineRefreshLoadedMetadata(*ctx.app);
+    const bool pending_engine_load = ctx.app->engine_load_from_perform
+                                     && (ctx.app->engine_load_target_layer < kPerformLayerCount);
+    const uint8_t layer = ctx.app->perform_layer & 1u;
+    if(!pending_engine_load)
+        ctx.app->sd_current_slot.store(layer, std::memory_order_release);
+
+    ctx.app->engine_load_from_perform = false;
+    ctx.app->engine_load_target_layer = 0xFFu;
+    PublishEngineLayerParams(ctx);
+    ctx.app->ui_dirty = true;
+}
+
+static bool PerformEngine_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return false;
+
+    const uint8_t row = ctx.app->perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+    if(row != kEngineRowLoad)
+        return false;
+
+    ctx.app->engine_load_target_layer = ctx.app->perform_layer & 1u;
+    ctx.app->engine_load_from_perform = true;
+    return UiNav_Push(ctx.app->ui_nav, UiScreenId::SdBrowse);
+}
+
+static bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppState& app = *ctx.app;
+    EngineRefreshLoadedMetadata(app);
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        app.perform_layer ^= 1u;
+        const uint8_t layer = app.perform_layer & 1u;
+        app.sd_current_slot.store(layer, std::memory_order_release);
+        PublishEngineLayerParams(ctx);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        int row = static_cast<int>(app.perform_engine_row);
+        row += e.value;
+        while(row < 0)
+            row += kEngineRowCount;
+        while(row >= kEngineRowCount)
+            row -= kEngineRowCount;
+        app.perform_engine_row = static_cast<uint8_t>(row);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+    {
+        const uint8_t layer = app.perform_layer & 1u;
+        const uint8_t row = app.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+        bool changed = false;
+        if(row == kEngineRowTune)
+        {
+            int v = static_cast<int>(app.engine_tune_semitones[layer]) + e.value;
+            v = ClampInt(v, -24, 24);
+            const int8_t vv = static_cast<int8_t>(v);
+            if(vv != app.engine_tune_semitones[layer])
+            {
+                app.engine_tune_semitones[layer] = vv;
+                changed = true;
+            }
+        }
+        else if(row == kEngineRowGain)
+        {
+            int v = static_cast<int>(app.engine_gain_db[layer]) + e.value;
+            v = ClampInt(v, -32, 6);
+            const int8_t vv = static_cast<int8_t>(v);
+            if(vv != app.engine_gain_db[layer])
+            {
+                app.engine_gain_db[layer] = vv;
+                changed = true;
+            }
+        }
+        else if(row == kEngineRowOneShot)
+        {
+            int mode = static_cast<int>(app.engine_play_mode[layer]) & 1;
+            int steps = e.value;
+            if(steps < 0)
+                steps = -steps;
+            if((steps & 1) != 0)
+                mode ^= 1;
+            const uint8_t next_mode = static_cast<uint8_t>(mode);
+            if(next_mode != app.engine_play_mode[layer])
+            {
+                app.engine_play_mode[layer] = next_mode;
+                changed = true;
+            }
+        }
+
+        if(changed)
+        {
+            PublishEngineLayerParams(ctx);
+            app.ui_dirty = true;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void PerformEngine_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    AppState& app = *ctx.app;
+    EngineRefreshLoadedMetadata(app);
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const uint8_t layer = app.perform_layer & 1u;
+    const Sample& sample = app.sd_slots[layer];
+    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
+    const SampleEdit* edit = sample_loaded ? &app.sd_edit_slots[layer] : nullptr;
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    char title[16];
+    std::snprintf(title, sizeof(title), "ENGINE %s", LayerName(layer));
+    UiDraw_Header(d, layout, title, status);
+
+    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NONE";
+    if(name == nullptr || name[0] == '\0')
+        name = sample_loaded ? "LOADED" : "NONE";
+    char name_buf[24];
+    std::snprintf(name_buf, sizeof(name_buf), "S:%s", name);
+    d.SetCursor(layout.x, layout.y_body);
+    d.WriteString(name_buf, Font_6x8, true);
+
+    constexpr int kWaveX = 0;
+    constexpr int kWaveY = 16;
+    constexpr int kWaveW = 128;
+    constexpr int kWaveH = 16;
+    DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH);
+
+    char tune_buf[12];
+    char gain_buf[12];
+    FormatSignedInt(app.engine_tune_semitones[layer], tune_buf, sizeof(tune_buf));
+    FormatDb(app.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
+
+    char line[32];
+    const uint8_t row = app.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+
+    std::snprintf(line, sizeof(line), "%c LOAD", (row == kEngineRowLoad) ? '>' : ' ');
+    d.SetCursor(0, 32);
+    d.WriteString(line, Font_6x8, true);
+
+    std::snprintf(line, sizeof(line), "%c TUNE:%s", (row == kEngineRowTune) ? '>' : ' ', tune_buf);
+    d.SetCursor(0, 40);
+    d.WriteString(line, Font_6x8, true);
+
+    std::snprintf(line, sizeof(line), "%c GAIN:%s", (row == kEngineRowGain) ? '>' : ' ', gain_buf);
+    d.SetCursor(0, 48);
+    d.WriteString(line, Font_6x8, true);
+
+    std::snprintf(line,
+                  sizeof(line),
+                  "%c MODE:%s",
+                  (row == kEngineRowOneShot) ? '>' : ' ',
+                  PlayModeName(app.engine_play_mode[layer]));
+    d.SetCursor(0, 56);
+    d.WriteString(line, Font_6x8, true);
+}
+
+static bool PerformPlaceholder_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    (void)ctx;
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+        return true;
+    return false;
+}
+
+static void PerformPlaceholder_Render(UiScreenCtx& ctx, const char* title)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(*ctx.app, status, sizeof(status));
+    UiDraw_Header(d, layout, title, status);
+
+    d.SetCursor(layout.x, layout.y_body + layout.line_h);
+    d.WriteString("TODO", Font_6x8, true);
+    UiDraw_Footer(d, layout, "P2:BACK");
+}
+
+static void PerformKeyzone_Render(UiScreenCtx& ctx)
+{
+    PerformPlaceholder_Render(ctx, "KEYZONE");
+}
+
+static void PerformAdsr_Render(UiScreenCtx& ctx)
+{
+    PerformPlaceholder_Render(ctx, "ADSR");
+}
+
+static void PerformEmphasis_Render(UiScreenCtx& ctx)
+{
+    PerformPlaceholder_Render(ctx, "EMPHASIS");
 }
 
 UiScreenId UiNav_Active(const UiNav& nav)
@@ -608,16 +1710,33 @@ static bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
     }
 
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod1)
+    if(e.type == UiInputType::BtnDown && (e.id == kUiBtnPod1 || e.id == kUiBtnExtEnc))
     {
         if(sd.wav_count > 0 && !sd.scan_in_progress)
         {
             const uint16_t idx = sd.menu.cursor;
+            if(ctx.app->engine_load_target_layer < kPerformLayerCount)
+            {
+                const uint8_t target = ctx.app->engine_load_target_layer & 1u;
+                // Existing loader writes into inactive slot; force target by selecting opposite as current.
+                ctx.app->sd_current_slot.store(target ^ 1u, std::memory_order_release);
+                std::snprintf(ctx.app->engine_sample_path[target],
+                              sizeof(ctx.app->engine_sample_path[target]),
+                              "%s",
+                              sd.paths[idx]);
+                ExtractBaseName(sd.paths[idx],
+                                ctx.app->engine_sample_name[target],
+                                sizeof(ctx.app->engine_sample_name[target]));
+            }
             UiReq req{UiReqType::LoadWavIndex, idx, 0};
             UiReq_Push(*ctx.app, req);
             sd.load_in_progress = true;
             sd.load_progress = 0;
             SdBrowser_SetStatus(sd, "LOADING");
+            if(ctx.app->engine_load_from_perform)
+            {
+                UiNav_Pop(ctx.app->ui_nav);
+            }
             ctx.app->ui_dirty = true;
         }
         return true;
@@ -1034,6 +2153,17 @@ static void SampleEdit_Render(UiScreenCtx& ctx)
 
 const UiScreen& GetScreen(UiScreenId id)
 {
+    static const UiScreen start{UiScreenId::Start, nullptr, nullptr, MainMenu_OnEvent, MainMenu_Render, MainMenu_OnEnter};
+    static const UiScreen perform_menu{UiScreenId::PerformMenu, nullptr, nullptr, PerformMenu_OnEvent, PerformMenu_Render, PerformMenu_OnEnter};
+    static const UiScreen perform_engine{UiScreenId::PerformEngine,
+                                         PerformEngine_OnScreenEnter,
+                                         nullptr,
+                                         PerformEngine_OnEvent,
+                                         PerformEngine_Render,
+                                         PerformEngine_OnEnter};
+    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformPlaceholder_OnEvent, PerformKeyzone_Render};
+    static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformPlaceholder_OnEvent, PerformAdsr_Render};
+    static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis, nullptr, nullptr, PerformPlaceholder_OnEvent, PerformEmphasis_Render};
     static const UiScreen hud{UiScreenId::Hud, nullptr, nullptr, Hud_OnEvent, Hud_Render};
     static const UiScreen fx{UiScreenId::Fx, nullptr, nullptr, Fx_OnEvent, Fx_Render};
     static const UiScreen mod{UiScreenId::Mod, nullptr, nullptr, Mod_OnEvent, Mod_Render};
@@ -1043,6 +2173,18 @@ const UiScreen& GetScreen(UiScreenId id)
 
     switch(id)
     {
+        case UiScreenId::Start:
+            return start;
+        case UiScreenId::PerformMenu:
+            return perform_menu;
+        case UiScreenId::PerformEngine:
+            return perform_engine;
+        case UiScreenId::PerformKeyzone:
+            return perform_keyzone;
+        case UiScreenId::PerformAdsr:
+            return perform_adsr;
+        case UiScreenId::PerformEmphasis:
+            return perform_emphasis;
         case UiScreenId::Hud:
             return hud;
         case UiScreenId::Fx:
@@ -1064,7 +2206,24 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return;
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+    {
+        if(UiNav_Pop(ctx.app->ui_nav))
+            ctx.app->ui_dirty = true;
+        return;
+    }
+
     const UiScreen& s = GetScreen(UiNav_Active(ctx.app->ui_nav));
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && s.on_enter)
+    {
+        if(s.on_enter(ctx))
+        {
+            ctx.app->ui_dirty = true;
+            return;
+        }
+    }
+
     if(s.OnEvent)
         s.OnEvent(ctx, e);
 }

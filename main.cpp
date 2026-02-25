@@ -58,6 +58,14 @@ static void EnableCycleCounter()
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
+static inline bool LayerEligibleForNote(uint8_t layer, uint8_t note, uint8_t vel)
+{
+    (void)layer;
+    (void)note;
+    (void)vel;
+    return true;
+}
+
 // --- Audio: passthrough (now via AudioEngine) ---
 static void AudioCallback(AudioHandle::InputBuffer  in,
                           AudioHandle::OutputBuffer out,
@@ -126,6 +134,12 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
                          g_params.current.env_decay_ms,
                          g_params.current.env_amount);
     g_voice.SetLfoWave(g_app.lfo_wave.load(std::memory_order_relaxed));
+    for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
+    {
+        g_voice.SetEngineTuneSemitones(layer, g_params.current.engine_tune_semitones[layer]);
+        g_voice.SetEngineGainDb(layer, g_params.current.engine_gain_db[layer]);
+        g_voice.SetEngineLoopEnabled(layer, g_params.current.engine_loop_mode[layer]);
+    }
     g_voice.ProcessEvents(g_evtq);
     g_voice.SetLpfCutoff(g_params.current.lpf_cutoff_hz);
     g_voice.RenderBlock(out[0], out[1], size);
@@ -183,25 +197,37 @@ int main(void)
 
     // --- NEW: init layered stubs ---
     g_params.Init();
+    {
+        // Baker boot defaults: LFO disabled unless explicitly enabled later.
+        auto& t = g_params.EditTargets();
+        t.lfo_rate_hz = 0.0f;
+        t.lfo_depth = 0.0f;
+        g_params.PublishTargets();
+    }
     ModMatrix_InitDefaults(g_app.mod_matrix, g_app.mod_routes_ui);
     g_app.mod_route_selected = 0;
     Macros_InitState(g_app.macro_ui);
     Macros_Publish(g_app, g_app.macro_ui);
+    g_app.seq_running = false;
+    g_app.plock_apply_enabled = false;
+    g_app.lfo_wave.store(0, std::memory_order_relaxed);
     PLocks_InitPattern(g_app.plock_pattern);
-    PLocks_PublishCurrentStep(g_app.plocks, g_app.plock_pattern);
+    if(g_app.plock_apply_enabled)
+        PLocks_PublishCurrentStep(g_app.plocks, g_app.plock_pattern);
     g_audio.Init(hw.AudioSampleRate(), hw.AudioBlockSize());
     g_ui.Init(hw);
     g_render.Init(&display, hw);
+    g_app.ui_nav.top = 0;
+    g_app.ui_nav.stack[0] = UiScreenId::Start;
+    g_app.ui_active_screen = UiScreenId::Start;
     hw.midi.StartReceive();
     g_voice.Init(g_sample_rate_hz, hw.AudioBlockSize());
     g_voice.SetModMatrix(&g_app.mod_matrix);
     g_voice.SetPLocks(&g_app.plocks);
     g_voice.SetMacros(&g_app.macro_a, &g_app.macro_b, &g_app.macro_sel, &g_app.macro_gen);
-    const Sample* sample0 = GetEmbeddedSample();
-    const Sample* sample1 = GetEmbeddedLongSample();
-    const Sample* bank[2] = {sample0, sample1};
+    const Sample* bank[2] = {&g_app.sd_slots[0], &g_app.sd_slots[1]};
     g_voice.SetSampleBank(bank, 2);
-    g_voice.SetSample(sample1);
+    g_voice.SetSample(&g_app.sd_slots[0]);
     g_voice.BindDebug(&g_app.events_popped,
                       &g_app.voices_active,
                       &g_app.voice_steals,
@@ -265,25 +291,30 @@ int main(void)
                 }
                 else
                 {
-                    const uint8_t idx = Keygroups_SelectSampleIndex(note_on.note);
-                    const uint8_t layer = Velocity_SelectLayer(note_on.velocity);
-                    Event evt = Event::NoteOnEvent(note_on.note, note_on.velocity);
-                    uint8_t sample_idx = idx;
-                    const uint8_t cur_slot = g_app.sd_current_slot.load(std::memory_order_acquire);
-                    const Sample& sd_sample = g_app.sd_slots[cur_slot];
-                    if(sd_sample.pcm != nullptr && sd_sample.length > 0)
-                        sample_idx = 0xFFu;
-                    evt.value = (uint32_t)sample_idx | ((uint32_t)layer << 8);
-                    g_app.last_sample_index.store(idx, std::memory_order_relaxed);
-                    g_app.last_vel_layer.store(layer, std::memory_order_relaxed);
+                    const uint8_t vel_layer = Velocity_SelectLayer(note_on.velocity);
+                    g_app.last_vel_layer.store(vel_layer, std::memory_order_relaxed);
                     g_app.last_velocity.store(note_on.velocity, std::memory_order_relaxed);
-                    g_app.ui_dirty = true;
-                    if(g_evtq.Push(evt))
-                        g_app.events_pushed.fetch_add(1, std::memory_order_relaxed);
-                    else
+
+                    for(uint8_t layer = 0; layer < 2; ++layer)
                     {
-                        g_app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+                        const Sample& s = g_app.sd_slots[layer];
+                        if(s.pcm == nullptr || s.length == 0)
+                            continue;
+                        if(!LayerEligibleForNote(layer, note_on.note, note_on.velocity))
+                            continue;
+
+                        Event evt = Event::NoteOnEvent(note_on.note, note_on.velocity);
+                        evt.value = static_cast<uint32_t>(layer)
+                                    | (static_cast<uint32_t>(vel_layer) << 8);
+                        g_app.last_sample_index.store(layer, std::memory_order_relaxed);
                         g_app.ui_dirty = true;
+                        if(g_evtq.Push(evt))
+                            g_app.events_pushed.fetch_add(1, std::memory_order_relaxed);
+                        else
+                        {
+                            g_app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+                            g_app.ui_dirty = true;
+                        }
                     }
                 }
             }

@@ -154,12 +154,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             {
                 UiValueEdit_Cancel(app.value_edit);
                 app.ui_dirty = true;
+                continue;
             }
-            else if(UiNav_Pop(app.ui_nav))
-            {
-                app.ui_dirty = true;
-            }
-            continue;
         }
 
         if(shift_held && e.type == UiInputType::BtnDown)

@@ -69,8 +69,8 @@ struct AppState
     // Parameter locks (main loop owns pattern and clock).
     PLocksState plocks{};
     Pattern     plock_pattern{};
-    bool        seq_running = true;
-    bool        plock_apply_enabled = true;
+    bool        seq_running = false;
+    bool        plock_apply_enabled = false;
     std::atomic<uint8_t> lfo_wave{0}; // 0=SINE, 1=PULSE
     uint32_t    seq_bpm = 120;
     uint32_t    seq_last_ms = 0;
@@ -113,6 +113,18 @@ struct AppState
     bool     ui_btn1_held  = false;
     bool     ui_btn2_held  = false;
     UiValueEdit value_edit{};
+    uint8_t main_menu_index = 0;
+    uint8_t perform_menu_index = 0;
+    uint8_t perform_layer = 0; // 0=A, 1=B
+    uint8_t perform_engine_row = 0; // 0=LOAD, 1=TUNE, 2=GAIN, 3=ONESHOT
+    int8_t  engine_tune_semitones[2] = {0, 0};
+    int8_t  engine_gain_db[2] = {0, 0};
+    uint8_t engine_play_mode[2] = {0, 0}; // 0=OneShot, 1=Loop
+    char    engine_sample_path[2][kSdPathMax] = {};
+    char    engine_sample_name[2][kSdNameMax] = {};
+    uint8_t engine_load_target_layer = 0xFFu;
+    bool    engine_load_from_perform = false;
+    uint32_t engine_seen_applied_gen = 0;
     uint8_t fx_field_cursor = 0;
     uint8_t mod_field_cursor = 0;
     UiOverlayState overlay{};

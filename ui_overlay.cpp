@@ -1,6 +1,7 @@
 #include "ui_overlay.h"
 
 #include "app_state.h"
+#include "params.h"
 #include "ui_layout.h"
 #include "oled_pager.h"
 
@@ -18,7 +19,10 @@ void UiOverlay_Update(UiOverlayState& o, uint32_t now_ms, bool shift_held, bool 
     o.visible = want;
 }
 
-void UiOverlay_Render(const AppState& app, const UiLayout& layout, OledPager& oled)
+void UiOverlay_Render(const AppState& app,
+                      const Params& params,
+                      const UiLayout& layout,
+                      OledPager& oled)
 {
     const uint32_t peak_cycles   = app.audio_cycles_peak.load(std::memory_order_relaxed);
     const uint32_t budget_cycles = app.audio_budget_cycles.load(std::memory_order_relaxed);
@@ -30,34 +34,35 @@ void UiOverlay_Render(const AppState& app, const UiLayout& layout, OledPager& ol
 
     const uint32_t late_cnt = app.audio_late_count.load(std::memory_order_relaxed);
     const uint32_t clip_cnt = app.clip_count.load(std::memory_order_relaxed);
-    const uint32_t vact = app.voices_active.load(std::memory_order_relaxed);
-    const uint32_t ovf_mod = app.ui_in_ovf % 1000;
-    uint32_t hi = app.ui_in_hi;
-    if(hi > 99u)
-        hi = 99u;
-    uint16_t rf = app.render_ms;
-    uint16_t rhi = app.render_hi_ms;
-    if(rf > 99u) rf = 99u;
-    if(rhi > 99u) rhi = 99u;
-    const uint32_t skip_mod = app.render_skips % 1000u;
-    const char* sd_ok = app.sd.sd_ok ? "OK" : "ER";
-    uint32_t wavs = app.sd.wav_count;
-    if(wavs > 99u)
-        wavs = 99u;
-    const uint32_t ld = app.sd.load_in_progress ? app.sd.load_progress : 0;
-    const uint32_t save_pct = app.sd.save_in_progress ? app.sd.save_progress : 0;
-    const char* save_state = "IDLE";
-    if(app.sd.save_in_progress)
-        save_state = "BUSY";
-    else if(app.sd.save_status[0] != '\0')
+    const uint32_t evq_ovf = app.queue_overflows.load(std::memory_order_relaxed);
+    const auto& p = params.current;
+    const int tune_a = static_cast<int>(p.engine_tune_semitones[0]);
+    const int tune_b = static_cast<int>(p.engine_tune_semitones[1]);
+    const int gain_a = static_cast<int>(p.engine_gain_db[0]);
+    const int gain_b = static_cast<int>(p.engine_gain_db[1]);
+    const char* mode_a = p.engine_loop_mode[0] ? "LOOP" : "1SHOT";
+    const char* mode_b = p.engine_loop_mode[1] ? "LOOP" : "1SHOT";
+
+    const char* worker = "IDLE";
+    if(app.ui_req_busy)
     {
-        if(std::strncmp(app.sd.save_status, "SAVED", 5) == 0)
-            save_state = "OK";
-        else if(std::strncmp(app.sd.save_status, "SAVE ERR", 8) == 0)
-            save_state = "ERR";
-        else
-            save_state = app.sd.save_status;
+        switch(app.ui_req_active)
+        {
+            case UiReqType::ScanSdWavs: worker = "SCAN"; break;
+            case UiReqType::LoadWavIndex: worker = "LOAD"; break;
+            case UiReqType::NormalizeCurrent: worker = "NORM"; break;
+            case UiReqType::LoopFindCurrent: worker = "LOOPF"; break;
+            case UiReqType::SaveRenderedWavCurrent: worker = "SAVE"; break;
+            case UiReqType::SaveProject: worker = "PRJS"; break;
+            case UiReqType::LoadProject: worker = "PRJL"; break;
+            default: worker = "WORK"; break;
+        }
     }
+    else if(app.ui_req_result < 0)
+    {
+        worker = "ERR";
+    }
+    const uint32_t worker_pct = app.ui_req_busy ? app.ui_req_progress : 0u;
 
     char buf[32];
     const int x = layout.x;
@@ -71,31 +76,25 @@ void UiOverlay_Render(const AppState& app, const UiLayout& layout, OledPager& ol
     oled.WriteString(buf, Font_6x8, true);
 
     oled.SetCursor(x, y + layout.line_h);
-    std::snprintf(buf, sizeof(buf), "LATE:%lu CLP:%lu V:%02lu",
+    std::snprintf(buf, sizeof(buf), "LATE:%lu CLP:%lu EVQ:%lu",
                   (unsigned long)late_cnt,
                   (unsigned long)clip_cnt,
-                  (unsigned long)vact);
+                  (unsigned long)evq_ovf);
     oled.WriteString(buf, Font_6x8, true);
 
     oled.SetCursor(x, y + layout.line_h * 2);
-    std::snprintf(buf, sizeof(buf), "QO:%03lu H:%02lu R:%02u/%02u",
-                  (unsigned long)ovf_mod,
-                  (unsigned long)hi,
-                  (unsigned)rf,
-                  (unsigned)rhi);
+    std::snprintf(buf, sizeof(buf), "A T:%+d G:%+dd %s", tune_a, gain_a, mode_a);
     oled.WriteString(buf, Font_6x8, true);
 
     oled.SetCursor(x, y + layout.line_h * 3);
-    std::snprintf(buf, sizeof(buf), "SD:%s W%02lu L%03lu S%03lu",
-                  sd_ok,
-                  (unsigned long)wavs,
-                  (unsigned long)ld,
-                  (unsigned long)skip_mod);
+    std::snprintf(buf, sizeof(buf), "B T:%+d G:%+dd %s", tune_b, gain_b, mode_b);
     oled.WriteString(buf, Font_6x8, true);
 
     oled.SetCursor(x, y + layout.line_h * 4);
-    std::snprintf(buf, sizeof(buf), "SAVE:%s %03lu",
-                  save_state,
-                  (unsigned long)save_pct);
+    std::snprintf(buf, sizeof(buf), "WK:%s %03lu E:%lu/%lu",
+                  worker,
+                  (unsigned long)worker_pct,
+                  (unsigned long)app.events_popped.load(std::memory_order_relaxed),
+                  (unsigned long)app.events_pushed.load(std::memory_order_relaxed));
     oled.WriteString(buf, Font_6x8, true);
 }

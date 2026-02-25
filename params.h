@@ -5,6 +5,8 @@
 
 struct PerformParamsTargets
 {
+    static constexpr uint8_t kLayerCount = 2;
+
     float master_level = 1.0f;
 
     bool  delay_on  = false;
@@ -15,15 +17,20 @@ struct PerformParamsTargets
     float reverb_mix = 0.0f;
     float sat_drive  = 0.0f;
     float lpf_cutoff_hz = 12000.0f;
-    float lfo_rate_hz   = 1.0f;
-    float lfo_depth     = 0.5f;
+    float lfo_rate_hz   = 0.0f;
+    float lfo_depth     = 0.0f;
     float env_attack_ms = 5.0f;
     float env_decay_ms  = 120.0f;
     float env_amount    = 0.5f;
+    float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
+    float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
+    bool  engine_loop_mode[kLayerCount] = {false, false};
 };
 
 struct PerformParamsCurrent
 {
+    static constexpr uint8_t kLayerCount = 2;
+
     float master_level = 1.0f;
 
     bool  delay_on  = false;
@@ -34,11 +41,14 @@ struct PerformParamsCurrent
     float reverb_mix = 0.0f;
     float sat_drive  = 0.0f;
     float lpf_cutoff_hz = 12000.0f;
-    float lfo_rate_hz   = 1.0f;
-    float lfo_depth     = 0.5f;
+    float lfo_rate_hz   = 0.0f;
+    float lfo_depth     = 0.0f;
     float env_attack_ms = 5.0f;
     float env_decay_ms  = 120.0f;
     float env_amount    = 0.5f;
+    float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
+    float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
+    bool  engine_loop_mode[kLayerCount] = {false, false};
 };
 
 class Params

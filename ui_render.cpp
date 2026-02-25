@@ -56,7 +56,7 @@ void UIRender::Render(const AppState& app, const Params& params)
     if(app.overlay.visible)
     {
         const UiLayout layout = UiLayout_Default();
-        UiOverlay_Render(app, layout, oled_pager_);
+        UiOverlay_Render(app, params, layout, oled_pager_);
         const char* hint = app.value_edit.active ? "SHIFT:OVER P2:CANC"
                                                   : "SHIFT:OVER P2:BACK";
         UiDraw_Footer(oled_pager_, layout, hint);

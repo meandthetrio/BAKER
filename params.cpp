@@ -78,9 +78,22 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.env_attack_ms = SmoothToward(current.env_attack_ms, t.env_attack_ms, coeff);
     current.env_decay_ms  = SmoothToward(current.env_decay_ms, t.env_decay_ms, coeff);
     current.env_amount    = SmoothToward(current.env_amount, t.env_amount, coeff);
+    for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
+    {
+        current.engine_tune_semitones[layer]
+            = SmoothToward(current.engine_tune_semitones[layer],
+                           t.engine_tune_semitones[layer],
+                           coeff);
+        current.engine_gain_db[layer]
+            = SmoothToward(current.engine_gain_db[layer],
+                           t.engine_gain_db[layer],
+                           coeff);
+    }
 
     // Bools snap immediately
     current.delay_on  = t.delay_on;
     current.reverb_on = t.reverb_on;
     current.sat_on    = t.sat_on;
+    for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
+        current.engine_loop_mode[layer] = t.engine_loop_mode[layer];
 }

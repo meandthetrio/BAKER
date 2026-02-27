@@ -1085,6 +1085,35 @@ static bool SaveProject(AppState& app)
     return true;
 }
 
+static bool DeleteWavAtIndex(AppState& app, uint16_t idx)
+{
+    SdBrowserState& sd = app.sd;
+    if(!EnsureSdMounted(app))
+    {
+        SdBrowser_SetStatus(sd, "DEL ERR");
+        return false;
+    }
+    if(idx >= sd.wav_count)
+    {
+        SdBrowser_SetStatus(sd, "DEL ERR");
+        return false;
+    }
+    if(sd.paths[idx][0] == '\0')
+    {
+        SdBrowser_SetStatus(sd, "DEL ERR");
+        return false;
+    }
+
+    const FRESULT fr = f_unlink(sd.paths[idx]);
+    if(fr == FR_OK)
+    {
+        SdBrowser_SetStatus(sd, "DELETED");
+        return true;
+    }
+    SdBrowser_SetStatus(sd, "DEL ERR");
+    return false;
+}
+
 static bool LoadProject(AppState& app)
 {
     SdBrowserState& sd = app.sd;
@@ -1247,6 +1276,11 @@ void UiWorker_Tick(AppState& app, uint32_t now_ms, uint16_t budget_us)
                     app.ui_req_result = -1;
                     FinishRequest(app);
                 }
+                break;
+            case UiReqType::DeleteWavIndex:
+                if(!DeleteWavAtIndex(app, r.a))
+                    app.ui_req_result = -1;
+                FinishRequest(app);
                 break;
             case UiReqType::NormalizeCurrent:
                 if(!StartNormalize(app))

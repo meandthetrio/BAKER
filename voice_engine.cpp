@@ -888,7 +888,17 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     uint32_t active = 0;
     uint32_t clip_block = 0;
     float max_env = 0.0f;
-    const float mix_scale = 0.7f / static_cast<float>(VoiceEngine::kMaxVoices);
+    // Scale mix by number of *active* voices (not max voices) so single-voice preview is loud,
+    // while full polyphony remains safely attenuated.
+    uint32_t active_for_scale = 0;
+    for(size_t vi = 0; vi < kMaxVoices; vi++)
+    {
+        if(voices_[vi].state != VoiceState::Idle)
+            active_for_scale++;
+    }
+    if(active_for_scale == 0)
+        active_for_scale = 1;
+    const float mix_scale = 0.7f / static_cast<float>(active_for_scale);
 
     for(size_t vi = 0; vi < kMaxVoices; vi++)
     {

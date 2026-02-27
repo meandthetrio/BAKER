@@ -12,6 +12,7 @@ enum class UiReqType : uint8_t
     SavePreset,
     ScanSdWavs,
     LoadWavIndex,
+    DeleteWavIndex,
     NormalizeCurrent,
     LoopFindCurrent,
     SaveRenderedWavCurrent,

@@ -14,6 +14,7 @@ enum class UiScreenId : uint8_t
     Mod,
     Macro,
     SdBrowse,
+    SdDeleteConfirm,
     SampleEdit,
     Start,
     PerformMenu,
@@ -21,6 +22,7 @@ enum class UiScreenId : uint8_t
     PerformKeyzone,
     PerformAdsr,
     PerformEmphasis,
+    ShiftMenu,
     COUNT
 };
 

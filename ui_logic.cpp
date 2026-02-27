@@ -148,6 +148,30 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         }
 
         shift_held = app.ui_lshift_held || app.ui_rshift_held;
+
+        // POD BUTTON1 opens/closes SHIFT menu (short press, global).
+        // Button1 is NEVER "enter/load"; EXT encoder click is enter.
+        if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod1)
+        {
+            // Toggle SHIFT menu.
+            const UiScreenId active = UiNav_Active(app.ui_nav);
+            if(active == UiScreenId::ShiftMenu)
+            {
+                UiNav_Pop(app.ui_nav);
+            }
+            else
+            {
+                // Reset SHIFT menu state on entry.
+                app.shift_menu_cursor = 0;
+                app.shift_menu_edit_volume = false;
+                // Cancel any pending SD delete mode when opening SHIFT.
+                app.sd_delete_mode = false;
+                UiNav_Push(app.ui_nav, UiScreenId::ShiftMenu);
+            }
+            app.ui_dirty = true;
+            continue;
+        }
+
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
         {
             if(app.value_edit.active)

@@ -181,7 +181,27 @@ void AudioEngine::ProcessBlock(const float* inL,
                                size_t size,
                                const PerformParamsCurrent& p)
 {
-    const float level = p.master_level;
+    // Master level can exceed unity for user "BOOST" (e.g. 0..2.0).
+    // Clamp here as a last line of defense (UI/params should also clamp).
+    float level = p.master_level;
+    if(level < 0.0f) level = 0.0f;
+    if(level > 2.0f) level = 2.0f;
+
+    // BOOST-bypass ramp: from UNITY (<=1.0) to "bypass poly headroom" at 2.0
+    // This cancels the conservative per-voice gain used for safe polyphony, so single-sample preview can get loud.
+    // voice_engine.cpp uses: static constexpr float kVoiceAmpScale = 0.15f
+    static constexpr float kPolyHeadroomScale = 0.15f;
+    static constexpr float kBypassGain = 1.0f / kPolyHeadroomScale;
+
+    float t_boost = 0.0f;
+    if(level > 1.0f)
+    {
+        t_boost = level - 1.0f;
+        if(t_boost < 0.0f) t_boost = 0.0f;
+        if(t_boost > 1.0f) t_boost = 1.0f;
+    }
+
+    const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
 
     // ---- Delay ON/OFF -> active/tail ----
     if(p.delay_on)
@@ -282,8 +302,19 @@ void AudioEngine::ProcessBlock(const float* inL,
             r = rr;
         }
 
-        outL[i] = l * level;
-        outR[i] = r * level;
+        // Apply master level, then (only when BOOST is in play) soft-clip at the very end
+        // to avoid hard digital clipping.
+        float ol = l * level * bypass_comp;
+        float or_ = r * level * bypass_comp;
+
+        // Final safety: once we are boosting, prevent hard digital clipping at the DAC
+        if(level > 1.0001f)
+        {
+            ol  = SoftClip(ol);
+            or_ = SoftClip(or_);
+        }
+        outL[i] = ol;
+        outR[i] = or_;
     }
 
     // ---- Delay tail bookkeeping ----

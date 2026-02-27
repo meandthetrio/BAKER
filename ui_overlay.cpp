@@ -50,6 +50,7 @@ void UiOverlay_Render(const AppState& app,
         {
             case UiReqType::ScanSdWavs: worker = "SCAN"; break;
             case UiReqType::LoadWavIndex: worker = "LOAD"; break;
+            case UiReqType::DeleteWavIndex: worker = "DEL"; break;
             case UiReqType::NormalizeCurrent: worker = "NORM"; break;
             case UiReqType::LoopFindCurrent: worker = "LOOPF"; break;
             case UiReqType::SaveRenderedWavCurrent: worker = "SAVE"; break;

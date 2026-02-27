@@ -127,6 +127,16 @@ struct AppState
     uint32_t engine_seen_applied_gen = 0;
     uint8_t fx_field_cursor = 0;
     uint8_t mod_field_cursor = 0;
+
+    // SHIFT menu (opened by POD BUTTON1)
+    uint8_t shift_menu_cursor = 0; // 0=DELETE, 1=VOLUME
+    bool    shift_menu_edit_volume = false;
+
+    // SD delete flow (entered via SHIFT→DELETE)
+    bool     sd_delete_mode = false;      // when true, EXT ENC selects file for deletion
+    uint16_t sd_delete_index = 0;
+    char     sd_delete_name[kSdNameMax] = {};
+
     UiOverlayState overlay{};
     uint16_t render_ms = 0;
     uint16_t render_hi_ms = 0;

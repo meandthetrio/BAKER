@@ -1724,11 +1724,26 @@ static bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
     }
 
-    if(e.type == UiInputType::BtnDown && (e.id == kUiBtnPod1 || e.id == kUiBtnExtEnc))
+    // EXT encoder click is ENTER (load or select for deletion).
+    if(e.type == UiInputType::BtnDown && (e.id == kUiBtnExtEnc))
     {
         if(sd.wav_count > 0 && !sd.scan_in_progress)
         {
             const uint16_t idx = sd.menu.cursor;
+
+            // If we're in delete mode, EXT click selects file and goes to confirm screen.
+            if(ctx.app->sd_delete_mode)
+            {
+                ctx.app->sd_delete_index = idx;
+                ExtractBaseName(sd.paths[idx],
+                                ctx.app->sd_delete_name,
+                                sizeof(ctx.app->sd_delete_name));
+                UiNav_Push(ctx.app->ui_nav, UiScreenId::SdDeleteConfirm);
+                ctx.app->ui_dirty = true;
+                return true;
+            }
+
+            // Normal load behavior.
             if(ctx.app->engine_load_target_layer < kPerformLayerCount)
             {
                 const uint8_t target = ctx.app->engine_load_target_layer & 1u;
@@ -1829,7 +1844,294 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
                       layout.y_body + layout.line_h * lines_used,
                       layout.line_h);
 
-    UiDraw_Footer(d, layout, "A=LOAD  B=BACK");
+    UiDraw_Footer(d,
+                  layout,
+                  ctx.app->sd_delete_mode ? "" : "R=LOAD  L=BACK");
+}
+
+// -------------------------
+// SHIFT MENU (POD BUTTON1)
+// -------------------------
+
+static void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return;
+    // Returning to SHIFT should cancel any SD delete mode.
+    ctx.app->sd_delete_mode = false;
+    ctx.app->shift_menu_edit_volume = false;
+}
+
+static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppState& app = *ctx.app;
+
+    if(e.type == UiInputType::EncDelta)
+    {
+        // R encoder turn adjusts value when editing VOLUME.
+        if(app.shift_menu_edit_volume && e.id == kUiEncExt)
+        {
+            if(!ctx.params)
+                return true;
+            auto& t = ctx.params->EditTargets();
+            // Option B: allow master boost up to 200% (2.0)
+            static constexpr float kMasterLevelMax = 2.0f;
+
+            // Cuz-like feel: time-based acceleration.
+            // Fast turns -> bigger jumps.
+            static uint32_t s_last_t_ms = 0;
+            const uint32_t now_ms = e.t_ms;
+            const uint32_t dt_ms  = (s_last_t_ms == 0) ? 999u : (now_ms - s_last_t_ms);
+            s_last_t_ms = now_ms;
+
+            float accel = 1.0f;
+            if(dt_ms <= 25)       accel = 10.0f;
+            else if(dt_ms <= 50)  accel = 6.0f;
+            else if(dt_ms <= 90)  accel = 3.0f;
+            else if(dt_ms <= 140) accel = 2.0f;
+
+            // Base step: 1% per detent at accel=1.0
+            const float base_step = 0.01f;
+
+            float next = t.master_level + (float)e.value * base_step * accel;
+
+            if(next < 0.0f) next = 0.0f;
+            if(next > kMasterLevelMax) next = kMasterLevelMax;
+
+            t.master_level = next;
+            ctx.params->PublishTargets();
+            app.ui_dirty = true;
+            return true;
+        }
+
+        // L encoder turn scrolls between DELETE/VOLUME when not editing.
+        if(!app.shift_menu_edit_volume && e.id == kUiEncPod)
+        {
+            uint8_t cur = app.shift_menu_cursor;
+            if(e.value > 0)
+                cur = (cur < 1) ? (uint8_t)(cur + 1) : cur;
+            else if(e.value < 0)
+                cur = (cur > 0) ? (uint8_t)(cur - 1) : cur;
+
+            if(cur != app.shift_menu_cursor)
+            {
+                app.shift_menu_cursor = cur;
+                app.ui_dirty = true;
+            }
+            return true;
+        }
+    }
+    // EXT encoder click = select.
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        if(app.shift_menu_cursor == 0)
+        {
+            // DELETE: enter SD browser in delete mode.
+            app.sd_delete_mode = true;
+            app.shift_menu_edit_volume = false;
+            SdBrowser_SetStatus(app.sd, "DEL:SELECT");
+            UiNav_Push(app.ui_nav, UiScreenId::SdBrowse);
+            app.ui_dirty = true;
+            return true;
+        }
+        else
+        {
+            // VOLUME: toggle edit mode.
+            app.shift_menu_edit_volume = !app.shift_menu_edit_volume;
+            app.ui_dirty = true;
+            return true;
+        }
+    }
+
+    // L encoder click backs out one level when editing volume.
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+    {
+        if(app.shift_menu_edit_volume)
+        {
+            app.shift_menu_edit_volume = false;
+            app.ui_dirty = true;
+            return true; // consume so router doesn't pop screen
+        }
+    }
+
+    // POD2 also cancels volume edit (optional)
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        if(app.shift_menu_edit_volume)
+        {
+            app.shift_menu_edit_volume = false;
+            app.ui_dirty = true;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void ShiftMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    AppState& app = *ctx.app;
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    const int screen_w = (int)d.Width();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    UiDraw_Header(d, layout, "SETTINGS", status);
+
+    // Compute volume percent for display (0..200 with boost).
+    uint32_t vol_pct = 0;
+    if(ctx.params)
+    {
+        static constexpr float kMasterLevelMax = 2.0f;
+        float v = ctx.params->TargetsForUI().master_level;
+
+        if(v < 0.0f) v = 0.0f;
+        if(v > kMasterLevelMax) v = kMasterLevelMax;
+
+        vol_pct = (uint32_t)(v * 100.0f + 0.5f);
+        if(vol_pct > 200u)
+            vol_pct = 200u;
+    }
+
+    // Two rows: DELETE and VOLUME.
+    const int row_y0 = layout.y_body;
+    const int row_h = layout.line_h;
+
+    for(int i = 0; i < 2; ++i)
+    {
+        const bool sel = (app.shift_menu_cursor == (uint8_t)i);
+        const int y = row_y0 + i * row_h;
+        const int x0 = layout.x;
+        const int y1 = y + row_h - 1;
+
+        // Highlight only the label area (not the numeric value).
+        const int label_x1 = ((x0 + 60) < (screen_w - 1)) ? (x0 + 60) : (screen_w - 1);
+        if(sel)
+            d.DrawRect(x0, y, label_x1, y1, true, true);
+
+        d.SetCursor(x0 + 1, y + 1);
+        if(i == 0)
+        {
+            d.WriteString("DELETE", Font_6x8, !sel);
+        }
+        else
+        {
+            const char* label = app.shift_menu_edit_volume ? "VOLUME*" : "VOLUME";
+            d.WriteString(label, Font_6x8, !sel);
+
+            // Right-aligned value.
+            char buf[8];
+
+// Display rules:
+// - 100 => "UNITY"
+// - 101..200 => "+###"
+// - 0..99 => "###"
+int val_len = 3;
+
+if(vol_pct == 100u)
+{
+    std::snprintf(buf, sizeof(buf), "UNITY");
+    val_len = 5;
+}
+else if(vol_pct > 100u)
+{
+    std::snprintf(buf, sizeof(buf), "+%3lu", (unsigned long)vol_pct);
+    val_len = 4; // "+200"
+}
+else
+{
+    std::snprintf(buf, sizeof(buf), "%3lu", (unsigned long)vol_pct);
+    val_len = 3;
+}
+
+const int val_w = 6 * val_len;
+d.SetCursor(screen_w - val_w - 1, y + 1);
+d.WriteString(buf, Font_6x8, true);
+        }
+    }
+
+    UiDraw_Footer(d, layout, "R:SEL  L:BACK");
+}
+
+// -------------------------
+// SD DELETE CONFIRM SCREEN
+// -------------------------
+
+static bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return false;
+
+    AppState& app = *ctx.app;
+    SdBrowserState& sd = app.sd;
+
+    const uint16_t idx = app.sd_delete_index;
+    if(!app.sd_delete_mode || idx >= sd.wav_count || sd.scan_in_progress)
+    {
+        SdBrowser_SetStatus(sd, "DEL ERR");
+        // Return to browser.
+        UiNav_Pop(app.ui_nav);
+        app.sd_delete_mode = false;
+        app.ui_dirty = true;
+        return true;
+    }
+
+    // Queue delete + rescan.
+    UiReq del{UiReqType::DeleteWavIndex, idx, 0};
+    UiReq scan{UiReqType::ScanSdWavs, 0, 0};
+    (void)UiReq_Push(app, del);
+    (void)UiReq_Push(app, scan);
+
+    sd.scan_in_progress = true;
+    sd.scan_done = false;
+    SdBrowser_SetStatus(sd, "DELETING");
+
+    // Exit delete mode after one delete (safer).
+    app.sd_delete_mode = false;
+
+    // Pop confirm screen back to SD list.
+    UiNav_Pop(app.ui_nav);
+    app.ui_dirty = true;
+    return true;
+}
+
+static void SdDeleteConfirm_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+    AppState& app = *ctx.app;
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    UiDraw_Header(d, layout, "DELETE WAV", status);
+
+    // Filename line
+    d.SetCursor(layout.x, layout.y_body);
+    char namebuf[32];
+    if(app.sd_delete_name[0] != '\0')
+        std::snprintf(namebuf, sizeof(namebuf), "%s", app.sd_delete_name);
+    else
+        std::snprintf(namebuf, sizeof(namebuf), "(no file)");
+    d.WriteString(namebuf, Font_6x8, true);
+
+    // Prompt lines (match Cuz style: R=YES, L=NO)
+    d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);
+    d.WriteString("ARE YOU SURE?", Font_6x8, true);
+    d.SetCursor(layout.x, layout.y_body + layout.line_h * 3);
+    d.WriteString("R=YES   L=NO", Font_6x8, true);
 }
 
 enum SampleEditItem : uint8_t
@@ -1956,7 +2258,7 @@ static bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     }
 
     if(e.type == UiInputType::BtnDown
-       && (e.id == kUiBtnExtEnc || e.id == kUiBtnPod1))
+       && (e.id == kUiBtnExtEnc))
     {
         const uint8_t idx = app.sample_edit_menu.cursor;
         if(idx == SE_Normalize)
@@ -2183,7 +2485,18 @@ const UiScreen& GetScreen(UiScreenId id)
     static const UiScreen mod{UiScreenId::Mod, nullptr, nullptr, Mod_OnEvent, Mod_Render};
     static const UiScreen macro{UiScreenId::Macro, nullptr, nullptr, Macro_OnEvent, Macro_Render};
     static const UiScreen sd{UiScreenId::SdBrowse, SdBrowse_OnEnter, nullptr, SdBrowse_OnEvent, SdBrowse_Render};
+    static const UiScreen sd_del_confirm{UiScreenId::SdDeleteConfirm,
+                                        nullptr,
+                                        nullptr,
+                                        nullptr,
+                                        SdDeleteConfirm_Render,
+                                        SdDeleteConfirm_OnEnter};
     static const UiScreen se{UiScreenId::SampleEdit, nullptr, nullptr, SampleEdit_OnEvent, SampleEdit_Render};
+    static const UiScreen shift{UiScreenId::ShiftMenu,
+                               ShiftMenu_OnScreenEnter,
+                               nullptr,
+                               ShiftMenu_OnEvent,
+                               ShiftMenu_Render};
 
     switch(id)
     {
@@ -2209,8 +2522,12 @@ const UiScreen& GetScreen(UiScreenId id)
             return macro;
         case UiScreenId::SdBrowse:
             return sd;
+        case UiScreenId::SdDeleteConfirm:
+            return sd_del_confirm;
         case UiScreenId::SampleEdit:
             return se;
+        case UiScreenId::ShiftMenu:
+            return shift;
         default:
             return hud;
     }
@@ -2223,6 +2540,16 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
+        // Special case: when editing SETTINGS->VOLUME, "BACK" should exit edit mode
+        // without leaving the SETTINGS screen.
+        if(UiNav_Active(ctx.app->ui_nav) == UiScreenId::ShiftMenu
+           && ctx.app->shift_menu_edit_volume)
+        {
+            ctx.app->shift_menu_edit_volume = false;
+            ctx.app->ui_dirty = true;
+            return;
+        }
+
         if(UiNav_Pop(ctx.app->ui_nav))
             ctx.app->ui_dirty = true;
         return;

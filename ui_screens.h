@@ -16,25 +16,26 @@ enum class UiScreenId : uint8_t
     SdBrowse,
     SdDeleteConfirm,
     SampleEdit,
+    ShiftMenu,
+    Presets,      // HOME -> PRESETS
     Start,
     PerformMenu,
     PerformEngine,
     PerformKeyzone,
     PerformAdsr,
     PerformEmphasis,
-    ShiftMenu,
     COUNT
 };
 
 struct UiScreenCtx
 {
-    AppState* app = nullptr;
-    Params*   params = nullptr;
+    AppState*  app = nullptr;
+    Params*    params = nullptr;
     OledPager* display = nullptr;
-    uint32_t  now_ms = 0;
-    bool      shift = false;
-    bool      lshift = false;
-    bool      rshift = false;
+    uint32_t   now_ms = 0;
+    bool       shift = false;
+    bool       lshift = false;
+    bool       rshift = false;
 };
 
 struct UiScreen

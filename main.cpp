@@ -373,6 +373,23 @@ int main(void)
 
         // UI tick owns UI state + drawing; never polls hardware directly.
         g_ui.UiTick(g_app, g_params, g_evtq, now_ms);
+        // LED2 indicator: ENGINE screen has alt A/B page.
+// Orange when PerformEngine is active, otherwise off.
+{
+    const bool engine_active = (g_app.ui_active_screen == UiScreenId::PerformEngine);
+
+    if(engine_active)
+    {
+        // Blue = no Red, no Green, 100% Blue.
+        hw.led2.Set(0.0f, 0.0f, 1.0f);
+    }
+    else
+    {
+        hw.led2.Set(0.0f, 0.0f, 0.0f);
+    }
+
+    hw.UpdateLeds();
+}
         g_render.Tick(g_app, g_params);
         g_render.TickOledTransfer(now_ms, midi_busy);
     }

@@ -169,7 +169,7 @@ static int TinyStringWidth(const char* str)
 }
 
 static constexpr int32_t kMainMenuCount = 3;
-static const char* kMenuLabels[kMainMenuCount] = {"LOAD", "RECORD", "PERFORM"};
+static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "RECORD", "PERFORM"};
 static constexpr int32_t kPerformMenuCount = 4;
 static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS"};
 
@@ -705,7 +705,7 @@ static bool MainMenu_OnEnter(UiScreenCtx& ctx)
     switch(selected)
     {
         case 0:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::SdBrowse);
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::Presets);
         case 1:
             return UiNav_Push(ctx.app->ui_nav, UiScreenId::Fx);
         case 2:
@@ -723,6 +723,33 @@ static void MainMenu_Render(UiScreenCtx& ctx)
     DrawMainMenuFriendStyle(*ctx.display, selected);
 }
 
+
+
+// HOME -> PRESETS (blank placeholder screen for now)
+static bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    (void)ctx;
+    (void)e;
+    // Do not consume BACK events; let the router/nav handle it.
+    return false;
+}
+
+static void Presets_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    AppState& app = *ctx.app;
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    UiDraw_Header(d, layout, "PRESETS", status);
+
+    // Blank body for now (future: list of saved presets).
+}
 static bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
@@ -2031,32 +2058,26 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
 
             // Right-aligned value.
             char buf[8];
+            int  val_len = 3;
+            if(vol_pct == 100u)
+            {
+                std::snprintf(buf, sizeof(buf), "UNITY");
+                val_len = 5;
+            }
+            else if(vol_pct > 100u)
+            {
+                std::snprintf(buf, sizeof(buf), "+%3lu", (unsigned long)vol_pct);
+                val_len = 4;
+            }
+            else
+            {
+                std::snprintf(buf, sizeof(buf), "%3lu", (unsigned long)vol_pct);
+                val_len = 3;
+            }
 
-// Display rules:
-// - 100 => "UNITY"
-// - 101..200 => "+###"
-// - 0..99 => "###"
-int val_len = 3;
-
-if(vol_pct == 100u)
-{
-    std::snprintf(buf, sizeof(buf), "UNITY");
-    val_len = 5;
-}
-else if(vol_pct > 100u)
-{
-    std::snprintf(buf, sizeof(buf), "+%3lu", (unsigned long)vol_pct);
-    val_len = 4; // "+200"
-}
-else
-{
-    std::snprintf(buf, sizeof(buf), "%3lu", (unsigned long)vol_pct);
-    val_len = 3;
-}
-
-const int val_w = 6 * val_len;
-d.SetCursor(screen_w - val_w - 1, y + 1);
-d.WriteString(buf, Font_6x8, true);
+            const int val_w = 6 * val_len;
+            d.SetCursor(screen_w - val_w - 1, y + 1);
+            d.WriteString(buf, Font_6x8, true);
         }
     }
 
@@ -2470,6 +2491,7 @@ static void SampleEdit_Render(UiScreenCtx& ctx)
 const UiScreen& GetScreen(UiScreenId id)
 {
     static const UiScreen start{UiScreenId::Start, nullptr, nullptr, MainMenu_OnEvent, MainMenu_Render, MainMenu_OnEnter};
+    static const UiScreen presets{UiScreenId::Presets, nullptr, nullptr, Presets_OnEvent, Presets_Render};
     static const UiScreen perform_menu{UiScreenId::PerformMenu, nullptr, nullptr, PerformMenu_OnEvent, PerformMenu_Render, PerformMenu_OnEnter};
     static const UiScreen perform_engine{UiScreenId::PerformEngine,
                                          PerformEngine_OnScreenEnter,
@@ -2502,6 +2524,8 @@ const UiScreen& GetScreen(UiScreenId id)
     {
         case UiScreenId::Start:
             return start;
+        case UiScreenId::Presets:
+            return presets;
         case UiScreenId::PerformMenu:
             return perform_menu;
         case UiScreenId::PerformEngine:

@@ -116,7 +116,10 @@ struct AppState
     uint8_t main_menu_index = 0;
     uint8_t perform_menu_index = 0;
     uint8_t perform_layer = 0; // 0=A, 1=B
-    uint8_t perform_engine_row = 0; // 0=LOAD, 1=TUNE, 2=GAIN, 3=ONESHOT
+    // PERFORM submenu cursor rows (each submenu tracks its own cursor)
+    uint8_t perform_engine_row    = 0; // 0=LOAD, 1=TUNE
+    uint8_t perform_adsr_row      = 0; // 0=MODE
+    uint8_t perform_emphasis_row  = 0; // 0=GAIN
     int8_t  engine_tune_semitones[2] = {0, 0};
     int8_t  engine_gain_db[2] = {0, 0};
     uint8_t engine_play_mode[2] = {0, 0}; // 0=OneShot, 1=Loop

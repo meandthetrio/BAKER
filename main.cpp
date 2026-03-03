@@ -240,7 +240,11 @@ int main(void)
                       &g_app.last_lfo,
                       &g_app.last_env,
                       &g_app.lfo_rate_dbg,
-                      &g_app.lfo_depth_dbg);
+                      &g_app.lfo_depth_dbg,
+                      &g_app.playhead_frame[0],
+                      &g_app.playhead_frame[1],
+                      &g_app.playhead_active[0],
+                      &g_app.playhead_active[1]);
 
     const float block_seconds
         = static_cast<float>(hw.AudioBlockSize()) / hw.AudioSampleRate();

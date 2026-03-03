@@ -111,7 +111,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     ctx.params = &params;
     ctx.display = nullptr;
     ctx.now_ms = now_ms;
-    bool shift_held = app.ui_lshift_held || app.ui_rshift_held;
+    bool shift_held = app.ui_lshift_held;
     ctx.shift = shift_held;
     ctx.lshift = app.ui_lshift_held;
     ctx.rshift = app.ui_rshift_held;
@@ -147,7 +147,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 app.ui_btn2_held = false;
         }
 
-        shift_held = app.ui_lshift_held || app.ui_rshift_held;
+        shift_held = app.ui_lshift_held;
 
         // POD BUTTON1 opens/closes SHIFT menu (short press, global).
         // Button1 is NEVER "enter/load"; EXT encoder click is enter.
@@ -235,7 +235,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         const UiScreen& s = GetScreen(active_screen);
         if(s.OnEnter)
         {
-            shift_held = app.ui_lshift_held || app.ui_rshift_held;
+            shift_held = app.ui_lshift_held;
             ctx.shift = shift_held;
             ctx.lshift = app.ui_lshift_held;
             ctx.rshift = app.ui_rshift_held;
@@ -244,8 +244,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         app.ui_dirty = true;
     }
 
-    shift_held = app.ui_lshift_held || app.ui_rshift_held;
-    UiOverlay_Update(app.overlay, now_ms, shift_held, app.value_edit.active);
+    shift_held = app.ui_lshift_held;
+    UiOverlay_Update(app.overlay, now_ms, app.ui_lshift_held, app.value_edit.active);
 
     app.ui_in_ovf = UiInput_Dropped(app.ui_in);
     app.ui_in_hi = UiInput_HighWater(app.ui_in);

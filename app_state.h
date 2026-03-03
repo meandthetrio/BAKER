@@ -60,6 +60,8 @@ struct AppState
     std::atomic<int32_t> last_env{0};
     std::atomic<uint32_t> lfo_rate_dbg{0};
     std::atomic<uint32_t> lfo_depth_dbg{0};
+    std::atomic<uint32_t> playhead_frame[2]{{0}, {0}};
+    std::atomic<uint32_t> playhead_active[2]{{0}, {0}};
 
     // Mod matrix (main loop owns edits, audio thread consumes snapshot).
     ModMatrixState mod_matrix{};
@@ -117,7 +119,8 @@ struct AppState
     uint8_t perform_menu_index = 0;
     uint8_t perform_layer = 0; // 0=A, 1=B
     // PERFORM submenu cursor rows (each submenu tracks its own cursor)
-    uint8_t perform_engine_row    = 0; // 0=LOAD, 1=TUNE
+    uint8_t perform_engine_row    = 0; // 0=WAVE, 1=LOAD, 2=TUNE
+    uint8_t perform_wave_edit_cursor = 0; // 0=TRIM START, 1=TRIM END
     uint8_t perform_adsr_row      = 0; // 0=MODE
     uint8_t perform_emphasis_row  = 0; // 0=GAIN
     int8_t  engine_tune_semitones[2] = {0, 0};

@@ -38,6 +38,10 @@ void UIRender::Init(PodDisplay* display, DaisyPod& hw)
     last_env_             = 0;
     last_lfo_rate_dbg_    = 0;
     last_lfo_depth_dbg_   = 0;
+    last_playhead_frame_[0] = 0;
+    last_playhead_frame_[1] = 0;
+    last_playhead_active_[0] = 0;
+    last_playhead_active_[1] = 0;
 }
 
 void UIRender::Render(const AppState& app, const Params& params)
@@ -89,6 +93,21 @@ void UIRender::Tick(AppState& app, const Params& params)
         ui_ticks_accum_ = 0;
         ui_window_start_ms_ = now_ms;
         app.ui_dirty = true;
+    }
+
+    if(UiNav_Active(app.ui_nav) == UiScreenId::PerformWaveEdit)
+    {
+        for(uint8_t layer = 0; layer < 2; ++layer)
+        {
+            const uint32_t frame = app.playhead_frame[layer].load(std::memory_order_relaxed);
+            const uint32_t active = app.playhead_active[layer].load(std::memory_order_relaxed);
+            if(frame != last_playhead_frame_[layer] || active != last_playhead_active_[layer])
+            {
+                app.ui_dirty = true;
+                last_playhead_frame_[layer] = frame;
+                last_playhead_active_[layer] = active;
+            }
+        }
     }
 
     uint32_t pushed = 0, popped = 0, ovf = 0, vact = 0, vstl = 0, vpack = 0;

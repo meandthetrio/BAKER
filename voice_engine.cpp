@@ -236,7 +236,11 @@ void VoiceEngine::BindDebug(std::atomic<uint32_t>* events_popped,
                             std::atomic<int32_t>* last_lfo,
                             std::atomic<int32_t>* last_env,
                             std::atomic<uint32_t>* lfo_rate_dbg,
-                            std::atomic<uint32_t>* lfo_depth_dbg)
+                            std::atomic<uint32_t>* lfo_depth_dbg,
+                            std::atomic<uint32_t>* playhead_frame_a,
+                            std::atomic<uint32_t>* playhead_frame_b,
+                            std::atomic<uint32_t>* playhead_active_a,
+                            std::atomic<uint32_t>* playhead_active_b)
 {
     events_popped_     = events_popped;
     voices_active_     = voices_active;
@@ -251,6 +255,10 @@ void VoiceEngine::BindDebug(std::atomic<uint32_t>* events_popped,
     last_env_out_      = last_env;
     lfo_rate_dbg_out_  = lfo_rate_dbg;
     lfo_depth_dbg_out_ = lfo_depth_dbg;
+    playhead_frame_out_[0] = playhead_frame_a;
+    playhead_frame_out_[1] = playhead_frame_b;
+    playhead_active_out_[0] = playhead_active_a;
+    playhead_active_out_[1] = playhead_active_b;
 }
 
 void VoiceEngine::SetSampleBank(const Sample* const* bank, uint8_t count)
@@ -899,6 +907,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     if(active_for_scale == 0)
         active_for_scale = 1;
     const float mix_scale = 0.7f / static_cast<float>(active_for_scale);
+    uint32_t playhead_frame[2] = {0u, 0u};
+    uint32_t playhead_active[2] = {0u, 0u};
+    float playhead_metric[2] = {-1.0f, -1.0f};
 
     for(size_t vi = 0; vi < kMaxVoices; vi++)
     {
@@ -1218,6 +1229,24 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 else
                     v.state = VoiceState::Playing;
             }
+
+            if(v.state != VoiceState::Idle && v.sample != nullptr && v.sample->length > 0)
+            {
+                const uint8_t ui_layer = v.new_source_layer & 1u;
+                const float metric = (new_env_level > 0.0f) ? new_env_level : 0.0f;
+                if(metric >= playhead_metric[ui_layer])
+                {
+                    playhead_metric[ui_layer] = metric;
+                    float p = v.new_pos;
+                    if(p < 0.0f)
+                        p = 0.0f;
+                    const float pmax = static_cast<float>(v.sample->length - 1);
+                    if(p > pmax)
+                        p = pmax;
+                    playhead_frame[ui_layer] = static_cast<uint32_t>(p);
+                    playhead_active[ui_layer] = 1u;
+                }
+            }
         }
         else
         {
@@ -1381,6 +1410,24 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 v.stop_fade_samples_remaining = stop_fade_remaining;
                 v.stop_fade_level = stop_fade_level;
                 v.stop_fade_step = stop_fade_step;
+
+                if(v.sample != nullptr && v.sample->length > 0)
+                {
+                    const uint8_t ui_layer = source_layer & 1u;
+                    const float metric = (env_level > 0.0f) ? env_level : 0.0f;
+                    if(metric >= playhead_metric[ui_layer])
+                    {
+                        playhead_metric[ui_layer] = metric;
+                        float p = pos;
+                        if(p < 0.0f)
+                            p = 0.0f;
+                        const float pmax = static_cast<float>(v.sample->length - 1);
+                        if(p > pmax)
+                            p = pmax;
+                        playhead_frame[ui_layer] = static_cast<uint32_t>(p);
+                        playhead_active[ui_layer] = 1u;
+                    }
+                }
             }
         }
     }
@@ -1411,5 +1458,12 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
     if(voices_active_)
         voices_active_->store(active, std::memory_order_relaxed);
+    for(uint8_t layer = 0; layer < 2; ++layer)
+    {
+        if(playhead_frame_out_[layer])
+            playhead_frame_out_[layer]->store(playhead_frame[layer], std::memory_order_relaxed);
+        if(playhead_active_out_[layer])
+            playhead_active_out_[layer]->store(playhead_active[layer], std::memory_order_relaxed);
+    }
     active_last_block_ = active;
 }

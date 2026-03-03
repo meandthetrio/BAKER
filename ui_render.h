@@ -48,6 +48,8 @@ class UIRender
     int32_t     last_env_            = 0;
     uint32_t    last_lfo_rate_dbg_   = 0;
     uint32_t    last_lfo_depth_dbg_  = 0;
+    uint32_t    last_playhead_frame_[2] = {0, 0};
+    uint32_t    last_playhead_active_[2] = {0, 0};
 
     void Render(const AppState& app, const Params& params);
 };

@@ -1126,18 +1126,233 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     AppState& app = *ctx.app;
+    EngineRefreshLoadedMetadata(app);
+    const uint8_t layer = app.perform_layer & 1u;
+    app.sd_current_slot.store(layer, std::memory_order_release);
+    const Sample& sample = app.sd_slots[layer];
+    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
+    SampleEdit edit = app.sd_edit_slots[layer];
+    SampleEdit_Clamp(edit, sample.length);
+
     char status[16];
     BuildStatus(app, status, sizeof(status));
 
     char title[24];
-    std::snprintf(title, sizeof(title), "WAVE EDIT %s", LayerName(app.perform_layer & 1u));
+    std::snprintf(title, sizeof(title), "WAVE EDIT %s", LayerName(layer));
     UiDraw_Header(d, layout, title, status);
 
+    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
+    if(name == nullptr || name[0] == '\0')
+        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
+    char name_buf[24];
+    std::snprintf(name_buf, sizeof(name_buf), "%s", name);
     d.SetCursor(layout.x, layout.y_body);
-    d.WriteString("WAVEFORM EDIT TBD", Font_6x8, true);
-    d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    d.WriteString("PORTING NEXT", Font_6x8, true);
-    UiDraw_Footer(d, layout, "P2:BACK");
+    d.WriteString(name_buf, Font_6x8, true);
+
+    const int wave_x = 0;
+    const int wave_y = layout.y_body + layout.line_h;
+    const int wave_w = 128;
+    const int wave_h = layout.y_footer - wave_y;
+    const int x0 = wave_x;
+    const int y0 = wave_y;
+    const int x1 = wave_x + wave_w - 1;
+    const int y1 = wave_y + wave_h - 1;
+    d.DrawRect(x0, y0, x1, y1, true, false);
+
+    if(sample_loaded && wave_w >= 3 && wave_h >= 3)
+    {
+        const uint32_t frames = sample.length;
+        const uint32_t denom = (frames > 1) ? (frames - 1) : 1;
+        int start_x = x0 + static_cast<int>((static_cast<uint64_t>(edit.start_frame) * (wave_w - 1)) / denom);
+        int end_x = x0 + static_cast<int>((static_cast<uint64_t>(edit.end_frame) * (wave_w - 1)) / denom);
+        if(end_x < start_x)
+        {
+            const int t = start_x;
+            start_x = end_x;
+            end_x = t;
+        }
+        if(start_x < x0) start_x = x0;
+        if(end_x > x1) end_x = x1;
+
+        const int mid = y0 + wave_h / 2;
+        const int amp_h = (wave_h - 2) / 2;
+        const int draw_w = wave_w - 2;
+        const uint32_t total = sample.length;
+        for(int px = 0; px < draw_w; ++px)
+        {
+            const uint32_t seg0 = (static_cast<uint64_t>(total) * static_cast<uint32_t>(px)) / draw_w;
+            uint32_t seg1 = (static_cast<uint64_t>(total) * static_cast<uint32_t>(px + 1)) / draw_w;
+            if(seg1 <= seg0)
+                seg1 = seg0 + 1;
+            if(seg1 > total)
+                seg1 = total;
+
+            int16_t mn = 32767;
+            int16_t mx = -32768;
+            for(uint32_t i = seg0; i < seg1; ++i)
+            {
+                const int16_t v = sample.pcm[i];
+                if(v < mn)
+                    mn = v;
+                if(v > mx)
+                    mx = v;
+            }
+
+            int top = mid - (static_cast<int>(mx) * amp_h) / 32768;
+            int bot = mid - (static_cast<int>(mn) * amp_h) / 32768;
+            if(top < y0 + 1) top = y0 + 1;
+            if(bot > y1 - 1) bot = y1 - 1;
+            if(bot < top) bot = top;
+
+            const int xx = x0 + 1 + px;
+            const bool inside = (xx >= start_x && xx <= end_x);
+            if(inside)
+            {
+                for(int yy = top; yy <= bot; ++yy)
+                {
+                    if((yy & 1) == 0)
+                        d.DrawPixel(xx, yy, true);
+                }
+            }
+            else
+            {
+                d.DrawLine(xx, top, xx, bot, true);
+            }
+        }
+
+        auto draw_bracket = [&](int hx, bool start_handle)
+        {
+            int x = hx;
+            if(x < x0) x = x0;
+            if(x > x1) x = x1;
+            for(int yy = y0; yy <= y1; ++yy)
+            {
+                d.DrawPixel(x, yy, true);
+                if(x + 1 <= x1)
+                    d.DrawPixel(x + 1, yy, true);
+            }
+
+            const int cap = 5;
+            for(int dx = 0; dx < cap; ++dx)
+            {
+                const int px = start_handle ? (x + dx) : (x - dx);
+                if(px >= x0 && px <= x1)
+                {
+                    d.DrawPixel(px, y0, true);
+                    d.DrawPixel(px, y1, true);
+                }
+            }
+        };
+
+        draw_bracket(start_x, true);
+        draw_bracket(end_x, false);
+
+        const uint32_t ph_active = app.playhead_active[layer].load(std::memory_order_relaxed);
+        if(ph_active != 0u)
+        {
+            const uint32_t ph_frame = app.playhead_frame[layer].load(std::memory_order_relaxed);
+            const uint32_t ph = (ph_frame >= frames) ? (frames - 1) : ph_frame;
+            const int play_x = x0 + static_cast<int>((static_cast<uint64_t>(ph) * (wave_w - 1)) / denom);
+            d.DrawLine(play_x, y0, play_x, y1, true);
+        }
+    }
+
+}
+
+static bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+
+    AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
+    app.sd_current_slot.store(layer, std::memory_order_release);
+    Sample& sample = app.sd_slots[layer];
+    if(sample.pcm == nullptr || sample.length == 0)
+        return false;
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        app.perform_layer ^= 1u;
+        const uint8_t next = app.perform_layer & 1u;
+        app.sd_current_slot.store(next, std::memory_order_release);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta
+       && (e.id == kUiEncPod || e.id == kUiEncExt)
+       && e.value != 0)
+    {
+        SampleEdit edit = app.sd_edit_slots[layer];
+        SampleEdit_Clamp(edit, sample.length);
+
+        const uint32_t frames = sample.length;
+        if(frames < 2u)
+            return false;
+        const float denom = static_cast<float>(frames);
+        float trim_start = static_cast<float>(edit.start_frame) / denom;
+        float trim_end = static_cast<float>(edit.end_frame) / denom;
+
+        const int32_t start_delta = (e.id == kUiEncPod) ? e.value : 0;
+        const int32_t end_delta = (e.id == kUiEncExt) ? e.value : 0;
+        const float base_step = ctx.rshift ? (1.0f / 64.0f) : (1.0f / 32.0f);
+        auto step = [&](int d)
+        {
+            int mag = (d < 0) ? -d : d;
+            if(mag < 1)
+                mag = 1;
+            int log2 = 0;
+            while(mag > 1)
+            {
+                mag >>= 1;
+                ++log2;
+            }
+            return base_step * static_cast<float>(1 << log2);
+        };
+
+        if(start_delta != 0)
+            trim_start += static_cast<float>(start_delta) * step(start_delta);
+        if(end_delta != 0)
+            trim_end += static_cast<float>(end_delta) * step(end_delta);
+
+        if(trim_start < 0.0f)
+            trim_start = 0.0f;
+        if(trim_end > 1.0f)
+            trim_end = 1.0f;
+        const float min_norm = 2.0f / static_cast<float>(frames);
+        if((trim_end - trim_start) < min_norm)
+        {
+            trim_end = trim_start + min_norm;
+            if(trim_end > 1.0f)
+            {
+                trim_end = 1.0f;
+                trim_start = trim_end - min_norm;
+            }
+        }
+
+        uint32_t start_frame = static_cast<uint32_t>(trim_start * static_cast<float>(frames));
+        uint32_t end_frame = static_cast<uint32_t>(trim_end * static_cast<float>(frames));
+        if(end_frame <= start_frame)
+            end_frame = start_frame + 2u;
+        if(end_frame > frames)
+            end_frame = frames;
+        if(start_frame >= end_frame)
+            start_frame = (end_frame > 0u) ? (end_frame - 1u) : 0u;
+        edit.start_frame = start_frame;
+        edit.end_frame = end_frame;
+
+        SampleEdit_Clamp(edit, frames);
+        app.sd_edit_slots[layer] = edit;
+        app.sd_edit_pending = edit;
+        app.sd_edit_slot.store(layer, std::memory_order_release);
+        app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+        app.sd_edit_ready.store(1, std::memory_order_release);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    return false;
 }
 
 static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -2666,7 +2881,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                          PerformEngine_OnEvent,
                                          PerformEngine_Render,
                                          PerformEngine_OnEnter};
-    static const UiScreen perform_wave_edit{UiScreenId::PerformWaveEdit, nullptr, nullptr, nullptr, PerformWaveEdit_Render};
+    static const UiScreen perform_wave_edit{UiScreenId::PerformWaveEdit,
+                                            nullptr,
+                                            nullptr,
+                                            PerformWaveEdit_OnEvent,
+                                            PerformWaveEdit_Render};
     static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformAdsr_OnEvent, PerformAdsr_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis, nullptr, nullptr, PerformEmphasis_OnEvent, PerformEmphasis_Render};
@@ -2771,12 +2990,6 @@ void UiRouter_Render(UiScreenCtx& ctx)
     if(s.Render)
         s.Render(ctx);
 }
-
-
-
-
-
-
 
 
 

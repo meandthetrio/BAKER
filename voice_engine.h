@@ -126,7 +126,11 @@ class VoiceEngine
                    std::atomic<int32_t>* last_lfo,
                    std::atomic<int32_t>* last_env,
                    std::atomic<uint32_t>* lfo_rate_dbg,
-                   std::atomic<uint32_t>* lfo_depth_dbg);
+                   std::atomic<uint32_t>* lfo_depth_dbg,
+                   std::atomic<uint32_t>* playhead_frame_a,
+                   std::atomic<uint32_t>* playhead_frame_b,
+                   std::atomic<uint32_t>* playhead_active_a,
+                   std::atomic<uint32_t>* playhead_active_b);
 
     void SetSampleBank(const Sample* const* bank, uint8_t count);
     void SetSample(const Sample* sample) { current_sample_ = sample; }
@@ -230,6 +234,8 @@ class VoiceEngine
     std::atomic<int32_t>* last_env_out_        = nullptr;
     std::atomic<uint32_t>* lfo_rate_dbg_out_   = nullptr;
     std::atomic<uint32_t>* lfo_depth_dbg_out_  = nullptr;
+    std::atomic<uint32_t>* playhead_frame_out_[2] = {nullptr, nullptr};
+    std::atomic<uint32_t>* playhead_active_out_[2] = {nullptr, nullptr};
 
     int  AllocateVoice_(bool& stole,
                         uint8_t& stolen_index,

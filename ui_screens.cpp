@@ -170,8 +170,8 @@ static int TinyStringWidth(const char* str)
 
 static constexpr int32_t kMainMenuCount = 3;
 static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "RECORD", "PERFORM"};
-static constexpr int32_t kPerformMenuCount = 4;
-static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS"};
+static constexpr int32_t kPerformMenuCount = 5;
+static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS", "PROCESS"};
 
 static int32_t NextMenuIndex(int32_t current, int32_t delta)
 {
@@ -195,7 +195,7 @@ static int32_t NextMenuIndex(int32_t current, int32_t delta)
 
 static int32_t NextPerformMenuIndex(int32_t current, int32_t delta)
 {
-    static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3};
+    static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3, 4};
     int32_t pos = 0;
     for(int32_t i = 0; i < kPerformMenuCount; ++i)
     {
@@ -455,6 +455,39 @@ static const uint8_t kIconPerformEmphasis61x29[kIconH * kIconStride] = {
 
 };
 
+static const uint8_t kIconPerformProcess61x29[kIconH * kIconStride] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x07, 0xFF, 0x00, 0x00, 0x00, 0x07, 0xFF, 0x00,
+    0x09, 0xAF, 0x8F, 0xFF, 0xFF, 0x89, 0xAF, 0x80,
+    0x0B, 0x27, 0x90, 0x00, 0x00, 0x4B, 0x27, 0x80,
+    0x0B, 0x07, 0x93, 0x87, 0x0E, 0x4B, 0x07, 0x80,
+    0x0B, 0x07, 0x97, 0xCE, 0x9F, 0x4B, 0x07, 0x80,
+    0x0B, 0x8F, 0x96, 0xCD, 0x87, 0x4B, 0x8F, 0x80,
+    0x0B, 0xFF, 0x95, 0xCF, 0x9F, 0x4B, 0xFF, 0x80,
+    0x0B, 0xFF, 0x93, 0x87, 0x0E, 0x4B, 0xFF, 0x80,
+    0x0B, 0xFF, 0x90, 0x00, 0x00, 0x4B, 0xFF, 0x80,
+    0x0B, 0xFF, 0x8F, 0xFF, 0xFF, 0x8B, 0xFF, 0x80,
+    0x0B, 0xFF, 0x80, 0x5D, 0xD0, 0x0B, 0xFF, 0x80,
+    0x1F, 0xAF, 0xC0, 0x30, 0x60, 0x1F, 0xAF, 0xC0,
+    0x2F, 0x27, 0xA0, 0x20, 0x40, 0x2F, 0x27, 0xA0,
+    0x3F, 0x07, 0xF0, 0x20, 0x40, 0x7F, 0x07, 0xE0,
+    0x1F, 0x06, 0xD0, 0x20, 0x40, 0x5F, 0x06, 0xC0,
+    0x0F, 0x8E, 0x90, 0x20, 0x40, 0x4F, 0x8E, 0x80,
+    0x0F, 0xFE, 0x90, 0x20, 0x40, 0x4F, 0xFE, 0x80,
+    0x0F, 0xFE, 0x90, 0x20, 0x40, 0x4F, 0xFE, 0x80,
+    0x0F, 0xFE, 0x90, 0x20, 0x40, 0x4F, 0xFE, 0x80,
+    0x0F, 0xFE, 0x90, 0x20, 0x40, 0x4F, 0xFE, 0x80,
+    0x0F, 0x8E, 0x90, 0x20, 0x40, 0x4F, 0x8E, 0x80,
+    0x0F, 0x76, 0x88, 0x40, 0x20, 0x8F, 0x76, 0x80,
+    0x0F, 0x76, 0x87, 0x80, 0x1F, 0x0F, 0x76, 0x80,
+    0x0F, 0x8C, 0x80, 0x00, 0x00, 0x0F, 0x8C, 0x80,
+    0x07, 0xFF, 0x00, 0x00, 0x00, 0x07, 0xFF, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+};
+
 static void DrawBitmap1bpp(OledPager& disp,
                            int x,
                            int y,
@@ -661,6 +694,13 @@ static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
                 icon_h = kIconH;
                 icon_stride = kIconStride;
             }
+            else if(i == 4)
+            {
+                icon = kIconPerformProcess61x29;
+                icon_w = kIconW;
+                icon_h = kIconH;
+                icon_stride = kIconStride;
+            }
             if(icon != nullptr && icon_area_w > icon_w)
             {
                 const int icon_x = icon_area_x + (icon_area_w - icon_w) / 2;
@@ -783,8 +823,10 @@ static bool PerformMenu_OnEnter(UiScreenCtx& ctx)
         case 2:
             return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformAdsr);
         case 3:
-        default:
             return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformEmphasis);
+        case 4:
+        default:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformProcess);
     }
 }
 
@@ -1568,6 +1610,48 @@ static void PerformEmphasis_Render(UiScreenCtx& ctx)
     std::snprintf(line, sizeof(line), "> GAIN:%s", gain_buf);
     d.SetCursor(layout.x, layout.y_body + layout.line_h);
     d.WriteString(line, Font_6x8, true);
+}
+
+static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppState& app = *ctx.app;
+
+    // POD2 toggles layer (same behavior as other PERFORM pages).
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        app.perform_layer ^= 1u;
+        const uint8_t layer = app.perform_layer & 1u;
+        app.sd_current_slot.store(layer, std::memory_order_release);
+        PublishEngineLayerParams(ctx);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+static void PerformProcess_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    AppState& app = *ctx.app;
+    EngineRefreshLoadedMetadata(app);
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    UiDraw_Header(d, layout, "MASTER BUS", status);
+
+    // Intentionally blank for now.
 }
 
 UiScreenId UiNav_Active(const UiNav& nav)
@@ -2455,7 +2539,7 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
         }
     }
 
-    UiDraw_Footer(d, layout, "R:SEL  L:BACK");
+    //UiDraw_Footer(d, layout, "R:SEL  L:BACK");
 }
 
 // -------------------------
@@ -2881,6 +2965,7 @@ const UiScreen& GetScreen(UiScreenId id)
     static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformAdsr_OnEvent, PerformAdsr_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis, nullptr, nullptr, PerformEmphasis_OnEvent, PerformEmphasis_Render};
+    static const UiScreen perform_process{UiScreenId::PerformProcess, nullptr, nullptr, PerformProcess_OnEvent, PerformProcess_Render};
     static const UiScreen hud{UiScreenId::Hud, nullptr, nullptr, Hud_OnEvent, Hud_Render};
     static const UiScreen fx{UiScreenId::Fx, nullptr, nullptr, Fx_OnEvent, Fx_Render};
     static const UiScreen mod{UiScreenId::Mod, nullptr, nullptr, Mod_OnEvent, Mod_Render};
@@ -2917,6 +3002,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return perform_adsr;
         case UiScreenId::PerformEmphasis:
             return perform_emphasis;
+        case UiScreenId::PerformProcess:
+            return perform_process;
         case UiScreenId::Hud:
             return hud;
         case UiScreenId::Fx:
@@ -2982,6 +3069,15 @@ void UiRouter_Render(UiScreenCtx& ctx)
     if(s.Render)
         s.Render(ctx);
 }
+
+
+
+
+
+
+
+
+
 
 
 

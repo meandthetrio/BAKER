@@ -377,15 +377,23 @@ int main(void)
 
         // UI tick owns UI state + drawing; never polls hardware directly.
         g_ui.UiTick(g_app, g_params, g_evtq, now_ms);
-        // LED2 indicator: PERFORM pages have alt A/B (voice layer) page.
-        // Solid BLUE when any PERFORM page that supports POD2 A/B toggle is active, otherwise off.
+        // LED2 indicator:
+        // - SD BROWSE: solid GREEN.
+        // - PERFORM A/B pages: solid BLUE.
+        // - otherwise off.
+        const bool sd_browse_active = (g_app.ui_active_screen == UiScreenId::SdBrowse);
         const bool perform_ab_active
             = (g_app.ui_active_screen == UiScreenId::PerformEngine)
               || (g_app.ui_active_screen == UiScreenId::PerformKeyzone)
               || (g_app.ui_active_screen == UiScreenId::PerformAdsr)
-              || (g_app.ui_active_screen == UiScreenId::PerformEmphasis);
+              || (g_app.ui_active_screen == UiScreenId::PerformEmphasis)
+              || (g_app.ui_active_screen == UiScreenId::PerformProcess);
 
-        if(perform_ab_active)
+        if(sd_browse_active)
+        {
+            hw.led2.Set(0.0f, 1.0f, 0.0f);
+        }
+        else if(perform_ab_active)
         {
             hw.led2.Set(0.0f, 0.0f, 1.0f);
         }

@@ -25,6 +25,7 @@ enum class UiScreenId : uint8_t
     PerformKeyzone,
     PerformAdsr,
     PerformEmphasis,
+    PerformProcess,
     COUNT
 };
 

@@ -21,6 +21,7 @@ enum class UiScreenId : uint8_t
     Start,
     PerformMenu,
     PerformEngine,
+    PerformWaveEdit,
     PerformKeyzone,
     PerformAdsr,
     PerformEmphasis,

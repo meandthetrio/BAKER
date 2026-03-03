@@ -798,9 +798,10 @@ static void PerformMenu_Render(UiScreenCtx& ctx)
 }
 
 static constexpr uint8_t kPerformLayerCount = 2;
-static constexpr int32_t kEngineRowCount = 2;
-static constexpr int32_t kEngineRowLoad = 0;
-static constexpr int32_t kEngineRowTune = 1;
+static constexpr int32_t kEngineRowCount = 3;
+static constexpr int32_t kEngineRowWave = 0;
+static constexpr int32_t kEngineRowLoad = 1;
+static constexpr int32_t kEngineRowTune = 2;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -984,6 +985,8 @@ static bool PerformEngine_OnEnter(UiScreenCtx& ctx)
         return false;
 
     const uint8_t row = ctx.app->perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+    if(row == kEngineRowWave)
+        return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformWaveEdit);
     if(row != kEngineRowLoad)
         return false;
 
@@ -1085,24 +1088,56 @@ static void PerformEngine_Render(UiScreenCtx& ctx)
     d.WriteString(name_buf, Font_6x8, true);
 
     constexpr int kWaveX = 0;
-    constexpr int kWaveY = 16;
+    const int kWaveY = layout.y_body + layout.line_h;
     constexpr int kWaveW = 128;
-    constexpr int kWaveH = 16;
+    const int kLoadY = layout.y_footer - layout.line_h;
+    const int kTuneY = layout.y_footer;
+    const int kWaveH = kLoadY - kWaveY;
     DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH);
+    const uint8_t row = app.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+    if(row == kEngineRowWave)
+    {
+        // Highlight full waveform region when waveform row is selected.
+        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, false);
+        d.DrawRect(kWaveX + 1, kWaveY + 1, kWaveX + kWaveW - 2, kWaveY + kWaveH - 2, true, false);
+    }
 
     char tune_buf[12];
     FormatSignedInt(app.engine_tune_semitones[layer], tune_buf, sizeof(tune_buf));
 
     char line[32];
-    const uint8_t row = app.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
 
     std::snprintf(line, sizeof(line), "%c LOAD", (row == kEngineRowLoad) ? '>' : ' ');
-    d.SetCursor(0, 32);
+    d.SetCursor(0, kLoadY);
     d.WriteString(line, Font_6x8, true);
 
     std::snprintf(line, sizeof(line), "%c TUNE:%s", (row == kEngineRowTune) ? '>' : ' ', tune_buf);
-    d.SetCursor(0, 40);
+    d.SetCursor(0, kTuneY);
     d.WriteString(line, Font_6x8, true);
+}
+
+static void PerformWaveEdit_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    const UiLayout layout = UiLayout_Default();
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    AppState& app = *ctx.app;
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+
+    char title[24];
+    std::snprintf(title, sizeof(title), "WAVE EDIT %s", LayerName(app.perform_layer & 1u));
+    UiDraw_Header(d, layout, title, status);
+
+    d.SetCursor(layout.x, layout.y_body);
+    d.WriteString("WAVEFORM EDIT TBD", Font_6x8, true);
+    d.SetCursor(layout.x, layout.y_body + layout.line_h);
+    d.WriteString("PORTING NEXT", Font_6x8, true);
+    UiDraw_Footer(d, layout, "P2:BACK");
 }
 
 static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -2631,6 +2666,7 @@ const UiScreen& GetScreen(UiScreenId id)
                                          PerformEngine_OnEvent,
                                          PerformEngine_Render,
                                          PerformEngine_OnEnter};
+    static const UiScreen perform_wave_edit{UiScreenId::PerformWaveEdit, nullptr, nullptr, nullptr, PerformWaveEdit_Render};
     static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformAdsr_OnEvent, PerformAdsr_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis, nullptr, nullptr, PerformEmphasis_OnEvent, PerformEmphasis_Render};
@@ -2662,6 +2698,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return perform_menu;
         case UiScreenId::PerformEngine:
             return perform_engine;
+        case UiScreenId::PerformWaveEdit:
+            return perform_wave_edit;
         case UiScreenId::PerformKeyzone:
             return perform_keyzone;
         case UiScreenId::PerformAdsr:
@@ -2733,8 +2771,6 @@ void UiRouter_Render(UiScreenCtx& ctx)
     if(s.Render)
         s.Render(ctx);
 }
-
-
 
 
 

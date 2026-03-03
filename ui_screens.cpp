@@ -1138,7 +1138,7 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
     BuildStatus(app, status, sizeof(status));
 
     char title[24];
-    std::snprintf(title, sizeof(title), "WAVE EDIT %s", LayerName(layer));
+    std::snprintf(title, sizeof(title), ".WAV EDIT %s", LayerName(layer));
     UiDraw_Header(d, layout, title, status);
 
     const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
@@ -1624,7 +1624,7 @@ static bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(ctx.shift)
         return false;
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt)
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
     {
         if(UiListMenu_OnEnc(ctx.app->hud_menu, e.value))
         {
@@ -2190,8 +2190,34 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
 
     SdBrowserState& sd = ctx.app->sd;
     const UiLayout layout = UiLayout_Default();
-    const bool show_status = (sd.status[0] != '\0');
-    uint8_t lines_used = 1 + (show_status ? 1 : 0);
+    bool show_issue = false;
+    char issue_buf[24];
+    issue_buf[0] = '\0';
+    if(!sd.sd_ok)
+    {
+        show_issue = true;
+        std::snprintf(issue_buf, sizeof(issue_buf), "SD ERR");
+    }
+    else if(sd.scan_done && !sd.scan_in_progress && sd.wav_count == 0)
+    {
+        show_issue = true;
+        std::snprintf(issue_buf, sizeof(issue_buf), "NO WAV");
+    }
+    else if(sd.status[0] != '\0')
+    {
+        // Keep non-error status hidden to keep browse view clean.
+        const bool noisy_ok = (std::strncmp(sd.status, "LOADED", 6) == 0)
+                           || (std::strncmp(sd.status, "LOADING", 7) == 0)
+                           || (std::strncmp(sd.status, "SCANNING", 8) == 0)
+                           || (std::strncmp(sd.status, "DELETED", 7) == 0);
+        if(!noisy_ok)
+        {
+            show_issue = true;
+            std::snprintf(issue_buf, sizeof(issue_buf), "%s", sd.status);
+        }
+    }
+
+    uint8_t lines_used = static_cast<uint8_t>(1 + (show_issue ? 1 : 0));
     if(lines_used >= layout.rows_body)
         lines_used = layout.rows_body;
 
@@ -2211,40 +2237,10 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
     BuildStatus(*ctx.app, status, sizeof(status));
     UiDraw_Header(d, layout, "SD BROWSE", status);
 
-    const char* sd_ok = sd.sd_ok ? "OK" : "ER";
-    uint32_t wavs = sd.wav_count;
-    if(wavs > 99u)
-        wavs = 99u;
-    const uint32_t ld = sd.load_in_progress ? sd.load_progress : 0;
-    uint32_t gen = ctx.app->sd_published_gen.load(std::memory_order_relaxed);
-    if(gen > 99u)
-        gen %= 100u;
-    uint8_t cur_slot = ctx.app->sd_current_slot.load(std::memory_order_relaxed);
-
-    char buf[32];
-    d.SetCursor(layout.x, layout.y_body);
-    if(sd.scan_in_progress)
-        std::snprintf(buf, sizeof(buf), "SD:%s SCAN...", sd_ok);
-    else
-        std::snprintf(buf, sizeof(buf), "SD:%s W:%02lu L:%03lu",
-                      sd_ok,
-                      (unsigned long)wavs,
-                      (unsigned long)ld);
-    d.WriteString(buf, Font_6x8, true);
-
-    if(show_status && lines_used > 1)
+    if(show_issue && lines_used > 1)
     {
-        d.SetCursor(layout.x, layout.y_body + layout.line_h);
-        std::snprintf(buf, sizeof(buf), "MSG:%s", sd.status);
-        d.WriteString(buf, Font_6x8, true);
-    }
-    else if(lines_used > 1)
-    {
-        d.SetCursor(layout.x, layout.y_body + layout.line_h);
-        std::snprintf(buf, sizeof(buf), "GEN:%02lu CUR:%u",
-                      (unsigned long)gen,
-                      (unsigned)cur_slot);
-        d.WriteString(buf, Font_6x8, true);
+        d.SetCursor(layout.x, layout.y_body);
+        d.WriteString(issue_buf, Font_6x8, true);
     }
 
     UiListMenu_Render(sd.menu,
@@ -2252,10 +2248,6 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
                       layout.x,
                       layout.y_body + layout.line_h * lines_used,
                       layout.line_h);
-
-    UiDraw_Footer(d,
-                  layout,
-                  ctx.app->sd_delete_mode ? "" : "R=LOAD  L=BACK");
 }
 
 // -------------------------
@@ -2990,9 +2982,6 @@ void UiRouter_Render(UiScreenCtx& ctx)
     if(s.Render)
         s.Render(ctx);
 }
-
-
-
 
 
 

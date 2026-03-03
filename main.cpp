@@ -373,23 +373,25 @@ int main(void)
 
         // UI tick owns UI state + drawing; never polls hardware directly.
         g_ui.UiTick(g_app, g_params, g_evtq, now_ms);
-        // LED2 indicator: ENGINE screen has alt A/B page.
-// Orange when PerformEngine is active, otherwise off.
-{
-    const bool engine_active = (g_app.ui_active_screen == UiScreenId::PerformEngine);
+        // LED2 indicator: PERFORM pages have alt A/B (voice layer) page.
+        // Solid BLUE when any PERFORM page that supports POD2 A/B toggle is active, otherwise off.
+        const bool perform_ab_active
+            = (g_app.ui_active_screen == UiScreenId::PerformEngine)
+              || (g_app.ui_active_screen == UiScreenId::PerformKeyzone)
+              || (g_app.ui_active_screen == UiScreenId::PerformAdsr)
+              || (g_app.ui_active_screen == UiScreenId::PerformEmphasis);
 
-    if(engine_active)
-    {
-        // Blue = no Red, no Green, 100% Blue.
-        hw.led2.Set(0.0f, 0.0f, 1.0f);
-    }
-    else
-    {
-        hw.led2.Set(0.0f, 0.0f, 0.0f);
-    }
+        if(perform_ab_active)
+        {
+            hw.led2.Set(0.0f, 0.0f, 1.0f);
+        }
+        else
+        {
+            hw.led2.Set(0.0f, 0.0f, 0.0f);
+        }
 
-    hw.UpdateLeds();
-}
+        hw.UpdateLeds();
+
         g_render.Tick(g_app, g_params);
         g_render.TickOledTransfer(now_ms, midi_busy);
     }

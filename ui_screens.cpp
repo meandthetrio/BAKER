@@ -798,17 +798,9 @@ static void PerformMenu_Render(UiScreenCtx& ctx)
 }
 
 static constexpr uint8_t kPerformLayerCount = 2;
-
-// ENGINE now holds only LOAD + TUNE. (GAIN moved to EMPHASIS, MODE moved to ADSR)
 static constexpr int32_t kEngineRowCount = 2;
-static constexpr int32_t kEngineRowLoad  = 0;
-static constexpr int32_t kEngineRowTune  = 1;
-
-static constexpr int32_t kAdsrRowCount = 1;
-static constexpr int32_t kAdsrRowMode  = 0;
-
-static constexpr int32_t kEmphasisRowCount = 1;
-static constexpr int32_t kEmphasisRowGain  = 0;
+static constexpr int32_t kEngineRowLoad = 0;
+static constexpr int32_t kEngineRowTune = 1;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -1049,7 +1041,6 @@ static bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 changed = true;
             }
         }
-        // (GAIN + MODE edited in EMPHASIS + ADSR submenus)
 
         if(changed)
         {
@@ -1085,11 +1076,11 @@ static void PerformEngine_Render(UiScreenCtx& ctx)
     std::snprintf(title, sizeof(title), "ENGINE %s", LayerName(layer));
     UiDraw_Header(d, layout, title, status);
 
-    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NONE";
+    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
     if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NONE";
+        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
     char name_buf[24];
-    std::snprintf(name_buf, sizeof(name_buf), "S:%s", name);
+    std::snprintf(name_buf, sizeof(name_buf),name);
     d.SetCursor(layout.x, layout.y_body);
     d.WriteString(name_buf, Font_6x8, true);
 
@@ -1112,39 +1103,28 @@ static void PerformEngine_Render(UiScreenCtx& ctx)
     std::snprintf(line, sizeof(line), "%c TUNE:%s", (row == kEngineRowTune) ? '>' : ' ', tune_buf);
     d.SetCursor(0, 40);
     d.WriteString(line, Font_6x8, true);
-
-    // Body remaining rows
 }
 
-static bool PerformPlaceholder_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    (void)ctx;
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppState& app = *ctx.app;
+
+    // POD2 toggles layer (same behavior as ENGINE).
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        app.perform_layer ^= 1u;
+        const uint8_t layer = app.perform_layer & 1u;
+        app.sd_current_slot.store(layer, std::memory_order_release);
+        PublishEngineLayerParams(ctx);
+        app.ui_dirty = true;
         return true;
+    }
     return false;
-}
-
-static void PerformPlaceholder_Render(UiScreenCtx& ctx, const char* title)
-{
-    if(!ctx.app || !ctx.display)
-        return;
-
-    OledPager& d = *ctx.display;
-    d.Fill(false);
-
-    const UiLayout layout = UiLayout_Default();
-    char status[16];
-    BuildStatus(*ctx.app, status, sizeof(status));
-    UiDraw_Header(d, layout, title, status);
-
-    d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    d.WriteString("TODO", Font_6x8, true);
-    UiDraw_Footer(d, layout, "P2:BACK");
-}
-
-static void PerformKeyzone_Render(UiScreenCtx& ctx)
-{
-    PerformPlaceholder_Render(ctx, "KEYZONE");
 }
 
 static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -1155,8 +1135,30 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppState& app = *ctx.app;
-    EngineRefreshLoadedMetadata(app);
 
+    // R encoder toggles MODE (ONESHOT/LOOP) for the active layer.
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+    {
+        const uint8_t layer = app.perform_layer & 1u;
+
+        int mode = static_cast<int>(app.engine_play_mode[layer]) & 1;
+        int steps = e.value;
+        if(steps < 0)
+            steps = -steps;
+        if((steps & 1) != 0)
+            mode ^= 1;
+
+        const uint8_t next_mode = static_cast<uint8_t>(mode);
+        if(next_mode != app.engine_play_mode[layer])
+        {
+            app.engine_play_mode[layer] = next_mode;
+            PublishEngineLayerParams(ctx);
+            app.ui_dirty = true;
+        }
+        return true;
+    }
+
+    // POD2 toggles layer (same behavior as ENGINE).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
         app.perform_layer ^= 1u;
@@ -1167,51 +1169,78 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    return false;
+}
+
+static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppState& app = *ctx.app;
+
+    // R encoder adjusts GAIN (dB) for the active layer.
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
-        int row = static_cast<int>(app.perform_adsr_row);
-        row += e.value;
-        while(row < 0)
-            row += kAdsrRowCount;
-        while(row >= kAdsrRowCount)
-            row -= kAdsrRowCount;
-        app.perform_adsr_row = static_cast<uint8_t>(row);
+        const uint8_t layer = app.perform_layer & 1u;
+
+        int v = static_cast<int>(app.engine_gain_db[layer]) + e.value;
+        v = ClampInt(v, -32, 6);
+        const int8_t vv = static_cast<int8_t>(v);
+        if(vv != app.engine_gain_db[layer])
+        {
+            app.engine_gain_db[layer] = vv;
+            PublishEngineLayerParams(ctx);
+            app.ui_dirty = true;
+        }
+        return true;
+    }
+
+    // POD2 toggles layer (same behavior as ENGINE).
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        app.perform_layer ^= 1u;
+        const uint8_t layer = app.perform_layer & 1u;
+        app.sd_current_slot.store(layer, std::memory_order_release);
+        PublishEngineLayerParams(ctx);
         app.ui_dirty = true;
         return true;
     }
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
-    {
-        const uint8_t layer = app.perform_layer & 1u;
-        const uint8_t row   = app.perform_adsr_row % static_cast<uint8_t>(kAdsrRowCount);
-        bool changed        = false;
-
-        if(row == kAdsrRowMode)
-        {
-            int mode  = static_cast<int>(app.engine_play_mode[layer]) & 1;
-            int steps = e.value;
-            if(steps < 0)
-                steps = -steps;
-            if((steps & 1) != 0)
-                mode ^= 1;
-
-            const uint8_t next_mode = static_cast<uint8_t>(mode);
-            if(next_mode != app.engine_play_mode[layer])
-            {
-                app.engine_play_mode[layer] = next_mode;
-                changed                     = true;
-            }
-        }
-
-        if(changed)
-        {
-            PublishEngineLayerParams(ctx);
-            app.ui_dirty = true;
-            return true;
-        }
-    }
-
     return false;
+}
+
+static void PerformKeyzone_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    AppState& app = *ctx.app;
+    EngineRefreshLoadedMetadata(app);
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const uint8_t layer = app.perform_layer & 1u;
+    const Sample& sample = app.sd_slots[layer];
+    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    char title[16];
+    std::snprintf(title, sizeof(title), "KEYZONE %s", LayerName(layer));
+    UiDraw_Header(d, layout, title, status);
+
+    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
+    if(name == nullptr || name[0] == '\0')
+        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
+
+    // WAV file name under header (no footer hints)
+    d.SetCursor(layout.x, layout.y_body);
+    d.WriteString(name, Font_6x8, true);
 }
 
 static void PerformAdsr_Render(UiScreenCtx& ctx)
@@ -1226,6 +1255,8 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     const uint8_t layer = app.perform_layer & 1u;
+    const Sample& sample = app.sd_slots[layer];
+    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
 
     const UiLayout layout = UiLayout_Default();
     char status[16];
@@ -1234,88 +1265,19 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
     std::snprintf(title, sizeof(title), "ADSR %s", LayerName(layer));
     UiDraw_Header(d, layout, title, status);
 
-    // Show current sample name (context), then ADSR-related controls.
-    const Sample& sample       = app.sd_slots[layer];
-    const bool sample_loaded   = (sample.pcm != nullptr && sample.length > 0);
-    const char* name           = sample_loaded ? app.engine_sample_name[layer] : "NONE";
+    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
     if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NONE";
-    char name_buf[24];
-    std::snprintf(name_buf, sizeof(name_buf), "S:%s", name);
+        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
+
+    // WAV file name under header
     d.SetCursor(layout.x, layout.y_body);
-    d.WriteString(name_buf, Font_6x8, true);
+    d.WriteString(name, Font_6x8, true);
 
-    const uint8_t row = app.perform_adsr_row % static_cast<uint8_t>(kAdsrRowCount);
+    // MODE row (footer hints removed)
     char line[32];
-    std::snprintf(line,
-                  sizeof(line),
-                  "%c MODE:%s",
-                  (row == kAdsrRowMode) ? '>' : ' ',
-                  PlayModeName(app.engine_play_mode[layer]));
-    d.SetCursor(0, 48);
+    std::snprintf(line, sizeof(line), "> MODE:%s", PlayModeName(app.engine_play_mode[layer]));
+    d.SetCursor(layout.x, layout.y_body + layout.line_h);
     d.WriteString(line, Font_6x8, true);
-}
-
-static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
-{
-    if(!ctx.app)
-        return false;
-    if(ctx.shift)
-        return false;
-
-    AppState& app = *ctx.app;
-    EngineRefreshLoadedMetadata(app);
-
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
-    {
-        app.perform_layer ^= 1u;
-        const uint8_t layer = app.perform_layer & 1u;
-        app.sd_current_slot.store(layer, std::memory_order_release);
-        PublishEngineLayerParams(ctx);
-        app.ui_dirty = true;
-        return true;
-    }
-
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
-    {
-        int row = static_cast<int>(app.perform_emphasis_row);
-        row += e.value;
-        while(row < 0)
-            row += kEmphasisRowCount;
-        while(row >= kEmphasisRowCount)
-            row -= kEmphasisRowCount;
-        app.perform_emphasis_row = static_cast<uint8_t>(row);
-        app.ui_dirty = true;
-        return true;
-    }
-
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
-    {
-        const uint8_t layer = app.perform_layer & 1u;
-        const uint8_t row   = app.perform_emphasis_row % static_cast<uint8_t>(kEmphasisRowCount);
-        bool changed        = false;
-
-        if(row == kEmphasisRowGain)
-        {
-            int v = static_cast<int>(app.engine_gain_db[layer]) + e.value;
-            v     = ClampInt(v, -32, 6);
-            const int8_t vv = static_cast<int8_t>(v);
-            if(vv != app.engine_gain_db[layer])
-            {
-                app.engine_gain_db[layer] = vv;
-                changed                   = true;
-            }
-        }
-
-        if(changed)
-        {
-            PublishEngineLayerParams(ctx);
-            app.ui_dirty = true;
-            return true;
-        }
-    }
-
-    return false;
 }
 
 static void PerformEmphasis_Render(UiScreenCtx& ctx)
@@ -1330,31 +1292,31 @@ static void PerformEmphasis_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     const uint8_t layer = app.perform_layer & 1u;
+    const Sample& sample = app.sd_slots[layer];
+    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
 
     const UiLayout layout = UiLayout_Default();
     char status[16];
     BuildStatus(app, status, sizeof(status));
     char title[16];
-    std::snprintf(title, sizeof(title), "EMPHASIS %s", LayerName(layer));
+    std::snprintf(title, sizeof(title), "EMPH %s", LayerName(layer));
     UiDraw_Header(d, layout, title, status);
 
-    const Sample& sample     = app.sd_slots[layer];
-    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
-    const char* name         = sample_loaded ? app.engine_sample_name[layer] : "NONE";
+    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
     if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NONE";
-    char name_buf[24];
-    std::snprintf(name_buf, sizeof(name_buf), "S:%s", name);
-    d.SetCursor(layout.x, layout.y_body);
-    d.WriteString(name_buf, Font_6x8, true);
+        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
 
+    // WAV file name under header
+    d.SetCursor(layout.x, layout.y_body);
+    d.WriteString(name, Font_6x8, true);
+
+    // GAIN row (footer hints removed)
     char gain_buf[12];
     FormatDb(app.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
 
-    const uint8_t row = app.perform_emphasis_row % static_cast<uint8_t>(kEmphasisRowCount);
     char line[32];
-    std::snprintf(line, sizeof(line), "%c GAIN:%s", (row == kEmphasisRowGain) ? '>' : ' ', gain_buf);
-    d.SetCursor(0, 48);
+    std::snprintf(line, sizeof(line), "> GAIN:%s", gain_buf);
+    d.SetCursor(layout.x, layout.y_body + layout.line_h);
     d.WriteString(line, Font_6x8, true);
 }
 
@@ -2669,7 +2631,7 @@ const UiScreen& GetScreen(UiScreenId id)
                                          PerformEngine_OnEvent,
                                          PerformEngine_Render,
                                          PerformEngine_OnEnter};
-    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformPlaceholder_OnEvent, PerformKeyzone_Render};
+    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformAdsr_OnEvent, PerformAdsr_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis, nullptr, nullptr, PerformEmphasis_OnEvent, PerformEmphasis_Render};
     static const UiScreen hud{UiScreenId::Hud, nullptr, nullptr, Hud_OnEvent, Hud_Render};
@@ -2771,6 +2733,7 @@ void UiRouter_Render(UiScreenCtx& ctx)
     if(s.Render)
         s.Render(ctx);
 }
+
 
 
 

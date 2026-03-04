@@ -184,7 +184,7 @@ static bool MakePath(char* out, size_t n, const char* base, const char* name)
     return true;
 }
 
-static constexpr uint32_t kSaveChunkFrames = 512;
+static constexpr uint32_t kSaveChunkFrames = 2048;
 
 static void SetProjectStatus(AppState& app, const char* msg)
 {
@@ -946,7 +946,7 @@ static bool SaveStep(AppState& app, uint16_t budget_us)
     uint32_t max_frames = kSaveChunkFrames;
     if(budget_us > 0)
     {
-        uint32_t cap = budget_us / 4u;
+        uint32_t cap = budget_us / 2u;
         if(cap < 128u)
             cap = 128u;
         if(cap > kSaveChunkFrames)
@@ -960,21 +960,30 @@ static bool SaveStep(AppState& app, uint16_t budget_us)
     static int16_t s_save_buf[kSaveChunkFrames];
     const int16_t* src = sample.pcm + s_sd.save_start + s_sd.save_written;
     const float gain = s_sd.save_gain;
-    for(uint32_t i = 0; i < frames_to_write; ++i)
+    const bool unity_gain = (gain > 0.9999f && gain < 1.0001f);
+    const void* write_ptr = s_save_buf;
+    if(unity_gain)
     {
-        float x = static_cast<float>(src[i]) * gain;
-        int32_t v = (x >= 0.0f) ? static_cast<int32_t>(x + 0.5f)
-                                : static_cast<int32_t>(x - 0.5f);
-        if(v > 32767)
-            v = 32767;
-        else if(v < -32768)
-            v = -32768;
-        s_save_buf[i] = static_cast<int16_t>(v);
+        write_ptr = src;
+    }
+    else
+    {
+        for(uint32_t i = 0; i < frames_to_write; ++i)
+        {
+            float x = static_cast<float>(src[i]) * gain;
+            int32_t v = (x >= 0.0f) ? static_cast<int32_t>(x + 0.5f)
+                                    : static_cast<int32_t>(x - 0.5f);
+            if(v > 32767)
+                v = 32767;
+            else if(v < -32768)
+                v = -32768;
+            s_save_buf[i] = static_cast<int16_t>(v);
+        }
     }
 
     UINT bw = 0;
     const uint32_t bytes = frames_to_write * 2u;
-    const FRESULT res = f_write(&s_sd.file, s_save_buf, bytes, &bw);
+    const FRESULT res = f_write(&s_sd.file, write_ptr, bytes, &bw);
     if(res != FR_OK || bw != bytes)
     {
         f_close(&s_sd.file);

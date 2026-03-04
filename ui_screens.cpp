@@ -1564,22 +1564,32 @@ static void Record_Render(UiScreenCtx& ctx)
 
         case RecordUiState::SaveWait:
         {
-            UiDraw_Header(d, layout, "SAVING", status);
-            char line[24];
+            d.Fill(false);
             if(app.sd.save_in_progress)
             {
-                std::snprintf(line, sizeof(line), "SAVING %3u%%", static_cast<unsigned>(app.sd.save_progress));
-            }
-            else if(app.sd.save_status[0] != '\0')
-            {
-                std::snprintf(line, sizeof(line), "%s", app.sd.save_status);
+                d.SetCursor(0, 0);
+                d.WriteString("SAVING", Font_6x8, true);
+                const int bar_w = 96;
+                const int bar_h = 6;
+                const int bar_x = (128 - bar_w) / 2;
+                const int bar_y = Font_6x8.FontHeight + 16;
+                const int pct = static_cast<int>(app.sd.save_progress);
+                const int fill_w = (pct <= 0) ? 0 : ((pct >= 100) ? bar_w : ((bar_w * pct) / 100));
+                d.DrawRect(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, true, false);
+                if(fill_w > 0)
+                    d.DrawRect(bar_x + 1, bar_y + 1, bar_x + fill_w - 1, bar_y + bar_h - 1, true, true);
             }
             else
             {
-                std::snprintf(line, sizeof(line), "PLEASE WAIT");
+                const bool ok = (std::strncmp(app.sd.save_status, "SAVED", 5) == 0);
+                d.SetCursor(0, 0);
+                d.WriteString(ok ? "SAVE OK" : "SAVE FAILED", Font_6x8, true);
+                if(ok && app.sd.save_name[0] != '\0')
+                {
+                    d.SetCursor(0, Font_6x8.FontHeight + 2);
+                    d.WriteString(app.sd.save_name, Font_6x8, true);
+                }
             }
-            d.SetCursor(24, 30);
-            d.WriteString(line, Font_6x8, true);
         }
         break;
     }
@@ -3436,7 +3446,7 @@ static void SdDeleteConfirm_Render(UiScreenCtx& ctx)
     d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);
     d.WriteString("ARE YOU SURE?", Font_6x8, true);
     d.SetCursor(layout.x, layout.y_body + layout.line_h * 3);
-    d.WriteString("R=YES   L=NO", Font_6x8, true);
+    d.WriteString("R:YES   L:NO", Font_6x8, true);
 }
 
 enum SampleEditItem : uint8_t

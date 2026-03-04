@@ -1352,7 +1352,19 @@ static void Record_Render(UiScreenCtx& ctx)
     {
         if(!app.sd.save_in_progress && !app.ui_req_busy)
         {
-            app.record_state = RecordUiState::Review;
+            const bool save_ok = (std::strncmp(app.sd.save_status, "SAVED", 5) == 0);
+            if(save_ok)
+            {
+                // Successful save: go back to source select (recording is no longer at risk).
+                Record_StopPreview(app);
+                app.rec_monitor_enable.store(0, std::memory_order_release);
+                app.record_state = RecordUiState::SourceSelect;
+            }
+            else
+            {
+                // On failure, return to review so user can retry/save again.
+                app.record_state = RecordUiState::Review;
+            }
             app.ui_dirty = true;
         }
     }

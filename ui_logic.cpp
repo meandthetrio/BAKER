@@ -8,6 +8,7 @@
 #include "ui_value_edit.h"
 #include "ui_overlay.h"
 #include "ui_worker.h"
+#include "sd_sample_pool.h"
 #include <atomic>
 #include <cmath>
 
@@ -244,6 +245,75 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         app.ui_dirty = true;
     }
 
+    if(app.record_state == RecordUiState::Recording
+       && app.rec_active.load(std::memory_order_acquire) == 0)
+    {
+        const uint32_t rec_len = app.rec_length.load(std::memory_order_acquire);
+        if(rec_len > 0)
+        {
+            uint8_t slot = app.rec_slot_pending.load(std::memory_order_acquire) & 1u;
+            Sample& s = app.sd_slots[slot];
+            s.pcm = SdSampleBuffer(slot);
+            s.length = rec_len;
+            s.sample_rate = 48000;
+            s.root_key = 60;
+            s.loop_start = 0;
+            s.loop_end = rec_len;
+            s.loop_enabled = false;
+
+            SampleEdit edit = SampleEdit_Default(rec_len);
+            app.sd_edit_slots[slot] = edit;
+            app.sd_edit_pending = edit;
+            app.sd_edit_slot.store(slot, std::memory_order_release);
+            app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+            app.sd_edit_ready.store(1, std::memory_order_release);
+
+            app.sd_current_slot.store(slot, std::memory_order_release);
+            app.record_slot = slot;
+            app.record_state = RecordUiState::Review;
+            app.ui_dirty = true;
+        }
+        else
+        {
+            app.record_state = RecordUiState::SourceSelect;
+            app.ui_dirty = true;
+        }
+    }
+
+    const bool record_review_active = (active_screen == UiScreenId::Record
+                                       && app.record_state == RecordUiState::Review);
+    if(record_review_active && app.record_preview_hold && !app.record_preview_gate)
+    {
+        const uint8_t slot = app.record_slot & 1u;
+        const Sample& s = app.sd_slots[slot];
+        if(s.pcm != nullptr && s.length > 0)
+        {
+            const uint8_t velocity = 120;
+            const uint8_t vel_layer = Velocity_SelectLayer(velocity);
+            Event evt = Event::NoteOnEvent(60, velocity);
+            evt.value = static_cast<uint32_t>(slot) | (static_cast<uint32_t>(vel_layer) << 8);
+            if(evtq.Push(evt))
+            {
+                app.events_pushed.fetch_add(1, std::memory_order_relaxed);
+                app.record_preview_gate = true;
+            }
+            else
+            {
+                app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+                app.ui_dirty = true;
+            }
+        }
+    }
+    if((!record_review_active || !app.record_preview_hold) && app.record_preview_gate)
+    {
+        const Event evt = Event::NoteOffEvent(60);
+        if(evtq.Push(evt))
+            app.events_pushed.fetch_add(1, std::memory_order_relaxed);
+        else
+            app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+        app.record_preview_gate = false;
+    }
+
     shift_held = app.ui_lshift_held;
     UiOverlay_Update(app.overlay, now_ms, app.ui_lshift_held, app.value_edit.active);
 
@@ -255,6 +325,17 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
     if(input_detected)
         app.last_input_ms = now_ms;
+
+    // Keep animated Record screens responsive at UI tick rate.
+    if(active_screen == UiScreenId::Record)
+    {
+        if(app.record_state == RecordUiState::Armed
+           || app.record_state == RecordUiState::Countdown
+           || app.record_state == RecordUiState::Recording)
+        {
+            app.ui_dirty = true;
+        }
+    }
 
     UiWorker_Tick(app, now_ms, 1500);
 }

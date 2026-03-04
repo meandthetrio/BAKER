@@ -22,6 +22,24 @@ enum class PerformPage : uint8_t
     // Later: Delay, Reverb, Sat, etc.
 };
 
+enum class RecordInputSource : uint8_t
+{
+    LineIn = 0,
+    Mic = 1,
+};
+
+enum class RecordUiState : uint8_t
+{
+    SourceSelect = 0,
+    Armed,
+    Countdown,
+    Recording,
+    Review,
+    TargetSelect,
+    BackConfirm,
+    SaveWait,
+};
+
 struct AppState
 {
     PerformPage page = PerformPage::Main;
@@ -123,6 +141,14 @@ struct AppState
     uint8_t perform_wave_edit_cursor = 0; // 0=TRIM START, 1=TRIM END
     uint8_t perform_adsr_row      = 0; // 0=MODE
     uint8_t perform_emphasis_row  = 0; // 0=GAIN
+    RecordUiState record_state = RecordUiState::SourceSelect;
+    uint8_t record_source_index = 0; // 0=LINE IN, 1=MIC
+    uint8_t record_target_index = 0; // 0=SAVE, 1=RECORD AGAIN
+    uint32_t record_countdown_start_ms = 0;
+    double record_anim_start_ms = -1.0;
+    uint8_t record_slot = 0;
+    bool    record_preview_hold = false;
+    bool    record_preview_gate = false;
     int8_t  engine_tune_semitones[2] = {0, 0};
     int8_t  engine_gain_db[2] = {0, 0};
     uint8_t engine_play_mode[2] = {0, 0}; // 0=OneShot, 1=Loop
@@ -162,6 +188,21 @@ struct AppState
     std::atomic<uint8_t> sd_edit_ready{0};
     std::atomic<uint32_t> sd_edit_gen{0};
     std::atomic<uint32_t> sd_edit_applied_gen{0};
+
+    // Recording (UI thread commands, audio thread capture).
+    std::atomic<uint8_t> rec_source_sel{0}; // 0=LINE IN, 1=MIC
+    std::atomic<uint8_t> rec_monitor_enable{0};
+    std::atomic<uint8_t> rec_start_req{0};
+    std::atomic<uint8_t> rec_stop_req{0};
+    std::atomic<uint8_t> rec_active{0};
+    std::atomic<uint8_t> rec_slot_pending{0};
+    std::atomic<uint32_t> rec_pos{0};
+    std::atomic<uint32_t> rec_length{0};
+    std::atomic<uint32_t> rec_live_gen{0};
+    int16_t rec_live_min[128] = {};
+    int16_t rec_live_max[128] = {};
+    int16_t rec_live_last_col = -1;
+
     UiListMenu sample_edit_menu{};
     bool sample_edit_menu_inited = false;
     char project_status[16] = {};

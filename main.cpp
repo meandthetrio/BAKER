@@ -21,6 +21,7 @@
 #include "macros.h"
 #include "embedded_sample.h"
 #include "embedded_long_sample.h"
+#include "sd_sample_pool.h"
 #include <cmath>
 
 using namespace daisy;
@@ -72,7 +73,10 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
                           size_t                    size)
 {
     const uint32_t start_cycles = DWT->CYCCNT;
-    (void)in;
+    static bool s_rec_active = false;
+    static uint8_t s_rec_source = 0;
+    static uint8_t s_rec_slot = 0;
+    static uint32_t s_rec_pos = 0;
 
     const uint8_t ready = g_app.sd_published_ready.load(std::memory_order_acquire);
     const uint32_t pub_gen = g_app.sd_published_gen.load(std::memory_order_acquire);
@@ -99,6 +103,79 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
         g_voice.SetSampleEdit(g_app.sd_edit_pending, &g_app.sd_slots[slot]);
         g_app.sd_edit_applied_gen.store(edit_gen, std::memory_order_release);
         g_app.sd_edit_ready.store(0, std::memory_order_release);
+    }
+
+    if(g_app.rec_start_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        s_rec_source = g_app.rec_source_sel.load(std::memory_order_acquire) & 1u;
+        s_rec_slot = g_app.rec_slot_pending.load(std::memory_order_acquire) & 1u;
+        s_rec_pos = 0;
+        s_rec_active = true;
+        g_app.rec_pos.store(0, std::memory_order_release);
+        g_app.rec_length.store(0, std::memory_order_release);
+        g_app.rec_active.store(1, std::memory_order_release);
+        g_app.rec_live_last_col = -1;
+        for(int i = 0; i < 128; ++i)
+        {
+            g_app.rec_live_min[i] = 32767;
+            g_app.rec_live_max[i] = -32768;
+        }
+    }
+
+    if(g_app.rec_stop_req.exchange(0, std::memory_order_acq_rel) != 0 && s_rec_active)
+    {
+        s_rec_active = false;
+        g_app.rec_active.store(0, std::memory_order_release);
+        g_app.rec_length.store(s_rec_pos, std::memory_order_release);
+    }
+
+    if(s_rec_active)
+    {
+        int16_t* dst = SdSampleBuffer(s_rec_slot);
+        const uint32_t max_frames = kSdSampleMaxFrames;
+        for(size_t i = 0; i < size; ++i)
+        {
+            if(s_rec_pos >= max_frames)
+            {
+                s_rec_active = false;
+                g_app.rec_active.store(0, std::memory_order_release);
+                g_app.rec_length.store(s_rec_pos, std::memory_order_release);
+                break;
+            }
+
+            const float src = (s_rec_source == static_cast<uint8_t>(RecordInputSource::Mic))
+                                  ? in[1][i]
+                                  : in[0][i];
+            float clamped = src;
+            if(clamped > 1.0f)
+                clamped = 1.0f;
+            if(clamped < -1.0f)
+                clamped = -1.0f;
+            const int16_t s16 = static_cast<int16_t>(clamped * 32767.0f);
+            dst[s_rec_pos] = s16;
+
+            const int col = static_cast<int>((static_cast<uint64_t>(s_rec_pos) * 128u) / max_frames);
+            if(col >= 0 && col < 128)
+            {
+                if(col != g_app.rec_live_last_col)
+                {
+                    g_app.rec_live_min[col] = s16;
+                    g_app.rec_live_max[col] = s16;
+                    g_app.rec_live_last_col = static_cast<int16_t>(col);
+                }
+                else
+                {
+                    if(s16 < g_app.rec_live_min[col])
+                        g_app.rec_live_min[col] = s16;
+                    if(s16 > g_app.rec_live_max[col])
+                        g_app.rec_live_max[col] = s16;
+                }
+            }
+
+            ++s_rec_pos;
+        }
+        g_app.rec_pos.store(s_rec_pos, std::memory_order_release);
+        g_app.rec_live_gen.fetch_add(1, std::memory_order_acq_rel);
     }
 
     g_params.AudioBlockTick(g_sample_rate_hz, size);
@@ -150,6 +227,28 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
     Macros_Apply(s_macro_smoothed, nullptr, nullptr, nullptr, nullptr, &drive);
     fx_params.sat_drive = drive;
     g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params);
+
+    const bool monitor_on = (g_app.rec_monitor_enable.load(std::memory_order_acquire) != 0) && !s_rec_active;
+    if(monitor_on)
+    {
+        const uint8_t src = g_app.rec_source_sel.load(std::memory_order_acquire) & 1u;
+        for(size_t i = 0; i < size; ++i)
+        {
+            const float mon = (src == static_cast<uint8_t>(RecordInputSource::Mic)) ? in[1][i] : in[0][i];
+            float l = out[0][i] + mon;
+            float r = out[1][i] + mon;
+            if(l > 1.0f)
+                l = 1.0f;
+            if(l < -1.0f)
+                l = -1.0f;
+            if(r > 1.0f)
+                r = 1.0f;
+            if(r < -1.0f)
+                r = -1.0f;
+            out[0][i] = l;
+            out[1][i] = r;
+        }
+    }
 
     const uint32_t used = DWT->CYCCNT - start_cycles;
     g_app.audio_cycles_last.store(used, std::memory_order_relaxed);

@@ -18,6 +18,7 @@ enum class UiScreenId : uint8_t
     SampleEdit,
     ShiftMenu,
     Presets,      // HOME -> PRESETS
+    Record,
     Start,
     PerformMenu,
     PerformEngine,

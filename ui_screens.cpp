@@ -834,6 +834,57 @@ static void Record_StopPreview(AppState& app)
     app.record_preview_gate = false;
 }
 
+static void Record_PrepareRecordingUiState(AppState& app)
+{
+    Record_StopPreview(app);
+    app.rec_monitor_enable.store(0, std::memory_order_release);
+    app.rec_start_req.store(0, std::memory_order_release);
+    app.rec_stop_req.store(0, std::memory_order_release);
+    app.rec_active.store(0, std::memory_order_release);
+    app.rec_pos.store(0, std::memory_order_release);
+    app.rec_length.store(0, std::memory_order_release);
+    Record_ResetLiveWave(app);
+
+    const uint8_t slot = app.perform_layer & 1u;
+    app.record_slot = slot;
+    app.rec_slot_pending.store(slot, std::memory_order_release);
+
+    // Reset target slot metadata so review/save reflects the fresh unsaved take.
+    Sample& s = app.sd_slots[slot];
+    s.pcm = nullptr;
+    s.length = 0;
+    s.sample_rate = 48000;
+    s.root_key = 60;
+    s.loop_start = 0;
+    s.loop_end = 0;
+    s.loop_enabled = false;
+
+    SampleEdit edit = SampleEdit_Default(0);
+    app.sd_edit_slots[slot] = edit;
+    app.sd_edit_pending = edit;
+    app.sd_edit_slot.store(slot, std::memory_order_release);
+    app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+    app.sd_edit_ready.store(1, std::memory_order_release);
+}
+
+static void Record_StartRecording(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return;
+
+    AppState& app = *ctx.app;
+    const uint8_t src = (app.record_source_index == 1)
+                            ? static_cast<uint8_t>(RecordInputSource::Mic)
+                            : static_cast<uint8_t>(RecordInputSource::LineIn);
+    app.rec_source_sel.store(src, std::memory_order_release);
+    Record_PrepareRecordingUiState(app);
+    // Keep input monitor live while recording.
+    app.rec_monitor_enable.store(1, std::memory_order_release);
+    app.rec_start_req.store(1, std::memory_order_release);
+    app.record_state = RecordUiState::Recording;
+    app.ui_dirty = true;
+}
+
 static void Record_RenderReadyCuzStyle(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
@@ -1287,26 +1338,13 @@ static void Record_Render(UiScreenCtx& ctx)
 
     const uint32_t rec_len = app.rec_length.load(std::memory_order_acquire);
     const uint32_t rec_pos = app.rec_pos.load(std::memory_order_acquire);
-    const uint8_t rec_active = app.rec_active.load(std::memory_order_acquire);
 
     if(app.record_state == RecordUiState::Countdown)
     {
         const uint32_t elapsed = ctx.now_ms - app.record_countdown_start_ms;
         if(elapsed >= kRecordCountdownMs)
         {
-            const uint8_t src = (app.record_source_index == 1)
-                                    ? static_cast<uint8_t>(RecordInputSource::Mic)
-                                    : static_cast<uint8_t>(RecordInputSource::LineIn);
-            app.rec_source_sel.store(src, std::memory_order_release);
-            app.record_slot = app.perform_layer & 1u;
-            app.rec_slot_pending.store(app.record_slot, std::memory_order_release);
-            app.rec_pos.store(0, std::memory_order_release);
-            app.rec_length.store(0, std::memory_order_release);
-            app.rec_monitor_enable.store(0, std::memory_order_release);
-            app.rec_start_req.store(1, std::memory_order_release);
-            Record_ResetLiveWave(app);
-            app.record_state = RecordUiState::Recording;
-            app.ui_dirty = true;
+            Record_StartRecording(ctx);
         }
     }
 
@@ -1407,30 +1445,64 @@ static void Record_Render(UiScreenCtx& ctx)
 
         case RecordUiState::Recording:
         {
-            UiDraw_Header(d, layout, "RECORDING", status);
-            d.SetCursor(0, layout.y_body);
+            d.SetCursor(0, 0);
             d.WriteString("RECORDING - 5 SEC MAX", Font_6x8, true);
 
-            const int wave_y0 = layout.y_body + layout.line_h + 1;
+            const int wave_y0 = Font_6x8.FontHeight + 2;
             const int wave_y1 = 62;
             const int wave_h = wave_y1 - wave_y0 + 1;
             static float mist_level[128] = {};
             static uint32_t mist_seed = 0xA5B35791u;
+            static uint32_t snap_gen = 0;
+            static int16_t snap_min[128] = {};
+            static int16_t snap_max[128] = {};
+            const uint32_t live_gen = app.rec_live_gen.load(std::memory_order_acquire);
+            if(live_gen != snap_gen)
+            {
+                uint32_t g0 = 0, g1 = 0;
+                int retry = 0;
+                do
+                {
+                    g0 = app.rec_live_gen.load(std::memory_order_acquire);
+                    std::memcpy(snap_min, app.rec_live_min, sizeof(snap_min));
+                    std::memcpy(snap_max, app.rec_live_max, sizeof(snap_max));
+                    g1 = app.rec_live_gen.load(std::memory_order_acquire);
+                } while(g0 != g1 && ++retry < 2);
+                snap_gen = g1;
+            }
 
+            if(rec_pos == 0)
+            {
+                for(int x = 0; x < 128; ++x)
+                    mist_level[x] = 0.0f;
+            }
+
+            const int px = static_cast<int>((static_cast<uint64_t>(rec_pos) * 127u) / kSdSampleMaxFrames);
+            const int kTrail = 24; // slightly looser follow
+            const float mic_boost = (app.record_source_index == 1) ? 1.5f : 1.0f;
             for(int x = 0; x < 128; ++x)
             {
-                int16_t minv = app.rec_live_min[x];
-                int16_t maxv = app.rec_live_max[x];
+                int16_t minv = snap_min[x];
+                int16_t maxv = snap_max[x];
                 int16_t a0 = (minv < 0) ? static_cast<int16_t>(-minv) : minv;
                 int16_t a1 = (maxv < 0) ? static_cast<int16_t>(-maxv) : maxv;
                 int16_t absmax = (a1 > a0) ? a1 : a0;
-                const float target = Clamp01(static_cast<float>(absmax) / 32767.0f);
+                float near = 0.0f;
+                const int dist = (x > px) ? (x - px) : (px - x);
+                if(dist < kTrail)
+                {
+                    near = 1.0f - (static_cast<float>(dist) / static_cast<float>(kTrail));
+                }
+                const float amp = Clamp01((static_cast<float>(absmax) / 32767.0f) * mic_boost);
+                const float envelope = 0.26f + (0.74f * near); // loose mist everywhere, strongest near playhead
+                const float target = Clamp01(amp * envelope);
                 float v = mist_level[x];
-                const float rise = 0.35f;
-                const float fall = 0.45f;
+                const float rise = 0.97f;
+                const float fall = 0.95f;
                 v += (target > v) ? ((target - v) * rise) : ((target - v) * fall);
                 mist_level[x] = v;
-                int h = static_cast<int>(v * static_cast<float>(wave_h) * 1.2f + 0.5f);
+                const float spike_boost = 1.0f + (near * 0.35f); // largest peaks live around playhead on both sides
+                int h = static_cast<int>(v * static_cast<float>(wave_h) * 1.35f * spike_boost + 0.5f);
                 if(h < 0)
                     h = 0;
                 if(h > wave_h)
@@ -1440,15 +1512,13 @@ static void Record_Render(UiScreenCtx& ctx)
                 {
                     mist_seed = mist_seed * 1664525u + 1013904223u;
                     const int frac = wave_y1 - y;
-                    const int dens = 1 + (frac / 3);
+                    const int dens = 1 + (frac / 4);
                     if((mist_seed % static_cast<uint32_t>(dens)) == 0u)
                         d.DrawPixel(x, y, true);
                 }
             }
 
-            const int px = static_cast<int>((static_cast<uint64_t>(rec_pos) * 127u) / kSdSampleMaxFrames);
             d.DrawLine(px, wave_y0, px, wave_y1, true);
-            UiDraw_Footer(d, layout, (rec_active != 0) ? "A/B:STOP" : "FINALIZING");
         }
         break;
 
@@ -1464,8 +1534,6 @@ static void Record_Render(UiScreenCtx& ctx)
                 d.SetCursor(42, 34);
                 d.WriteString("NO AUDIO", Font_6x8, true);
             }
-            const char* hint = app.record_preview_hold ? "P2:PLAYING  A:NEXT  B:BACK" : "P2:HOLD PLAY A:NEXT B:BACK";
-            UiDraw_Footer(d, layout, hint);
         }
         break;
 
@@ -1482,7 +1550,6 @@ static void Record_Render(UiScreenCtx& ctx)
             d.DrawRect(8, 36, 119, 47, true, sb);
             d.SetCursor(24, 38);
             d.WriteString(b, Font_6x8, !sb);
-            UiDraw_Footer(d, layout, "L:SEL A:OK B:BACK");
         }
         break;
 
@@ -1491,7 +1558,7 @@ static void Record_Render(UiScreenCtx& ctx)
             UiDraw_Header(d, layout, "ARE YOU SURE?", status);
             d.SetCursor(16, 24);
             d.WriteString("REC WILL BE LOST", Font_6x8, true);
-            UiDraw_Footer(d, layout, "A:YES  B:NO");
+            UiDraw_Footer(d, layout, "R:YES  L:NO");
         }
         break;
 

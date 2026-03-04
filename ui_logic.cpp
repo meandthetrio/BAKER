@@ -248,6 +248,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     if(app.record_state == RecordUiState::Recording
        && app.rec_active.load(std::memory_order_acquire) == 0)
     {
+        app.rec_monitor_enable.store(0, std::memory_order_release);
         const uint32_t rec_len = app.rec_length.load(std::memory_order_acquire);
         if(rec_len > 0)
         {

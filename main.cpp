@@ -77,6 +77,7 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
     static uint8_t s_rec_source = 0;
     static uint8_t s_rec_slot = 0;
     static uint32_t s_rec_pos = 0;
+    static constexpr uint32_t kRecLiveWaveStride = 128u;
 
     const uint8_t ready = g_app.sd_published_ready.load(std::memory_order_acquire);
     const uint32_t pub_gen = g_app.sd_published_gen.load(std::memory_order_acquire);
@@ -117,8 +118,8 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
         g_app.rec_live_last_col = -1;
         for(int i = 0; i < 128; ++i)
         {
-            g_app.rec_live_min[i] = 32767;
-            g_app.rec_live_max[i] = -32768;
+            g_app.rec_live_min[i] = 0;
+            g_app.rec_live_max[i] = 0;
         }
     }
 
@@ -154,7 +155,7 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
             const int16_t s16 = static_cast<int16_t>(clamped * 32767.0f);
             dst[s_rec_pos] = s16;
 
-            const int col = static_cast<int>((static_cast<uint64_t>(s_rec_pos) * 128u) / max_frames);
+            const int col = static_cast<int>((s_rec_pos / kRecLiveWaveStride) % 128u);
             if(col >= 0 && col < 128)
             {
                 if(col != g_app.rec_live_last_col)
@@ -228,7 +229,7 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
     fx_params.sat_drive = drive;
     g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params);
 
-    const bool monitor_on = (g_app.rec_monitor_enable.load(std::memory_order_acquire) != 0) && !s_rec_active;
+    const bool monitor_on = (g_app.rec_monitor_enable.load(std::memory_order_acquire) != 0);
     if(monitor_on)
     {
         const uint8_t src = g_app.rec_source_sel.load(std::memory_order_acquire) & 1u;
@@ -478,9 +479,12 @@ int main(void)
         g_ui.UiTick(g_app, g_params, g_evtq, now_ms);
         // LED2 indicator:
         // - SD BROWSE: solid GREEN.
+        // - RECORD > REVIEW: solid GREEN (POD2 preview available).
         // - PERFORM A/B pages: solid BLUE.
         // - otherwise off.
         const bool sd_browse_active = (g_app.ui_active_screen == UiScreenId::SdBrowse);
+        const bool record_review_active = (g_app.ui_active_screen == UiScreenId::Record)
+                                          && (g_app.record_state == RecordUiState::Review);
         const bool perform_ab_active
             = (g_app.ui_active_screen == UiScreenId::PerformEngine)
               || (g_app.ui_active_screen == UiScreenId::PerformKeyzone)
@@ -488,7 +492,7 @@ int main(void)
               || (g_app.ui_active_screen == UiScreenId::PerformEmphasis)
               || (g_app.ui_active_screen == UiScreenId::PerformProcess);
 
-        if(sd_browse_active)
+        if(sd_browse_active || record_review_active)
         {
             hw.led2.Set(0.0f, 1.0f, 0.0f);
         }

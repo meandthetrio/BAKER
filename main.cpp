@@ -489,8 +489,7 @@ int main(void)
             = (g_app.ui_active_screen == UiScreenId::PerformEngine)
               || (g_app.ui_active_screen == UiScreenId::PerformKeyzone)
               || (g_app.ui_active_screen == UiScreenId::PerformAdsr)
-              || (g_app.ui_active_screen == UiScreenId::PerformEmphasis)
-              || (g_app.ui_active_screen == UiScreenId::PerformProcess);
+              || (g_app.ui_active_screen == UiScreenId::PerformEmphasis);
 
         if(sd_browse_active || record_review_active)
         {

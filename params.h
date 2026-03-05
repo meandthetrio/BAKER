@@ -25,6 +25,7 @@ struct PerformParamsTargets
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_mode[kLayerCount] = {false, false};
+    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=MOD,2=DELAY,3=REVERB
 };
 
 struct PerformParamsCurrent
@@ -49,6 +50,7 @@ struct PerformParamsCurrent
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_mode[kLayerCount] = {false, false};
+    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=MOD,2=DELAY,3=REVERB
 };
 
 class Params

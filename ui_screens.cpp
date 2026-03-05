@@ -168,6 +168,164 @@ static int TinyStringWidth(const char* str)
     return count * char_w - 1;
 }
 
+static void DrawVerticalFadersInRect(OledPager& d,
+                                     int x,
+                                     int y,
+                                     int w,
+                                     int h,
+                                     const char* const* labels,
+                                     const float* values,
+                                     int count,
+                                     bool select_active,
+                                     int selected_index,
+                                     const int* x_offsets = nullptr,
+                                     const bool* circle_handles = nullptr,
+                                     const bool* hide_rails = nullptr,
+                                     const bool* hide_handles = nullptr)
+{
+    if(w <= 2 || h <= 2 || count <= 0)
+        return;
+    const int label_y = y + h - Font5x7::H - 1;
+    int line_top = y + 2;
+    int line_bottom = label_y - 2;
+    if(line_bottom <= line_top)
+        return;
+
+    // Keep edge lanes far enough from bounds so 7px handles stay centered on rails.
+    int fader_left = x + 4;
+    int fader_right = x + w - 5;
+    if(fader_right <= fader_left)
+        return;
+
+    const int span_x = fader_right - fader_left;
+    const int span_y = line_bottom - line_top;
+    for(int f = 0; f < count; ++f)
+    {
+        int line_x = fader_left;
+        if(count > 1 && span_x > 0)
+            line_x = fader_left + (span_x * f) / (count - 1);
+        if(x_offsets != nullptr)
+            line_x += x_offsets[f];
+
+        const char* label = labels[f];
+        const int label_w = TinyStringWidth(label);
+        int label_x = line_x - (label_w / 2);
+        if(label_x < x + 1)
+            label_x = x + 1;
+        if(label_x + label_w > x + w - 2)
+            label_x = x + w - 2 - label_w;
+        const bool selected = select_active && f == selected_index;
+        const bool line_on = true;
+        int rail_x = line_x;
+        if(rail_x < x + 1)
+            rail_x = x + 1;
+        if(rail_x > x + w - 2)
+            rail_x = x + w - 2;
+
+        if(hide_rails == nullptr || !hide_rails[f])
+        {
+            d.DrawLine(rail_x, line_top, rail_x, line_bottom, line_on);
+            d.DrawLine(rail_x - 1, line_top, rail_x + 1, line_top, line_on);
+            d.DrawLine(rail_x - 1, line_bottom, rail_x + 1, line_bottom, line_on);
+        }
+
+        const float value = values[f];
+        int tick_y = line_bottom - static_cast<int>(value * static_cast<float>(span_y) + 0.5f);
+        const bool hide_handle = (hide_handles != nullptr && hide_handles[f]);
+        const bool draw_circle = (circle_handles != nullptr && circle_handles[f]);
+        if(hide_handle)
+        {
+            // no handle
+        }
+        else if(draw_circle)
+        {
+            const int r = 2;
+            int cx = line_x;
+            int cy = tick_y;
+            if(cx - r < x + 1) cx = x + 1 + r;
+            if(cx + r > x + w - 2) cx = x + w - 2 - r;
+            if(cy - r < line_top) cy = line_top + r;
+            if(cy + r > line_bottom) cy = line_bottom - r;
+            d.DrawRect(cx - r, cy - r, cx + r, cy + r, true, false);
+            d.DrawRect(cx - r + 1, cy - r + 1, cx + r - 1, cy + r - 1, false, true);
+            d.DrawPixel(cx - r, cy - r, false);
+            d.DrawPixel(cx + r, cy - r, false);
+            d.DrawPixel(cx - r, cy + r, false);
+            d.DrawPixel(cx + r, cy + r, false);
+        }
+        else
+        {
+            int handle_w = 7; // odd width keeps visual center on rail
+            const int max_w = (x + w - 2) - (x + 1) + 1;
+            if(handle_w > max_w)
+                handle_w = max_w;
+            if((handle_w & 1) == 0 && handle_w > 1)
+                --handle_w;
+            int handle_x0 = line_x - handle_w / 2;
+            int handle_x1 = handle_x0 + handle_w - 1;
+            if(handle_x0 < x + 1)
+            {
+                handle_x0 = x + 1;
+                handle_x1 = handle_x0 + handle_w - 1;
+            }
+            if(handle_x1 > x + w - 2)
+            {
+                handle_x1 = x + w - 2;
+                handle_x0 = handle_x1 - handle_w + 1;
+            }
+            int handle_y0 = tick_y - 5;
+            int handle_y1 = tick_y + 5;
+            if(handle_y0 < line_top)
+                handle_y0 = line_top;
+            if(handle_y1 > line_bottom)
+                handle_y1 = line_bottom;
+
+            d.DrawRect(handle_x0, handle_y0, handle_x1, handle_y1, true, false);
+            if(handle_x1 - handle_x0 >= 2 && handle_y1 - handle_y0 >= 2)
+                d.DrawRect(handle_x0 + 1, handle_y0 + 1, handle_x1 - 1, handle_y1 - 1, false, true);
+            if((handle_x1 - handle_x0) >= 4 && (handle_y1 - handle_y0) >= 4)
+            {
+                d.DrawPixel(handle_x0, handle_y0, false);
+                d.DrawPixel(handle_x1, handle_y0, false);
+                d.DrawPixel(handle_x0, handle_y1, false);
+                d.DrawPixel(handle_x1, handle_y1, false);
+            }
+            const int center_y = handle_y0 + ((handle_y1 - handle_y0) / 2);
+            const int inner_x0 = handle_x0 + 1;
+            const int inner_x1 = handle_x1 - 1;
+            if(inner_x1 > inner_x0)
+            {
+                d.DrawLine(inner_x0, center_y, inner_x1, center_y, true);
+                if(center_y - 2 >= handle_y0 + 1)
+                    d.DrawLine(inner_x0, center_y - 2, inner_x1, center_y - 2, true);
+                if(center_y + 2 <= handle_y1 - 1)
+                    d.DrawLine(inner_x0, center_y + 2, inner_x1, center_y + 2, true);
+            }
+        }
+
+        if(label_x + label_w < x + w - 1)
+        {
+            if(selected)
+            {
+                int lx0 = label_x - 1;
+                int lx1 = label_x + label_w;
+                int ly0 = label_y - 1;
+                int ly1 = label_y + Font5x7::H;
+                if(lx0 < x + 1) lx0 = x + 1;
+                if(lx1 > x + w - 2) lx1 = x + w - 2;
+                if(ly0 < y + 1) ly0 = y + 1;
+                if(ly1 > y + h - 2) ly1 = y + h - 2;
+                d.DrawRect(lx0, ly0, lx1, ly1, true, true);
+                DrawTinyString(d, label, label_x, label_y, false);
+            }
+            else
+            {
+                DrawTinyString(d, label, label_x, label_y, true);
+            }
+        }
+    }
+}
+
 static constexpr int32_t kMainMenuCount = 3;
 static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "RECORD", "PERFORM"};
 static constexpr int32_t kPerformMenuCount = 5;
@@ -2462,7 +2620,7 @@ static void PerformEmphasis_Render(UiScreenCtx& ctx)
 
 static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.app || !ctx.params)
         return false;
     if(ctx.shift)
         return false;
@@ -2480,12 +2638,85 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        int idx = static_cast<int>(app.perform_process_fx_cursor) + e.value;
+        while(idx < 0)
+            idx += 4;
+        while(idx >= 4)
+            idx -= 4;
+        app.perform_process_fx_cursor = static_cast<uint8_t>(idx);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+    {
+        if(ctx.rshift)
+        {
+            const int dir = (e.value > 0) ? 1 : -1;
+            int steps = (e.value > 0) ? e.value : -e.value;
+            while(steps-- > 0)
+            {
+                const int from = static_cast<int>(app.perform_process_fx_cursor & 0x03u);
+                int to = from + dir;
+                if(to < 0)
+                    to = 3;
+                else if(to > 3)
+                    to = 0;
+                const uint8_t tmp = app.perform_process_fx_order[from];
+                app.perform_process_fx_order[from] = app.perform_process_fx_order[to];
+                app.perform_process_fx_order[to] = tmp;
+                app.perform_process_fx_cursor = static_cast<uint8_t>(to);
+            }
+
+            PerformParamsTargets& t = ctx.params->EditTargets();
+            for(int i = 0; i < 4; ++i)
+                t.fx_order[i] = app.perform_process_fx_order[i];
+            ctx.params->PublishTargets();
+            app.ui_dirty = true;
+            return true;
+        }
+
+        PerformParamsTargets& t = ctx.params->EditTargets();
+        const uint8_t cursor = app.perform_process_fx_cursor & 0x03u;
+        const uint8_t fx_id = app.perform_process_fx_order[cursor];
+        const float step = 0.02f;
+        const float delta = static_cast<float>(e.value) * step;
+
+        switch(fx_id)
+        {
+            case 0: // S = saturation drive
+                t.sat_drive = Clamp01(t.sat_drive + delta);
+                t.sat_on = (t.sat_drive > 0.001f);
+                break;
+            case 1: // M = modulation amount (existing plumbing)
+                t.lfo_depth = Clamp01(t.lfo_depth + delta);
+                break;
+            case 2: // D = delay wet
+                t.delay_mix = Clamp01(t.delay_mix + delta);
+                t.delay_on = (t.delay_mix > 0.001f);
+                break;
+            case 3: // R = reverb wet
+            default:
+                t.reverb_mix = Clamp01(t.reverb_mix + delta);
+                t.reverb_on = (t.reverb_mix > 0.001f);
+                break;
+        }
+        for(int i = 0; i < 4; ++i)
+            t.fx_order[i] = app.perform_process_fx_order[i];
+
+        ctx.params->PublishTargets();
+        app.ui_dirty = true;
+        return true;
+    }
+
     return false;
 }
 
 static void PerformProcess_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.app || !ctx.display || !ctx.params)
         return;
 
     AppState& app = *ctx.app;
@@ -2497,9 +2728,40 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     const UiLayout layout = UiLayout_Default();
     char status[16];
     BuildStatus(app, status, sizeof(status));
-    UiDraw_Header(d, layout, "MASTER BUS", status);
+    UiDraw_Header(d, layout, "MASTER FX BUS", status);
 
-    // Intentionally blank for now.
+    const int32_t selected_index = static_cast<int32_t>(app.perform_process_fx_cursor & 0x03u);
+    const int box_y = layout.y_body;
+    const int box_h = layout.y_footer - layout.y_body + layout.line_h;
+
+    // Keep right half for FX faders; left half is reserved for upcoming controls.
+    constexpr int kPaneX = 60;
+    constexpr int kPaneW = 64;
+    const PerformParamsTargets& t = ctx.params->TargetsForUI();
+    const char* labels[4] = {"S", "M", "D", "R"};
+    float values[4] = {};
+    for(int i = 0; i < 4; ++i)
+    {
+        const uint8_t fx_id = app.perform_process_fx_order[i];
+        switch(fx_id)
+        {
+            case 0: labels[i] = "S"; values[i] = Clamp01(t.sat_drive); break;
+            case 1: labels[i] = "M"; values[i] = Clamp01(t.lfo_depth); break;
+            case 2: labels[i] = "D"; values[i] = Clamp01(t.delay_mix); break;
+            case 3:
+            default:
+                labels[i] = "R";
+                values[i] = Clamp01(t.reverb_mix);
+                break;
+        }
+    }
+
+    const int fader_x = kPaneX;
+    const int fader_w = kPaneW;
+    const int fader_y = box_y + 1;
+    const int fader_h = box_h - 2;
+    if(fader_w > 4 && fader_h > 4)
+        DrawVerticalFadersInRect(d, fader_x, fader_y, fader_w, fader_h, labels, values, 4, true, selected_index);
 }
 
 UiScreenId UiNav_Active(const UiNav& nav)

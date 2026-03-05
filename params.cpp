@@ -94,6 +94,8 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.delay_on  = t.delay_on;
     current.reverb_on = t.reverb_on;
     current.sat_on    = t.sat_on;
+    for(uint8_t i = 0; i < 4; ++i)
+        current.fx_order[i] = t.fx_order[i];
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
         current.engine_loop_mode[layer] = t.engine_loop_mode[layer];
 }

@@ -141,6 +141,8 @@ struct AppState
     uint8_t perform_wave_edit_cursor = 0; // 0=TRIM START, 1=TRIM END
     uint8_t perform_adsr_row      = 0; // 0=MODE
     uint8_t perform_emphasis_row  = 0; // 0=GAIN
+    uint8_t perform_process_fx_cursor = 0; // 0=S, 1=M, 2=D, 3=R
+    uint8_t perform_process_fx_order[4] = {0, 1, 2, 3}; // 0=S,1=M,2=D,3=R
     RecordUiState record_state = RecordUiState::SourceSelect;
     uint8_t record_source_index = 0; // 0=LINE IN, 1=MIC
     uint8_t record_target_index = 0; // 0=SAVE, 1=RECORD AGAIN

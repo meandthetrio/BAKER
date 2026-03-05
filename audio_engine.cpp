@@ -260,46 +260,58 @@ void AudioEngine::ProcessBlock(const float* inL,
         float l = inL[i];
         float r = inR[i];
 
-        // SAT
-        if(sat_run)
+        for(uint8_t stage_idx = 0; stage_idx < 4; ++stage_idx)
         {
-            l = SoftClip(l * pre);
-            r = SoftClip(r * pre);
-        }
+            const uint8_t fx = p.fx_order[stage_idx];
+            switch(fx)
+            {
+                case 0: // SAT
+                    if(sat_run)
+                    {
+                        l = SoftClip(l * pre);
+                        r = SoftClip(r * pre);
+                    }
+                    break;
+                case 1: // MOD (placeholder in current CuzEngine audio chain)
+                    break;
+                case 2: // DELAY
+                    if(delay_active_ || delay_tailing_)
+                    {
+                        const bool  feed = p.delay_on;
+                        const float mix  = p.delay_on ? delay_mix_on : delay_tail_mix_;
 
-        // DELAY (hard bypass + tail)
-        if(delay_active_ || delay_tailing_)
-        {
-            const bool  feed = p.delay_on;
-            const float mix  = p.delay_on ? delay_mix_on : delay_tail_mix_;
+                        float dl, dr;
+                        DelayProcess_(l, r, mix, feed, dl, dr);
 
-            float dl, dr;
-            DelayProcess_(l, r, mix, feed, dl, dr);
+                        delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dl - l));
+                        delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dr - r));
 
-            delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dl - l));
-            delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dr - r));
+                        l = dl;
+                        r = dr;
+                    }
+                    break;
+                case 3: // REVERB
+                    if(reverb_active_ || reverb_tailing_)
+                    {
+                        const bool  feed = p.reverb_on;
+                        const float mix  = p.reverb_on ? reverb_mix_on : reverb_tail_mix_;
 
-            l = dl;
-            r = dr;
-        }
+                        float wetL, wetR;
+                        ReverbProcess_(l, r, feed, wetL, wetR);
 
-        // REVERB (hard bypass + tail)
-        if(reverb_active_ || reverb_tailing_)
-        {
-            const bool  feed = p.reverb_on;
-            const float mix  = p.reverb_on ? reverb_mix_on : reverb_tail_mix_;
+                        const float rl = l + wetL * mix;
+                        const float rr = r + wetR * mix;
 
-            float wetL, wetR;
-            ReverbProcess_(l, r, feed, wetL, wetR);
+                        reverb_wet_peak = std::fmax(reverb_wet_peak, std::fabs(rl - l));
+                        reverb_wet_peak = std::fmax(reverb_wet_peak, std::fabs(rr - r));
 
-            const float rl = l + wetL * mix;
-            const float rr = r + wetR * mix;
-
-            reverb_wet_peak = std::fmax(reverb_wet_peak, std::fabs(rl - l));
-            reverb_wet_peak = std::fmax(reverb_wet_peak, std::fabs(rr - r));
-
-            l = rl;
-            r = rr;
+                        l = rl;
+                        r = rr;
+                    }
+                    break;
+                default:
+                    break;
+            }
         }
 
         // Apply master level, then (only when BOOST is in play) soft-clip at the very end

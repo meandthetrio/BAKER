@@ -12,10 +12,29 @@ struct PerformParamsTargets
     bool  delay_on  = false;
     bool  reverb_on = false;
     bool  sat_on    = false;
+    bool  mod_on    = false;
 
     float delay_mix  = 0.0f;
     float reverb_mix = 0.0f;
     float sat_drive  = 0.0f;
+    float sat_mix    = 0.0f;
+    float sat_bump   = 0.5f;
+    float sat_bit_reso = 0.5f;
+    float sat_bit_smpl = 0.5f;
+    uint8_t sat_mode = 0; // 0=tape, 1=bit
+    float mod_mix      = 0.0f;
+    float mod_rate_hz  = 0.5f;
+    float mod_wow      = 0.5f;
+    float tape_rate    = 0.5f;
+    uint8_t mod_mode   = 0; // 0=chorus, 1=tape
+    float delay_time   = 0.5f;
+    float delay_feedback = 0.5f;
+    float delay_spread = 0.5f;
+    float delay_freeze = 0.0f;
+    float reverb_pre   = 0.5f;
+    float reverb_damp  = 0.5f;
+    float reverb_decay = 0.5f;
+    bool  reverb_reverse = false;
     float lpf_cutoff_hz = 12000.0f;
     float lfo_rate_hz   = 0.0f;
     float lfo_depth     = 0.0f;
@@ -37,10 +56,29 @@ struct PerformParamsCurrent
     bool  delay_on  = false;
     bool  reverb_on = false;
     bool  sat_on    = false;
+    bool  mod_on    = false;
 
     float delay_mix  = 0.0f;
     float reverb_mix = 0.0f;
     float sat_drive  = 0.0f;
+    float sat_mix    = 0.0f;
+    float sat_bump   = 0.5f;
+    float sat_bit_reso = 0.5f;
+    float sat_bit_smpl = 0.5f;
+    uint8_t sat_mode = 0; // 0=tape, 1=bit
+    float mod_mix      = 0.0f;
+    float mod_rate_hz  = 0.5f;
+    float mod_wow      = 0.5f;
+    float tape_rate    = 0.5f;
+    uint8_t mod_mode   = 0; // 0=chorus, 1=tape
+    float delay_time   = 0.5f;
+    float delay_feedback = 0.5f;
+    float delay_spread = 0.5f;
+    float delay_freeze = 0.0f;
+    float reverb_pre   = 0.5f;
+    float reverb_damp  = 0.5f;
+    float reverb_decay = 0.5f;
+    bool  reverb_reverse = false;
     float lpf_cutoff_hz = 12000.0f;
     float lfo_rate_hz   = 0.0f;
     float lfo_depth     = 0.0f;

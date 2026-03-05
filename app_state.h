@@ -143,6 +143,8 @@ struct AppState
     uint8_t perform_emphasis_row  = 0; // 0=GAIN
     uint8_t perform_process_fx_cursor = 0; // 0=S, 1=M, 2=D, 3=R
     uint8_t perform_process_fx_order[4] = {0, 1, 2, 3}; // 0=S,1=M,2=D,3=R
+    bool    perform_process_detail_active = false;
+    uint8_t perform_process_detail_param[4] = {0, 0, 0, 0};
     RecordUiState record_state = RecordUiState::SourceSelect;
     uint8_t record_source_index = 0; // 0=LINE IN, 1=MIC
     uint8_t record_target_index = 0; // 0=SAVE, 1=RECORD AGAIN

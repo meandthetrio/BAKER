@@ -2626,6 +2626,20 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppState& app = *ctx.app;
+    const uint8_t cursor = app.perform_process_fx_cursor & 0x03u;
+    const uint8_t fx_id = app.perform_process_fx_order[cursor];
+
+    auto detail_param_count = [](uint8_t id) -> uint8_t
+    {
+        switch(id)
+        {
+            case 0: return 4; // SAT + mode toggle
+            case 1: return 4; // MOD + algo toggle
+            case 2: return 5; // DELAY + FRZ toggle
+            case 3: return 5; // REVERB + DIR toggle
+            default: return 3;
+        }
+    };
 
     // POD2 toggles layer (same behavior as other PERFORM pages).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
@@ -2638,8 +2652,43 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    if(e.type == UiInputType::BtnDown
+       && (e.id == kUiBtnPod1 || e.id == kUiBtnPodEnc)
+       && app.perform_process_detail_active)
+    {
+        app.perform_process_detail_active = false;
+        app.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        if(!app.perform_process_detail_active)
+        {
+            app.perform_process_detail_active = true;
+            app.ui_dirty = true;
+            return true;
+        }
+
+        // In ADSR-style FX detail, toggles change via encoder scroll, not click.
+        app.ui_dirty = true;
+        return true;
+    }
+
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
+        if(app.perform_process_detail_active)
+        {
+            int idx = static_cast<int>(app.perform_process_detail_param[cursor]) + e.value;
+            const int count = static_cast<int>(detail_param_count(fx_id));
+            while(idx < 0)
+                idx += count;
+            while(idx >= count)
+                idx -= count;
+            app.perform_process_detail_param[cursor] = static_cast<uint8_t>(idx);
+            app.ui_dirty = true;
+            return true;
+        }
         int idx = static_cast<int>(app.perform_process_fx_cursor) + e.value;
         while(idx < 0)
             idx += 4;
@@ -2652,6 +2701,165 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
+        if(app.perform_process_detail_active)
+        {
+            PerformParamsTargets& t = ctx.params->EditTargets();
+            const uint8_t pidx = app.perform_process_detail_param[cursor];
+            const float step = 0.02f;
+            const float delta = static_cast<float>(e.value) * step;
+            bool changed = false;
+            switch(fx_id)
+            {
+                case 0: // SAT
+                    if(pidx == 0)
+                    {
+                        if(t.sat_mode == 0)
+                        {
+                            t.sat_drive = Clamp01(t.sat_drive + delta);
+                        }
+                        else
+                        {
+                            // ADSR behavior: RESO is a discrete 3-state selector.
+                            const int dir = (e.value > 0) ? 1 : -1;
+                            int idx = 0;
+                            if(t.sat_bit_reso >= 0.75f)
+                                idx = 2;
+                            else if(t.sat_bit_reso >= 0.25f)
+                                idx = 1;
+                            idx += dir;
+                            if(idx < 0) idx = 0;
+                            if(idx > 2) idx = 2;
+                            if(idx == 0) t.sat_bit_reso = 0.0f;      // CRUSH
+                            if(idx == 1) t.sat_bit_reso = 0.5f;      // STATIC
+                            if(idx == 2) t.sat_bit_reso = 1.0f;      // HISS
+                        }
+                        changed = true;
+                    }
+                    else if(pidx == 1)
+                    {
+                        if(t.sat_mode == 0)
+                            t.sat_bump = Clamp01(t.sat_bump + delta);
+                        else
+                            t.sat_bit_smpl = Clamp01(t.sat_bit_smpl + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 2)
+                    {
+                        t.sat_mix = Clamp01(t.sat_mix + delta);
+                        t.sat_on = (t.sat_mix > 0.001f);
+                        changed = true;
+                    }
+                    else if(pidx == 3)
+                    {
+                        const int dir = (e.value > 0) ? 1 : -1;
+                        int steps = (e.value > 0) ? e.value : -e.value;
+                        while(steps-- > 0)
+                            t.sat_mode = (dir > 0) ? ((t.sat_mode + 1u) & 1u)
+                                                   : ((t.sat_mode == 0) ? 1u : 0u);
+                        changed = true;
+                    }
+                    break;
+                case 1: // MOD
+                    if(pidx == 0)
+                    {
+                        if(t.mod_mode == 1)
+                            t.mod_wow = Clamp01(t.mod_wow + delta);
+                        else
+                            t.lfo_depth = Clamp01(t.lfo_depth + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 1)
+                    {
+                        if(t.mod_mode == 1)
+                            t.tape_rate = Clamp01(t.tape_rate + delta);
+                        else
+                            t.mod_rate_hz = Clamp01(t.mod_rate_hz + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 2)
+                    {
+                        t.mod_mix = Clamp01(t.mod_mix + delta);
+                        t.mod_on = (t.mod_mix > 0.001f);
+                        changed = true;
+                    }
+                    else if(pidx == 3)
+                    {
+                        const int dir = (e.value > 0) ? 1 : -1;
+                        int steps = (e.value > 0) ? e.value : -e.value;
+                        while(steps-- > 0)
+                            t.mod_mode = (dir > 0) ? ((t.mod_mode + 1u) & 1u)
+                                                   : ((t.mod_mode == 0) ? 1u : 0u);
+                        changed = true;
+                    }
+                    break;
+                case 2: // DELAY
+                    if(pidx == 0)
+                    {
+                        t.delay_time = Clamp01(t.delay_time + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 1)
+                    {
+                        t.delay_feedback = Clamp01(t.delay_feedback + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 2)
+                    {
+                        t.delay_spread = Clamp01(t.delay_spread + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 4)
+                    {
+                        t.delay_mix = Clamp01(t.delay_mix + delta);
+                        t.delay_on = (t.delay_mix > 0.001f);
+                        changed = true;
+                    }
+                    else if(pidx == 3)
+                    {
+                        int steps = (e.value > 0) ? e.value : -e.value;
+                        while(steps-- > 0)
+                            t.delay_freeze = (t.delay_freeze >= 0.5f) ? 0.0f : 1.0f;
+                        changed = true;
+                    }
+                    break;
+                case 3: // REVERB
+                default:
+                    if(pidx == 0)
+                    {
+                        t.reverb_pre = Clamp01(t.reverb_pre + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 1)
+                    {
+                        t.reverb_damp = Clamp01(t.reverb_damp + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 2)
+                    {
+                        t.reverb_decay = Clamp01(t.reverb_decay + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 4)
+                    {
+                        t.reverb_mix = Clamp01(t.reverb_mix + delta);
+                        t.reverb_on = (t.reverb_mix > 0.001f);
+                        changed = true;
+                    }
+                    else if(pidx == 3)
+                    {
+                        int steps = (e.value > 0) ? e.value : -e.value;
+                        while(steps-- > 0)
+                            t.reverb_reverse = !t.reverb_reverse;
+                        changed = true;
+                    }
+                    break;
+            }
+            if(changed)
+                ctx.params->PublishTargets();
+            app.ui_dirty = true;
+            return true;
+        }
+
         if(ctx.rshift)
         {
             const int dir = (e.value > 0) ? 1 : -1;
@@ -2714,6 +2922,423 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
+static void DrawFxDetailScreen(OledPager& d,
+                               const PerformParamsTargets& t,
+                               uint8_t fx_id,
+                               uint8_t selected_param,
+                               uint32_t now_ms)
+{
+    constexpr int kDisplayW = 128;
+    constexpr int kDisplayH = 64;
+    constexpr int kPerformFaderCount = 4;
+    constexpr int kDelayFaderCount = 5;
+    constexpr int kReverbFaderCount = 5;
+    constexpr int kBitResoStepCount = 3;
+    static const char* kBitResoLabels[kBitResoStepCount] = {"CRUSH", "STATIC", "HISS"};
+    auto bit_reso_index = [](float value) -> int
+    {
+        if(value < 0.0f) value = 0.0f;
+        if(value > 1.0f) value = 1.0f;
+        int idx = static_cast<int>(value * static_cast<float>(kBitResoStepCount - 1) + 0.5f);
+        if(idx < 0) idx = 0;
+        if(idx >= kBitResoStepCount) idx = kBitResoStepCount - 1;
+        return idx;
+    };
+
+    const char* labels[kPerformFaderCount] = {"SATURATION", "MODULATION", "DELAY", "REVERB"};
+    int index = static_cast<int>(fx_id & 0x03u);
+    if(index < 0 || index >= kPerformFaderCount)
+        index = 0;
+
+    const char* label = labels[index];
+    const int text_w = TinyStringWidth(label);
+    int text_x = (kDisplayW - text_w) / 2;
+    if(text_x < 0)
+        text_x = 0;
+    DrawTinyString(d, label, text_x, 1, true);
+
+    if(index == 0)
+    {
+        constexpr int kMargin = 2;
+        constexpr int kGap = 2;
+        const int block_x = kMargin;
+        const int block_w = kDisplayW / 4;
+        const int block_y = Font5x7::H + 4;
+        int block_h = kDisplayH - block_y - kMargin;
+        if(block_h < 3) block_h = 3;
+        const int box_h = (block_h - kGap) / 2;
+        const bool tape_selected = (t.sat_mode == 0);
+        const bool bit_selected = (t.sat_mode == 1);
+        const bool mode_select_active = (selected_param == 3);
+        if(mode_select_active)
+            d.DrawRect(block_x - 1, block_y - 1, block_x + block_w, block_y + block_h, true, false);
+        d.DrawRect(block_x, block_y, block_x + block_w - 1, block_y + box_h - 1, true, tape_selected);
+        d.DrawRect(block_x, block_y + box_h + kGap, block_x + block_w - 1, block_y + (box_h * 2) + kGap - 1, true, bit_selected);
+        const int label_w1 = TinyStringWidth("TAPE");
+        const int label_w2 = TinyStringWidth("BIT");
+        const int label_y1 = block_y + (box_h - Font5x7::H) / 2;
+        const int label_y2 = block_y + box_h + kGap + (box_h - Font5x7::H) / 2;
+        int label_x1 = block_x + (block_w - label_w1) / 2;
+        int label_x2 = block_x + (block_w - label_w2) / 2;
+        if(label_x1 < block_x + 1) label_x1 = block_x + 1;
+        if(label_x2 < block_x + 1) label_x2 = block_x + 1;
+        DrawTinyString(d, "TAPE", label_x1, label_y1, !tape_selected);
+        DrawTinyString(d, "BIT", label_x2, label_y2, !bit_selected);
+
+        const int fader_offset = 8;
+        const int fader_x = block_x + block_w + kGap + fader_offset;
+        const int fader_w = kDisplayW - fader_x - kMargin;
+        if(fader_w > 4)
+        {
+            const char* fader_labels[3] = {(t.sat_mode == 1) ? "RESO" : "SAT",
+                                           (t.sat_mode == 1) ? "SMPL" : "BUMP",
+                                           "MIX"};
+            const float fader_values[3] = {(t.sat_mode == 1) ? t.sat_bit_reso : t.sat_drive,
+                                           (t.sat_mode == 1) ? t.sat_bit_smpl : t.sat_bump,
+                                           t.sat_mix};
+            int param_index = selected_param;
+            const bool fader_select_active = (param_index >= 0 && param_index < 3);
+            if(!fader_select_active && !mode_select_active) param_index = 0;
+            const int fader_offsets[3] = {0, 0, 0};
+            const bool circle_handles[3] = {false, false, false};
+            const bool hide_rails[3] = {t.sat_mode == 1, false, false};
+            const bool hide_handles[3] = {t.sat_mode == 1, false, false};
+            DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
+                                     fader_labels, fader_values, 3, fader_select_active, param_index,
+                                     fader_offsets, circle_handles, hide_rails, hide_handles);
+            if(t.sat_mode == 1)
+            {
+                const int label_y = block_y + block_h - Font5x7::H - 1;
+                int line_top = block_y + 2;
+                int line_bottom = label_y - 2;
+                if(line_bottom > line_top)
+                {
+                    int fader_left = fader_x + 2;
+                    int line_x = fader_left;
+                    const char* lbl = "RESO";
+                    const int lbl_w = TinyStringWidth(lbl);
+                    int lbl_x = line_x - (lbl_w / 2);
+                    if(lbl_x < fader_x + 1) lbl_x = fader_x + 1;
+                    if(lbl_x + lbl_w > fader_x + fader_w - 2) lbl_x = fader_x + fader_w - 2 - lbl_w;
+                    line_x = lbl_x + (lbl_w / 2);
+                    const int cur_idx = bit_reso_index(t.sat_bit_reso);
+                    const int label_top = line_top + 1;
+                    const int label_gap = 3;
+                    int label_y0 = label_top;
+                    for(int i = 0; i < kBitResoStepCount; ++i)
+                    {
+                        const char* bits_label = kBitResoLabels[i];
+                        const int bits_w = TinyStringWidth(bits_label);
+                        const int bits_x = line_x - (bits_w / 2);
+                        const int bits_y = label_y0 + (i * (Font5x7::H + label_gap));
+                        if(bits_y >= line_top && bits_y <= line_bottom - Font5x7::H)
+                        {
+                            const bool is_selected = (i == cur_idx);
+                            if(is_selected)
+                            {
+                                d.DrawRect(bits_x - 1, bits_y - 1, bits_x + bits_w, bits_y + Font5x7::H, true, true);
+                                DrawTinyString(d, bits_label, bits_x, bits_y, false);
+                            }
+                            else
+                            {
+                                DrawTinyString(d, bits_label, bits_x, bits_y, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else if(index == 1)
+    {
+        constexpr int kMargin = 2;
+        constexpr int kGap = 2;
+        const int block_x = kMargin;
+        const int block_w = kDisplayW / 4;
+        const int block_y = Font5x7::H + 4;
+        int block_h = kDisplayH - block_y - kMargin;
+        if(block_h < 3) block_h = 3;
+        const bool chorus_selected = (t.mod_mode == 0);
+        const bool tape_selected = (t.mod_mode == 1);
+        const bool algo_selected = (selected_param == 3);
+        const int algo_x0 = block_x;
+        const int algo_y0 = block_y;
+        const int algo_x1 = block_x + block_w - 1;
+        const int algo_y1 = block_y + block_h - 1;
+        const int algo_pad = 2;
+        const int algo_gap = 2;
+        const int inner_x0 = algo_x0 + algo_pad;
+        const int inner_y0 = algo_y0 + algo_pad;
+        const int inner_x1 = algo_x1 - algo_pad;
+        const int inner_y1 = algo_y1 - algo_pad;
+        const int inner_h = inner_y1 - inner_y0 + 1;
+        const int box_h = (inner_h - algo_gap) / 2;
+        const int box1_y0 = inner_y0;
+        const int box1_y1 = box1_y0 + box_h - 1;
+        const int box2_y0 = box1_y1 + algo_gap + 1;
+        const int box2_y1 = box2_y0 + box_h - 1;
+        if(algo_selected)
+        {
+            d.DrawRect(algo_x0, algo_y0, algo_x1, algo_y1, true, false);
+            if(algo_x1 - algo_x0 > 2 && algo_y1 - algo_y0 > 2)
+                d.DrawRect(algo_x0 + 1, algo_y0 + 1, algo_x1 - 1, algo_y1 - 1, true, false);
+        }
+        d.DrawRect(inner_x0, box1_y0, inner_x1, box1_y1, true, chorus_selected);
+        d.DrawRect(inner_x0, box2_y0, inner_x1, box2_y1, true, tape_selected);
+        const int label_w1 = TinyStringWidth("CHRS");
+        const int label_w2 = TinyStringWidth("TAPE");
+        const int label_y1 = box1_y0 + (box_h - Font5x7::H) / 2;
+        const int label_y2 = box2_y0 + (box_h - Font5x7::H) / 2;
+        const int inner_w = inner_x1 - inner_x0 + 1;
+        int label_x1 = inner_x0 + (inner_w - label_w1) / 2;
+        int label_x2 = inner_x0 + (inner_w - label_w2) / 2;
+        if(label_x1 < inner_x0 + 1) label_x1 = inner_x0 + 1;
+        if(label_x1 + label_w1 > inner_x1 - 1) label_x1 = inner_x1 - 1 - label_w1;
+        if(label_x2 < inner_x0 + 1) label_x2 = inner_x0 + 1;
+        if(label_x2 + label_w2 > inner_x1 - 1) label_x2 = inner_x1 - 1 - label_w2;
+        DrawTinyString(d, "CHRS", label_x1, label_y1, !chorus_selected);
+        DrawTinyString(d, "TAPE", label_x2, label_y2, !tape_selected);
+
+        const int fader_offset = 8;
+        const int fader_x = block_x + block_w + kGap + fader_offset;
+        const int fader_w = kDisplayW - fader_x - kMargin;
+        if(fader_w > 4)
+        {
+            const char* fader_labels[3] = {(t.mod_mode == 1) ? "DROP" : "DPTH",
+                                           (t.mod_mode == 1) ? "RATE" : "SPD",
+                                           "MIX"};
+            const float fader_values[3] = {(t.mod_mode == 1) ? t.mod_wow : t.lfo_depth,
+                                           (t.mod_mode == 1) ? t.tape_rate : t.mod_rate_hz,
+                                           t.mod_mix};
+            int param_index = selected_param;
+            const bool fader_select_active = (param_index >= 0 && param_index < 3);
+            if(!fader_select_active && !algo_selected) param_index = 0;
+            const int fader_offsets[3] = {0, 0, 0};
+            DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
+                                     fader_labels, fader_values, 3, fader_select_active, param_index,
+                                     fader_offsets, nullptr, nullptr, nullptr);
+        }
+    }
+    else if(index == 2)
+    {
+        constexpr int kMargin = 2;
+        const int block_y = Font5x7::H + 4;
+        int block_h = kDisplayH - block_y - kMargin;
+        if(block_h < 3) block_h = 3;
+        const int fader_x = kMargin;
+        const int fader_w = kDisplayW - (kMargin * 2);
+        if(fader_w > 4)
+        {
+            const char* fader_labels[kDelayFaderCount] = {"TIM", "FBK", "SPRD", "FRZ", "MIX"};
+            const float fader_values[kDelayFaderCount] = {t.delay_time, t.delay_feedback, t.delay_spread, 0.0f, t.delay_mix};
+            int param_index = selected_param;
+            const bool fader_select_active = (param_index >= 0 && param_index < kDelayFaderCount);
+            if(!fader_select_active) param_index = 0;
+            const bool hide_handles[kDelayFaderCount] = {false, false, false, true, false};
+            const bool hide_rails[kDelayFaderCount] = {false, false, false, true, false};
+            const int fader_offsets[kDelayFaderCount] = {0, 0, 0, 0, 0};
+            DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
+                                     fader_labels, fader_values, kDelayFaderCount, fader_select_active, param_index,
+                                     fader_offsets, nullptr, hide_rails, hide_handles);
+
+            const int label_y = block_y + block_h - Font5x7::H - 1;
+            const int line_top = block_y + 2;
+            const int line_bottom = label_y - 2;
+            const int fader_left = fader_x + 2;
+            const int fader_right = fader_x + fader_w - 3;
+            const int span_x = fader_right - fader_left;
+            int line_x = fader_left;
+            if(kDelayFaderCount > 1 && span_x > 0)
+                line_x = fader_left + (span_x * 3) / (kDelayFaderCount - 1);
+            const char* frz_label = "FRZ";
+            const int frz_w = TinyStringWidth(frz_label);
+            int frz_x = line_x - (frz_w / 2);
+            if(frz_x < fader_x + 1) frz_x = fader_x + 1;
+            if(frz_x + frz_w > fader_x + fader_w - 2) frz_x = fader_x + fader_w - 2 - frz_w;
+            line_x = frz_x + (frz_w / 2);
+            const bool freeze_on = (t.delay_freeze >= 0.5f);
+            const char* on_label = "ON";
+            const char* off_label = "OFF";
+            const int on_w = TinyStringWidth(on_label);
+            const int off_w = TinyStringWidth(off_label);
+            const int text_x_on = line_x - (on_w / 2);
+            const int text_x_off = line_x - (off_w / 2);
+            const int state_gap = 2;
+            const int text_y_on = line_top + 1;
+            const int text_y_off = text_y_on + Font5x7::H + state_gap;
+            const int text_top = text_y_on - 1;
+            const int text_bottom = text_y_off + Font5x7::H + 1;
+            const bool highlight = (fader_select_active && param_index == 3);
+
+            auto DrawSnowflake = [&](int sx, int sy, bool on)
+            {
+                d.DrawPixel(sx, sy, on);
+                d.DrawPixel(sx - 1, sy, on);
+                d.DrawPixel(sx + 1, sy, on);
+                d.DrawPixel(sx, sy - 1, on);
+                d.DrawPixel(sx, sy + 1, on);
+            };
+
+            const int area_left = line_x - 6;
+            const int area_right = line_x + 6;
+            const int area_top = line_top;
+            const int area_bottom = line_bottom;
+            const int area_w = area_right - area_left + 1;
+            const int area_h = area_bottom - area_top + 1;
+            if(area_w > 4 && area_h > 4 && freeze_on)
+            {
+                for(int i = 0; i < 6; ++i)
+                {
+                    const int sx = area_left + static_cast<int>((now_ms / 120 + i * 7) % area_w);
+                    const int sy = area_top + static_cast<int>((now_ms / 60 + i * 9) % area_h);
+                    if(sy < text_top || sy > text_bottom)
+                        DrawSnowflake(sx, sy, true);
+                }
+            }
+
+            if(freeze_on)
+            {
+                if(highlight)
+                {
+                    d.DrawRect(text_x_on - 1, text_y_on - 1, text_x_on + on_w, text_y_on + Font5x7::H, true, true);
+                    DrawTinyString(d, on_label, text_x_on, text_y_on, false);
+                }
+                else DrawTinyString(d, on_label, text_x_on, text_y_on, true);
+                DrawTinyString(d, off_label, text_x_off, text_y_off, true);
+            }
+            else
+            {
+                DrawTinyString(d, on_label, text_x_on, text_y_on, true);
+                if(highlight)
+                {
+                    d.DrawRect(text_x_off - 1, text_y_off - 1, text_x_off + off_w, text_y_off + Font5x7::H, true, true);
+                    DrawTinyString(d, off_label, text_x_off, text_y_off, false);
+                }
+                else DrawTinyString(d, off_label, text_x_off, text_y_off, true);
+            }
+        }
+    }
+    else if(index == 3)
+    {
+        constexpr int kMargin = 2;
+        const int block_y = Font5x7::H + 4;
+        int block_h = kDisplayH - block_y - kMargin;
+        if(block_h < 3) block_h = 3;
+        const int fader_x = kMargin;
+        const int fader_w = kDisplayW - (kMargin * 2);
+        if(fader_w > 4)
+        {
+            const char* fader_labels[kReverbFaderCount] = {"Pre", "Dmp", "Dcy", "DIR", "Wet"};
+            const float fader_values[kReverbFaderCount] = {t.reverb_pre, t.reverb_damp, t.reverb_decay, t.reverb_reverse ? 1.0f : 0.0f, t.reverb_mix};
+            int param_index = selected_param;
+            const bool fader_select_active = (param_index >= 0 && param_index < kReverbFaderCount);
+            if(!fader_select_active) param_index = 0;
+            const bool hide_handles[kReverbFaderCount] = {false, false, false, true, false};
+            const bool hide_rails[kReverbFaderCount] = {false, false, false, true, false};
+            const int fader_offsets[kReverbFaderCount] = {0, 1, -1, 0, 0};
+            DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
+                                     fader_labels, fader_values, kReverbFaderCount, fader_select_active, param_index,
+                                     fader_offsets, nullptr, hide_rails, hide_handles);
+
+            const int label_y = block_y + block_h - Font5x7::H - 1;
+            const int line_top = block_y + 2;
+            const int line_bottom = label_y - 2;
+            const int fader_left = fader_x + 2;
+            const int fader_right = fader_x + fader_w - 3;
+            const int span_x = fader_right - fader_left;
+            int line_x = fader_left;
+            if(kReverbFaderCount > 1 && span_x > 0)
+                line_x = fader_left + (span_x * 3) / (kReverbFaderCount - 1);
+            const char* dir_label = "DIR";
+            const int dir_w = TinyStringWidth(dir_label);
+            int dir_x = line_x - (dir_w / 2);
+            if(dir_x < fader_x + 1) dir_x = fader_x + 1;
+            if(dir_x + dir_w > fader_x + fader_w - 2) dir_x = fader_x + fader_w - 2 - dir_w;
+            line_x = dir_x + (dir_w / 2);
+            const bool reverse_on = t.reverb_reverse;
+            const char* on_label = "REV";
+            const char* off_label = "FOR";
+            const int on_w = TinyStringWidth(on_label);
+            const int off_w = TinyStringWidth(off_label);
+            const int text_y_on = line_top + 1;
+            const int text_y_off = text_y_on + Font5x7::H + 2;
+            const int text_bottom = text_y_off + Font5x7::H + 1;
+            const int text_x_on = line_x - (on_w / 2);
+            const int text_x_off = line_x - (off_w / 2);
+            if(reverse_on)
+            {
+                d.DrawRect(text_x_on - 1, text_y_on - 1, text_x_on + on_w, text_y_on + Font5x7::H, true, true);
+                DrawTinyString(d, on_label, text_x_on, text_y_on, false);
+                DrawTinyString(d, off_label, text_x_off, text_y_off, true);
+            }
+            else
+            {
+                DrawTinyString(d, on_label, text_x_on, text_y_on, true);
+                d.DrawRect(text_x_off - 1, text_y_off - 1, text_x_off + off_w, text_y_off + Font5x7::H, true, true);
+                DrawTinyString(d, off_label, text_x_off, text_y_off, false);
+            }
+            if(reverse_on)
+            {
+                const int area_left = line_x - 6;
+                const int area_right = line_x + 6;
+                const int area_top = line_top;
+                const int area_bottom = line_bottom;
+                const int area_w = area_right - area_left + 1;
+                const int area_h = area_bottom - area_top + 1;
+                if(area_w > 4 && area_h > 4)
+                {
+                    const int icon_top = (text_bottom + 1 > area_top) ? (text_bottom + 1) : area_top;
+                    const int icon_bottom = area_bottom;
+                    const int icon_h = icon_bottom - icon_top + 1;
+                    if(icon_h >= 7)
+                    {
+                        const int cx = line_x + 3;
+                        const int cy = icon_top + (icon_h / 2);
+                        const int travel = 6;
+                        int phase = static_cast<int>((now_ms / 100) % (travel + 2));
+                        int shift = travel - phase;
+                        if(shift < 0) shift = travel;
+                        d.DrawLine(cx - 8, cy - 3, cx - 8, cy + 3, true);
+                        const int tri_shift = shift;
+                        d.DrawPixel(cx - 1 - tri_shift, cy, true);
+                        d.DrawPixel(cx - tri_shift, cy - 1, true);
+                        d.DrawPixel(cx - tri_shift, cy, true);
+                        d.DrawPixel(cx - tri_shift, cy + 1, true);
+                        d.DrawPixel(cx + 1 - tri_shift, cy - 2, true);
+                        d.DrawPixel(cx + 1 - tri_shift, cy - 1, true);
+                        d.DrawPixel(cx + 1 - tri_shift, cy, true);
+                        d.DrawPixel(cx + 1 - tri_shift, cy + 1, true);
+                        d.DrawPixel(cx + 1 - tri_shift, cy + 2, true);
+                        d.DrawPixel(cx + 2 - tri_shift, cy - 3, true);
+                        d.DrawPixel(cx + 2 - tri_shift, cy - 2, true);
+                        d.DrawPixel(cx + 2 - tri_shift, cy - 1, true);
+                        d.DrawPixel(cx + 2 - tri_shift, cy, true);
+                        d.DrawPixel(cx + 2 - tri_shift, cy + 1, true);
+                        d.DrawPixel(cx + 2 - tri_shift, cy + 2, true);
+                        d.DrawPixel(cx + 2 - tri_shift, cy + 3, true);
+                        d.DrawPixel(cx + 3 - tri_shift, cy, true);
+                        d.DrawPixel(cx + 4 - tri_shift, cy - 1, true);
+                        d.DrawPixel(cx + 4 - tri_shift, cy, true);
+                        d.DrawPixel(cx + 4 - tri_shift, cy + 1, true);
+                        d.DrawPixel(cx + 5 - tri_shift, cy - 2, true);
+                        d.DrawPixel(cx + 5 - tri_shift, cy - 1, true);
+                        d.DrawPixel(cx + 5 - tri_shift, cy, true);
+                        d.DrawPixel(cx + 5 - tri_shift, cy + 1, true);
+                        d.DrawPixel(cx + 5 - tri_shift, cy + 2, true);
+                        d.DrawPixel(cx + 6 - tri_shift, cy - 3, true);
+                        d.DrawPixel(cx + 6 - tri_shift, cy - 2, true);
+                        d.DrawPixel(cx + 6 - tri_shift, cy - 1, true);
+                        d.DrawPixel(cx + 6 - tri_shift, cy, true);
+                        d.DrawPixel(cx + 6 - tri_shift, cy + 1, true);
+                        d.DrawPixel(cx + 6 - tri_shift, cy + 2, true);
+                        d.DrawPixel(cx + 6 - tri_shift, cy + 3, true);
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void PerformProcess_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display || !ctx.params)
@@ -2724,6 +3349,16 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
 
     OledPager& d = *ctx.display;
     d.Fill(false);
+
+    if(app.perform_process_detail_active)
+    {
+        const uint8_t cursor = app.perform_process_fx_cursor & 0x03u;
+        const uint8_t fx_id = app.perform_process_fx_order[cursor];
+        const uint8_t pidx = app.perform_process_detail_param[cursor];
+        const PerformParamsTargets& t = ctx.params->TargetsForUI();
+        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms);
+        return;
+    }
 
     const UiLayout layout = UiLayout_Default();
     char status[16];
@@ -3317,7 +3952,7 @@ static bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(ctx.shift)
         return false;
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt)
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
     {
         if(UiListMenu_OnEnc(sd.menu, e.value))
         {
@@ -4160,6 +4795,11 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         // Record uses BACK for in-screen state transitions (review/back-confirm/stop).
         if(active == UiScreenId::Record && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
+        // PROCESS detail uses BACK to return from FX detail to MASTER BUS,
+        // not to leave the PROCESS screen entirely.
+        if(active == UiScreenId::PerformProcess && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
         if(UiNav_Pop(ctx.app->ui_nav))

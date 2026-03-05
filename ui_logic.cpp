@@ -156,6 +156,13 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         {
             // Toggle SHIFT menu.
             const UiScreenId active = UiNav_Active(app.ui_nav);
+            if(active == UiScreenId::PerformProcess && app.perform_process_detail_active)
+            {
+                // Let PROCESS detail consume POD1 as "back to PROCESS".
+                // Do not globally open SHIFT menu from inside FX detail.
+            }
+            else
+            {
             if(active == UiScreenId::ShiftMenu)
             {
                 UiNav_Pop(app.ui_nav);
@@ -171,6 +178,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             }
             app.ui_dirty = true;
             continue;
+            }
         }
 
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)

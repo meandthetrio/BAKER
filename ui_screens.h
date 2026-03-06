@@ -19,6 +19,8 @@ enum class UiScreenId : uint8_t
     PerformMenu,
     PerformEngine,
     PerformKeyzone,
+    PerformKeyzoneRange,
+    PerformKeyzoneVelocity,
     PerformAdsr,
     PerformEmphasis,
     COUNT

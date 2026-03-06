@@ -172,6 +172,18 @@ static constexpr int32_t kMainMenuCount = 3;
 static const char* kMenuLabels[kMainMenuCount] = {"LOAD", "RECORD", "PERFORM"};
 static constexpr int32_t kPerformMenuCount = 4;
 static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS"};
+static constexpr int32_t kKeyzoneMenuCount = 2;
+static const char* kKeyzoneMenuLabels[kKeyzoneMenuCount] = {"RANGE", "VELOCITY"};
+static constexpr int32_t kRangeFocusCount = 3;
+static constexpr int32_t kRangeFocusLeft = 0;
+static constexpr int32_t kRangeFocusRect = 1;
+static constexpr int32_t kRangeFocusRight = 2;
+static constexpr int32_t kBreakShapeCount = 3;
+static constexpr int32_t kBreakShapeHard = 0;
+static constexpr int32_t kBreakShapeRamp = 1;
+static constexpr int32_t kBreakShapeCurve = 2;
+static constexpr int32_t kKeybedVisibleNoteMin = 36; // C2
+static constexpr int32_t kKeybedVisibleNoteMax = 84; // C6
 
 static int32_t NextMenuIndex(int32_t current, int32_t delta)
 {
@@ -210,6 +222,26 @@ static int32_t NextPerformMenuIndex(int32_t current, int32_t delta)
         pos += kPerformMenuCount;
     while(pos >= kPerformMenuCount)
         pos -= kPerformMenuCount;
+    return order[pos];
+}
+
+static int32_t NextKeyzoneMenuIndex(int32_t current, int32_t delta)
+{
+    static const int32_t order[kKeyzoneMenuCount] = {0, 1};
+    int32_t pos = 0;
+    for(int32_t i = 0; i < kKeyzoneMenuCount; ++i)
+    {
+        if(order[i] == current)
+        {
+            pos = i;
+            break;
+        }
+    }
+    pos += delta;
+    while(pos < 0)
+        pos += kKeyzoneMenuCount;
+    while(pos >= kKeyzoneMenuCount)
+        pos -= kKeyzoneMenuCount;
     return order[pos];
 }
 
@@ -815,6 +847,159 @@ static void FormatDb(int v, char* out, size_t out_n)
         std::snprintf(out, out_n, "%ddB", v);
 }
 
+static void FormatMidiNoteName(int note, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+
+    static const char* kNames[12] = {
+        "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"};
+    note = ClampInt(note, 0, 127);
+    const int pitch_class = note % 12;
+    const int octave = (note / 12) - 1;
+    std::snprintf(out, out_n, "%s%d", kNames[pitch_class], octave);
+}
+
+static const char* BreakShapeName(uint8_t shape)
+{
+    switch(shape % static_cast<uint8_t>(kBreakShapeCount))
+    {
+        case kBreakShapeHard: return "HARD";
+        case kBreakShapeRamp: return "RAMP";
+        case kBreakShapeCurve:
+        default: return "CURVE";
+    }
+}
+
+static bool IsBlackKey(int midi_note)
+{
+    const int pc = ((midi_note % 12) + 12) % 12;
+    return (pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10);
+}
+
+static int KeybedNoteToX(int midi_note, int x, int w)
+{
+    midi_note = ClampInt(midi_note, kKeybedVisibleNoteMin, kKeybedVisibleNoteMax);
+    const int span = kKeybedVisibleNoteMax - kKeybedVisibleNoteMin;
+    if(span <= 0 || w <= 1)
+        return x;
+    return x + ((midi_note - kKeybedVisibleNoteMin) * (w - 1)) / span;
+}
+
+static void KeybedNoteSpanPx(int midi_note, int x, int w, int& x0, int& x1)
+{
+    const int note = ClampInt(midi_note, kKeybedVisibleNoteMin, kKeybedVisibleNoteMax);
+    const int next = (note < kKeybedVisibleNoteMax) ? (note + 1) : note;
+    x0 = KeybedNoteToX(note, x, w);
+    if(note < kKeybedVisibleNoteMax)
+        x1 = KeybedNoteToX(next, x, w) - 1;
+    else
+        x1 = x + w - 1;
+    if(x1 < x0)
+        x1 = x0;
+}
+
+static bool KeyzoneNoteFlashing(const AppState& app, int midi_note, uint32_t now_ms)
+{
+    const uint8_t note_u8 = static_cast<uint8_t>(ClampInt(midi_note, 0, 127));
+    for(uint8_t i = 0; i < AppState::kKeyzoneFlashSlots; ++i)
+    {
+        if(app.keyzone_flash_until_ms[i] > now_ms && app.keyzone_flash_note[i] == note_u8)
+            return true;
+    }
+    return false;
+}
+
+static void KeyzoneNormalizeSpanForRectOps(int& lo, int& hi)
+{
+    lo = ClampInt(lo, kKeybedVisibleNoteMin, kKeybedVisibleNoteMax - 1);
+    hi = ClampInt(hi, kKeybedVisibleNoteMin + 1, kKeybedVisibleNoteMax);
+    if(hi <= lo)
+        hi = lo + 1;
+}
+
+static void KeyzoneTranslateSpanStep(int& lo, int& hi, int step_dir)
+{
+    if(step_dir > 0)
+    {
+        if(hi < kKeybedVisibleNoteMax)
+        {
+            lo += 1;
+            hi += 1;
+        }
+        else if(lo < hi - 1)
+        {
+            lo += 1;
+        }
+    }
+    else if(step_dir < 0)
+    {
+        if(lo > kKeybedVisibleNoteMin)
+        {
+            lo -= 1;
+            hi -= 1;
+        }
+        else if(hi > lo + 1)
+        {
+            hi -= 1;
+        }
+    }
+}
+
+static void DrawRangeKeybed(OledPager& d, const AppState& app, uint32_t now_ms, int x, int y, int w, int h)
+{
+    if(w < 8 || h < 8)
+        return;
+
+    const int x0 = x;
+    const int y0 = y;
+    const int x1 = x + w - 1;
+    const int y1 = y + h - 1;
+
+    d.DrawRect(x0, y0, x1, y1, true, true);
+
+    for(int note = kKeybedVisibleNoteMin + 1; note <= kKeybedVisibleNoteMax; ++note)
+    {
+        if(IsBlackKey(note))
+            continue;
+        const int xx = KeybedNoteToX(note, x, w);
+        if(xx <= x0 || xx >= x1)
+            continue;
+        for(int yy = y0; yy <= y1; ++yy)
+            d.DrawPixel(xx, yy, false);
+    }
+
+    const int black_h = (h * 2) / 3;
+    for(int note = kKeybedVisibleNoteMin; note <= kKeybedVisibleNoteMax; ++note)
+    {
+        if(!IsBlackKey(note))
+            continue;
+        int nx0 = x0, nx1 = x0;
+        KeybedNoteSpanPx(note, x, w, nx0, nx1);
+        if(nx1 <= nx0)
+            nx1 = nx0 + 1;
+        d.DrawRect(nx0, y0, nx1, y0 + black_h, false, true);
+    }
+
+    for(int note = kKeybedVisibleNoteMin; note <= kKeybedVisibleNoteMax; ++note)
+    {
+        if(!KeyzoneNoteFlashing(app, note, now_ms))
+            continue;
+
+        int nx0 = x0, nx1 = x0;
+        KeybedNoteSpanPx(note, x, w, nx0, nx1);
+        if(nx1 <= nx0)
+            nx1 = nx0 + 1;
+
+        if(IsBlackKey(note))
+            d.DrawRect(nx0, y0, nx1, y0 + black_h, true, true);
+        else
+            d.DrawRect(nx0, y0 + (h / 2), nx1, y1, false, true);
+    }
+
+    d.DrawRect(x0, y0, x1, y1, true, false);
+}
+
 static void PublishEngineLayerParams(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.params)
@@ -1134,7 +1319,345 @@ static void PerformPlaceholder_Render(UiScreenCtx& ctx, const char* title)
 
 static void PerformKeyzone_Render(UiScreenCtx& ctx)
 {
-    PerformPlaceholder_Render(ctx, "KEYZONE");
+    if(!ctx.app || !ctx.display)
+        return;
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(*ctx.app, status, sizeof(status));
+    UiDraw_Header(d, layout, "KEYZONE", status);
+
+    const uint8_t selected = static_cast<uint8_t>(ctx.app->keyzone_menu_index % kKeyzoneMenuCount);
+    for(uint8_t i = 0; i < kKeyzoneMenuCount; ++i)
+    {
+        char line[24];
+        std::snprintf(line,
+                      sizeof(line),
+                      "%c %s",
+                      (i == selected) ? '>' : ' ',
+                      kKeyzoneMenuLabels[i]);
+        d.SetCursor(layout.x, layout.y_body + static_cast<int>(i) * layout.line_h);
+        d.WriteString(line, Font_6x8, true);
+    }
+
+    UiDraw_Footer(d, layout, "ENC:SEL L:BACK R:ENTER");
+}
+
+static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        const int32_t next = NextKeyzoneMenuIndex(static_cast<int32_t>(ctx.app->keyzone_menu_index),
+                                                  e.value);
+        ctx.app->keyzone_menu_index = static_cast<uint8_t>(next);
+        ctx.app->ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+static bool PerformKeyzone_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return false;
+
+    const uint8_t selected = static_cast<uint8_t>(ctx.app->keyzone_menu_index % kKeyzoneMenuCount);
+    switch(selected)
+    {
+        case 0:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformKeyzoneRange);
+        case 1:
+        default:
+            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformKeyzoneVelocity);
+    }
+}
+
+static void PerformKeyzonePlaceholder_Render(UiScreenCtx& ctx, const char* title)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(*ctx.app, status, sizeof(status));
+    UiDraw_Header(d, layout, title, status);
+
+    d.SetCursor(layout.x, layout.y_body + layout.line_h);
+    d.WriteString("TODO", Font_6x8, true);
+    UiDraw_Footer(d, layout, "LCLICK BACK");
+}
+
+static void KeyzoneStoreSpan(AppState& app, uint8_t layer, int lo, int hi, bool reversed)
+{
+    lo = ClampInt(lo, 0, 127);
+    hi = ClampInt(hi, 0, 127);
+    if(reversed)
+    {
+        app.keyzone_left_note[layer] = static_cast<int8_t>(hi);
+        app.keyzone_right_note[layer] = static_cast<int8_t>(lo);
+    }
+    else
+    {
+        app.keyzone_left_note[layer] = static_cast<int8_t>(lo);
+        app.keyzone_right_note[layer] = static_cast<int8_t>(hi);
+    }
+}
+
+static void KeyzoneResizeRect(AppState& app, uint8_t layer, int delta)
+{
+    if(delta == 0)
+        return;
+
+    const int left = static_cast<int>(app.keyzone_left_note[layer]);
+    const int right = static_cast<int>(app.keyzone_right_note[layer]);
+    const bool reversed = (left > right);
+    int lo = (left < right) ? left : right;
+    int hi = (left < right) ? right : left;
+    KeyzoneNormalizeSpanForRectOps(lo, hi);
+
+    const uint8_t anchor_endpoint = app.keyzone_last_endpoint_focus[layer] & 1u; // 0=left,1=right
+    const bool anchor_is_hi = (anchor_endpoint == 0u) ? reversed : !reversed;
+    const bool move_hi = !anchor_is_hi;
+
+    if(move_hi)
+    {
+        hi += delta;
+        hi = ClampInt(hi, kKeybedVisibleNoteMin + 1, kKeybedVisibleNoteMax);
+        if(hi <= lo)
+            hi = lo + 1;
+    }
+    else
+    {
+        lo -= delta;
+        lo = ClampInt(lo, kKeybedVisibleNoteMin, kKeybedVisibleNoteMax - 1);
+        if(lo >= hi)
+            lo = hi - 1;
+    }
+
+    KeyzoneStoreSpan(app, layer, lo, hi, reversed);
+}
+
+static void KeyzoneTranslateRect(AppState& app, uint8_t layer, int delta)
+{
+    if(delta == 0)
+        return;
+
+    const int left = static_cast<int>(app.keyzone_left_note[layer]);
+    const int right = static_cast<int>(app.keyzone_right_note[layer]);
+    const bool reversed = (left > right);
+    int lo = (left < right) ? left : right;
+    int hi = (left < right) ? right : left;
+    KeyzoneNormalizeSpanForRectOps(lo, hi);
+
+    int steps = delta;
+    if(steps < 0)
+        steps = -steps;
+    const int dir = (delta > 0) ? 1 : -1;
+    for(int i = 0; i < steps; ++i)
+        KeyzoneTranslateSpanStep(lo, hi, dir);
+
+    KeyzoneStoreSpan(app, layer, lo, hi, reversed);
+}
+
+static bool PerformKeyzoneRange_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+
+    AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        if(app.keyzone_range_focus == kRangeFocusRect && ctx.rshift)
+        {
+            if(ctx.lshift)
+            {
+                int width = static_cast<int>(app.keyzone_break_width_semitones[layer]) + e.value;
+                width = ClampInt(width, 0, 36);
+                app.keyzone_break_width_semitones[layer] = static_cast<int8_t>(width);
+                app.ui_dirty = true;
+                return true;
+            }
+
+            int mag = e.value;
+            if(mag < 0)
+                mag = -mag;
+            if(mag > 1)
+            {
+                int shape = static_cast<int>(app.keyzone_break_shape[layer] % kBreakShapeCount);
+                const int dir = (e.value > 0) ? 1 : -1;
+                for(int i = 0; i < mag; ++i)
+                {
+                    shape += dir;
+                    while(shape < 0)
+                        shape += kBreakShapeCount;
+                    while(shape >= kBreakShapeCount)
+                        shape -= kBreakShapeCount;
+                }
+                app.keyzone_break_shape[layer] = static_cast<uint8_t>(shape);
+            }
+            else
+            {
+                KeyzoneTranslateRect(app, layer, e.value);
+            }
+
+            app.ui_dirty = true;
+            return true;
+        }
+
+        int focus = static_cast<int>(app.keyzone_range_focus) + e.value;
+        while(focus < 0)
+            focus += kRangeFocusCount;
+        while(focus >= kRangeFocusCount)
+            focus -= kRangeFocusCount;
+        app.keyzone_range_focus = static_cast<uint8_t>(focus);
+        if(app.keyzone_range_focus == kRangeFocusLeft)
+            app.keyzone_last_endpoint_focus[layer] = 0;
+        else if(app.keyzone_range_focus == kRangeFocusRight)
+            app.keyzone_last_endpoint_focus[layer] = 1;
+        app.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+    {
+        bool changed = false;
+        if(app.keyzone_range_focus == kRangeFocusLeft)
+        {
+            int v = static_cast<int>(app.keyzone_left_note[layer]) + e.value;
+            v = ClampInt(v, 0, 127);
+            const int8_t vv = static_cast<int8_t>(v);
+            if(vv != app.keyzone_left_note[layer])
+            {
+                app.keyzone_left_note[layer] = vv;
+                app.keyzone_last_endpoint_focus[layer] = 0;
+                changed = true;
+            }
+        }
+        else if(app.keyzone_range_focus == kRangeFocusRight)
+        {
+            int v = static_cast<int>(app.keyzone_right_note[layer]) + e.value;
+            v = ClampInt(v, 0, 127);
+            const int8_t vv = static_cast<int8_t>(v);
+            if(vv != app.keyzone_right_note[layer])
+            {
+                app.keyzone_right_note[layer] = vv;
+                app.keyzone_last_endpoint_focus[layer] = 1;
+                changed = true;
+            }
+        }
+        else
+        {
+            KeyzoneResizeRect(app, layer, e.value);
+            changed = true;
+        }
+
+        if(changed)
+        {
+            app.ui_dirty = true;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void PerformKeyzoneRange_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    UiDraw_Header(d, layout, "KEYZONE / RANGE", status);
+
+    const int left_note = ClampInt(static_cast<int>(app.keyzone_left_note[layer]), 0, 127);
+    const int right_note = ClampInt(static_cast<int>(app.keyzone_right_note[layer]), 0, 127);
+
+    char left_buf[8];
+    char right_buf[8];
+    FormatMidiNoteName(left_note, left_buf, sizeof(left_buf));
+    FormatMidiNoteName(right_note, right_buf, sizeof(right_buf));
+
+    const int box_y0 = layout.y_body;
+    const int box_y1 = box_y0 + 10;
+    const int left_x0 = 2;
+    const int left_x1 = 46;
+    const int right_x0 = 81;
+    const int right_x1 = 125;
+    d.DrawRect(left_x0, box_y0, left_x1, box_y1, true, false);
+    d.DrawRect(right_x0, box_y0, right_x1, box_y1, true, false);
+    d.SetCursor(left_x0 + 3, box_y0 + 2);
+    d.WriteString(left_buf, Font_6x8, true);
+    d.SetCursor(right_x0 + 3, box_y0 + 2);
+    d.WriteString(right_buf, Font_6x8, true);
+
+    if(app.keyzone_range_focus == kRangeFocusLeft)
+        d.DrawRect(left_x0 - 1, box_y0 - 1, left_x1 + 1, box_y1 + 1, true, false);
+    else if(app.keyzone_range_focus == kRangeFocusRight)
+        d.DrawRect(right_x0 - 1, box_y0 - 1, right_x1 + 1, box_y1 + 1, true, false);
+
+    const int keybed_x = 4;
+    const int keybed_y = 40;
+    const int keybed_w = 120;
+    const int keybed_h = 15;
+
+    const int span_lo = (left_note < right_note) ? left_note : right_note;
+    const int span_hi = (left_note < right_note) ? right_note : left_note;
+    const int draw_lo = ClampInt(span_lo, kKeybedVisibleNoteMin, kKeybedVisibleNoteMax);
+    const int draw_hi = ClampInt(span_hi, kKeybedVisibleNoteMin, kKeybedVisibleNoteMax);
+    int zx0 = KeybedNoteToX(draw_lo, keybed_x, keybed_w);
+    int zx1 = KeybedNoteToX(draw_hi, keybed_x, keybed_w);
+    if(zx1 < zx0)
+        zx1 = zx0;
+    if(zx0 < keybed_x)
+        zx0 = keybed_x;
+    if(zx1 > keybed_x + keybed_w - 1)
+        zx1 = keybed_x + keybed_w - 1;
+    if(zx1 <= zx0)
+        zx1 = ClampInt(zx0 + 1, keybed_x, keybed_x + keybed_w - 1);
+
+    const int zone_y0 = 24;
+    const int zone_y1 = 34;
+    d.DrawRect(zx0, zone_y0, zx1, zone_y1, true, true);
+    d.DrawRect(zx0, zone_y0, zx1, zone_y1, true, false);
+    if(app.keyzone_range_focus == kRangeFocusRect)
+        d.DrawRect(zx0 - 1, zone_y0 - 1, zx1 + 1, zone_y1 + 1, true, false);
+
+    char zone_info[28];
+    std::snprintf(zone_info,
+                  sizeof(zone_info),
+                  "%s W:%d",
+                  BreakShapeName(app.keyzone_break_shape[layer]),
+                  static_cast<int>(app.keyzone_break_width_semitones[layer]));
+    d.SetCursor(2, 32);
+    d.WriteString(zone_info, Font_6x8, true);
+
+    DrawRangeKeybed(d, app, ctx.now_ms, keybed_x, keybed_y, keybed_w, keybed_h);
+}
+
+static void PerformKeyzoneVelocity_Render(UiScreenCtx& ctx)
+{
+    PerformKeyzonePlaceholder_Render(ctx, "KEYZONE / VELOCITY");
 }
 
 static void PerformAdsr_Render(UiScreenCtx& ctx)
@@ -2161,7 +2684,22 @@ const UiScreen& GetScreen(UiScreenId id)
                                          PerformEngine_OnEvent,
                                          PerformEngine_Render,
                                          PerformEngine_OnEnter};
-    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformPlaceholder_OnEvent, PerformKeyzone_Render};
+    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone,
+                                          nullptr,
+                                          nullptr,
+                                          PerformKeyzone_OnEvent,
+                                          PerformKeyzone_Render,
+                                          PerformKeyzone_OnEnter};
+    static const UiScreen perform_keyzone_range{UiScreenId::PerformKeyzoneRange,
+                                                nullptr,
+                                                nullptr,
+                                                PerformKeyzoneRange_OnEvent,
+                                                PerformKeyzoneRange_Render};
+    static const UiScreen perform_keyzone_velocity{UiScreenId::PerformKeyzoneVelocity,
+                                                   nullptr,
+                                                   nullptr,
+                                                   PerformPlaceholder_OnEvent,
+                                                   PerformKeyzoneVelocity_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformPlaceholder_OnEvent, PerformAdsr_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis, nullptr, nullptr, PerformPlaceholder_OnEvent, PerformEmphasis_Render};
     static const UiScreen hud{UiScreenId::Hud, nullptr, nullptr, Hud_OnEvent, Hud_Render};
@@ -2181,6 +2719,10 @@ const UiScreen& GetScreen(UiScreenId id)
             return perform_engine;
         case UiScreenId::PerformKeyzone:
             return perform_keyzone;
+        case UiScreenId::PerformKeyzoneRange:
+            return perform_keyzone_range;
+        case UiScreenId::PerformKeyzoneVelocity:
+            return perform_keyzone_velocity;
         case UiScreenId::PerformAdsr:
             return perform_adsr;
         case UiScreenId::PerformEmphasis:

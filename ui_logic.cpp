@@ -220,6 +220,27 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         app.ui_dirty = true;
     }
 
+    if(active_screen == UiScreenId::PerformKeyzoneRange)
+    {
+        bool any_active = false;
+        bool expired = false;
+        for(uint8_t i = 0; i < AppState::kKeyzoneFlashSlots; ++i)
+        {
+            uint32_t& until = app.keyzone_flash_until_ms[i];
+            if(until == 0)
+                continue;
+            if(until <= now_ms)
+            {
+                until = 0;
+                expired = true;
+                continue;
+            }
+            any_active = true;
+        }
+        if(any_active || expired)
+            app.ui_dirty = true;
+    }
+
     shift_held = app.ui_lshift_held || app.ui_rshift_held;
     UiOverlay_Update(app.overlay, now_ms, shift_held, app.value_edit.active);
 

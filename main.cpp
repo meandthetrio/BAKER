@@ -66,6 +66,68 @@ static inline bool LayerEligibleForNote(uint8_t layer, uint8_t note, uint8_t vel
     return true;
 }
 
+static inline int ClampInt(int v, int lo, int hi)
+{
+    if(v < lo)
+        return lo;
+    if(v > hi)
+        return hi;
+    return v;
+}
+
+static void Keyzone_FlashNote(AppState& app, uint8_t note, uint32_t now_ms)
+{
+    const uint32_t expiry = now_ms + 150u;
+    int replace = -1;
+    uint32_t oldest = 0xFFFFFFFFu;
+    for(uint8_t i = 0; i < AppState::kKeyzoneFlashSlots; ++i)
+    {
+        if(app.keyzone_flash_until_ms[i] <= now_ms)
+        {
+            replace = static_cast<int>(i);
+            break;
+        }
+        if(app.keyzone_flash_note[i] == note)
+        {
+            replace = static_cast<int>(i);
+            break;
+        }
+        if(app.keyzone_flash_until_ms[i] < oldest)
+        {
+            oldest = app.keyzone_flash_until_ms[i];
+            replace = static_cast<int>(i);
+        }
+    }
+
+    if(replace >= 0)
+    {
+        app.keyzone_flash_note[replace] = note;
+        app.keyzone_flash_until_ms[replace] = expiry;
+        app.ui_dirty = true;
+    }
+}
+
+static void Keyzone_ApplyFocusedNoteOn(AppState& app, uint8_t note)
+{
+    if(UiNav_Active(app.ui_nav) != UiScreenId::PerformKeyzoneRange)
+        return;
+
+    const uint8_t layer = app.perform_layer & 1u;
+    const int8_t note_i8 = static_cast<int8_t>(ClampInt(static_cast<int>(note), 0, 127));
+    if(app.keyzone_range_focus == 0)
+    {
+        app.keyzone_left_note[layer] = note_i8;
+        app.keyzone_last_endpoint_focus[layer] = 0;
+        app.ui_dirty = true;
+    }
+    else if(app.keyzone_range_focus == 2)
+    {
+        app.keyzone_right_note[layer] = note_i8;
+        app.keyzone_last_endpoint_focus[layer] = 1;
+        app.ui_dirty = true;
+    }
+}
+
 // --- Audio: passthrough (now via AudioEngine) ---
 static void AudioCallback(AudioHandle::InputBuffer  in,
                           AudioHandle::OutputBuffer out,
@@ -291,6 +353,9 @@ int main(void)
                 }
                 else
                 {
+                    Keyzone_FlashNote(g_app, note_on.note, now_ms);
+                    Keyzone_ApplyFocusedNoteOn(g_app, note_on.note);
+
                     const uint8_t vel_layer = Velocity_SelectLayer(note_on.velocity);
                     g_app.last_vel_layer.store(vel_layer, std::memory_order_relaxed);
                     g_app.last_velocity.store(note_on.velocity, std::memory_order_relaxed);

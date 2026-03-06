@@ -115,11 +115,21 @@ struct AppState
     UiValueEdit value_edit{};
     uint8_t main_menu_index = 0;
     uint8_t perform_menu_index = 0;
+    uint8_t keyzone_menu_index = 0; // 0=RANGE, 1=VELOCITY
+    uint8_t keyzone_range_focus = 0; // 0=LEFT, 1=RECT, 2=RIGHT
     uint8_t perform_layer = 0; // 0=A, 1=B
     uint8_t perform_engine_row = 0; // 0=LOAD, 1=TUNE, 2=GAIN, 3=ONESHOT
     int8_t  engine_tune_semitones[2] = {0, 0};
     int8_t  engine_gain_db[2] = {0, 0};
     uint8_t engine_play_mode[2] = {0, 0}; // 0=OneShot, 1=Loop
+    int8_t  keyzone_left_note[2] = {48, 48}; // C3
+    int8_t  keyzone_right_note[2] = {72, 72}; // C5
+    uint8_t keyzone_break_shape[2] = {0, 0}; // 0=HARD, 1=RAMP, 2=CURVE
+    int8_t  keyzone_break_width_semitones[2] = {12, 12};
+    uint8_t keyzone_last_endpoint_focus[2] = {0, 0}; // 0=LEFT, 1=RIGHT
+    static constexpr uint8_t kKeyzoneFlashSlots = 12;
+    uint8_t keyzone_flash_note[kKeyzoneFlashSlots] = {};
+    uint32_t keyzone_flash_until_ms[kKeyzoneFlashSlots] = {};
     char    engine_sample_path[2][kSdPathMax] = {};
     char    engine_sample_name[2][kSdNameMax] = {};
     uint8_t engine_load_target_layer = 0xFFu;

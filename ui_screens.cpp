@@ -2186,7 +2186,7 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
     BuildStatus(app, status, sizeof(status));
 
     char title[24];
-    std::snprintf(title, sizeof(title), ".WAV EDIT %s", LayerName(layer));
+    std::snprintf(title, sizeof(title), ".WAV EDIT %s TRIM", LayerName(layer));
     UiDraw_Header(d, layout, title, status);
 
     const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
@@ -2626,7 +2626,10 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppState& app = *ctx.app;
-    const uint8_t cursor = app.perform_process_fx_cursor & 0x03u;
+    const uint8_t main_cursor = static_cast<uint8_t>(app.perform_process_main_cursor % 6u);
+    const bool main_selects_fx = (main_cursor >= 2u);
+    const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 2u) & 0x03u)
+                                           : static_cast<uint8_t>(app.perform_process_fx_cursor & 0x03u);
     const uint8_t fx_id = app.perform_process_fx_order[cursor];
 
     auto detail_param_count = [](uint8_t id) -> uint8_t
@@ -2665,6 +2668,11 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(!app.perform_process_detail_active)
         {
+            if(!main_selects_fx)
+            {
+                app.ui_dirty = true;
+                return true;
+            }
             app.perform_process_detail_active = true;
             app.ui_dirty = true;
             return true;
@@ -2689,12 +2697,14 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             app.ui_dirty = true;
             return true;
         }
-        int idx = static_cast<int>(app.perform_process_fx_cursor) + e.value;
+        int idx = static_cast<int>(main_cursor) + e.value;
         while(idx < 0)
-            idx += 4;
-        while(idx >= 4)
-            idx -= 4;
-        app.perform_process_fx_cursor = static_cast<uint8_t>(idx);
+            idx += 6;
+        while(idx >= 6)
+            idx -= 6;
+        app.perform_process_main_cursor = static_cast<uint8_t>(idx);
+        if(app.perform_process_main_cursor >= 2u)
+            app.perform_process_fx_cursor = static_cast<uint8_t>((app.perform_process_main_cursor - 2u) & 0x03u);
         app.ui_dirty = true;
         return true;
     }
@@ -2862,6 +2872,11 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(ctx.rshift)
         {
+            if(!main_selects_fx)
+            {
+                app.ui_dirty = true;
+                return true;
+            }
             const int dir = (e.value > 0) ? 1 : -1;
             int steps = (e.value > 0) ? e.value : -e.value;
             while(steps-- > 0)
@@ -2886,9 +2901,13 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
+        if(!main_selects_fx)
+        {
+            app.ui_dirty = true;
+            return true;
+        }
+
         PerformParamsTargets& t = ctx.params->EditTargets();
-        const uint8_t cursor = app.perform_process_fx_cursor & 0x03u;
-        const uint8_t fx_id = app.perform_process_fx_order[cursor];
         const float step = 0.02f;
         const float delta = static_cast<float>(e.value) * step;
 
@@ -3365,11 +3384,55 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     BuildStatus(app, status, sizeof(status));
     UiDraw_Header(d, layout, "MASTER FX BUS", status);
 
-    const int32_t selected_index = static_cast<int32_t>(app.perform_process_fx_cursor & 0x03u);
+    const uint8_t main_cursor = static_cast<uint8_t>(app.perform_process_main_cursor % 6u);
+    const int32_t selected_index = (main_cursor >= 2u) ? static_cast<int32_t>(main_cursor - 2u) : -1;
     const int box_y = layout.y_body;
     const int box_h = layout.y_footer - layout.y_body + layout.line_h;
 
-    // Keep right half for FX faders; left half is reserved for upcoming controls.
+    // Left pane: master volume UI placeholders (display-only for now).
+    constexpr int kLeftX = 0;
+    constexpr int kLeftW = 60;
+    const int left_y = box_y;
+    const int left_h = box_h;
+    if(left_h > 6)
+    {
+        const int gap = 2;
+        const int block_h = (left_h - gap) / 2;
+        const int block_w = kLeftW - 1;
+        const int x0 = kLeftX;
+        const int x1 = x0 + block_w - 1;
+        const int ay0 = left_y;
+        const int ay1 = ay0 + block_h - 1;
+        const int by0 = ay1 + gap + 1;
+        const int by1 = by0 + block_h - 1;
+        const bool sel_a = (main_cursor == 0u);
+        const bool sel_b = (main_cursor == 1u);
+
+        d.DrawRect(x0, ay0, x1, ay1, true, sel_a);
+        d.DrawRect(x0, by0, x1, by1, true, sel_b);
+
+        char a_buf[12];
+        char b_buf[12];
+        FormatDb(app.engine_gain_db[0], a_buf, sizeof(a_buf));
+        FormatDb(app.engine_gain_db[1], b_buf, sizeof(b_buf));
+        const char* a_text = sel_a ? a_buf : "VOL A";
+        const char* b_text = sel_b ? b_buf : "VOL B";
+
+        const int a_w = static_cast<int>(std::strlen(a_text)) * 6;
+        const int b_w = static_cast<int>(std::strlen(b_text)) * 6;
+        int a_x = x0 + ((block_w - a_w) / 2);
+        int b_x = x0 + ((block_w - b_w) / 2);
+        if(a_x < x0 + 1) a_x = x0 + 1;
+        if(b_x < x0 + 1) b_x = x0 + 1;
+        const int a_y = ay0 + ((block_h - 8) / 2);
+        const int b_y = by0 + ((block_h - 8) / 2);
+        d.SetCursor(a_x, a_y);
+        d.WriteString(a_text, Font_6x8, !sel_a);
+        d.SetCursor(b_x, b_y);
+        d.WriteString(b_text, Font_6x8, !sel_b);
+    }
+
+    // Keep right half for FX faders.
     constexpr int kPaneX = 60;
     constexpr int kPaneW = 64;
     const PerformParamsTargets& t = ctx.params->TargetsForUI();

@@ -160,6 +160,7 @@ class VoiceEngine
     void SetLfoWave(uint8_t wave);
     void SetEngineTuneSemitones(uint8_t layer, float semitones);
     void SetEngineGainDb(uint8_t layer, float db);
+    void SetEngineLayerScale(uint8_t layer, float scale);
     void SetEngineLoopEnabled(uint8_t layer, bool enabled);
     void SetLoopMode(LoopMode mode)
     {
@@ -202,6 +203,7 @@ class VoiceEngine
     static constexpr uint8_t kEngineLayerCount = 2;
     float engine_tune_semitones_[kEngineLayerCount] = {0.0f, 0.0f};
     float engine_gain_linear_[kEngineLayerCount]    = {1.0f, 1.0f};
+    float engine_layer_scale_[kEngineLayerCount]    = {1.0f, 1.0f};
     bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};
     GlobalLFO lfo_;
     float sweep_phase_rate_  = 0.0f;

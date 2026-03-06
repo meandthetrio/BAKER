@@ -216,6 +216,22 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
     {
         g_voice.SetEngineTuneSemitones(layer, g_params.current.engine_tune_semitones[layer]);
         g_voice.SetEngineGainDb(layer, g_params.current.engine_gain_db[layer]);
+        float layer_level = g_params.current.engine_layer_master_level[layer];
+        if(layer_level < 0.0f)
+            layer_level = 0.0f;
+        if(layer_level > 2.0f)
+            layer_level = 2.0f;
+        static constexpr float kPolyHeadroomScale = 0.15f;
+        static constexpr float kBypassGain = 1.0f / kPolyHeadroomScale;
+        float t_boost = 0.0f;
+        if(layer_level > 1.0f)
+        {
+            t_boost = layer_level - 1.0f;
+            if(t_boost < 0.0f) t_boost = 0.0f;
+            if(t_boost > 1.0f) t_boost = 1.0f;
+        }
+        const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
+        g_voice.SetEngineLayerScale(layer, layer_level * bypass_comp);
         g_voice.SetEngineLoopEnabled(layer, g_params.current.engine_loop_mode[layer]);
     }
     g_voice.ProcessEvents(g_evtq);

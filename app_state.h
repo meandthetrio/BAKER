@@ -144,6 +144,7 @@ struct AppState
     uint8_t perform_process_fx_cursor = 0; // 0=S, 1=M, 2=D, 3=R
     uint8_t perform_process_fx_order[4] = {0, 1, 2, 3}; // 0=S,1=M,2=D,3=R
     uint8_t perform_process_main_cursor = 2; // 0=VOL A, 1=VOL B, 2..5=S/M/D/R
+    uint16_t perform_process_vol_pct[2] = {100u, 100u}; // 0..200, UNITY=100
     bool    perform_process_detail_active = false;
     uint8_t perform_process_detail_param[4] = {0, 0, 0, 0};
     RecordUiState record_state = RecordUiState::SourceSelect;

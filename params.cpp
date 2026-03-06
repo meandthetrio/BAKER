@@ -95,6 +95,10 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.env_amount    = SmoothToward(current.env_amount, t.env_amount, coeff);
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {
+        current.engine_layer_master_level[layer]
+            = SmoothToward(current.engine_layer_master_level[layer],
+                           t.engine_layer_master_level[layer],
+                           coeff);
         current.engine_tune_semitones[layer]
             = SmoothToward(current.engine_tune_semitones[layer],
                            t.engine_tune_semitones[layer],

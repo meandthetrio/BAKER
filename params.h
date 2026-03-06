@@ -41,6 +41,7 @@ struct PerformParamsTargets
     float env_attack_ms = 5.0f;
     float env_decay_ms  = 120.0f;
     float env_amount    = 0.5f;
+    float engine_layer_master_level[kLayerCount] = {1.0f, 1.0f}; // 0..2 (UNITY=1)
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_mode[kLayerCount] = {false, false};
@@ -85,6 +86,7 @@ struct PerformParamsCurrent
     float env_attack_ms = 5.0f;
     float env_decay_ms  = 120.0f;
     float env_amount    = 0.5f;
+    float engine_layer_master_level[kLayerCount] = {1.0f, 1.0f}; // 0..2 (UNITY=1)
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_mode[kLayerCount] = {false, false};

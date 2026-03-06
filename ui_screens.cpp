@@ -1903,6 +1903,24 @@ static void FormatDb(int v, char* out, size_t out_n)
         std::snprintf(out, out_n, "%ddB", v);
 }
 
+static int FormatUnityPct(uint32_t pct, char* out, size_t out_n)
+{
+    if(pct > 200u)
+        pct = 200u;
+    if(pct == 100u)
+    {
+        std::snprintf(out, out_n, "UNITY");
+        return 5;
+    }
+    if(pct > 100u)
+    {
+        std::snprintf(out, out_n, "+%3lu", static_cast<unsigned long>(pct));
+        return 4;
+    }
+    std::snprintf(out, out_n, "%3lu", static_cast<unsigned long>(pct));
+    return 3;
+}
+
 static void PublishEngineLayerParams(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.params)
@@ -2670,6 +2688,11 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(!main_selects_fx)
             {
+                const uint8_t layer = main_cursor & 1u; // 0=VOL A, 1=VOL B
+                PerformParamsTargets& t = ctx.params->EditTargets();
+                t.engine_layer_master_level[layer] = 1.0f; // UNITY
+                app.perform_process_vol_pct[layer] = 100u;
+                ctx.params->PublishTargets();
                 app.ui_dirty = true;
                 return true;
             }
@@ -2903,6 +2926,28 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(!main_selects_fx)
         {
+            const uint8_t layer = main_cursor & 1u;
+            PerformParamsTargets& t = ctx.params->EditTargets();
+
+            // Match SETTINGS volume acceleration + range exactly.
+            static uint32_t s_last_t_ms = 0;
+            const uint32_t now_ms = e.t_ms;
+            const uint32_t dt_ms  = (s_last_t_ms == 0) ? 999u : (now_ms - s_last_t_ms);
+            s_last_t_ms = now_ms;
+
+            float accel = 1.0f;
+            if(dt_ms <= 25)       accel = 10.0f;
+            else if(dt_ms <= 50)  accel = 6.0f;
+            else if(dt_ms <= 90)  accel = 3.0f;
+            else if(dt_ms <= 140) accel = 2.0f;
+
+            const float base_step = 0.01f;
+            float next = t.engine_layer_master_level[layer] + static_cast<float>(e.value) * base_step * accel;
+            if(next < 0.0f) next = 0.0f;
+            if(next > 2.0f) next = 2.0f;
+            t.engine_layer_master_level[layer] = next;
+            app.perform_process_vol_pct[layer] = static_cast<uint16_t>(next * 100.0f + 0.5f);
+            ctx.params->PublishTargets();
             app.ui_dirty = true;
             return true;
         }
@@ -3388,6 +3433,7 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     const int32_t selected_index = (main_cursor >= 2u) ? static_cast<int32_t>(main_cursor - 2u) : -1;
     const int box_y = layout.y_body;
     const int box_h = layout.y_footer - layout.y_body + layout.line_h;
+    const PerformParamsTargets& t = ctx.params->TargetsForUI();
 
     // Left pane: master volume UI placeholders (display-only for now).
     constexpr int kLeftX = 0;
@@ -3411,10 +3457,15 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
         d.DrawRect(x0, ay0, x1, ay1, true, sel_a);
         d.DrawRect(x0, by0, x1, by1, true, sel_b);
 
+        const uint32_t a_pct = static_cast<uint32_t>(t.engine_layer_master_level[0] * 100.0f + 0.5f);
+        const uint32_t b_pct = static_cast<uint32_t>(t.engine_layer_master_level[1] * 100.0f + 0.5f);
+        app.perform_process_vol_pct[0] = static_cast<uint16_t>(a_pct);
+        app.perform_process_vol_pct[1] = static_cast<uint16_t>(b_pct);
+
         char a_buf[12];
         char b_buf[12];
-        FormatDb(app.engine_gain_db[0], a_buf, sizeof(a_buf));
-        FormatDb(app.engine_gain_db[1], b_buf, sizeof(b_buf));
+        FormatUnityPct(a_pct, a_buf, sizeof(a_buf));
+        FormatUnityPct(b_pct, b_buf, sizeof(b_buf));
         const char* a_text = sel_a ? a_buf : "VOL A";
         const char* b_text = sel_b ? b_buf : "VOL B";
 
@@ -3435,7 +3486,6 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     // Keep right half for FX faders.
     constexpr int kPaneX = 60;
     constexpr int kPaneW = 64;
-    const PerformParamsTargets& t = ctx.params->TargetsForUI();
     const char* labels[4] = {"S", "M", "D", "R"};
     float values[4] = {};
     for(int i = 0; i < 4; ++i)
@@ -4234,6 +4284,14 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
         else
         {
+            if(app.shift_menu_edit_volume && ctx.params)
+            {
+                auto& t = ctx.params->EditTargets();
+                t.master_level = 1.0f; // UNITY
+                ctx.params->PublishTargets();
+                app.ui_dirty = true;
+                return true;
+            }
             // VOLUME: toggle edit mode.
             app.shift_menu_edit_volume = !app.shift_menu_edit_volume;
             app.ui_dirty = true;
@@ -4319,7 +4377,7 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else
         {
-            const char* label = app.shift_menu_edit_volume ? "VOLUME*" : "VOLUME";
+            const char* label = app.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
             d.WriteString(label, Font_6x8, !sel);
 
             // Right-aligned value.

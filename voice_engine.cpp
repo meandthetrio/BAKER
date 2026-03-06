@@ -325,6 +325,17 @@ void VoiceEngine::SetEngineGainDb(uint8_t layer, float db)
     engine_gain_linear_[layer] = std::pow(10.0f, db / 20.0f);
 }
 
+void VoiceEngine::SetEngineLayerScale(uint8_t layer, float scale)
+{
+    layer &= 1u;
+    if(scale < 0.0f)
+        scale = 0.0f;
+    // Keep headroom bounded but allow SETTINGS-like boost parity.
+    if(scale > 14.0f)
+        scale = 14.0f;
+    engine_layer_scale_[layer] = scale;
+}
+
 void VoiceEngine::SetEngineLoopEnabled(uint8_t layer, bool enabled)
 {
     engine_loop_enabled_[layer & 1u] = enabled;
@@ -775,7 +786,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             tune = kEngineTuneMaxSemitones;
         engine_tune_scale[layer] = std::pow(2.0f, tune / 12.0f);
 
-        float gain = engine_gain_linear_[layer];
+        float gain = engine_gain_linear_[layer] * engine_layer_scale_[layer];
         if(gain < 0.0f)
             gain = 0.0f;
         engine_gain_linear[layer] = gain;

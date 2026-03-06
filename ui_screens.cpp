@@ -2846,8 +2846,38 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             {
                 const uint8_t layer = main_cursor & 1u; // 0=VOL A, 1=VOL B
                 PerformParamsTargets& t = ctx.params->EditTargets();
-                t.engine_layer_master_level[layer] = 1.0f; // UNITY
-                app.perform_process_vol_pct[layer] = 100u;
+                if(ctx.rshift)
+                {
+                    // RSHIFT + click => snap to UNITY.
+                    t.engine_layer_master_level[layer] = 1.0f;
+                    app.perform_process_vol_unmuted_level[layer] = 1.0f;
+                    app.perform_process_vol_muted[layer] = false;
+                    app.perform_process_vol_pct[layer] = 100u;
+                }
+                else
+                {
+                    // Click => mute toggle for selected voice.
+                    if(!app.perform_process_vol_muted[layer])
+                    {
+                        float saved = t.engine_layer_master_level[layer];
+                        if(saved < 0.001f)
+                            saved = 1.0f;
+                        app.perform_process_vol_unmuted_level[layer] = saved;
+                        app.perform_process_vol_muted[layer] = true;
+                        t.engine_layer_master_level[layer] = 0.0f;
+                        app.perform_process_vol_pct[layer] = 0u;
+                    }
+                    else
+                    {
+                        float restore = app.perform_process_vol_unmuted_level[layer];
+                        if(restore < 0.0f) restore = 0.0f;
+                        if(restore > 2.0f) restore = 2.0f;
+                        app.perform_process_vol_muted[layer] = false;
+                        t.engine_layer_master_level[layer] = restore;
+                        app.perform_process_vol_pct[layer]
+                            = static_cast<uint16_t>(restore * 100.0f + 0.5f);
+                    }
+                }
                 ctx.params->PublishTargets();
                 app.ui_dirty = true;
                 return true;
@@ -3084,6 +3114,12 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             const uint8_t layer = main_cursor & 1u;
             PerformParamsTargets& t = ctx.params->EditTargets();
+            if(app.perform_process_vol_muted[layer])
+            {
+                // Do not unmute on encoder turn; mute state toggles only on R-click.
+                app.ui_dirty = true;
+                return true;
+            }
 
             // Match SETTINGS volume acceleration + range exactly.
             static uint32_t s_last_t_ms = 0;
@@ -3102,6 +3138,7 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             if(next < 0.0f) next = 0.0f;
             if(next > 2.0f) next = 2.0f;
             t.engine_layer_master_level[layer] = next;
+            app.perform_process_vol_unmuted_level[layer] = next;
             app.perform_process_vol_pct[layer] = static_cast<uint16_t>(next * 100.0f + 0.5f);
             ctx.params->PublishTargets();
             app.ui_dirty = true;
@@ -3620,8 +3657,8 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
         char b_buf[12];
         FormatUnityPct(a_pct, a_buf, sizeof(a_buf));
         FormatUnityPct(b_pct, b_buf, sizeof(b_buf));
-        const char* a_text = sel_a ? a_buf : "VOL A";
-        const char* b_text = sel_b ? b_buf : "VOL B";
+        const char* a_text = sel_a ? (app.perform_process_vol_muted[0] ? "MUTED" : a_buf) : "VOL A";
+        const char* b_text = sel_b ? (app.perform_process_vol_muted[1] ? "MUTED" : b_buf) : "VOL B";
 
         const int a_w = static_cast<int>(std::strlen(a_text)) * 6;
         const int b_w = static_cast<int>(std::strlen(b_text)) * 6;
@@ -4531,7 +4568,7 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else
         {
-            const char* label = app.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT  VOL";
+            const char* label = app.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
             d.WriteString(label, Font_6x8, !sel);
 
             // Right-aligned value.

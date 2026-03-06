@@ -336,6 +336,26 @@ void VoiceEngine::SetEngineLayerScale(uint8_t layer, float scale)
     engine_layer_scale_[layer] = scale;
 }
 
+void VoiceEngine::SetEngineFilterCutoffHz(uint8_t layer, float hz)
+{
+    layer &= 1u;
+    if(hz < 20.0f)
+        hz = 20.0f;
+    if(hz > 20000.0f)
+        hz = 20000.0f;
+    engine_filter_cutoff_hz_[layer] = hz;
+}
+
+void VoiceEngine::SetEngineFilterResonance(uint8_t layer, float resonance)
+{
+    layer &= 1u;
+    if(resonance < 0.0f)
+        resonance = 0.0f;
+    if(resonance > 1.0f)
+        resonance = 1.0f;
+    engine_filter_resonance_[layer] = resonance;
+}
+
 void VoiceEngine::SetEngineLoopEnabled(uint8_t layer, bool enabled)
 {
     engine_loop_enabled_[layer & 1u] = enabled;
@@ -369,6 +389,8 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.pos = 0.0f;
     v.ratio = 1.0f;
     v.gain = 0.0f;
+    v.lpf_z = 0.0f;
+    v.lpf_bp = 0.0f;
     v.source_layer = 0;
     v.vel_layer = 0;
     v.vel_brightness = 1.0f;
@@ -460,6 +482,12 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
         voices_[i].release_coeff = block_release_coeff_;
     }
 
+    for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
+    {
+        engine_filter_cutoff_hz_[layer] = 12000.0f;
+        engine_filter_resonance_[layer] = 0.0f;
+    }
+
     if(voices_active_)
         voices_active_->store(0, std::memory_order_relaxed);
     if(last_stolen_voice_index_out_)
@@ -513,6 +541,7 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.gain = vel01 * kVoiceAmpScale;
     v.vel_brightness = (vel_layer == 0) ? 0.35f : 1.0f;
     v.lpf_z = 0.0f;
+    v.lpf_bp = 0.0f;
     v.gate = true;
     v.dir  = 1;
     v.fade_in = 0.0f;
@@ -974,17 +1003,30 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         if(mod_cutoff < -0.95f)
             mod_cutoff = -0.95f;
 
-        float voice_cutoff = cutoff_hz * v.vel_brightness;
+        const uint8_t src_layer = v.source_layer & 1u;
+        const float cutoff_base = active_lock_.enabled ? cutoff_hz : engine_filter_cutoff_hz_[src_layer];
+        float voice_cutoff = cutoff_base * v.vel_brightness;
         voice_cutoff = voice_cutoff * (1.0f + mod_cutoff);
         if(voice_cutoff < 20.0f)
             voice_cutoff = 20.0f;
         if(voice_cutoff > 20000.0f)
             voice_cutoff = 20000.0f;
-        float lpf_g = 1.0f - std::exp(-kTwoPi * voice_cutoff / sample_rate_);
-        if(lpf_g < 0.001f)
-            lpf_g = 0.001f;
-        else if(lpf_g > 0.999f)
-            lpf_g = 0.999f;
+        float svf_f = 2.0f * std::sin(0.5f * kTwoPi * voice_cutoff / sample_rate_);
+        if(svf_f < 0.001f)
+            svf_f = 0.001f;
+        else if(svf_f > 0.98f)
+            svf_f = 0.98f;
+        float res_ui = engine_filter_resonance_[src_layer];
+        if(res_ui < 0.0f) res_ui = 0.0f;
+        if(res_ui > 1.0f) res_ui = 1.0f;
+        // Keep low-RESO region audible and spread useful movement across the whole sweep.
+        const float res_eff = 0.10f + (0.90f * res_ui);
+        const float res_shaped = std::pow(res_eff, 0.65f);
+        float svf_d = 1.90f - (1.78f * res_shaped); // lower damping => stronger resonance
+        const float d_floor = 0.05f + (0.12f * svf_f);
+        if(svf_d < d_floor) svf_d = d_floor;
+        if(svf_d > 2.0f) svf_d = 2.0f;
+        const float lpf_makeup = 1.12f - (0.18f * res_ui);
 
         if(v.state == VoiceState::StealXFade)
         {
@@ -1070,6 +1112,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             float new_env_r_step = v.new_env_r_step;
             const float new_env_sustain = v.new_env_sustain;
             float lpf_z = v.lpf_z;
+            float lpf_bp = v.lpf_bp;
 
             if(stop_fade_active)
             {
@@ -1120,9 +1163,14 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 float s     = s_old * (1.0f - x_clamped) + s_new * x_clamped;
                 if(stop_fade_active)
                     s *= stop_fade_level;
-                lpf_z += lpf_g * (s - lpf_z);
-                outL[i] += lpf_z;
-                outR[i] += lpf_z;
+                lpf_z += svf_f * lpf_bp;
+                const float hp = s - lpf_z - (svf_d * lpf_bp);
+                lpf_bp += svf_f * hp;
+                float lpf_out = lpf_z * lpf_makeup;
+                if(lpf_out > 2.0f) lpf_out = 2.0f;
+                if(lpf_out < -2.0f) lpf_out = -2.0f;
+                outL[i] += lpf_out;
+                outR[i] += lpf_out;
 
                 if(stop_fade_active)
                 {
@@ -1212,6 +1260,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             v.new_gate = new_gate;
             v.new_dir  = new_dir;
             v.lpf_z    = lpf_z;
+            v.lpf_bp   = lpf_bp;
             v.stop_fade_active = stop_fade_active;
             v.stop_fade_samples_remaining = stop_fade_remaining;
             v.stop_fade_level = stop_fade_level;
@@ -1322,6 +1371,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             float env_r_step = v.env_r_step;
             const float env_sustain = v.env_sustain;
             float lpf_z = v.lpf_z;
+            float lpf_bp = v.lpf_bp;
 
             for(size_t i = 0; i < size; i++)
             {
@@ -1348,9 +1398,14 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 s *= fin;
                 if(stop_fade_active)
                     s *= stop_fade_level;
-                lpf_z += lpf_g * (s - lpf_z);
-                outL[i] += lpf_z;
-                outR[i] += lpf_z;
+                lpf_z += svf_f * lpf_bp;
+                const float hp = s - lpf_z - (svf_d * lpf_bp);
+                lpf_bp += svf_f * hp;
+                float lpf_out = lpf_z * lpf_makeup;
+                if(lpf_out > 2.0f) lpf_out = 2.0f;
+                if(lpf_out < -2.0f) lpf_out = -2.0f;
+                outL[i] += lpf_out;
+                outR[i] += lpf_out;
 
                 if(stop_fade_active)
                 {
@@ -1417,6 +1472,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 v.gate = gate;
                 v.dir  = dir;
                 v.lpf_z = lpf_z;
+                v.lpf_bp = lpf_bp;
                 v.stop_fade_active = stop_fade_active;
                 v.stop_fade_samples_remaining = stop_fade_remaining;
                 v.stop_fade_level = stop_fade_level;

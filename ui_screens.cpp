@@ -27,6 +27,38 @@ static float Clamp01(float x)
     return x;
 }
 
+static float UiAccelFromDtMs(uint32_t dt_ms)
+{
+    if(dt_ms <= 20u) return 8.0f;
+    if(dt_ms <= 40u) return 5.0f;
+    if(dt_ms <= 70u) return 3.0f;
+    if(dt_ms <= 120u) return 2.0f;
+    return 1.0f;
+}
+
+static float UiDeltaNormAccelerated(int enc_delta, uint32_t t_ms, uint32_t& last_t_ms, float base_step)
+{
+    const uint32_t dt_ms = (last_t_ms == 0u) ? 999u : (t_ms - last_t_ms);
+    last_t_ms = t_ms;
+    return static_cast<float>(enc_delta) * base_step * UiAccelFromDtMs(dt_ms);
+}
+
+static float AdsrFltFaderFromCutoffHz(float hz)
+{
+    if(hz < 20.0f) hz = 20.0f;
+    if(hz > 20000.0f) hz = 20000.0f;
+    const float shaped = std::log(hz / 20.0f) / std::log(20000.0f / 20.0f);
+    const float v = shaped * shaped;
+    return Clamp01(v);
+}
+
+static float AdsrFltCutoffHzFromFader(float value)
+{
+    value = Clamp01(value);
+    const float shaped = std::sqrt(value);
+    return 20.0f * std::pow(20000.0f / 20.0f, shaped);
+}
+
 static float ClampSigned(float x)
 {
     if(x < -1.0f) return -1.0f;
@@ -353,6 +385,26 @@ static void DrawCirclePixels(OledPager& d, int cx, int cy, int r, bool on)
             const int dy = y - cy;
             const int d2 = dx * dx + dy * dy;
             if(d2 >= r2 - r && d2 <= r2 + r)
+                d.DrawPixel(x, y, on);
+        }
+    }
+}
+
+static void DrawFilledCirclePixels(OledPager& d, int cx, int cy, int r, bool on)
+{
+    if(r <= 0)
+    {
+        d.DrawPixel(cx, cy, on);
+        return;
+    }
+    const int r2 = r * r;
+    for(int y = cy - r; y <= cy + r; ++y)
+    {
+        for(int x = cx - r; x <= cx + r; ++x)
+        {
+            const int dx = x - cx;
+            const int dy = y - cy;
+            if((dx * dx + dy * dy) <= r2)
                 d.DrawPixel(x, y, on);
         }
     }
@@ -2490,27 +2542,60 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.app || !ctx.params)
         return false;
     if(ctx.shift)
         return false;
 
     AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
 
-    // R encoder adjusts GAIN (dB) for the active layer.
+    static uint32_t s_last_ext_t_ms = 0u;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        int row = static_cast<int>(app.perform_emphasis_row) + e.value;
+        while(row < 0) row += 3;
+        while(row >= 3) row -= 3;
+        app.perform_emphasis_row = static_cast<uint8_t>(row);
+        app.ui_dirty = true;
+        return true;
+    }
+
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
-        const uint8_t layer = app.perform_layer & 1u;
-
-        int v = static_cast<int>(app.engine_gain_db[layer]) + e.value;
-        v = ClampInt(v, -32, 6);
-        const int8_t vv = static_cast<int8_t>(v);
-        if(vv != app.engine_gain_db[layer])
+        const float delta_norm = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
+        if(app.perform_emphasis_row == 0)
         {
-            app.engine_gain_db[layer] = vv;
-            PublishEngineLayerParams(ctx);
-            app.ui_dirty = true;
+            // GAIN row (existing behavior)
+            int v = static_cast<int>(app.engine_gain_db[layer]) + e.value;
+            v = ClampInt(v, -32, 6);
+            const int8_t vv = static_cast<int8_t>(v);
+            if(vv != app.engine_gain_db[layer])
+            {
+                app.engine_gain_db[layer] = vv;
+                PublishEngineLayerParams(ctx);
+                app.ui_dirty = true;
+            }
+            return true;
         }
+
+        PerformParamsTargets& t = ctx.params->EditTargets();
+        if(app.perform_emphasis_row == 1)
+        {
+            // Keep fast fader motion; map fader space to cutoff using ADSR-style curve.
+            float fader = AdsrFltFaderFromCutoffHz(t.engine_filter_cutoff_hz[layer]);
+            fader = Clamp01(fader + delta_norm);
+            t.engine_filter_cutoff_hz[layer] = AdsrFltCutoffHzFromFader(fader);
+            ctx.params->PublishTargets();
+            app.ui_dirty = true;
+            return true;
+        }
+
+        // RESONANCE
+        t.engine_filter_resonance[layer] = Clamp01(t.engine_filter_resonance[layer] + delta_norm);
+        ctx.params->PublishTargets();
+        app.ui_dirty = true;
         return true;
     }
 
@@ -2526,6 +2611,18 @@ static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     }
 
     return false;
+}
+
+static void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.params)
+        return;
+    AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
+    PerformParamsTargets& t = ctx.params->EditTargets();
+    t.engine_filter_resonance[layer] = 0.5f; // default 50 on EMPHASIS entry
+    ctx.params->PublishTargets();
+    app.ui_dirty = true;
 }
 
 static void PerformKeyzone_Render(UiScreenCtx& ctx)
@@ -2598,7 +2695,7 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
 
 static void PerformEmphasis_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.app || !ctx.display || !ctx.params)
         return;
 
     AppState& app = *ctx.app;
@@ -2626,14 +2723,73 @@ static void PerformEmphasis_Render(UiScreenCtx& ctx)
     d.SetCursor(layout.x, layout.y_body);
     d.WriteString(name, Font_6x8, true);
 
-    // GAIN row (footer hints removed)
+    // GAIN row
     char gain_buf[12];
     FormatDb(app.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
+    const PerformParamsTargets& t = ctx.params->TargetsForUI();
+    const float cutoff_hz = t.engine_filter_cutoff_hz[layer];
+    const float resonance = Clamp01(t.engine_filter_resonance[layer]);
 
-    char line[32];
-    std::snprintf(line, sizeof(line), "> GAIN:%s", gain_buf);
-    d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    d.WriteString(line, Font_6x8, true);
+    auto draw_h_fader = [&](int y,
+                            const char* label,
+                            float norm,
+                            bool selected,
+                            const char* value_text)
+    {
+        if(norm < 0.0f) norm = 0.0f;
+        if(norm > 1.0f) norm = 1.0f;
+        char line[20];
+        std::snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', label);
+        d.SetCursor(layout.x, y);
+        d.WriteString(line, Font_6x8, true);
+        d.SetCursor(96, y);
+        d.WriteString(value_text, Font_6x8, true);
+
+        const int x0 = 30;
+        const int x1 = 92;
+        const int y0 = y + 8;
+        const int y1 = y0 + 4;
+        d.DrawRect(x0, y0, x1, y1, true, false);
+        const int span = x1 - x0 - 2;
+        int hx = x0 + 1 + static_cast<int>(norm * static_cast<float>(span) + 0.5f);
+        if(hx < x0 + 1) hx = x0 + 1;
+        if(hx > x1 - 1) hx = x1 - 1;
+        const int hy = y0 + ((y1 - y0) / 2);
+        DrawFilledCirclePixels(d, hx, hy, 2, true);
+        if(selected)
+            d.DrawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, true, false);
+    };
+
+    char gain_line[16];
+    std::snprintf(gain_line, sizeof(gain_line), "%s", gain_buf);
+    float gain_norm = (static_cast<float>(app.engine_gain_db[layer]) + 32.0f) / 38.0f;
+
+    float cutoff = cutoff_hz;
+    if(cutoff < 20.0f) cutoff = 20.0f;
+    if(cutoff > 20000.0f) cutoff = 20000.0f;
+    const float cutoff_norm = AdsrFltFaderFromCutoffHz(cutoff);
+
+    char cutoff_buf[16];
+    const uint32_t lpf_hz = static_cast<uint32_t>(cutoff + 0.5f);
+    if(lpf_hz >= 1000)
+    {
+        const uint32_t khz_whole = lpf_hz / 1000u;
+        const uint32_t hz_frac   = lpf_hz % 1000u;
+        std::snprintf(cutoff_buf,
+                      sizeof(cutoff_buf),
+                      "%lu.%03luk",
+                      (unsigned long)khz_whole,
+                      (unsigned long)hz_frac);
+    }
+    else
+        std::snprintf(cutoff_buf, sizeof(cutoff_buf), "%3lu", (unsigned long)lpf_hz);
+
+    char reso_buf[12];
+    std::snprintf(reso_buf, sizeof(reso_buf), "%3d", static_cast<int>(resonance * 100.0f + 0.5f));
+
+    draw_h_fader(layout.y_body + layout.line_h, "GAIN", gain_norm, app.perform_emphasis_row == 0, gain_line);
+    draw_h_fader(layout.y_body + layout.line_h * 3, "FILT", cutoff_norm, app.perform_emphasis_row == 1, cutoff_buf);
+    draw_h_fader(layout.y_body + layout.line_h * 5, "RESO", resonance, app.perform_emphasis_row == 2, reso_buf);
 }
 
 static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -2734,12 +2890,12 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
+        static uint32_t s_last_ext_t_ms = 0u;
+        const float delta = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
         if(app.perform_process_detail_active)
         {
             PerformParamsTargets& t = ctx.params->EditTargets();
             const uint8_t pidx = app.perform_process_detail_param[cursor];
-            const float step = 0.02f;
-            const float delta = static_cast<float>(e.value) * step;
             bool changed = false;
             switch(fx_id)
             {
@@ -2953,8 +3109,6 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
 
         PerformParamsTargets& t = ctx.params->EditTargets();
-        const float step = 0.02f;
-        const float delta = static_cast<float>(e.value) * step;
 
         switch(fx_id)
         {
@@ -4377,7 +4531,7 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else
         {
-            const char* label = app.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
+            const char* label = app.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT  VOL";
             d.WriteString(label, Font_6x8, !sel);
 
             // Right-aligned value.
@@ -4831,7 +4985,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                             PerformWaveEdit_Render};
     static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformAdsr_OnEvent, PerformAdsr_Render};
-    static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis, nullptr, nullptr, PerformEmphasis_OnEvent, PerformEmphasis_Render};
+    static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis,
+                                           PerformEmphasis_OnScreenEnter,
+                                           nullptr,
+                                           PerformEmphasis_OnEvent,
+                                           PerformEmphasis_Render};
     static const UiScreen perform_process{UiScreenId::PerformProcess, nullptr, nullptr, PerformProcess_OnEvent, PerformProcess_Render};
     static const UiScreen hud{UiScreenId::Hud, nullptr, nullptr, Hud_OnEvent, Hud_Render};
     static const UiScreen fx{UiScreenId::Fx, nullptr, nullptr, Fx_OnEvent, Fx_Render};

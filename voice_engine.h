@@ -54,7 +54,8 @@ struct Voice
     float         ratio  = 1.0f; // playback increment per output sample
     float         gain   = 0.0f; // 0..1
     float         vel_brightness = 1.0f;
-    float         lpf_z  = 0.0f; // 1-pole LPF state
+    float         lpf_z  = 0.0f; // low state for filter
+    float         lpf_bp = 0.0f; // band state for resonant filter
     ModEnv        mod_env;
     float         fade_in = 0.0f; // 0..1
     float         fade_in_step = 0.0f; // per-sample increment
@@ -161,6 +162,8 @@ class VoiceEngine
     void SetEngineTuneSemitones(uint8_t layer, float semitones);
     void SetEngineGainDb(uint8_t layer, float db);
     void SetEngineLayerScale(uint8_t layer, float scale);
+    void SetEngineFilterCutoffHz(uint8_t layer, float hz);
+    void SetEngineFilterResonance(uint8_t layer, float resonance);
     void SetEngineLoopEnabled(uint8_t layer, bool enabled);
     void SetLoopMode(LoopMode mode)
     {
@@ -204,6 +207,8 @@ class VoiceEngine
     float engine_tune_semitones_[kEngineLayerCount] = {0.0f, 0.0f};
     float engine_gain_linear_[kEngineLayerCount]    = {1.0f, 1.0f};
     float engine_layer_scale_[kEngineLayerCount]    = {1.0f, 1.0f};
+    float engine_filter_cutoff_hz_[kEngineLayerCount] = {12000.0f, 12000.0f};
+    float engine_filter_resonance_[kEngineLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};
     GlobalLFO lfo_;
     float sweep_phase_rate_  = 0.0f;

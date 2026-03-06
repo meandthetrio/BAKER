@@ -99,6 +99,14 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
             = SmoothToward(current.engine_layer_master_level[layer],
                            t.engine_layer_master_level[layer],
                            coeff);
+        current.engine_filter_cutoff_hz[layer]
+            = SmoothToward(current.engine_filter_cutoff_hz[layer],
+                           t.engine_filter_cutoff_hz[layer],
+                           coeff);
+        current.engine_filter_resonance[layer]
+            = SmoothToward(current.engine_filter_resonance[layer],
+                           t.engine_filter_resonance[layer],
+                           coeff);
         current.engine_tune_semitones[layer]
             = SmoothToward(current.engine_tune_semitones[layer],
                            t.engine_tune_semitones[layer],

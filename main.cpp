@@ -232,10 +232,11 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
         }
         const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
         g_voice.SetEngineLayerScale(layer, layer_level * bypass_comp);
+        g_voice.SetEngineFilterCutoffHz(layer, g_params.current.engine_filter_cutoff_hz[layer]);
+        g_voice.SetEngineFilterResonance(layer, g_params.current.engine_filter_resonance[layer]);
         g_voice.SetEngineLoopEnabled(layer, g_params.current.engine_loop_mode[layer]);
     }
     g_voice.ProcessEvents(g_evtq);
-    g_voice.SetLpfCutoff(g_params.current.lpf_cutoff_hz);
     g_voice.RenderBlock(out[0], out[1], size);
 
     // FX / master level after voices (in-place).
@@ -318,6 +319,10 @@ int main(void)
         auto& t = g_params.EditTargets();
         t.lfo_rate_hz = 0.0f;
         t.lfo_depth = 0.0f;
+        t.engine_filter_cutoff_hz[0] = 12000.0f;
+        t.engine_filter_cutoff_hz[1] = 12000.0f;
+        t.engine_filter_resonance[0] = 0.0f;
+        t.engine_filter_resonance[1] = 0.0f;
         g_params.PublishTargets();
     }
     ModMatrix_InitDefaults(g_app.mod_matrix, g_app.mod_routes_ui);

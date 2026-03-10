@@ -130,6 +130,13 @@ struct AppState
     bool     hud_menu_inited = false;
     bool     ui_lshift_held = false;
     bool     ui_rshift_held = false;
+    bool     ui_parent_preview_active = false;
+    uint8_t  ui_parent_preview_from_top = 0;
+    uint8_t  ui_parent_preview_mode = 0; // 0=none, 1=nav parent, 2=process detail parent
+    UiScreenId ui_parent_preview_origin_screen = UiScreenId::COUNT;
+    uint8_t  ui_parent_preview_origin_main_cursor = 0;
+    uint8_t  ui_parent_preview_origin_fx_cursor = 0;
+    bool     ui_parent_preview_origin_process_detail = false;
     bool     ui_btn1_held  = false;
     bool     ui_btn2_held  = false;
     UiValueEdit value_edit{};
@@ -139,6 +146,8 @@ struct AppState
     // PERFORM submenu cursor rows (each submenu tracks its own cursor)
     uint8_t perform_engine_row    = 0; // 0=WAVE, 1=LOAD, 2=TUNE
     uint8_t perform_wave_edit_cursor = 0; // 0=TRIM START, 1=TRIM END
+    SampleEdit perform_wave_edit_entry[kSdSampleSlots]{};
+    bool    perform_wave_edit_has_entry = false;
     uint8_t perform_adsr_row      = 0; // 0=MODE
     uint8_t perform_emphasis_row  = 0; // 0=GAIN, 1=FILTER, 2=RESO
     uint8_t perform_process_fx_cursor = 0; // 0=S, 1=M, 2=D, 3=R
@@ -165,6 +174,7 @@ struct AppState
     uint8_t engine_load_target_layer = 0xFFu;
     bool    engine_load_from_perform = false;
     uint32_t engine_seen_applied_gen = 0;
+    uint32_t engine_header_invert_until_ms = 0;
     uint8_t fx_field_cursor = 0;
     uint8_t mod_field_cursor = 0;
 

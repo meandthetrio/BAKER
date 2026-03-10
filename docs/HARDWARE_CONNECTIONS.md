@@ -45,14 +45,13 @@ Electrical:
 - **internal pull-up**, **POLARITY_INVERTED**
 Source: `controls.cpp` (`Controls_Init`)
 
-## New Shift Button (Left shift) (hardware reference; not yet in code)
-Wiring target (hardware reference):
+## Left Shift Button (LShift)
+Wiring (explicit in repo):
 - LShift signal -> Pod **ADC1** pin = **A1 / D16**
 - Other side -> **GND**
-Recommended electrical:
+Electrical:
 - Use as a **digital input** with **internal pull-up** (pressed = LOW), polarity inverted.
-Status:
-- Not currently initialized/used in repo code (add later).
+Source: `controls.cpp` (`Controls_Init`)
 
 ## Display (explicit pins in repo)
 ### OLED (SSD130x over I2C)

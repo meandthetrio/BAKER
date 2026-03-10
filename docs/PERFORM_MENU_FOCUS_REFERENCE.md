@@ -4,6 +4,10 @@
 - This file documents the CURRENT IMPLEMENTED PERFORM branch only.
 - Source of truth is code (`ui_screens.*`, `ui_logic.cpp`, `app_state.h`).
 - Includes PROCESS in-screen FX detail submenus.
+- LShift is a parent-preview modifier (not overlay toggle):
+  - hold LShift to preview parent menu/process-main context
+  - while held, encoders move parent focus/values
+  - releasing LShift commits the preview selection
 
 ## Screen Inventory
 - Start (Main Menu entry point)
@@ -88,7 +92,8 @@
   - `LOAD` pushes `SdBrowse` with perform-load context.
   - `TUNE` does not push a screen.
 - Notes:
-  - Wave region is highlighted when `WAVE` row selected.
+  - On screen-enter, default row is forced to `LOAD`.
+  - Wave region is inverted when `WAVE` row selected.
 
 2. **Tune field (`engine_tune_semitones[layer]`)**
 - Type: numeric field
@@ -109,11 +114,14 @@
   - Updates active slot and published engine-layer params.
 - Notes:
   - Shared across PERFORM screens.
+  - Layer toggle starts a short header invert flash for visual feedback.
 
 ### PerformWaveEdit (`UiScreenId::PerformWaveEdit`)
 - Parent: PerformEngine
 - Entered by: PerformEngine row `WAVE` + `kUiBtnExtEnc`.
-- Exited by: `kUiBtnPodEnc` pop to PerformEngine.
+- Exited by:
+  - `kUiBtnExtEnc`: commit trim edit and pop to PerformEngine.
+  - `kUiBtnPodEnc`: cancel trim edit (restore entry snapshot) and pop to PerformEngine.
 
 #### Focusable Objects
 1. **Trim Start handle (`edit.start_frame`)**
@@ -123,9 +131,10 @@
   - `kUiEncPod` adjusts start.
   - `RShift` (`ctx.rshift`) uses finer base step.
 - Result:
-  - Updates/publishes sample edit.
+  - Updates staged sample edit for current layer.
 - Notes:
   - Active only when sample exists.
+  - Staged edit is committed by `kUiBtnExtEnc`.
 
 2. **Trim End handle (`edit.end_frame`)**
 - Type: waveform trim field
@@ -134,9 +143,10 @@
   - `kUiEncExt` adjusts end.
   - Same clamp/min-length logic and `RShift` fine stepping.
 - Result:
-  - Updates/publishes sample edit.
+  - Updates staged sample edit for current layer.
 - Notes:
   - Edit is clamped by `SampleEdit_Clamp`.
+  - `kUiBtnPodEnc` restores the screen-entry trim snapshot.
 
 3. **Layer toggle (`perform_layer`)**
 - Type: toggle action
@@ -287,6 +297,7 @@
   - Publishes FX values/order.
 - Notes:
   - `perform_process_fx_cursor` tracks selected lane when main cursor is on FX.
+  - Reorder is adjacent-swap and clamps at edges (no wrap).
 
 4. **Detail mode parameter cursor (`perform_process_detail_param[cursor]`)**
 - Type: per-FX parameter selector

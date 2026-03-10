@@ -54,12 +54,12 @@ This repo is a hardware sampler/performer. The main loop owns UI, controls, SD/f
 - Where to look: `ui_layout.*`, `ui_screens.cpp` (`Hud_Render`, `SdBrowse_Render`, `Fx_Render`, `Mod_Render`, `SampleEdit_Render`), `ui_overlay.cpp`.
 
 ## 0.6 Overlays / diagnostics
-- Toggle: hold SHIFT; overlay is global and works on any screen (`UiOverlay_Update`).
+- Current toggle behavior: LShift is used for parent-preview navigation in PERFORM; overlay hotkey toggle is currently not bound in `ui_logic.cpp` (`UiOverlay_Update(..., false, ...)`).
 - Code: `ui_overlay.*` (`UiOverlay_Update`, `UiOverlay_Render`), overlay state in `app_state.h`.
 - Displays (OLED): `U`/`C` Hz, CPU, LATE, CLP, voices, UIQ overflow/high-water, render ms/hi, render skips, SD ok/wavs/load, SAVE state/percent.
 - Counters source: `app_state.h` (shared counters), `main.cpp` (ctrl_hz), `ui_render.cpp` (ui_hz, render stats), audio callback (cycles/late/clip).
 - Ordering: active screen renders first, then overlay draws on top in `UIRender::Render`.
-- Where to look: `ui_overlay.cpp`, `ui_logic.cpp` (SHIFT → overlay), `ui_render.cpp`, `app_state.h`.
+- Where to look: `ui_overlay.cpp`, `ui_logic.cpp` (parent-preview + overlay update callsite), `ui_render.cpp`, `app_state.h`.
 
 ## 0.7 Render budget rules
 - Budget constant: `kRenderBudgetMs` (and cooldown `kCooldownMs`) in `ui_render.cpp`.

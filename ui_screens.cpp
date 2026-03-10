@@ -85,9 +85,6 @@ struct Font5x7
 
     static void GetGlyphRows(char c, uint8_t out_rows[H])
     {
-        if(c >= 'a' && c <= 'z')
-            c = static_cast<char>(c - 'a' + 'A');
-
         auto set = [&](std::initializer_list<uint8_t> rows)
         {
             int i = 0;
@@ -113,6 +110,38 @@ struct Font5x7
             case '7': set({0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000}); return;
             case '8': set({0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110}); return;
             case '9': set({0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100}); return;
+            default: break;
+        }
+
+        // Lowercase a-z (real lowercase forms for 5x7 rendering).
+        switch(c)
+        {
+            case 'a': set({0b00000, 0b01110, 0b00001, 0b01111, 0b10001, 0b10011, 0b01101}); return;
+            case 'b': set({0b10000, 0b10000, 0b10110, 0b11001, 0b10001, 0b11001, 0b10110}); return;
+            case 'c': set({0b00000, 0b01110, 0b10001, 0b10000, 0b10000, 0b10001, 0b01110}); return;
+            case 'd': set({0b00001, 0b00001, 0b01101, 0b10011, 0b10001, 0b10011, 0b01101}); return;
+            case 'e': set({0b00000, 0b01110, 0b10001, 0b11111, 0b10000, 0b10001, 0b01110}); return;
+            case 'f': set({0b00110, 0b01001, 0b01000, 0b11100, 0b01000, 0b01000, 0b01000}); return;
+            case 'g': set({0b00000, 0b01101, 0b10011, 0b10011, 0b01101, 0b00001, 0b01110}); return;
+            case 'h': set({0b10000, 0b10000, 0b10110, 0b11001, 0b10001, 0b10001, 0b10001}); return;
+            case 'i': set({0b00100, 0b00000, 0b01100, 0b00100, 0b00100, 0b00100, 0b01110}); return;
+            case 'j': set({0b00010, 0b00000, 0b00110, 0b00010, 0b00010, 0b10010, 0b01100}); return;
+            case 'k': set({0b10000, 0b10001, 0b10010, 0b11100, 0b10010, 0b10001, 0b10001}); return;
+            case 'l': set({0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110}); return;
+            case 'm': set({0b00000, 0b11010, 0b10101, 0b10101, 0b10101, 0b10101, 0b10101}); return;
+            case 'n': set({0b00000, 0b10110, 0b11001, 0b10001, 0b10001, 0b10001, 0b10001}); return;
+            case 'o': set({0b00000, 0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110}); return;
+            case 'p': set({0b00000, 0b10110, 0b11001, 0b11001, 0b10110, 0b10000, 0b10000}); return;
+            case 'q': set({0b00000, 0b01101, 0b10011, 0b10011, 0b01101, 0b00001, 0b00001}); return;
+            case 'r': set({0b00000, 0b10110, 0b11001, 0b10000, 0b10000, 0b10000, 0b10000}); return;
+            case 's': set({0b00000, 0b01111, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110}); return;
+            case 't': set({0b01000, 0b01000, 0b11100, 0b01000, 0b01000, 0b01001, 0b00110}); return;
+            case 'u': set({0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b10101, 0b01001}); return;
+            case 'v': set({0b00000, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100}); return;
+            case 'w': set({0b00000, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010}); return;
+            case 'x': set({0b00000, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001}); return;
+            case 'y': set({0b00000, 0b10001, 0b10001, 0b10011, 0b01101, 0b00001, 0b01110}); return;
+            case 'z': set({0b00000, 0b11111, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111}); return;
             default: break;
         }
 
@@ -149,6 +178,7 @@ struct Font5x7
 
         switch(c)
         {
+            case '+': set({0, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0}); return;
             case '-': set({0, 0, 0, 0b11111, 0, 0, 0}); return;
             case '.': set({0, 0, 0, 0, 0, 0b00100, 0b00100}); return;
             case ':': set({0, 0b00100, 0b00100, 0, 0b00100, 0b00100, 0}); return;
@@ -169,8 +199,12 @@ static void DrawTinyString(OledPager& d, const char* str, int x, int y, bool on)
     const int char_w = Font5x7::W + 1;
     for(int i = 0; str[i] != '\0'; ++i)
     {
+        char ch = str[i];
+        if(ch >= 'A' && ch <= 'Z')
+            ch = static_cast<char>(ch - 'A' + 'a');
+
         uint8_t rows[Font5x7::H] = {};
-        Font5x7::GetGlyphRows(str[i], rows);
+        Font5x7::GetGlyphRows(ch, rows);
         for(int yy = 0; yy < Font5x7::H; ++yy)
         {
             const uint8_t row = rows[yy];
@@ -200,6 +234,524 @@ static int TinyStringWidth(const char* str)
     return count * char_w - 1;
 }
 
+static constexpr int kMini3x5W = 3;
+static constexpr int kMini3x5H = 5;
+static constexpr int kMini3x5Advance = kMini3x5W + 1;
+
+static void GetMini3x5Glyph(char c, uint8_t out_rows[kMini3x5H])
+{
+    for(int i = 0; i < kMini3x5H; ++i)
+        out_rows[i] = 0;
+
+    if(c >= 'A' && c <= 'Z')
+        c = static_cast<char>(c - 'A' + 'a');
+
+    switch(c)
+    {
+        case 'a': out_rows[0] = 0b010; out_rows[1] = 0b001; out_rows[2] = 0b011; out_rows[3] = 0b101; out_rows[4] = 0b111; return;
+        case 'd': out_rows[0] = 0b001; out_rows[1] = 0b001; out_rows[2] = 0b011; out_rows[3] = 0b101; out_rows[4] = 0b011; return;
+        case 'e': out_rows[0] = 0b111; out_rows[1] = 0b100; out_rows[2] = 0b110; out_rows[3] = 0b100; out_rows[4] = 0b111; return;
+        case 'n': out_rows[0] = 0b110; out_rows[1] = 0b101; out_rows[2] = 0b101; out_rows[3] = 0b101; out_rows[4] = 0b101; return;
+        case 'r': out_rows[0] = 0b110; out_rows[1] = 0b101; out_rows[2] = 0b100; out_rows[3] = 0b100; out_rows[4] = 0b100; return;
+        case 's': out_rows[0] = 0b011; out_rows[1] = 0b100; out_rows[2] = 0b010; out_rows[3] = 0b001; out_rows[4] = 0b110; return;
+        case 't': out_rows[0] = 0b111; out_rows[1] = 0b010; out_rows[2] = 0b010; out_rows[3] = 0b010; out_rows[4] = 0b010; return;
+        case ' ': return;
+        default: return;
+    }
+}
+
+static void DrawMiniString3x5(OledPager& d, const char* str, int x, int y, bool on)
+{
+    if(str == nullptr)
+        return;
+
+    for(int i = 0; str[i] != '\0'; ++i)
+    {
+        uint8_t rows[kMini3x5H] = {};
+        GetMini3x5Glyph(str[i], rows);
+        for(int yy = 0; yy < kMini3x5H; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < kMini3x5W; ++xx)
+            {
+                if((row >> (kMini3x5W - 1 - xx)) & 1u)
+                {
+                    const int px = x + i * kMini3x5Advance + xx;
+                    const int py = y + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    }
+}
+
+static int MiniString3x5Width(const char* str)
+{
+    if(str == nullptr || str[0] == '\0')
+        return 0;
+    int count = 0;
+    for(; str[count] != '\0'; ++count)
+    {
+    }
+    return count * kMini3x5Advance - 1;
+}
+
+static void DrawPlus5x7(OledPager& d, int x, int y, bool on)
+{
+    // 5x7 plus centered in the same cell width used by DrawTinyString.
+    for(int yy = 1; yy <= 5; ++yy)
+        d.DrawPixel(x + 2, y + yy, on);
+    for(int xx = 0; xx < 5; ++xx)
+        d.DrawPixel(x + xx, y + 3, on);
+}
+
+static int SignedSemitoneTextWidth(int v)
+{
+    if(v > 0)
+    {
+        char digits[8];
+        std::snprintf(digits, sizeof(digits), "%d", v);
+        return 6 + TinyStringWidth(digits); // '+' cell (6px advance) + digits
+    }
+
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%d", v);
+    return TinyStringWidth(buf);
+}
+
+static void DrawSignedSemitoneText(OledPager& d, int v, int x, int y, bool on)
+{
+    if(v > 0)
+    {
+        char digits[8];
+        std::snprintf(digits, sizeof(digits), "%d", v);
+        DrawPlus5x7(d, x, y, on);
+        DrawTinyString(d, digits, x + 6, y, on);
+        return;
+    }
+
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%d", v);
+    DrawTinyString(d, buf, x, y, on);
+}
+
+static void DrawDottedRect(OledPager& d, int x0, int y0, int x1, int y1, bool on)
+{
+    if(x1 < x0)
+    {
+        const int t = x0;
+        x0 = x1;
+        x1 = t;
+    }
+    if(y1 < y0)
+    {
+        const int t = y0;
+        y0 = y1;
+        y1 = t;
+    }
+
+    for(int x = x0; x <= x1; ++x)
+    {
+        if(((x - x0) & 1) == 0)
+        {
+            d.DrawPixel(x, y0, on);
+            d.DrawPixel(x, y1, on);
+        }
+    }
+    for(int y = y0; y <= y1; ++y)
+    {
+        if(((y - y0) & 1) == 0)
+        {
+            d.DrawPixel(x0, y, on);
+            d.DrawPixel(x1, y, on);
+        }
+    }
+}
+
+static int LoadWordmarkWidth()
+{
+    // 5 + 1 + 3 + 1 + 3 + 1 + 4
+    return 18;
+}
+
+static void DrawLoadWordmark(OledPager& d, int x, int y, bool on)
+{
+    constexpr int l_x = 0;   // width 5 (0..4)
+    constexpr int o_x = 6;   // width 3 (6..8), 1px gap after L
+    constexpr int a_x = 10;  // width 3 (10..12), 1px gap after o
+    constexpr int d_x = 14;  // width 4 (14..17), 1px gap after a
+
+    auto draw_char = [&](char ch, int cx, int cy)
+    {
+        uint8_t rows[Font5x7::H] = {};
+        Font5x7::GetGlyphRows(ch, rows);
+        for(int yy = 0; yy < Font5x7::H; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < Font5x7::W; ++xx)
+            {
+                if((row >> (Font5x7::W - 1 - xx)) & 1)
+                {
+                    const int px = cx + xx;
+                    const int py = cy + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    };
+
+    auto draw_char_3x5 = [&](char ch, int cx, int cy)
+    {
+        uint8_t rows[5] = {};
+        switch(ch)
+        {
+            case 'o':
+                rows[0] = 0b010;
+                rows[1] = 0b101;
+                rows[2] = 0b101;
+                rows[3] = 0b101;
+                rows[4] = 0b010;
+                break;
+            case 'a':
+                rows[0] = 0b010;
+                rows[1] = 0b001;
+                rows[2] = 0b011;
+                rows[3] = 0b101;
+                rows[4] = 0b111;
+                break;
+            default:
+                return;
+        }
+
+        for(int yy = 0; yy < 5; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < 3; ++xx)
+            {
+                if((row >> (2 - xx)) & 1)
+                {
+                    const int px = cx + xx;
+                    const int py = cy + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    };
+
+    auto draw_l_top_extended = [&](int cx, int cy)
+    {
+        // Extend only the top of the vertical stroke by one pixel.
+        for(int yy = -1; yy <= 6; ++yy)
+        {
+            const int py = cy + yy;
+            if(cx >= 0 && cx < 128 && py >= 0 && py < 64)
+                d.DrawPixel(cx, py, on);
+        }
+        const int foot_y = cy + 6;
+        if(foot_y >= 0 && foot_y < 64)
+        {
+            for(int xx = 0; xx < 5; ++xx)
+            {
+                const int px = cx + xx;
+                if(px >= 0 && px < 128)
+                    d.DrawPixel(px, foot_y, on);
+            }
+        }
+    };
+
+    auto draw_D_4x7 = [&](int cx, int cy)
+    {
+        const uint8_t rows[7] = {
+            0b1110,
+            0b1001,
+            0b1001,
+            0b1001,
+            0b1001,
+            0b1001,
+            0b1110,
+        };
+        for(int yy = 0; yy < 7; ++yy)
+        {
+            for(int xx = 0; xx < 4; ++xx)
+            {
+                if((rows[yy] >> (3 - xx)) & 1)
+                {
+                    const int px = cx + xx;
+                    const int py = cy + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    };
+
+    draw_l_top_extended(x + l_x, y);
+    draw_char_3x5('o', x + o_x, y);
+    draw_char_3x5('a', x + a_x, y);
+    draw_D_4x7(x + d_x, y);
+
+    // Extended baseline from L to one pixel before D.
+    const int baseline_y = y + Font5x7::H - 1;
+    const int baseline_end_x = x + d_x - 2; // leaves one blank pixel before D
+    d.DrawLine(x, baseline_y, baseline_end_x, baseline_y, on);
+}
+
+static int TuneWordmarkWidth()
+{
+    // 5 + 1 + 3 + 1 + 3 + 1 + 3
+    return 17;
+}
+
+static void DrawTuneWordmark(OledPager& d, int x, int y, bool on)
+{
+    constexpr int t_x = 0;   // width 5 (0..4)
+    constexpr int u_x = 6;   // width 3 (6..8), 1px gap after T
+    constexpr int n_x = 10;  // width 3 (10..12), 1px gap after u
+    constexpr int e_x = 14;  // width 3 (14..16), 1px gap after n
+
+    auto draw_char_3x5 = [&](char ch, int cx, int cy)
+    {
+        uint8_t rows[5] = {};
+        switch(ch)
+        {
+            case 'u':
+                rows[0] = 0b101;
+                rows[1] = 0b101;
+                rows[2] = 0b101;
+                rows[3] = 0b101;
+                rows[4] = 0b011;
+                break;
+            case 'n':
+                rows[0] = 0b110;
+                rows[1] = 0b101;
+                rows[2] = 0b101;
+                rows[3] = 0b101;
+                rows[4] = 0b101;
+                break;
+            case 'e':
+                rows[0] = 0b111;
+                rows[1] = 0b100;
+                rows[2] = 0b110;
+                rows[3] = 0b100;
+                rows[4] = 0b111;
+                break;
+            default:
+                return;
+        }
+
+        for(int yy = 0; yy < 5; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < 3; ++xx)
+            {
+                if((row >> (2 - xx)) & 1)
+                {
+                    const int px = cx + xx;
+                    const int py = cy + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    };
+
+    auto draw_t = [&](int cx, int cy)
+    {
+        // T top bar.
+        for(int xx = 0; xx < 5; ++xx)
+        {
+            const int px = cx + xx;
+            if(px >= 0 && px < 128 && cy >= 0 && cy < 64)
+                d.DrawPixel(px, cy, on);
+        }
+        // T vertical stem.
+        for(int yy = 1; yy < 7; ++yy)
+        {
+            const int py = cy + yy;
+            const int px = cx + 2;
+            if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                d.DrawPixel(px, py, on);
+        }
+    };
+
+    draw_t(x + t_x, y);
+    draw_char_3x5('u', x + u_x, y + 2);
+    draw_char_3x5('n', x + n_x, y + 2);
+    draw_char_3x5('e', x + e_x, y + 2);
+
+    // Extended top line from T across u/n/e.
+    d.DrawLine(x, y, x + TuneWordmarkWidth() - 1, y, on);
+}
+
+static constexpr int kMicroW = 4;
+static constexpr int kMicroH = 6;
+static constexpr int kMicroAdvance = kMicroW + 1;
+
+static void GetMicroGlyph(char c, uint8_t out_rows[kMicroH])
+{
+    for(int i = 0; i < kMicroH; ++i)
+        out_rows[i] = 0;
+
+    auto set = [&](uint8_t r0, uint8_t r1, uint8_t r2, uint8_t r3, uint8_t r4, uint8_t r5)
+    {
+        out_rows[0] = r0;
+        out_rows[1] = r1;
+        out_rows[2] = r2;
+        out_rows[3] = r3;
+        out_rows[4] = r4;
+        out_rows[5] = r5;
+    };
+
+    // Native lowercase forms so Title Case looks correct.
+    switch(c)
+    {
+        case 'a': set(0b0000, 0b0110, 0b0001, 0b0111, 0b1001, 0b0111); return;
+        case 'b': set(0b1000, 0b1000, 0b1110, 0b1001, 0b1001, 0b1110); return;
+        case 'c': set(0b0000, 0b0110, 0b1001, 0b1000, 0b1001, 0b0110); return;
+        case 'd': set(0b0001, 0b0001, 0b0111, 0b1001, 0b1001, 0b0111); return;
+        case 'e': set(0b0000, 0b0110, 0b1001, 0b1111, 0b1000, 0b0111); return;
+        case 'f': set(0b0011, 0b0100, 0b1110, 0b0100, 0b0100, 0b0100); return;
+        case 'g': set(0b0000, 0b0111, 0b1001, 0b0111, 0b0001, 0b1110); return;
+        case 'h': set(0b1000, 0b1000, 0b1110, 0b1001, 0b1001, 0b1001); return;
+        case 'i': set(0b0010, 0b0000, 0b0110, 0b0010, 0b0010, 0b0111); return;
+        case 'j': set(0b0001, 0b0000, 0b0011, 0b0001, 0b1001, 0b0110); return;
+        case 'k': set(0b1000, 0b1001, 0b1010, 0b1100, 0b1010, 0b1001); return;
+        case 'l': set(0b0110, 0b0010, 0b0010, 0b0010, 0b0010, 0b0111); return;
+        case 'm': set(0b0000, 0b1110, 0b1011, 0b1011, 0b1011, 0b1011); return;
+        case 'n': set(0b0000, 0b1110, 0b1001, 0b1001, 0b1001, 0b1001); return;
+        case 'o': set(0b0000, 0b0110, 0b1001, 0b1001, 0b1001, 0b0110); return;
+        case 'p': set(0b0000, 0b1110, 0b1001, 0b1110, 0b1000, 0b1000); return;
+        case 'q': set(0b0000, 0b0111, 0b1001, 0b0111, 0b0001, 0b0001); return;
+        case 'r': set(0b0000, 0b1011, 0b1100, 0b1000, 0b1000, 0b1000); return;
+        case 's': set(0b0000, 0b0111, 0b1000, 0b0110, 0b0001, 0b1110); return;
+        case 't': set(0b0100, 0b1110, 0b0100, 0b0100, 0b0101, 0b0010); return;
+        case 'u': set(0b0000, 0b1001, 0b1001, 0b1001, 0b1011, 0b0101); return;
+        case 'v': set(0b0000, 0b1001, 0b1001, 0b1001, 0b0101, 0b0010); return;
+        case 'w': set(0b0000, 0b1001, 0b1001, 0b1011, 0b1011, 0b0110); return;
+        case 'x': set(0b0000, 0b1001, 0b0110, 0b0110, 0b0110, 0b1001); return;
+        case 'y': set(0b0000, 0b1001, 0b1001, 0b0111, 0b0001, 0b1110); return;
+        case 'z': set(0b0000, 0b1111, 0b0010, 0b0100, 0b1000, 0b1111); return;
+        default: break;
+    }
+
+    uint8_t rows5[Font5x7::H] = {};
+    Font5x7::GetGlyphRows(c, rows5);
+
+    // Convert 5x7 -> 4x6 by dropping one column and one row.
+    constexpr int col_map[kMicroW] = {0, 1, 3, 4};
+    for(int yy = 0; yy < kMicroH; ++yy)
+    {
+        uint8_t bits = 0;
+        const uint8_t src = rows5[yy];
+        for(int xx = 0; xx < kMicroW; ++xx)
+        {
+            const int src_col = col_map[xx];
+            const bool on = ((src >> (Font5x7::W - 1 - src_col)) & 1u) != 0;
+            if(on)
+                bits |= static_cast<uint8_t>(1u << (kMicroW - 1 - xx));
+        }
+        out_rows[yy] = bits;
+    }
+}
+
+static void DrawMicroString(OledPager& d, const char* str, int x, int y, bool on)
+{
+    if(str == nullptr)
+        return;
+
+    for(int i = 0; str[i] != '\0'; ++i)
+    {
+        uint8_t rows[kMicroH] = {};
+        GetMicroGlyph(str[i], rows);
+        for(int yy = 0; yy < kMicroH; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < kMicroW; ++xx)
+            {
+                if((row >> (kMicroW - 1 - xx)) & 1u)
+                {
+                    const int px = x + i * kMicroAdvance + xx;
+                    const int py = y + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    }
+}
+
+static int MicroStringWidth(const char* str)
+{
+    if(str == nullptr || str[0] == '\0')
+        return 0;
+    int count = 0;
+    for(; str[count] != '\0'; ++count)
+    {
+    }
+    return count * kMicroAdvance - 1;
+}
+
+static bool IsWordBreak(char c)
+{
+    return c == ' ' || c == '_' || c == '-' || c == '/' || c == ':';
+}
+
+static void ToTitleCase(const char* in, char* out, size_t out_sz)
+{
+    if(out_sz == 0)
+        return;
+    out[0] = '\0';
+    if(!in)
+        return;
+
+    bool cap_next = true;
+    size_t j = 0;
+    for(size_t i = 0; in[i] != '\0' && j + 1 < out_sz; ++i)
+    {
+        char c = in[i];
+        if(c == '_')
+            c = ' ';
+
+        if(IsWordBreak(c))
+        {
+            out[j++] = c;
+            cap_next = true;
+            continue;
+        }
+
+        if(c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + (cap_next ? 'A' : 'a'));
+        else if(c >= 'a' && c <= 'z')
+            c = static_cast<char>(c - 'a' + (cap_next ? 'A' : 'a'));
+
+        out[j++] = c;
+        cap_next = false;
+    }
+    out[j] = '\0';
+}
+
+static void ToLowerCase(const char* in, char* out, size_t out_sz)
+{
+    if(out_sz == 0)
+        return;
+    out[0] = '\0';
+    if(!in)
+        return;
+
+    size_t j = 0;
+    for(size_t i = 0; in[i] != '\0' && j + 1 < out_sz; ++i)
+    {
+        char c = in[i];
+        if(c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+        out[j++] = c;
+    }
+    out[j] = '\0';
+}
+
 static void DrawVerticalFadersInRect(OledPager& d,
                                      int x,
                                      int y,
@@ -213,7 +765,10 @@ static void DrawVerticalFadersInRect(OledPager& d,
                                      const int* x_offsets = nullptr,
                                      const bool* circle_handles = nullptr,
                                      const bool* hide_rails = nullptr,
-                                     const bool* hide_handles = nullptr)
+                                     const bool* hide_handles = nullptr,
+                                     int selected_label_box_y_offset = 0,
+                                     int selected_label_box_extra_bottom = 0,
+                                     int selected_label_box_bottom_clip_extra = 0)
 {
     if(w <= 2 || h <= 2 || count <= 0)
         return;
@@ -341,12 +896,16 @@ static void DrawVerticalFadersInRect(OledPager& d,
             {
                 int lx0 = label_x - 1;
                 int lx1 = label_x + label_w;
-                int ly0 = label_y - 1;
-                int ly1 = label_y + Font5x7::H;
+                int ly0 = label_y - 1 + selected_label_box_y_offset;
+                int ly1 = label_y + Font5x7::H + selected_label_box_y_offset
+                          + selected_label_box_extra_bottom;
+                int ly1_max = y + h - 2 + selected_label_box_bottom_clip_extra;
+                if(ly1_max > y + h - 1)
+                    ly1_max = y + h - 1;
                 if(lx0 < x + 1) lx0 = x + 1;
                 if(lx1 > x + w - 2) lx1 = x + w - 2;
                 if(ly0 < y + 1) ly0 = y + 1;
-                if(ly1 > y + h - 2) ly1 = y + h - 2;
+                if(ly1 > ly1_max) ly1 = ly1_max;
                 d.DrawRect(lx0, ly0, lx1, ly1, true, true);
                 DrawTinyString(d, label, label_x, label_y, false);
             }
@@ -370,7 +929,8 @@ static void DrawWaveformPreview(OledPager& d,
                                 int x,
                                 int y,
                                 int w,
-                                int h);
+                                int h,
+                                bool on = true);
 
 static void DrawCirclePixels(OledPager& d, int cx, int cy, int r, bool on)
 {
@@ -1947,6 +2507,14 @@ static void FormatSignedInt(int v, char* out, size_t out_n)
         std::snprintf(out, out_n, "%d", v);
 }
 
+static void FormatSignedIntWithPlus(int v, char* out, size_t out_n)
+{
+    if(v > 0)
+        std::snprintf(out, out_n, "+%d", v);
+    else
+        std::snprintf(out, out_n, "%d", v);
+}
+
 static void FormatDb(int v, char* out, size_t out_n)
 {
     if(v > 0)
@@ -2016,7 +2584,8 @@ static void DrawWaveformPreview(OledPager& d,
                                 int x,
                                 int y,
                                 int w,
-                                int h)
+                                int h,
+                                bool on)
 {
     if(w < 3 || h < 3)
         return;
@@ -2025,7 +2594,7 @@ static void DrawWaveformPreview(OledPager& d,
     const int y0 = y;
     const int x1 = x + w - 1;
     const int y1 = y + h - 1;
-    d.DrawRect(x0, y0, x1, y1, true, false);
+    d.DrawRect(x0, y0, x1, y1, on, false);
 
     if(sample.pcm == nullptr || sample.length == 0)
         return;
@@ -2075,7 +2644,7 @@ static void DrawWaveformPreview(OledPager& d,
         if(bot < top)
             bot = top;
         for(int yy = top; yy <= bot; ++yy)
-            d.DrawPixel(xx, yy, true);
+            d.DrawPixel(xx, yy, on);
     }
 }
 
@@ -2093,6 +2662,7 @@ static void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
 
     ctx.app->engine_load_from_perform = false;
     ctx.app->engine_load_target_layer = 0xFFu;
+    ctx.app->perform_engine_row = static_cast<uint8_t>(kEngineRowLoad);
     PublishEngineLayerParams(ctx);
     ctx.app->ui_dirty = true;
 }
@@ -2128,6 +2698,7 @@ static bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         app.perform_layer ^= 1u;
         const uint8_t layer = app.perform_layer & 1u;
         app.sd_current_slot.store(layer, std::memory_order_release);
+        app.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
         app.ui_dirty = true;
         return true;
@@ -2191,47 +2762,129 @@ static void PerformEngine_Render(UiScreenCtx& ctx)
     const SampleEdit* edit = sample_loaded ? &app.sd_edit_slots[layer] : nullptr;
 
     const UiLayout layout = UiLayout_Default();
-    char status[16];
-    BuildStatus(app, status, sizeof(status));
-    char title[16];
-    std::snprintf(title, sizeof(title), "ENGINE %s", LayerName(layer));
-    UiDraw_Header(d, layout, title, status);
+    char header_label[16] = {};
+    std::snprintf(header_label, sizeof(header_label), "engine %c", layer == 0 ? 'a' : 'b');
+    const int header_w = MicroStringWidth(header_label);
+    const int box_w = header_w + 4;
+    const int box_h = kMicroH + 4;
+    int box_x = 128 - box_w;
+    if(box_x < 0)
+        box_x = 0;
+    const bool header_invert_flash = static_cast<int32_t>(app.engine_header_invert_until_ms - ctx.now_ms) > 0;
+    if(header_invert_flash)
+    {
+        // Inverted phase: dark fill with white text/border.
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, false, true);
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, false);
+        DrawMicroString(d, header_label, box_x + 2, 2, true);
+    }
+    else
+    {
+        // Default phase: filled white box with dark text.
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, true);
+        DrawMicroString(d, header_label, box_x + 2, 2, false);
+    }
 
-    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
-    if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
-    char name_buf[24];
-    std::snprintf(name_buf, sizeof(name_buf),name);
-    d.SetCursor(layout.x, layout.y_body);
-    d.WriteString(name_buf, Font_6x8, true);
+    constexpr int kTopTextX = 2;
+    constexpr int kTopTextY = 2;
+    const int top_text_bottom_y = kTopTextY + Font5x7::H - 1;
+    if(!sample_loaded)
+    {
+        DrawTinyString(d, "no sample", kTopTextX, kTopTextY, true);
+    }
+    else
+    {
+        const char* name = app.engine_sample_name[layer];
+        if(name == nullptr)
+            name = "";
+        char name_buf[40];
+        ToLowerCase(name, name_buf, sizeof(name_buf));
+        char clipped[40];
+        clipped[0] = '\0';
+        const int max_name_w = box_x - kTopTextX - 1; // keep clear of the header box.
+        if(max_name_w > 0)
+        {
+            const int char_advance = Font5x7::W + 1;
+            const int max_chars = (max_name_w + 1) / char_advance;
+            int i = 0;
+            for(; name_buf[i] != '\0' && i < max_chars && i + 1 < static_cast<int>(sizeof(clipped)); ++i)
+                clipped[i] = name_buf[i];
+            clipped[i] = '\0';
+        }
+        DrawTinyString(d, clipped, kTopTextX, kTopTextY, true);
+    }
 
     constexpr int kWaveX = 0;
-    const int kWaveY = layout.y_body + layout.line_h;
+    const int kWaveY = top_text_bottom_y + 2;
     constexpr int kWaveW = 128;
-    const int kLoadY = layout.y_footer - layout.line_h;
-    const int kTuneY = layout.y_footer;
-    const int kWaveH = kLoadY - kWaveY;
-    DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH);
+    constexpr int kScreenH = 64;
+    int kWaveBottomY = layout.y_footer - 9;
+    if(kWaveBottomY < kWaveY)
+        kWaveBottomY = kWaveY;
+    const int kWaveH = kWaveBottomY - kWaveY + 1;
+
+    const int footer_region_top = kWaveBottomY + 1;
+    const int footer_region_bottom = kScreenH - 1;
+    const int footer_region_h = footer_region_bottom - footer_region_top + 1;
+    int kFooterY = footer_region_top;
+    if(footer_region_h > Font5x7::H)
+        kFooterY += (footer_region_h - Font5x7::H) / 2;
+
+    DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true);
     const uint8_t row = app.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
     if(row == kEngineRowWave)
     {
-        // Highlight full waveform region when waveform row is selected.
-        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, false);
-        d.DrawRect(kWaveX + 1, kWaveY + 1, kWaveX + kWaveW - 2, kWaveY + kWaveH - 2, true, false);
+        // Invert full waveform preview region to signal enterable deep menu.
+        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, true);
+        DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, false);
     }
 
-    char tune_buf[12];
-    FormatSignedInt(app.engine_tune_semitones[layer], tune_buf, sizeof(tune_buf));
+    const char* load_label = "LoaD";
+    const int load_w = LoadWordmarkWidth();
+    const int tune_w = TuneWordmarkWidth();
+    constexpr int kScreenW = 128;
+    constexpr int kHalfW = kScreenW / 2;
+    const int load_anchor_x = kHalfW / 2;
+    const int tune_anchor_x = kHalfW + (kHalfW / 2);
+    int load_x = load_anchor_x - (load_w / 2);
+    int tune_x = tune_anchor_x - (tune_w / 2);
+    const int load_min_x = 1;
+    const int load_max_x = (kHalfW - 1) - load_w;
+    const int tune_min_x = kHalfW + 1;
+    const int tune_max_x = (kScreenW - 1) - tune_w;
+    if(load_x < load_min_x)
+        load_x = load_min_x;
+    if(load_x > load_max_x)
+        load_x = load_max_x;
+    if(tune_x < tune_min_x)
+        tune_x = tune_min_x;
+    if(tune_x > tune_max_x)
+        tune_x = tune_max_x;
 
-    char line[32];
+    if(row == kEngineRowLoad)
+    {
+        d.DrawRect(load_x - 2, kFooterY - 2, load_x + load_w + 1, kFooterY + Font5x7::H + 1, true, true);
+        DrawLoadWordmark(d, load_x, kFooterY, false);
+    }
+    else
+    {
+        DrawLoadWordmark(d, load_x, kFooterY, true);
+    }
 
-    std::snprintf(line, sizeof(line), "%c LOAD", (row == kEngineRowLoad) ? '>' : ' ');
-    d.SetCursor(0, kLoadY);
-    d.WriteString(line, Font_6x8, true);
-
-    std::snprintf(line, sizeof(line), "%c TUNE:%s", (row == kEngineRowTune) ? '>' : ' ', tune_buf);
-    d.SetCursor(0, kTuneY);
-    d.WriteString(line, Font_6x8, true);
+    if(row == kEngineRowTune)
+    {
+        DrawDottedRect(d, tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true);
+        const int semitones = static_cast<int>(app.engine_tune_semitones[layer]);
+        const int val_w = SignedSemitoneTextWidth(semitones);
+        int val_x = tune_x + (tune_w - val_w) / 2;
+        if(val_x < tune_x)
+            val_x = tune_x;
+        DrawSignedSemitoneText(d, semitones, val_x, kFooterY, true);
+    }
+    else
+    {
+        DrawTuneWordmark(d, tune_x, kFooterY, true);
+    }
 }
 
 static void PerformWaveEdit_Render(UiScreenCtx& ctx)
@@ -2239,7 +2892,6 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
     if(!ctx.app || !ctx.display)
         return;
 
-    const UiLayout layout = UiLayout_Default();
     OledPager& d = *ctx.display;
     d.Fill(false);
 
@@ -2252,33 +2904,30 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
     SampleEdit edit = app.sd_edit_slots[layer];
     SampleEdit_Clamp(edit, sample.length);
 
-    char status[16];
-    BuildStatus(app, status, sizeof(status));
-
-    char title[24];
-    std::snprintf(title, sizeof(title), ".WAV EDIT %s TRIM", LayerName(layer));
-    UiDraw_Header(d, layout, title, status);
-
-    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
-    if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
-    char name_buf[24];
-    std::snprintf(name_buf, sizeof(name_buf), "%s", name);
-    d.SetCursor(layout.x, layout.y_body);
-    d.WriteString(name_buf, Font_6x8, true);
-
     const int wave_x = 0;
-    const int wave_y = layout.y_body + layout.line_h;
+    const int wave_y = 0;
     const int wave_w = 128;
-    const int wave_h = layout.y_footer - wave_y;
+    const int wave_h = 64;
     const int x0 = wave_x;
     const int y0 = wave_y;
     const int x1 = wave_x + wave_w - 1;
     const int y1 = wave_y + wave_h - 1;
     d.DrawRect(x0, y0, x1, y1, true, false);
 
-    if(sample_loaded && wave_w >= 3 && wave_h >= 3)
+    if(!sample_loaded)
     {
+        DrawTinyString(d, "no sample", 2, 2, true);
+        return;
+    }
+
+    if(wave_w >= 3 && wave_h >= 3)
+    {
+        const int preview_bottom_y = y1 - (kMini3x5H + 3);
+        const int waveform_y0 = y0 + 1;
+        const int waveform_y1 = preview_bottom_y - 1;
+        if(waveform_y1 <= waveform_y0)
+            return;
+
         const uint32_t frames = sample.length;
         const uint32_t denom = (frames > 1) ? (frames - 1) : 1;
         int start_x = x0 + static_cast<int>((static_cast<uint64_t>(edit.start_frame) * (wave_w - 1)) / denom);
@@ -2292,8 +2941,13 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
         if(start_x < x0) start_x = x0;
         if(end_x > x1) end_x = x1;
 
-        const int mid = y0 + wave_h / 2;
-        const int amp_h = (wave_h - 2) / 2;
+        const int waveform_h = waveform_y1 - waveform_y0 + 1;
+        const int mid = waveform_y0 + waveform_h / 2;
+        const int amp_h = (waveform_h - 1) / 2;
+
+        // Invert selected trim window.
+        d.DrawRect(start_x, waveform_y0, end_x, waveform_y1, true, true);
+
         const int draw_w = wave_w - 2;
         const uint32_t total = sample.length;
         for(int px = 0; px < draw_w; ++px)
@@ -2318,13 +2972,17 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
 
             int top = mid - (static_cast<int>(mx) * amp_h) / 32768;
             int bot = mid - (static_cast<int>(mn) * amp_h) / 32768;
-            if(top < y0 + 1) top = y0 + 1;
-            if(bot > y1 - 1) bot = y1 - 1;
+            if(top < waveform_y0) top = waveform_y0;
+            if(bot > waveform_y1) bot = waveform_y1;
             if(bot < top) bot = top;
 
             const int xx = x0 + 1 + px;
             const bool inside = (xx >= start_x && xx <= end_x);
             if(inside)
+            {
+                d.DrawLine(xx, top, xx, bot, false);
+            }
+            else
             {
                 for(int yy = top; yy <= bot; ++yy)
                 {
@@ -2332,38 +2990,56 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
                         d.DrawPixel(xx, yy, true);
                 }
             }
-            else
+        }
+
+        d.DrawLine(start_x, waveform_y0, start_x, waveform_y1, true);
+        d.DrawLine(end_x, waveform_y0, end_x, waveform_y1, true);
+
+        // Solid divider at bottom of waveform preview area.
+        d.DrawLine(x0 + 1, preview_bottom_y, x1 - 1, preview_bottom_y, true);
+
+        const int start_w = MiniString3x5Width("start");
+        const int end_w = MiniString3x5Width("end");
+        const int label_y = preview_bottom_y + 2;
+        const int min_gap = 1;
+        const int start_min_x = x0 + 1;
+        const int end_min_x = x0 + 1;
+        const int start_max_x = x1 - start_w;
+        const int end_max_x = x1 - end_w;
+
+        int start_label_x = start_x - (start_w / 2);
+        int end_label_x = end_x - (end_w / 2);
+
+        if(start_label_x < start_min_x) start_label_x = start_min_x;
+        if(start_label_x > start_max_x) start_label_x = start_max_x;
+        if(end_label_x < end_min_x) end_label_x = end_min_x;
+        if(end_label_x > end_max_x) end_label_x = end_max_x;
+
+        // Keep labels disjoint even when trim lines get very close.
+        if(start_label_x + start_w + min_gap > end_label_x)
+        {
+            const int overlap = (start_label_x + start_w + min_gap) - end_label_x;
+            start_label_x -= (overlap + 1) / 2;
+            end_label_x += overlap / 2;
+
+            if(start_label_x < start_min_x) start_label_x = start_min_x;
+            if(end_label_x > end_max_x) end_label_x = end_max_x;
+
+            if(start_label_x + start_w + min_gap > end_label_x)
             {
-                d.DrawLine(xx, top, xx, bot, true);
+                end_label_x = start_label_x + start_w + min_gap;
+                if(end_label_x > end_max_x)
+                {
+                    end_label_x = end_max_x;
+                    start_label_x = end_label_x - start_w - min_gap;
+                    if(start_label_x < start_min_x)
+                        start_label_x = start_min_x;
+                }
             }
         }
 
-        auto draw_bracket = [&](int hx, bool start_handle)
-        {
-            int x = hx;
-            if(x < x0) x = x0;
-            if(x > x1) x = x1;
-            for(int yy = y0; yy <= y1; ++yy)
-            {
-                d.DrawPixel(x, yy, true);
-                if(x + 1 <= x1)
-                    d.DrawPixel(x + 1, yy, true);
-            }
-
-            const int cap = 5;
-            for(int dx = 0; dx < cap; ++dx)
-            {
-                const int px = start_handle ? (x + dx) : (x - dx);
-                if(px >= x0 && px <= x1)
-                {
-                    d.DrawPixel(px, y0, true);
-                    d.DrawPixel(px, y1, true);
-                }
-            }
-        };
-
-        draw_bracket(start_x, true);
-        draw_bracket(end_x, false);
+        DrawMiniString3x5(d, "start", start_label_x, label_y, true);
+        DrawMiniString3x5(d, "end", end_label_x, label_y, true);
 
         const uint32_t ph_active = app.playhead_active[layer].load(std::memory_order_relaxed);
         if(ph_active != 0u)
@@ -2371,10 +3047,43 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
             const uint32_t ph_frame = app.playhead_frame[layer].load(std::memory_order_relaxed);
             const uint32_t ph = (ph_frame >= frames) ? (frames - 1) : ph_frame;
             const int play_x = x0 + static_cast<int>((static_cast<uint64_t>(ph) * (wave_w - 1)) / denom);
-            d.DrawLine(play_x, y0, play_x, y1, true);
+            d.DrawLine(play_x, waveform_y0, play_x, waveform_y1, true);
         }
     }
 
+}
+
+static void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return;
+
+    AppState& app = *ctx.app;
+    for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
+        app.perform_wave_edit_entry[slot] = app.sd_edit_slots[slot];
+    app.perform_wave_edit_has_entry = true;
+    app.ui_dirty = true;
+}
+
+static bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return false;
+
+    AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
+    SampleEdit edit = app.sd_edit_slots[layer];
+    const Sample& sample = app.sd_slots[layer];
+    SampleEdit_Clamp(edit, sample.length);
+    app.sd_edit_slots[layer] = edit;
+    app.sd_edit_pending = edit;
+    app.sd_edit_slot.store(layer, std::memory_order_release);
+    app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+    app.sd_edit_ready.store(1, std::memory_order_release);
+    app.perform_wave_edit_has_entry = false;
+    UiNav_Pop(app.ui_nav);
+    app.ui_dirty = true;
+    return true;
 }
 
 static bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -2394,6 +3103,20 @@ static bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         app.perform_layer ^= 1u;
         const uint8_t next = app.perform_layer & 1u;
         app.sd_current_slot.store(next, std::memory_order_release);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    // Cancel trim edit session: restore entry snapshot and return.
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+    {
+        if(app.perform_wave_edit_has_entry)
+        {
+            for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
+                app.sd_edit_slots[slot] = app.perform_wave_edit_entry[slot];
+            app.perform_wave_edit_has_entry = false;
+        }
+        UiNav_Pop(app.ui_nav);
         app.ui_dirty = true;
         return true;
     }
@@ -2462,10 +3185,6 @@ static bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         SampleEdit_Clamp(edit, frames);
         app.sd_edit_slots[layer] = edit;
-        app.sd_edit_pending = edit;
-        app.sd_edit_slot.store(layer, std::memory_order_release);
-        app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-        app.sd_edit_ready.store(1, std::memory_order_release);
         app.ui_dirty = true;
         return true;
     }
@@ -3086,21 +3805,20 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 app.ui_dirty = true;
                 return true;
             }
+            // RSHIFT + R encoder reorders focused S/M/D/R lane, clamped at edges.
             const int dir = (e.value > 0) ? 1 : -1;
-            int steps = (e.value > 0) ? e.value : -e.value;
-            while(steps-- > 0)
+            const int from = static_cast<int>(main_cursor - 2u);
+            const int to = from + dir;
+            if(to < 0 || to > 3)
             {
-                const int from = static_cast<int>(app.perform_process_fx_cursor & 0x03u);
-                int to = from + dir;
-                if(to < 0)
-                    to = 3;
-                else if(to > 3)
-                    to = 0;
-                const uint8_t tmp = app.perform_process_fx_order[from];
-                app.perform_process_fx_order[from] = app.perform_process_fx_order[to];
-                app.perform_process_fx_order[to] = tmp;
-                app.perform_process_fx_cursor = static_cast<uint8_t>(to);
+                app.ui_dirty = true;
+                return true;
             }
+            const uint8_t tmp = app.perform_process_fx_order[from];
+            app.perform_process_fx_order[from] = app.perform_process_fx_order[to];
+            app.perform_process_fx_order[to] = tmp;
+            app.perform_process_fx_cursor = static_cast<uint8_t>(to);
+            app.perform_process_main_cursor = static_cast<uint8_t>(to + 2);
 
             PerformParamsTargets& t = ctx.params->EditTargets();
             for(int i = 0; i < 4; ++i)
@@ -3700,7 +4418,75 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     const int fader_y = box_y + 1;
     const int fader_h = box_h - 2;
     if(fader_w > 4 && fader_h > 4)
-        DrawVerticalFadersInRect(d, fader_x, fader_y, fader_w, fader_h, labels, values, 4, true, selected_index);
+    {
+        DrawVerticalFadersInRect(d,
+                                 fader_x,
+                                 fader_y,
+                                 fader_w,
+                                 fader_h,
+                                 labels,
+                                 values,
+                                 4,
+                                 true,
+                                 selected_index,
+                                 nullptr,
+                                 nullptr,
+                                 nullptr,
+                                 nullptr,
+                                 1,
+                                 1,
+                                 1);
+
+        if(ctx.rshift && selected_index >= 0 && selected_index < 4)
+        {
+            const int line_top = fader_y + 2;
+            const int label_y = fader_y + fader_h - Font5x7::H - 1;
+            const int line_bottom = label_y - 2;
+            if(line_bottom > line_top)
+            {
+                const int fader_left = fader_x + 4;
+                const int fader_right = fader_x + fader_w - 5;
+                const int span_x = fader_right - fader_left;
+                const int line_x = (span_x > 0)
+                                       ? (fader_left + (span_x * selected_index) / 3)
+                                       : fader_left;
+                const int cy = line_top + ((line_bottom - line_top) / 2);
+                const bool can_move_left = (selected_index > 0);
+                const bool can_move_right = (selected_index < 3);
+
+                auto draw_left_arrow = [&](int tip_x)
+                {
+                    d.DrawPixel(tip_x, cy, true);
+                    d.DrawPixel(tip_x + 1, cy - 1, true);
+                    d.DrawPixel(tip_x + 1, cy, true);
+                    d.DrawPixel(tip_x + 1, cy + 1, true);
+                    d.DrawPixel(tip_x + 2, cy - 2, true);
+                    d.DrawPixel(tip_x + 2, cy - 1, true);
+                    d.DrawPixel(tip_x + 2, cy, true);
+                    d.DrawPixel(tip_x + 2, cy + 1, true);
+                    d.DrawPixel(tip_x + 2, cy + 2, true);
+                };
+
+                auto draw_right_arrow = [&](int tip_x)
+                {
+                    d.DrawPixel(tip_x, cy, true);
+                    d.DrawPixel(tip_x - 1, cy - 1, true);
+                    d.DrawPixel(tip_x - 1, cy, true);
+                    d.DrawPixel(tip_x - 1, cy + 1, true);
+                    d.DrawPixel(tip_x - 2, cy - 2, true);
+                    d.DrawPixel(tip_x - 2, cy - 1, true);
+                    d.DrawPixel(tip_x - 2, cy, true);
+                    d.DrawPixel(tip_x - 2, cy + 1, true);
+                    d.DrawPixel(tip_x - 2, cy + 2, true);
+                };
+
+                if(can_move_left)
+                    draw_left_arrow(line_x - 7);
+                if(can_move_right)
+                    draw_right_arrow(line_x + 7);
+            }
+        }
+    }
 }
 
 UiScreenId UiNav_Active(const UiNav& nav)
@@ -4342,7 +5128,8 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
         const bool noisy_ok = (std::strncmp(sd.status, "LOADED", 6) == 0)
                            || (std::strncmp(sd.status, "LOADING", 7) == 0)
                            || (std::strncmp(sd.status, "SCANNING", 8) == 0)
-                           || (std::strncmp(sd.status, "DELETED", 7) == 0);
+                           || (std::strncmp(sd.status, "DELETED", 7) == 0)
+                           || (std::strncmp(sd.status, "READY", 5) == 0);
         if(!noisy_ok)
         {
             show_issue = true;
@@ -4366,9 +5153,15 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    char status[16];
-    BuildStatus(*ctx.app, status, sizeof(status));
-    UiDraw_Header(d, layout, "SD BROWSE", status);
+    const char* header_label = "sd browse";
+    const int header_w = TinyStringWidth(header_label);
+    const int box_w = header_w + 2;
+    const int box_h = Font5x7::H + 2;
+    int box_x = 128 - box_w;
+    if(box_x < 0)
+        box_x = 0;
+    d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, true);
+    DrawTinyString(d, header_label, box_x + 1, 1, false);
 
     if(show_issue && lines_used > 1)
     {
@@ -4376,11 +5169,39 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
         d.WriteString(issue_buf, Font_6x8, true);
     }
 
-    UiListMenu_Render(sd.menu,
-                      d,
-                      layout.x,
-                      layout.y_body + layout.line_h * lines_used,
-                      layout.line_h);
+    const int menu_x = layout.x;
+    const int menu_y = layout.y_body + layout.line_h * lines_used;
+    const int arrow_x = menu_x + 4;
+    const int label_x = menu_x + 10;
+
+    auto draw_filled_right_triangle = [&](int cx, int cy)
+    {
+        // 4px-wide filled right-pointing triangle.
+        for(int dx = 0; dx < 4; ++dx)
+        {
+            const int px = cx + dx;
+            const int half_h = dx;
+            for(int yy = cy - half_h; yy <= cy + half_h; ++yy)
+                d.DrawPixel(px, yy, true);
+        }
+    };
+
+    for(uint8_t row = 0; row < sd.menu.rows; ++row)
+    {
+        const uint8_t idx = static_cast<uint8_t>(sd.menu.scroll + row);
+        if(idx >= sd.menu.count || !sd.menu.items)
+            break;
+
+        const int row_y = menu_y + static_cast<int>(row) * layout.line_h;
+        if(idx == sd.menu.cursor)
+        {
+            const int arrow_cy = row_y + (layout.line_h / 2) - 1;
+            draw_filled_right_triangle(arrow_x, arrow_cy);
+        }
+
+        d.SetCursor(label_x, row_y);
+        d.WriteString(sd.menu.items[idx].label, Font_6x8, true);
+    }
 }
 
 // -------------------------
@@ -5016,10 +5837,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                          PerformEngine_Render,
                                          PerformEngine_OnEnter};
     static const UiScreen perform_wave_edit{UiScreenId::PerformWaveEdit,
-                                            nullptr,
+                                            PerformWaveEdit_OnScreenEnter,
                                             nullptr,
                                             PerformWaveEdit_OnEvent,
-                                            PerformWaveEdit_Render};
+                                            PerformWaveEdit_Render,
+                                            PerformWaveEdit_OnEnter};
     static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformAdsr_OnEvent, PerformAdsr_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis,
@@ -5118,6 +5940,10 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(active == UiScreenId::PerformProcess && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
+        // TRIM screen uses BACK to cancel pending start/end edits.
+        if(active == UiScreenId::PerformWaveEdit && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
         if(UiNav_Pop(ctx.app->ui_nav))
             ctx.app->ui_dirty = true;
         return;
@@ -5140,20 +5966,36 @@ void UiRouter_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
-    const UiScreen& s = GetScreen(UiNav_Active(ctx.app->ui_nav));
-    if(s.Render)
-        s.Render(ctx);
+
+    // Hold LShift to temporarily preview parent without changing nav state.
+    if(ctx.lshift && ctx.app->ui_parent_preview_active)
+    {
+        if(ctx.app->ui_parent_preview_mode == 2
+           && UiNav_Active(ctx.app->ui_nav) == UiScreenId::PerformProcess)
+        {
+            // In-screen parent: PROCESS detail -> PROCESS main.
+            const bool saved_detail = ctx.app->perform_process_detail_active;
+            ctx.app->perform_process_detail_active = false;
+            const UiScreen& active = GetScreen(UiScreenId::PerformProcess);
+            if(active.Render)
+                active.Render(ctx);
+            ctx.app->perform_process_detail_active = saved_detail;
+            return;
+        }
+
+        if(ctx.app->ui_parent_preview_mode == 1 && ctx.app->ui_nav.top > 0)
+        {
+            const UiScreenId parent_id = ctx.app->ui_nav.stack[ctx.app->ui_nav.top - 1];
+            const UiScreen& parent = GetScreen(parent_id);
+            if(parent.Render)
+            {
+                parent.Render(ctx);
+                return;
+            }
+        }
+    }
+
+    const UiScreen& active = GetScreen(UiNav_Active(ctx.app->ui_nav));
+    if(active.Render)
+        active.Render(ctx);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

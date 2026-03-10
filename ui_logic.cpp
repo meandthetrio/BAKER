@@ -14,6 +14,115 @@
 
 using namespace daisy;
 
+namespace
+{
+bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& e, uint32_t now_ms)
+{
+    if(!app.ui_parent_preview_active)
+        return false;
+    if(e.type != UiInputType::EncDelta || e.value == 0)
+        return false;
+    if(e.id != kUiEncPod && e.id != kUiEncExt)
+        return false;
+
+    UiScreenCtx parent_ctx{};
+    parent_ctx.app = &app;
+    parent_ctx.params = &params;
+    parent_ctx.display = nullptr;
+    parent_ctx.now_ms = now_ms;
+    parent_ctx.shift = false;
+    parent_ctx.lshift = false;
+    parent_ctx.rshift = app.ui_rshift_held;
+
+    UiInputEvent pe = e;
+    if(e.id == kUiEncPod)
+        pe.value = (e.value > 0) ? 1 : -1;
+
+    if(app.ui_parent_preview_mode == 2
+       && UiNav_Active(app.ui_nav) == UiScreenId::PerformProcess)
+    {
+        const bool saved_detail = app.perform_process_detail_active;
+        app.perform_process_detail_active = false;
+        const UiScreen& process = GetScreen(UiScreenId::PerformProcess);
+        const bool handled = process.OnEvent && process.OnEvent(parent_ctx, pe);
+        app.perform_process_detail_active = saved_detail;
+        if(handled)
+        {
+            app.ui_dirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    if(app.ui_parent_preview_mode == 1 && app.ui_nav.top > 0)
+    {
+        const UiScreenId parent_id = app.ui_nav.stack[app.ui_nav.top - 1];
+        const UiScreen& parent = GetScreen(parent_id);
+        if(parent.OnEvent && parent.OnEvent(parent_ctx, pe))
+        {
+            app.ui_dirty = true;
+            return true;
+        }
+    }
+    return false;
+}
+
+void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms)
+{
+    if(!app.ui_parent_preview_active)
+        return;
+
+    if(app.ui_parent_preview_mode == 2
+       && UiNav_Active(app.ui_nav) == UiScreenId::PerformProcess)
+    {
+        const bool focus_has_submenu = (app.perform_process_main_cursor >= 2u);
+        if(focus_has_submenu)
+        {
+            app.perform_process_detail_active = true;
+        }
+        else
+        {
+            app.perform_process_main_cursor = app.ui_parent_preview_origin_main_cursor;
+            app.perform_process_fx_cursor = app.ui_parent_preview_origin_fx_cursor;
+            app.perform_process_detail_active = app.ui_parent_preview_origin_process_detail;
+        }
+    }
+    else if(app.ui_parent_preview_mode == 1
+            && app.ui_nav.top > 0
+            && app.ui_parent_preview_from_top > 0)
+    {
+        const uint8_t parent_top = static_cast<uint8_t>(app.ui_parent_preview_from_top - 1u);
+        while(app.ui_nav.top > parent_top)
+            UiNav_Pop(app.ui_nav);
+
+        UiScreenCtx parent_ctx{};
+        parent_ctx.app = &app;
+        parent_ctx.params = &params;
+        parent_ctx.display = nullptr;
+        parent_ctx.now_ms = now_ms;
+        parent_ctx.shift = false;
+        parent_ctx.lshift = false;
+        parent_ctx.rshift = app.ui_rshift_held;
+
+        const UiScreen& parent = GetScreen(UiNav_Active(app.ui_nav));
+        bool entered = false;
+        if(parent.on_enter)
+            entered = parent.on_enter(parent_ctx);
+        if(!entered && app.ui_parent_preview_origin_screen != UiScreenId::COUNT)
+            UiNav_Push(app.ui_nav, app.ui_parent_preview_origin_screen);
+    }
+
+    app.ui_parent_preview_active = false;
+    app.ui_parent_preview_from_top = 0;
+    app.ui_parent_preview_mode = 0;
+    app.ui_parent_preview_origin_screen = UiScreenId::COUNT;
+    app.ui_parent_preview_origin_main_cursor = 0;
+    app.ui_parent_preview_origin_fx_cursor = 0;
+    app.ui_parent_preview_origin_process_detail = false;
+    app.ui_dirty = true;
+}
+} // namespace
+
 void UILogic::Init(DaisyPod& hw)
 {
     controls_.hw = &hw;
@@ -128,7 +237,32 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         if(e.type == UiInputType::BtnDown)
         {
             if(e.id == kUiBtnLShift)
+            {
                 app.ui_lshift_held = true;
+                const UiScreenId active = UiNav_Active(app.ui_nav);
+                if(active == UiScreenId::PerformProcess && app.perform_process_detail_active)
+                {
+                    app.ui_parent_preview_origin_screen = active;
+                    app.ui_parent_preview_origin_main_cursor = app.perform_process_main_cursor;
+                    app.ui_parent_preview_origin_fx_cursor = app.perform_process_fx_cursor;
+                    app.ui_parent_preview_origin_process_detail = app.perform_process_detail_active;
+                    app.ui_parent_preview_active = true;
+                    app.ui_parent_preview_mode = 2;
+                    app.ui_parent_preview_from_top = app.ui_nav.top;
+                    app.ui_dirty = true;
+                }
+                else if(app.ui_nav.top > 0)
+                {
+                    app.ui_parent_preview_origin_screen = active;
+                    app.ui_parent_preview_origin_main_cursor = app.perform_process_main_cursor;
+                    app.ui_parent_preview_origin_fx_cursor = app.perform_process_fx_cursor;
+                    app.ui_parent_preview_origin_process_detail = app.perform_process_detail_active;
+                    app.ui_parent_preview_active = true;
+                    app.ui_parent_preview_mode = 1;
+                    app.ui_parent_preview_from_top = app.ui_nav.top;
+                    app.ui_dirty = true;
+                }
+            }
             else if(e.id == kUiBtnRShift)
                 app.ui_rshift_held = true;
             else if(e.id == kUiBtnPod1)
@@ -139,7 +273,14 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         else if(e.type == UiInputType::BtnUp)
         {
             if(e.id == kUiBtnLShift)
+            {
                 app.ui_lshift_held = false;
+                if(app.ui_parent_preview_active)
+                {
+                    CommitParentPreviewSelection(app, params, now_ms);
+                    continue;
+                }
+            }
             else if(e.id == kUiBtnRShift)
                 app.ui_rshift_held = false;
             else if(e.id == kUiBtnPod1)
@@ -230,6 +371,9 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 continue;
             }
         }
+
+        if(DispatchToParentPreview(app, params, e, now_ms))
+            continue;
 
         ctx.shift = shift_held;
         ctx.lshift = app.ui_lshift_held;
@@ -324,10 +468,17 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     }
 
     shift_held = app.ui_lshift_held;
-    UiOverlay_Update(app.overlay, now_ms, app.ui_lshift_held, app.value_edit.active);
+    UiOverlay_Update(app.overlay, now_ms, false, app.value_edit.active);
 
     app.ui_in_ovf = UiInput_Dropped(app.ui_in);
     app.ui_in_hi = UiInput_HighWater(app.ui_in);
+
+    if(app.engine_header_invert_until_ms != 0u
+       && static_cast<int32_t>(now_ms - app.engine_header_invert_until_ms) >= 0)
+    {
+        app.engine_header_invert_until_ms = 0u;
+        app.ui_dirty = true;
+    }
 
     if(processed > 0 && !app.ui_dirty)
         app.ui_dirty = true;

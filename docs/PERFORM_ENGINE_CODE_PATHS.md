@@ -123,6 +123,16 @@ These flags are how ENGINE reuses the existing SD browser + worker load plumbing
 
 Used by ENGINE to detect that a loaded sample has actually been applied on the audio side and that metadata should be refreshed.
 
+### ENGINE UI transient state
+- `engine_header_invert_until_ms`
+  - short-lived render timer used for ENGINE layer-toggle header flash
+
+### WAVE edit staging state reused by ENGINE path
+- `perform_wave_edit_entry[kSdSampleSlots]`
+- `perform_wave_edit_has_entry`
+
+These hold a trim snapshot at `PerformWaveEdit` entry so BACK can cancel and restore.
+
 ### Shared sample / edit / published state reused by ENGINE
 - `sd_slots[kSdSampleSlots]`
 - `sd_edit_slots[kSdSampleSlots]`
@@ -165,8 +175,9 @@ Current behavior:
 4. clears perform-load flags:
    - `engine_load_from_perform = false`
    - `engine_load_target_layer = 0xFF`
-5. calls `PublishEngineLayerParams(...)`
-6. marks UI dirty
+5. forces ENGINE row focus to `LOAD` (`perform_engine_row = 1`)
+6. calls `PublishEngineLayerParams(...)`
+7. marks UI dirty
 
 Why it matters:
 - ENGINE entry is not just visual setup
@@ -243,6 +254,7 @@ Control:
 Behavior:
 - toggles `perform_layer`
 - updates `sd_current_slot`
+- starts transient header invert flash (`engine_header_invert_until_ms = now + 250ms`)
 - calls `PublishEngineLayerParams(...)`
 - marks UI dirty
 
@@ -319,21 +331,19 @@ Relevant code:
 
 Current render behavior:
 - calls `EngineRefreshLoadedMetadata(app)`
-- draws header title:
-  - `ENGINE A`
-  - `ENGINE B`
+- draws compact header tag (`engine a` / `engine b`) with invert flash support
 - reads current sample from:
   - `sd_slots[layer]`
 - reads current edit from:
   - `sd_edit_slots[layer]`
-- shows loaded sample name from:
+- shows loaded sample name (lowercased) from:
   - `engine_sample_name[layer]`
 - draws waveform preview using:
   - `DrawWaveformPreview(...)`
-- highlights waveform region when selected row is `WAVE`
-- draws text rows for:
-  - `LOAD`
-  - `TUNE`
+- inverts waveform region when selected row is `WAVE`
+- draws stylized footer row actions:
+  - `LOAD` wordmark (inverted box when selected)
+  - `TUNE` wordmark or signed semitone value (dotted box when selected)
 
 Important details:
 - the `WAVE` row is not just a text row; it is the waveform region
@@ -354,6 +364,8 @@ Behavior:
 ### Shared state used by wave edit
 Relevant code:
 - `ui_screens.cpp`
+  - `PerformWaveEdit_OnScreenEnter(...)`
+  - `PerformWaveEdit_OnEnter(...)`
   - `PerformWaveEdit_Render(...)`
   - `PerformWaveEdit_OnEvent(...)`
 
@@ -362,6 +374,14 @@ Shared context:
 - `sd_current_slot`
 - `sd_slots[layer]`
 - `sd_edit_slots[layer]`
+- `perform_wave_edit_entry[...]`
+- `perform_wave_edit_has_entry`
+
+Behavior:
+- entering WAVE edit snapshots trim state for cancel/back
+- encoder edits mutate staged `sd_edit_slots[layer]`
+- `EXT click` commits staged edit through existing `sd_edit_pending/sd_edit_gen/sd_edit_ready` publish path, then pops
+- `POD encoder click` cancels and restores snapshot, then pops
 
 Important rule:
 - ENGINE and WAVE EDIT already share sample/edit context
@@ -663,11 +683,12 @@ Current implemented per-row behavior:
 - `WAVE`
   - selected by pod encoder
   - enter pushes `PerformWaveEdit`
-  - waveform region is highlighted when selected
+  - waveform region is inverted when selected
 
 - `LOAD`
   - selected by pod encoder
   - enter pushes `SdBrowse` with perform-load context
+  - default focused row on ENGINE screen entry
 
 - `TUNE`
   - selected by pod encoder

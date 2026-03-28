@@ -1,6 +1,7 @@
 #include "ui_screens.h"
 
 #include "app_state.h"
+#include "keygroups.h"
 #include "params.h"
 #include "ui_input.h"
 #include "ui_list_menu.h"
@@ -222,6 +223,140 @@ static void DrawTinyString(OledPager& d, const char* str, int x, int y, bool on)
     }
 }
 
+static void DrawTinyStringCaseSensitive(OledPager& d, const char* str, int x, int y, bool on)
+{
+    const int char_w = Font5x7::W + 1;
+    int pen_x = x;
+    for(int i = 0; str[i] != '\0'; ++i)
+    {
+        const char ch = str[i];
+
+        if(ch == 'H' || ch == 'L' || ch == '#')
+        {
+            if(ch == '#')
+            {
+                static constexpr uint8_t kSharpRows[Font5x7::H] = {
+                    0b01010,
+                    0b11111,
+                    0b01010,
+                    0b11111,
+                    0b01010,
+                    0b01010,
+                    0b00000,
+                };
+                for(int yy = 0; yy < Font5x7::H; ++yy)
+                {
+                    const uint8_t row = kSharpRows[yy];
+                    for(int xx = 0; xx < Font5x7::W; ++xx)
+                    {
+                        if((row >> (Font5x7::W - 1 - xx)) & 1u)
+                        {
+                            const int px = pen_x + xx;
+                            const int py = y + yy;
+                            if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                                d.DrawPixel(px, py, on);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                static constexpr int kTallUpperH = 9;
+                static constexpr uint8_t kTallHRows[kTallUpperH] = {
+                    0b10001,
+                    0b10001,
+                    0b10001,
+                    0b10001,
+                    0b11111,
+                    0b10001,
+                    0b10001,
+                    0b10001,
+                    0b10001,
+                };
+                static constexpr uint8_t kTallLRows[kTallUpperH] = {
+                    0b10000,
+                    0b10000,
+                    0b10000,
+                    0b10000,
+                    0b10000,
+                    0b10000,
+                    0b10000,
+                    0b10000,
+                    0b11111,
+                };
+                const uint8_t* rows = (ch == 'H') ? kTallHRows : kTallLRows;
+                const int glyph_y = y - 2;
+
+                for(int yy = 0; yy < kTallUpperH; ++yy)
+                {
+                    const uint8_t row = rows[yy];
+                    for(int xx = 0; xx < Font5x7::W; ++xx)
+                    {
+                        if((row >> (Font5x7::W - 1 - xx)) & 1u)
+                        {
+                            const int px = pen_x + xx;
+                            const int py = glyph_y + yy;
+                            if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                                d.DrawPixel(px, py, on);
+                        }
+                    }
+                }
+            }
+
+            int advance = char_w;
+            if(ch == ':')
+                advance -= 1;
+            else if(str[i + 1] == ':')
+                advance -= 1;
+            pen_x += advance;
+            continue;
+        }
+
+        uint8_t rows[Font5x7::H] = {};
+        Font5x7::GetGlyphRows(ch, rows);
+        for(int yy = 0; yy < Font5x7::H; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < Font5x7::W; ++xx)
+            {
+                if((row >> (Font5x7::W - 1 - xx)) & 1u)
+                {
+                    const int px = pen_x + xx;
+                    const int py = y + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+
+        int advance = char_w;
+        if(ch == ':')
+            advance -= 1;
+        else if(str[i + 1] == ':')
+            advance -= 1;
+        pen_x += advance;
+    }
+}
+
+static int TinyStringWidthCaseSensitiveTightColons(const char* str)
+{
+    if(str == nullptr || str[0] == '\0')
+        return 0;
+
+    const int char_w = Font5x7::W + 1;
+    int width = 0;
+    for(int i = 0; str[i] != '\0'; ++i)
+    {
+        int advance = char_w;
+        if(str[i] == ':')
+            advance -= 1;
+        else if(str[i + 1] == ':')
+            advance -= 1;
+        width += advance;
+    }
+    return width - 1;
+}
+
 static int TinyStringWidth(const char* str)
 {
     if(str == nullptr || str[0] == '\0')
@@ -232,6 +367,46 @@ static int TinyStringWidth(const char* str)
     {
     }
     return count * char_w - 1;
+}
+
+static void DrawTinyStringClipped(OledPager& d,
+                                  const char* str,
+                                  int x,
+                                  int y,
+                                  bool on,
+                                  int clip_x0,
+                                  int clip_y0,
+                                  int clip_x1,
+                                  int clip_y1)
+{
+    if(str == nullptr)
+        return;
+
+    const int char_w = Font5x7::W + 1;
+    for(int i = 0; str[i] != '\0'; ++i)
+    {
+        char ch = str[i];
+        if(ch >= 'A' && ch <= 'Z')
+            ch = static_cast<char>(ch - 'A' + 'a');
+
+        uint8_t rows[Font5x7::H] = {};
+        Font5x7::GetGlyphRows(ch, rows);
+        for(int yy = 0; yy < Font5x7::H; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < Font5x7::W; ++xx)
+            {
+                if((row >> (Font5x7::W - 1 - xx)) & 1u)
+                {
+                    const int px = x + i * char_w + xx;
+                    const int py = y + yy;
+                    if(px >= clip_x0 && px <= clip_x1 && py >= clip_y0 && py <= clip_y1
+                       && px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, on);
+                }
+            }
+        }
+    }
 }
 
 static constexpr int kMini3x5W = 3;
@@ -2507,6 +2682,20 @@ static void FormatSignedInt(int v, char* out, size_t out_n)
         std::snprintf(out, out_n, "%d", v);
 }
 
+static void FormatMidiNoteName(uint8_t note, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+
+    static const char* kNames[12] = {
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    };
+    const int midi_note = static_cast<int>(note);
+    const int pitch = ((midi_note % 12) + 12) % 12;
+    const int octave = (midi_note / 12) - 1;
+    std::snprintf(out, out_n, "%s%d", kNames[pitch], octave);
+}
+
 static void FormatSignedIntWithPlus(int v, char* out, size_t out_n)
 {
     if(v > 0)
@@ -2546,11 +2735,17 @@ static void PublishEngineLayerParams(UiScreenCtx& ctx)
     if(!ctx.app || !ctx.params)
         return;
 
-    const uint8_t layer = ctx.app->perform_layer & 1u;
+    AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
     PerformParamsTargets& t = ctx.params->EditTargets();
-    t.engine_tune_semitones[layer] = static_cast<float>(ctx.app->engine_tune_semitones[layer]);
-    t.engine_gain_db[layer] = static_cast<float>(ctx.app->engine_gain_db[layer]);
-    t.engine_loop_mode[layer] = (ctx.app->engine_play_mode[layer] != 0);
+    t.engine_tune_semitones[layer] = static_cast<float>(app.engine_tune_semitones[layer]);
+    t.engine_gain_db[layer] = static_cast<float>(app.engine_gain_db[layer]);
+    t.engine_loop_mode[layer] = (app.engine_play_mode[layer] != 0);
+    for(uint8_t i = 0; i < kPerformLayerCount; ++i)
+    {
+        t.perform_keyzone_lo_note[i] = app.perform_keyzone_lo_note[i];
+        t.perform_keyzone_hi_note[i] = app.perform_keyzone_hi_note[i];
+    }
     ctx.params->PublishTargets();
 }
 
@@ -3196,7 +3391,7 @@ static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
-    if(ctx.shift)
+    if(ctx.lshift)
         return false;
 
     AppState& app = *ctx.app;
@@ -3207,9 +3402,92 @@ static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         app.perform_layer ^= 1u;
         const uint8_t layer = app.perform_layer & 1u;
         app.sd_current_slot.store(layer, std::memory_order_release);
+        app.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
         app.ui_dirty = true;
         return true;
+    }
+
+    if(ctx.rshift && e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        const bool full_a = app.perform_keyzone_lo_note[0] == kPerformKeyzoneMinNote
+                            && app.perform_keyzone_hi_note[0] == kPerformKeyzoneMaxNote;
+        const bool full_b = app.perform_keyzone_lo_note[1] == kPerformKeyzoneMinNote
+                            && app.perform_keyzone_hi_note[1] == kPerformKeyzoneMaxNote;
+        if(full_a && full_b)
+        {
+            app.perform_keyzone_lo_note[0] = kPerformKeyzoneMinNote;
+            app.perform_keyzone_hi_note[0] = kPerformKeyzoneDefaultSplitAHi;
+            app.perform_keyzone_lo_note[1] = kPerformKeyzoneDefaultSplitBLo;
+            app.perform_keyzone_hi_note[1] = kPerformKeyzoneMaxNote;
+        }
+        else
+        {
+            for(uint8_t i = 0; i < kPerformLayerCount; ++i)
+            {
+                app.perform_keyzone_lo_note[i] = kPerformKeyzoneMinNote;
+                app.perform_keyzone_hi_note[i] = kPerformKeyzoneMaxNote;
+            }
+        }
+        PublishEngineLayerParams(ctx);
+        app.ui_dirty = true;
+        return true;
+    }
+
+    const uint8_t layer = app.perform_layer & 1u;
+    if(e.type == UiInputType::EncDelta && e.value != 0)
+    {
+        if(e.id == kUiEncPod)
+        {
+            const int next_lo = ClampInt(static_cast<int>(app.perform_keyzone_lo_note[layer]) + e.value,
+                                         static_cast<int>(kPerformKeyzoneMinNote),
+                                         static_cast<int>(app.perform_keyzone_hi_note[layer]));
+            if(next_lo == static_cast<int>(app.perform_keyzone_lo_note[layer]))
+                return false;
+            app.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(next_lo);
+            PublishEngineLayerParams(ctx);
+            app.ui_dirty = true;
+            return true;
+        }
+
+        if(e.id == kUiEncExt)
+        {
+            if(ctx.rshift)
+            {
+                const int keyzone_delta = (e.value < 0) ? -1 : 1;
+                const int a_lo = static_cast<int>(app.perform_keyzone_lo_note[0]);
+                const int a_hi = static_cast<int>(app.perform_keyzone_hi_note[0]);
+                const int b_lo = static_cast<int>(app.perform_keyzone_lo_note[1]);
+                const int b_hi = static_cast<int>(app.perform_keyzone_hi_note[1]);
+
+                int delta_min = a_lo - a_hi;
+                if((static_cast<int>(kPerformKeyzoneMinNote) - b_lo) > delta_min)
+                    delta_min = static_cast<int>(kPerformKeyzoneMinNote) - b_lo;
+                int delta_max = static_cast<int>(kPerformKeyzoneMaxNote) - a_hi;
+                if((b_hi - b_lo) < delta_max)
+                    delta_max = b_hi - b_lo;
+
+                const int applied_delta = ClampInt(keyzone_delta, delta_min, delta_max);
+                if(applied_delta == 0)
+                    return false;
+
+                app.perform_keyzone_hi_note[0] = static_cast<uint8_t>(a_hi + applied_delta);
+                app.perform_keyzone_lo_note[1] = static_cast<uint8_t>(b_lo + applied_delta);
+                PublishEngineLayerParams(ctx);
+                app.ui_dirty = true;
+                return true;
+            }
+
+            const int next_hi = ClampInt(static_cast<int>(app.perform_keyzone_hi_note[layer]) + e.value,
+                                         static_cast<int>(app.perform_keyzone_lo_note[layer]),
+                                         static_cast<int>(kPerformKeyzoneMaxNote));
+            if(next_hi == static_cast<int>(app.perform_keyzone_hi_note[layer]))
+                return false;
+            app.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(next_hi);
+            PublishEngineLayerParams(ctx);
+            app.ui_dirty = true;
+            return true;
+        }
     }
     return false;
 }
@@ -3356,23 +3634,163 @@ static void PerformKeyzone_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     const uint8_t layer = app.perform_layer & 1u;
-    const Sample& sample = app.sd_slots[layer];
-    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
 
-    const UiLayout layout = UiLayout_Default();
-    char status[16];
-    BuildStatus(app, status, sizeof(status));
-    char title[16];
-    std::snprintf(title, sizeof(title), "KEYZONE %s", LayerName(layer));
-    UiDraw_Header(d, layout, title, status);
+    char header_label[16] = {};
+    std::snprintf(header_label, sizeof(header_label), "kyzn %c", layer == 0 ? 'a' : 'b');
+    const int header_w = MicroStringWidth(header_label);
+    const int box_w = header_w + 4;
+    const int box_h = kMicroH + 4;
+    int box_x = 128 - box_w;
+    if(box_x < 0)
+        box_x = 0;
+    const bool header_invert_flash
+        = static_cast<int32_t>(app.engine_header_invert_until_ms - ctx.now_ms) > 0;
+    if(header_invert_flash)
+    {
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, false, true);
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, false);
+        DrawMicroString(d, header_label, box_x + 2, 2, true);
+    }
+    else
+    {
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, true);
+        DrawMicroString(d, header_label, box_x + 2, 2, false);
+    }
 
-    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
-    if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
+    constexpr int kSectionH = 16;
+    char lo_note[8] = {};
+    char hi_note[8] = {};
+    char lo_text[16] = {};
+    char hi_text[16] = {};
+    FormatMidiNoteName(app.perform_keyzone_lo_note[layer], lo_note, sizeof(lo_note));
+    FormatMidiNoteName(app.perform_keyzone_hi_note[layer], hi_note, sizeof(hi_note));
+    std::snprintf(lo_text, sizeof(lo_text), "Lo:%s", lo_note);
+    std::snprintf(hi_text, sizeof(hi_text), "Hi:%s", hi_note);
 
-    // WAV file name under header (no footer hints)
-    d.SetCursor(layout.x, layout.y_body);
-    d.WriteString(name, Font_6x8, true);
+    auto draw_animated_dotted_box = [&](int x0, int y0, int x1, int y1)
+    {
+        const int phase = static_cast<int>((ctx.now_ms / 100u) & 1u);
+        for(int x = x0; x <= x1; ++x)
+        {
+            if(((x + phase) & 1) == 0)
+            {
+                d.DrawPixel(x, y0, true);
+                d.DrawPixel(x, y1, true);
+            }
+        }
+        for(int y = y0; y <= y1; ++y)
+        {
+            if(((y + phase) & 1) == 0)
+            {
+                d.DrawPixel(x0, y, true);
+                d.DrawPixel(x1, y, true);
+            }
+        }
+    };
+
+    const int status_y = (kSectionH - Font5x7::H) / 2;
+    const int lo_w = TinyStringWidthCaseSensitiveTightColons(lo_text);
+    const int hi_w = TinyStringWidthCaseSensitiveTightColons(hi_text);
+    const int lo_x = 2;
+    const int gap_w = 8;
+    const int hi_x = lo_x + lo_w + gap_w;
+    if(hi_x + hi_w <= box_x - 2)
+    {
+        const int box_pad_x = 2;
+        const int box_top = status_y - 3;
+        const int box_bottom = status_y + Font5x7::H + 1;
+        const int lo_box_x0 = lo_x - box_pad_x;
+        const int lo_box_x1 = lo_x + lo_w + box_pad_x;
+        const int hi_box_x0 = hi_x - box_pad_x;
+        const int hi_box_x1 = hi_x + hi_w + box_pad_x;
+        if(ctx.rshift)
+        {
+            d.DrawRect(lo_box_x0 + 1, box_top + 1, lo_box_x1 - 1, box_bottom - 1, true, true);
+            d.DrawRect(hi_box_x0 + 1, box_top + 1, hi_box_x1 - 1, box_bottom - 1, true, true);
+            DrawTinyStringCaseSensitive(d, lo_text, lo_x, status_y, false);
+            DrawTinyStringCaseSensitive(d, hi_text, hi_x, status_y, false);
+        }
+        else
+        {
+            DrawTinyStringCaseSensitive(d, lo_text, lo_x, status_y, true);
+            DrawTinyStringCaseSensitive(d, hi_text, hi_x, status_y, true);
+        }
+        draw_animated_dotted_box(lo_box_x0, box_top, lo_box_x1, box_bottom);
+        draw_animated_dotted_box(hi_box_x0, box_top, hi_box_x1, box_bottom);
+    }
+
+    auto keyzone_left_x = [&](uint8_t midi_note)
+    {
+        const int note = ClampInt(static_cast<int>(midi_note),
+                                  static_cast<int>(kPerformKeyzoneMinNote),
+                                  static_cast<int>(kPerformKeyzoneMaxNote));
+        const int span = static_cast<int>(kPerformKeyzoneMaxNote - kPerformKeyzoneMinNote);
+        const int offset = note - static_cast<int>(kPerformKeyzoneMinNote);
+        return (offset * 127 + (span / 2)) / span;
+    };
+
+    auto draw_layer_box = [&](int rect_x0,
+                              int rect_x1,
+                              int section_index,
+                              char layer_letter,
+                              bool dotted)
+    {
+        const int section_y0 = section_index * kSectionH;
+        const int rect_y0 = section_y0;
+        const int rect_y1 = section_y0 + kSectionH - 1;
+        d.DrawRect(rect_x0, rect_y0, rect_x1, rect_y1, true, false);
+
+        if(dotted)
+        {
+            for(int y = rect_y0 + 1; y <= rect_y1 - 1; ++y)
+            {
+                const int x_start = rect_x0 + 1 + ((y - rect_y0) & 1);
+                for(int x = x_start; x <= rect_x1 - 1; x += 2)
+                    d.DrawPixel(x, y, true);
+            }
+        }
+
+        char label[2] = {layer_letter, '\0'};
+        const int label_w = TinyStringWidth(label);
+        const int label_y = rect_y0 + ((rect_y1 - rect_y0 + 1 - Font5x7::H) / 2);
+        const int step = label_w + 1;
+        const int pattern_origin_x = 1;
+        int label_x = pattern_origin_x;
+        while(label_x + label_w - 1 < rect_x0)
+            label_x += step;
+        for(; label_x <= rect_x1 - 1; label_x += step)
+        {
+            DrawTinyStringClipped(
+                d, label, label_x, label_y, true, rect_x0 + 1, rect_y0 + 1, rect_x1 - 1, rect_y1 - 1);
+        }
+    };
+
+    const int a_rect_x0 = keyzone_left_x(app.perform_keyzone_lo_note[0]);
+    const int a_rect_x1 = ClampInt(keyzone_left_x(app.perform_keyzone_hi_note[0]), a_rect_x0, 127);
+    const int b_rect_x0 = keyzone_left_x(app.perform_keyzone_lo_note[1]);
+    const int b_rect_x1 = ClampInt(keyzone_left_x(app.perform_keyzone_hi_note[1]), b_rect_x0, 127);
+
+    draw_layer_box(a_rect_x0, a_rect_x1, 1, 'a', layer != 0);
+    draw_layer_box(b_rect_x0, b_rect_x1, 2, 'b', layer == 0);
+
+    const int a_dot_y = kSectionH + (kSectionH / 2);
+    const int b_dot_y = (2 * kSectionH) + (kSectionH / 2);
+    if(static_cast<int>(app.perform_keyzone_hi_note[0]) + 1
+       == static_cast<int>(app.perform_keyzone_lo_note[1]))
+    {
+        if(a_rect_x1 + 3 < 128 && a_dot_y + 1 < 64)
+            d.DrawRect(a_rect_x1 + 2, a_dot_y, a_rect_x1 + 3, a_dot_y + 1, true, true);
+        if(b_rect_x0 - 3 >= 0 && b_dot_y + 1 < 64)
+            d.DrawRect(b_rect_x0 - 3, b_dot_y, b_rect_x0 - 2, b_dot_y + 1, true, true);
+    }
+    if(static_cast<int>(app.perform_keyzone_hi_note[1]) + 1
+       == static_cast<int>(app.perform_keyzone_lo_note[0]))
+    {
+        if(b_rect_x1 + 3 < 128 && b_dot_y + 1 < 64)
+            d.DrawRect(b_rect_x1 + 2, b_dot_y, b_rect_x1 + 3, b_dot_y + 1, true, true);
+        if(a_rect_x0 - 3 >= 0 && a_dot_y + 1 < 64)
+            d.DrawRect(a_rect_x0 - 3, a_dot_y, a_rect_x0 - 2, a_dot_y + 1, true, true);
+    }
 }
 
 static void PerformAdsr_Render(UiScreenCtx& ctx)

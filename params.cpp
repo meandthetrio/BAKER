@@ -128,5 +128,9 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     for(uint8_t i = 0; i < 4; ++i)
         current.fx_order[i] = t.fx_order[i];
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
+    {
         current.engine_loop_mode[layer] = t.engine_loop_mode[layer];
+        current.perform_keyzone_lo_note[layer] = t.perform_keyzone_lo_note[layer];
+        current.perform_keyzone_hi_note[layer] = t.perform_keyzone_hi_note[layer];
+    }
 }

@@ -161,18 +161,73 @@
 ### PerformKeyzone (`UiScreenId::PerformKeyzone`)
 - Parent: PerformMenu
 - Entered by: PerformMenu `KEYZONE` + `kUiBtnExtEnc`.
-- Exited by: `kUiBtnPodEnc` pop to PerformMenu.
+- Exited by:
+  - `kUiBtnPodEnc` pop to PerformMenu.
+  - KEYZONE itself ignores `LShift`; shared parent-preview behavior remains owned by `ui_logic.cpp`.
 
 #### Focusable Objects
-1. **Layer toggle (`perform_layer`)**
+1. **Low note bound (`perform_keyzone_lo_note[layer]`)**
+- Type: numeric note-range field
+- Purpose: set the active layer's low MIDI note.
+- Behavior:
+  - `kUiEncPod` edits the active layer low note.
+- Result:
+  - Clamped to `A0..current hi note`.
+  - Published through the shared PERFORM params path.
+- Notes:
+  - Left encoder owns low-note editing on this screen.
+
+2. **High note bound (`perform_keyzone_hi_note[layer]`)**
+- Type: numeric note-range field
+- Purpose: set the active layer's high MIDI note.
+- Behavior:
+  - `kUiEncExt` edits the active layer high note.
+- Result:
+  - Clamped to `current lo note..C8`.
+  - Published through the shared PERFORM params path.
+- Notes:
+  - Right encoder owns high-note editing on this screen.
+
+3. **Alternate split move (`perform_keyzone_hi_note[0]`, `perform_keyzone_lo_note[1]`)**
+- Type: modifier edit
+- Purpose: move the split boundary between layers without breaking either layer's bounds.
+- Behavior:
+  - `RShift + kUiEncExt` moves layer A high note and layer B low note together by one note per encoder gesture.
+- Result:
+  - Boundary motion is clamped so:
+    - layer A never collapses below its low note
+    - layer B never collapses below its high note
+    - split stays inside `A0..C8`
+- Notes:
+  - This reuses the repo's existing `RShift` alternate-action pattern instead of creating a new modifier system.
+
+4. **Alternate split/full-range toggle**
+- Type: modifier action
+- Purpose: flip between full-range-on-both-layers and a default split layout.
+- Behavior:
+  - `RShift + kUiBtnExtEnc` toggles:
+    - full range both layers: `A0..C8` on A and B
+    - split layout: layer A `A0..B4`, layer B `C5..C8`
+- Result:
+  - Both layers' keyzone bounds update and publish together.
+- Notes:
+  - Uses the existing right-side modifier + click pattern already used elsewhere in PERFORM.
+
+5. **Layer toggle (`perform_layer`)**
 - Type: toggle action
 - Purpose: switch layer context shown by screen.
 - Behavior:
   - `kUiBtnPod2` toggles layer.
 - Result:
   - Updates slot/published layer params.
+  - Starts the same short header-flash timer used by ENGINE.
 - Notes:
-  - No additional keyzone fields currently implemented.
+  - KEYZONE reuses the shared PERFORM layer ownership pattern from ENGINE.
+  - Render mirrors the sim structure closely:
+    - upper-right `kyzn a/b` micro header box
+    - `Lo:` / `Hi:` top row with animated dotted outlines
+    - two horizontal layer range boxes with repeated layer letters
+    - active layer solid, inactive layer dotted
 
 ### PerformAdsr (`UiScreenId::PerformAdsr`)
 - Parent: PerformMenu

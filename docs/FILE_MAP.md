@@ -18,7 +18,7 @@
 - main.cpp
   - Purpose: App entry, hardware init, defines AudioCallback, main loop scheduling, MIDI → event mapping.
   - Thread: [MAIN]
-  - Key symbols: `AudioCallback`, `g_voice`, `g_params`, `UILogic::ControlTick`, `UILogic::UiTick`
+  - Key symbols: `AudioCallback`, `g_voice`, `g_params`, `LayerEligibleForNote`, `UILogic::ControlTick`, `UILogic::UiTick`
   - Milestones: TBD
 
 - app_state.h
@@ -87,9 +87,9 @@
   - Milestones: TBD
 
 - keygroups.cpp / keygroups.h
-  - Purpose: Sample/keygroup selection logic used in MIDI mapping.
+  - Purpose: Note-range helpers plus legacy sample/keygroup selection logic used in MIDI mapping.
   - Thread: [MAIN/UI]
-  - Key symbols: `Keygroups_SelectSampleIndex`, `KeygroupDef`
+  - Key symbols: `KeyzoneContainsNote`, `kPerformKeyzoneMinNote`, `kPerformKeyzoneMaxNote`, `Keygroups_SelectSampleIndex`
   - Milestones: TBD
 
 - velocity_layers.cpp / velocity_layers.h
@@ -232,7 +232,7 @@
 - Filter: `voice_engine.cpp`, `mod_sources.cpp`
 - Mixer/headroom/clip counter: `audio_engine.cpp`, `app_state.h`
 - Parameter locks: `plocks.cpp`
-- Keygroups/zones: `keygroups.cpp`, `velocity_layers.cpp`
+- Keygroups/zones: `keygroups.cpp`, `main.cpp`, `velocity_layers.cpp`
 - SD browser: `ui_screens.cpp` (SdBrowse), `sd_browser_state.cpp`
 - Background load handoff: `ui_worker.cpp`, `sd_sample_pool.cpp`, `main.cpp`
 - Presets/project save/load: `ui_worker.cpp`, `project_manifest.h`

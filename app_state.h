@@ -2,6 +2,7 @@
 #include <atomic>
 #include <cstdint>
 
+#include "keygroups.h"
 #include "mod_matrix.h"
 #include "plocks.h"
 #include "macros.h"
@@ -148,6 +149,8 @@ struct AppState
     uint8_t perform_wave_edit_cursor = 0; // 0=TRIM START, 1=TRIM END
     SampleEdit perform_wave_edit_entry[kSdSampleSlots]{};
     bool    perform_wave_edit_has_entry = false;
+    uint8_t perform_keyzone_lo_note[2] = {kPerformKeyzoneMinNote, kPerformKeyzoneMinNote};
+    uint8_t perform_keyzone_hi_note[2] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
     uint8_t perform_adsr_row      = 0; // 0=MODE
     uint8_t perform_emphasis_row  = 0; // 0=GAIN, 1=FILTER, 2=RESO
     uint8_t perform_process_fx_cursor = 0; // 0=S, 1=M, 2=D, 3=R

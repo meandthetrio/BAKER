@@ -1,7 +1,7 @@
 # PERFORM ENGINE CODE PATHS
 
 ## Purpose
-This document maps the CURRENT IMPLEMENTED code paths for the `PerformEngine` screen.
+This document maps the CURRENT IMPLEMENTED code paths for the `PerformEngine` screen and the shared PERFORM plumbing that `PerformKeyzone` now reuses.
 
 It exists to help feature work stay surgical and reuse existing plumbing instead of introducing duplicate paths.
 
@@ -11,10 +11,12 @@ This is a developer implementation map, not a user-facing feature doc.
 This doc covers:
 
 - navigation into and out of `PerformEngine`
+- navigation into and out of `PerformKeyzone` where it reuses ENGINE-owned/shared PERFORM behavior
 - `AppState` fields owned or used by ENGINE
+- `AppState` / params fields reused by KEYZONE
 - ENGINE lifecycle, event, enter, and render functions
 - the existing sample load path reused by ENGINE
-- the existing param publish / audio handoff path reused by ENGINE
+- the existing param publish / runtime handoff paths reused by ENGINE and KEYZONE
 - closely related files that should be inspected before editing ENGINE behavior
 
 ## Source of Truth
@@ -67,6 +69,19 @@ Relevant state:
 - `app_state.h`
   - `perform_menu_index`
 
+### PerformMenu to KEYZONE
+Relevant code:
+- `ui_screens.cpp`
+  - `PerformMenu_OnEvent(...)`
+  - `PerformMenu_OnEnter(...)`
+
+Relevant state:
+- `app_state.h`
+  - `perform_menu_index`
+
+Behavior:
+- `perform_menu_index == KEYZONE` enters `UiScreenId::PerformKeyzone`
+
 ### ENGINE exits
 Relevant code:
 - `ui_screens.cpp`
@@ -77,6 +92,16 @@ Behavior:
 - `WAVE` row enter pushes `UiScreenId::PerformWaveEdit`
 - `LOAD` row enter pushes `UiScreenId::SdBrowse`
 - `TUNE` row enter does not push a new screen
+
+### KEYZONE exits
+Relevant code:
+- `ui_screens.cpp`
+  - normal back behavior via pod encoder button pop in shared nav flow
+
+Behavior:
+- `kUiBtnPodEnc` pops back to `UiScreenId::PerformMenu`
+- KEYZONE screen code itself ignores `LShift` (`ctx.lshift`)
+- shared parent-preview can still route encoder input back to `PerformMenu` above the screen handler
 
 ---
 
@@ -126,6 +151,23 @@ Used by ENGINE to detect that a loaded sample has actually been applied on the a
 ### ENGINE UI transient state
 - `engine_header_invert_until_ms`
   - short-lived render timer used for ENGINE layer-toggle header flash
+  - also reused by KEYZONE for the same active-layer flash behavior
+
+### KEYZONE per-layer note bounds
+- `perform_keyzone_lo_note[2]`
+- `perform_keyzone_hi_note[2]`
+
+These are the per-layer MIDI note bounds edited by `PerformKeyzone`.
+They are UI-owned state that now publishes through the same shared params path used by ENGINE-layer values.
+
+### KEYZONE render helpers reused in `ui_screens.cpp`
+- `DrawMicroString(...)`
+- `MicroStringWidth(...)`
+- `DrawTinyStringCaseSensitive(...)`
+- `TinyStringWidthCaseSensitiveTightColons(...)`
+- `DrawTinyStringClipped(...)`
+
+These are the draw helpers used to reproduce the simulator KEYZONE composition on the real 128x64 OLED without introducing a second render stack.
 
 ### WAVE edit staging state reused by ENGINE path
 - `perform_wave_edit_entry[kSdSampleSlots]`
@@ -197,11 +239,47 @@ Current behavior:
   - `engine_tune_semitones[layer]`
   - `engine_gain_db[layer]`
   - `engine_loop_mode[layer]`
+- also copies both KEYZONE note-bound arrays:
+  - `perform_keyzone_lo_note[0..1]`
+  - `perform_keyzone_hi_note[0..1]`
 - calls `ctx.params->PublishTargets()`
 
 Important rule:
-- ENGINE should publish param changes through this existing target/publish path
+- ENGINE and KEYZONE should publish shared PERFORM state changes through this existing target/publish path
 - do not bypass this with direct audio-engine writes from UI code
+
+## `PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)`
+Relevant code:
+- `ui_screens.cpp`
+
+Current behavior mirrored from the simulator:
+- returns immediately when `ctx.lshift` is held
+- `kUiBtnPod2` toggles `perform_layer`, syncs `sd_current_slot`, flashes `engine_header_invert_until_ms`, republishes shared PERFORM params
+- `RShift + kUiBtnExtEnc` toggles:
+  - full range both layers: `A0..C8`, `A0..C8`
+  - split range: `A0..B4`, `C5..C8`
+- `kUiEncPod` edits `perform_keyzone_lo_note[active_layer]`
+- `kUiEncExt` edits `perform_keyzone_hi_note[active_layer]`
+- `RShift + kUiEncExt` moves the split boundary by changing:
+  - layer A high note
+  - layer B low note
+
+Important rule:
+- keep KEYZONE behavior matched to the simulator handler unless existing repo plumbing requires adaptation around it
+
+## `PerformKeyzone_Render(UiScreenCtx& ctx)`
+Relevant code:
+- `ui_screens.cpp`
+
+Current render behavior mirrored from the simulator:
+- upper-right micro header box labeled `kyzn a` or `kyzn b`
+- top `Lo:` / `Hi:` row with animated dotted boxes
+- `RShift` changes the `Lo:` / `Hi:` row to the sim’s filled highlight treatment
+- section 1 draws layer A range box
+- section 2 draws layer B range box
+- inactive layer interior uses the sim-style dotted fill
+- repeated layer letters are clipped inside each layer box
+- touching split boundaries draw the same small bridge markers as the sim
 
 ## `EngineRefreshLoadedMetadata(AppState& app)`
 Relevant code:
@@ -539,6 +617,7 @@ Behavior:
   - `engine_tune_semitones`
   - `engine_gain_db`
 - `AudioBlockTick(...)` applies loop mode as target state
+- `AudioBlockTick(...)` also snapshots the published KEYZONE note bounds into `Params::current`
 
 ### Step 4: audio callback sends current params to voice engine
 Relevant code:
@@ -567,6 +646,66 @@ ENGINE UI edit
 → `g_voice.SetEngine...(...)`
 
 This is the param path future ENGINE controls should reuse where applicable.
+
+---
+
+## 11A. KEYZONE Publish / Runtime Gate Reuse Path
+
+This is the existing safe shared path that `PerformKeyzone` now reuses.
+
+### Step 1: KEYZONE edits local AppState value
+Relevant code:
+- `ui_screens.cpp`
+  - `PerformKeyzone_OnEvent(...)`
+
+Current edits:
+- `perform_keyzone_lo_note[layer]`
+- `perform_keyzone_hi_note[layer]`
+- `RShift + kUiEncExt` shared split-boundary move
+- `RShift + kUiBtnExtEnc` full-range/split toggle
+
+### Step 2: KEYZONE republishes through the shared PERFORM helper
+Relevant code:
+- `ui_screens.cpp`
+  - `PublishEngineLayerParams(...)`
+
+Behavior:
+- copies both layer note-bound arrays into `ctx.params->EditTargets()`
+- calls `PublishTargets()`
+
+### Step 3: runtime note gating reads the published snapshot
+Relevant code:
+- `main.cpp`
+  - `LayerEligibleForNote(...)`
+  - MIDI `NoteOn` loop
+
+Behavior:
+- `LayerEligibleForNote(...)` reads `g_params.TargetsForUI()`
+- compares incoming MIDI note against:
+  - `perform_keyzone_lo_note[layer]`
+  - `perform_keyzone_hi_note[layer]`
+- only eligible layers enqueue `Event::NoteOnEvent(...)`
+
+Important detail:
+- KEYZONE gating happens on the existing main-thread MIDI routing path before events are pushed to audio
+- no second router or KEYZONE-specific event queue was added
+
+### Step 4: audio thread still receives the same per-layer event stream
+Relevant code:
+- `voice_engine.cpp`
+  - `VoiceEngine::ProcessEvents(...)`
+
+Behavior:
+- audio side remains unchanged
+- only the eligible layer note events reach the existing voice-engine event path
+
+### Full KEYZONE chain summary
+KEYZONE UI edit
+→ `PublishEngineLayerParams(...)`
+→ `Params::PublishTargets()`
+→ `main.cpp::LayerEligibleForNote(...)`
+→ `Event::NoteOnEvent(...)`
+→ `VoiceEngine::ProcessEvents(...)`
 
 ---
 
@@ -601,9 +740,10 @@ When building ENGINE features:
 
 - reuse existing screen navigation and row-enter patterns
 - reuse `perform_layer` as the active layer selector
-- reuse `PublishEngineLayerParams(...)` for engine-layer param publication where applicable
+- reuse `PublishEngineLayerParams(...)` for shared PERFORM layer/keyzone publication where applicable
 - reuse SD browser + request + worker + audio apply flow for sample loading
 - reuse `DrawWaveformPreview(...)` and existing sample/edit state for waveform display
+- reuse `LayerEligibleForNote(...)` as the runtime note gate for per-layer note eligibility work
 - preserve audio-thread safety:
   - no blocking
   - no filesystem work
@@ -614,6 +754,7 @@ Avoid:
 - duplicate sample loading paths
 - direct UI-to-audio mutation that bypasses params or publish/apply handoff
 - separate ENGINE-only sample state when shared state already exists
+- separate KEYZONE-only MIDI routing when the existing NoteOn path already owns layer eligibility
 
 ---
 
@@ -653,6 +794,11 @@ Update other docs in `docs/` when file roles, hardware usage, or naming change.
 - `EngineRefreshLoadedMetadata(...)`
 - `DrawWaveformPreview(...)`
 
+### Shared KEYZONE/runtime helpers
+- `PerformKeyzone_OnEvent(...)`
+- `PerformKeyzone_Render(...)`
+- `LayerEligibleForNote(...)`
+
 ### Load path
 - `PerformEngine_OnEnter(...)`
 - `SdBrowse_OnEvent(...)`
@@ -667,6 +813,12 @@ Update other docs in `docs/` when file roles, hardware usage, or naming change.
 - `Params::PublishTargets()`
 - `Params::AudioBlockTick(...)`
 - `main.cpp` engine param handoff
+
+### KEYZONE runtime gate path
+- `PerformKeyzone_OnEvent(...)`
+- `PublishEngineLayerParams(...)`
+- `main.cpp` `LayerEligibleForNote(...)`
+- MIDI `NoteOn` enqueue loop
 
 ---
 

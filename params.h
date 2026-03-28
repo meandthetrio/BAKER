@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "keygroups.h"
+
 struct PerformParamsTargets
 {
     static constexpr uint8_t kLayerCount = 2;
@@ -47,6 +49,8 @@ struct PerformParamsTargets
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_mode[kLayerCount] = {false, false};
+    uint8_t perform_keyzone_lo_note[kLayerCount] = {kPerformKeyzoneMinNote, kPerformKeyzoneMinNote};
+    uint8_t perform_keyzone_hi_note[kLayerCount] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=MOD,2=DELAY,3=REVERB
 };
 
@@ -94,6 +98,8 @@ struct PerformParamsCurrent
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_mode[kLayerCount] = {false, false};
+    uint8_t perform_keyzone_lo_note[kLayerCount] = {kPerformKeyzoneMinNote, kPerformKeyzoneMinNote};
+    uint8_t perform_keyzone_hi_note[kLayerCount] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=MOD,2=DELAY,3=REVERB
 };
 

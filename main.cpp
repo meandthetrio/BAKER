@@ -61,10 +61,14 @@ static void EnableCycleCounter()
 
 static inline bool LayerEligibleForNote(uint8_t layer, uint8_t note, uint8_t vel)
 {
-    (void)layer;
-    (void)note;
     (void)vel;
-    return true;
+    if(layer >= PerformParamsTargets::kLayerCount)
+        return false;
+
+    const PerformParamsTargets& t = g_params.TargetsForUI();
+    return KeyzoneContainsNote(t.perform_keyzone_lo_note[layer],
+                               t.perform_keyzone_hi_note[layer],
+                               note);
 }
 
 // --- Audio: passthrough (now via AudioEngine) ---

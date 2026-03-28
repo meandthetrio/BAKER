@@ -423,10 +423,24 @@ static void GetMini3x5Glyph(char c, uint8_t out_rows[kMini3x5H])
 
     switch(c)
     {
+        case '0': out_rows[0] = 0b111; out_rows[1] = 0b101; out_rows[2] = 0b101; out_rows[3] = 0b101; out_rows[4] = 0b111; return;
+        case '1': out_rows[0] = 0b010; out_rows[1] = 0b110; out_rows[2] = 0b010; out_rows[3] = 0b010; out_rows[4] = 0b111; return;
+        case '2': out_rows[0] = 0b111; out_rows[1] = 0b001; out_rows[2] = 0b111; out_rows[3] = 0b100; out_rows[4] = 0b111; return;
+        case '3': out_rows[0] = 0b111; out_rows[1] = 0b001; out_rows[2] = 0b111; out_rows[3] = 0b001; out_rows[4] = 0b111; return;
+        case '4': out_rows[0] = 0b101; out_rows[1] = 0b101; out_rows[2] = 0b111; out_rows[3] = 0b001; out_rows[4] = 0b001; return;
+        case '5': out_rows[0] = 0b111; out_rows[1] = 0b100; out_rows[2] = 0b111; out_rows[3] = 0b001; out_rows[4] = 0b111; return;
+        case '6': out_rows[0] = 0b111; out_rows[1] = 0b100; out_rows[2] = 0b111; out_rows[3] = 0b101; out_rows[4] = 0b111; return;
+        case '7': out_rows[0] = 0b111; out_rows[1] = 0b001; out_rows[2] = 0b001; out_rows[3] = 0b001; out_rows[4] = 0b001; return;
+        case '8': out_rows[0] = 0b111; out_rows[1] = 0b101; out_rows[2] = 0b111; out_rows[3] = 0b101; out_rows[4] = 0b111; return;
+        case '9': out_rows[0] = 0b111; out_rows[1] = 0b101; out_rows[2] = 0b111; out_rows[3] = 0b001; out_rows[4] = 0b111; return;
         case 'a': out_rows[0] = 0b010; out_rows[1] = 0b001; out_rows[2] = 0b011; out_rows[3] = 0b101; out_rows[4] = 0b111; return;
         case 'd': out_rows[0] = 0b001; out_rows[1] = 0b001; out_rows[2] = 0b011; out_rows[3] = 0b101; out_rows[4] = 0b011; return;
         case 'e': out_rows[0] = 0b111; out_rows[1] = 0b100; out_rows[2] = 0b110; out_rows[3] = 0b100; out_rows[4] = 0b111; return;
+        case 'h': out_rows[0] = 0b100; out_rows[1] = 0b100; out_rows[2] = 0b110; out_rows[3] = 0b101; out_rows[4] = 0b101; return;
+        case 'l': out_rows[0] = 0b110; out_rows[1] = 0b010; out_rows[2] = 0b010; out_rows[3] = 0b010; out_rows[4] = 0b111; return;
         case 'n': out_rows[0] = 0b110; out_rows[1] = 0b101; out_rows[2] = 0b101; out_rows[3] = 0b101; out_rows[4] = 0b101; return;
+        case 'o': out_rows[0] = 0b010; out_rows[1] = 0b101; out_rows[2] = 0b101; out_rows[3] = 0b101; out_rows[4] = 0b010; return;
+        case 'p': out_rows[0] = 0b110; out_rows[1] = 0b101; out_rows[2] = 0b110; out_rows[3] = 0b100; out_rows[4] = 0b100; return;
         case 'r': out_rows[0] = 0b110; out_rows[1] = 0b101; out_rows[2] = 0b100; out_rows[3] = 0b100; out_rows[4] = 0b100; return;
         case 's': out_rows[0] = 0b011; out_rows[1] = 0b100; out_rows[2] = 0b010; out_rows[3] = 0b001; out_rows[4] = 0b110; return;
         case 't': out_rows[0] = 0b111; out_rows[1] = 0b010; out_rows[2] = 0b010; out_rows[3] = 0b010; out_rows[4] = 0b010; return;
@@ -1105,7 +1119,8 @@ static void DrawWaveformPreview(OledPager& d,
                                 int y,
                                 int w,
                                 int h,
-                                bool on = true);
+                                bool on = true,
+                                bool outline_only = false);
 
 static void DrawCirclePixels(OledPager& d, int cx, int cy, int r, bool on)
 {
@@ -2637,6 +2652,11 @@ static constexpr int32_t kEngineRowCount = 3;
 static constexpr int32_t kEngineRowWave = 0;
 static constexpr int32_t kEngineRowLoad = 1;
 static constexpr int32_t kEngineRowTune = 2;
+static constexpr int32_t kAdsrRowCount = 3;
+static constexpr int32_t kAdsrRowOneShot = 0;
+static constexpr int32_t kAdsrRowLoop = 1;
+static constexpr int32_t kAdsrRowAdsr = 2;
+static constexpr int32_t kAdsrStageCount = 4;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -2652,9 +2672,65 @@ static const char* LayerName(uint8_t layer)
     return (layer & 1u) ? "B" : "A";
 }
 
-static const char* PlayModeName(uint8_t mode)
+static uint8_t& PerformAdsrStageValue(AppState& app, uint8_t layer, uint8_t stage)
 {
-    return (mode == 0) ? "ONESHOT" : "LOOP";
+    const uint8_t safe_layer = layer & 1u;
+    switch(stage % static_cast<uint8_t>(kAdsrStageCount))
+    {
+        case 0: return app.perform_adsr_loop_attack[safe_layer];
+        case 1: return app.perform_adsr_loop_decay[safe_layer];
+        case 2: return app.perform_adsr_loop_sustain[safe_layer];
+        default: return app.perform_adsr_loop_release[safe_layer];
+    }
+}
+
+static int PerformAdsrStageMin(uint8_t stage)
+{
+    return (stage % static_cast<uint8_t>(kAdsrStageCount)) == 2u ? 0 : 1;
+}
+
+static uint8_t& PerformAdsrRow(AppState& app, uint8_t layer)
+{
+    return app.perform_adsr_row[layer & 1u];
+}
+
+static uint8_t& PerformAdsrEnvX(AppState& app, uint8_t layer, uint8_t stage)
+{
+    const uint8_t safe_layer = layer & 1u;
+    switch(stage % static_cast<uint8_t>(kAdsrStageCount))
+    {
+        case 0: return app.perform_adsr_env_a_x[safe_layer];
+        case 1: return app.perform_adsr_env_d_x[safe_layer];
+        default: return app.perform_adsr_env_r_x[safe_layer];
+    }
+}
+
+static uint8_t& PerformAdsrEnvSLevel(AppState& app, uint8_t layer)
+{
+    return app.perform_adsr_env_s_level[layer & 1u];
+}
+
+static bool PerformAdsrStageEnabled(uint8_t adsr_row, uint8_t stage)
+{
+    const uint8_t safe_row = adsr_row % static_cast<uint8_t>(kAdsrRowCount);
+    const uint8_t safe_stage = stage % static_cast<uint8_t>(kAdsrStageCount);
+    if(safe_row == static_cast<uint8_t>(kAdsrRowOneShot)
+       && (safe_stage == 1u || safe_stage == 2u))
+        return false;
+    return true;
+}
+
+static void PerformAdsrEnsureValidFocus(AppState& app, uint8_t layer)
+{
+    if(app.perform_adsr_type_focus)
+        return;
+
+    const uint8_t adsr_row = PerformAdsrRow(app, layer);
+    const uint8_t stage = app.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+    if(PerformAdsrStageEnabled(adsr_row, stage))
+        return;
+
+    app.perform_adsr_stage_focus = (stage <= 1u) ? 0u : 3u;
 }
 
 static void ExtractBaseName(const char* path, char* out, size_t out_n)
@@ -2780,7 +2856,8 @@ static void DrawWaveformPreview(OledPager& d,
                                 int y,
                                 int w,
                                 int h,
-                                bool on)
+                                bool on,
+                                bool outline_only)
 {
     if(w < 3 || h < 3)
         return;
@@ -2810,6 +2887,10 @@ static void DrawWaveformPreview(OledPager& d,
     const int draw_w = w - 2;
     const int mid = y0 + h / 2;
     const int amp_h = (h - 2) / 2;
+    bool have_prev = false;
+    int prev_x = 0;
+    int prev_top = 0;
+    int prev_bot = 0;
     for(int px = 0; px < draw_w; ++px)
     {
         const uint32_t seg0 = start + (frames * static_cast<uint32_t>(px)) / draw_w;
@@ -2838,6 +2919,26 @@ static void DrawWaveformPreview(OledPager& d,
         if(bot > y1 - 1) bot = y1 - 1;
         if(bot < top)
             bot = top;
+
+        if(outline_only)
+        {
+            if(have_prev)
+            {
+                d.DrawLine(prev_x, prev_top, xx, top, on);
+                d.DrawLine(prev_x, prev_bot, xx, bot, on);
+            }
+            else
+            {
+                d.DrawPixel(xx, top, on);
+                d.DrawPixel(xx, bot, on);
+            }
+            have_prev = true;
+            prev_x = xx;
+            prev_top = top;
+            prev_bot = bot;
+            continue;
+        }
+
         for(int yy = top; yy <= bot; ++yy)
             d.DrawPixel(xx, yy, on);
     }
@@ -3501,40 +3602,165 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppState& app = *ctx.app;
 
-    // R encoder toggles MODE (ONESHOT/LOOP) for the active layer.
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
-    {
-        const uint8_t layer = app.perform_layer & 1u;
-
-        int mode = static_cast<int>(app.engine_play_mode[layer]) & 1;
-        int steps = e.value;
-        if(steps < 0)
-            steps = -steps;
-        if((steps & 1) != 0)
-            mode ^= 1;
-
-        const uint8_t next_mode = static_cast<uint8_t>(mode);
-        if(next_mode != app.engine_play_mode[layer])
-        {
-            app.engine_play_mode[layer] = next_mode;
-            PublishEngineLayerParams(ctx);
-            app.ui_dirty = true;
-        }
-        return true;
-    }
-
-    // POD2 toggles layer (same behavior as ENGINE).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
         app.perform_layer ^= 1u;
         const uint8_t layer = app.perform_layer & 1u;
         app.sd_current_slot.store(layer, std::memory_order_release);
+        app.engine_header_invert_until_ms = e.t_ms + 250u;
+        PerformAdsrEnsureValidFocus(app, layer);
         PublishEngineLayerParams(ctx);
         app.ui_dirty = true;
         return true;
     }
 
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        const uint8_t layer = app.perform_layer & 1u;
+        const uint8_t adsr_row = PerformAdsrRow(app, layer);
+        int idx = app.perform_adsr_type_focus ? 0 : (static_cast<int>(app.perform_adsr_stage_focus) + 1);
+        const int focus_count = kAdsrStageCount + 1;
+        int steps = (e.value < 0) ? -e.value : e.value;
+        const int dir = (e.value < 0) ? -1 : 1;
+        while(steps-- > 0)
+        {
+            do
+            {
+                idx += dir;
+                while(idx < 0)
+                    idx += focus_count;
+                while(idx >= focus_count)
+                    idx -= focus_count;
+            } while(idx != 0
+                    && !PerformAdsrStageEnabled(adsr_row, static_cast<uint8_t>(idx - 1)));
+        }
+
+        if(idx == 0)
+            app.perform_adsr_type_focus = true;
+        else
+        {
+            app.perform_adsr_type_focus = false;
+            app.perform_adsr_stage_focus = static_cast<uint8_t>(idx - 1);
+        }
+        app.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+    {
+        const uint8_t layer = app.perform_layer & 1u;
+        uint8_t& adsr_row = PerformAdsrRow(app, layer);
+        if(app.perform_adsr_type_focus)
+        {
+            int row = static_cast<int>(adsr_row % static_cast<uint8_t>(kAdsrRowCount));
+            row += e.value;
+            while(row < 0)
+                row += kAdsrRowCount;
+            while(row >= kAdsrRowCount)
+                row -= kAdsrRowCount;
+            adsr_row = static_cast<uint8_t>(row);
+
+            uint8_t next_mode = app.engine_play_mode[layer] & 1u;
+            bool changed = false;
+            if(row == static_cast<int>(kAdsrRowOneShot))
+            {
+                if(next_mode != 0u)
+                {
+                    next_mode = 0u;
+                    changed = true;
+                }
+            }
+            else if(row == static_cast<int>(kAdsrRowLoop))
+            {
+                if(next_mode != 1u)
+                {
+                    next_mode = 1u;
+                    changed = true;
+                }
+            }
+
+            if(changed)
+            {
+                app.engine_play_mode[layer] = next_mode;
+                PublishEngineLayerParams(ctx);
+            }
+            PerformAdsrEnsureValidFocus(app, layer);
+            app.ui_dirty = true;
+            return true;
+        }
+
+        if((adsr_row % static_cast<uint8_t>(kAdsrRowCount)) != static_cast<uint8_t>(kAdsrRowLoop))
+        {
+            if((adsr_row % static_cast<uint8_t>(kAdsrRowCount)) != static_cast<uint8_t>(kAdsrRowAdsr))
+                return false;
+
+            const uint8_t stage = app.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+            if(stage == 2u)
+            {
+                uint8_t& level = PerformAdsrEnvSLevel(app, layer);
+                const int next_level = ClampInt(static_cast<int>(level) + e.value, 0, 100);
+                if(next_level == static_cast<int>(level))
+                    return false;
+                level = static_cast<uint8_t>(next_level);
+                app.ui_dirty = true;
+                return true;
+            }
+
+            static constexpr int kAdsrEnvMinGap = 6;
+            uint8_t& value = PerformAdsrEnvX(app, layer, stage);
+            const int a_x = static_cast<int>(app.perform_adsr_env_a_x[layer]);
+            const int d_x = static_cast<int>(app.perform_adsr_env_d_x[layer]);
+            const int r_x = static_cast<int>(app.perform_adsr_env_r_x[layer]);
+            int min_value = 0;
+            int max_value = 100;
+            if(stage == 0u)
+            {
+                max_value = d_x - kAdsrEnvMinGap;
+            }
+            else if(stage == 1u)
+            {
+                min_value = a_x + kAdsrEnvMinGap;
+                max_value = r_x - kAdsrEnvMinGap;
+            }
+            else
+            {
+                min_value = d_x + kAdsrEnvMinGap;
+            }
+
+            const int next_value = ClampInt(static_cast<int>(value) + e.value, min_value, max_value);
+            if(next_value == static_cast<int>(value))
+                return false;
+            value = static_cast<uint8_t>(next_value);
+            app.ui_dirty = true;
+            return true;
+        }
+
+        const uint8_t stage = app.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+        uint8_t& value = PerformAdsrStageValue(app, layer, stage);
+        const int min_value = PerformAdsrStageMin(stage);
+        const int next_value = ClampInt(static_cast<int>(value) + e.value, min_value, 100);
+        if(next_value == static_cast<int>(value))
+            return false;
+
+        value = static_cast<uint8_t>(next_value);
+        app.ui_dirty = true;
+        return true;
+    }
+
     return false;
+}
+
+static void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return;
+    AppState& app = *ctx.app;
+    app.perform_adsr_stage_focus = 0;
+    app.perform_adsr_type_focus = false;
+    const uint8_t layer = app.perform_layer & 1u;
+    PerformAdsrRow(app, layer) = (app.engine_play_mode[layer] & 1u) ? kAdsrRowLoop : kAdsrRowOneShot;
+    PerformAdsrEnsureValidFocus(app, layer);
+    app.ui_dirty = true;
 }
 
 static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -3805,29 +4031,255 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     const uint8_t layer = app.perform_layer & 1u;
+    const uint8_t adsr_row = PerformAdsrRow(app, layer);
     const Sample& sample = app.sd_slots[layer];
     const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
+    const SampleEdit* edit = sample_loaded ? &app.sd_edit_slots[layer] : nullptr;
 
-    const UiLayout layout = UiLayout_Default();
-    char status[16];
-    BuildStatus(app, status, sizeof(status));
-    char title[16];
-    std::snprintf(title, sizeof(title), "ADSR %s", LayerName(layer));
-    UiDraw_Header(d, layout, title, status);
+    char header_label[16] = {};
+    std::snprintf(header_label, sizeof(header_label), "adsr %c", layer == 0 ? 'a' : 'b');
+    const int header_w = MicroStringWidth(header_label);
+    const int box_w = header_w + 4;
+    const int box_h = kMicroH + 4;
+    int box_x = 128 - box_w;
+    if(box_x < 0)
+        box_x = 0;
+    const bool header_invert_flash
+        = static_cast<int32_t>(app.engine_header_invert_until_ms - ctx.now_ms) > 0;
+    if(header_invert_flash)
+    {
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, false, true);
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, false);
+        DrawMicroString(d, header_label, box_x + 2, 2, true);
+    }
+    else
+    {
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, true);
+        DrawMicroString(d, header_label, box_x + 2, 2, false);
+    }
 
-    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
-    if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
+    constexpr int kWaveX = 0;
+    constexpr int kWaveY = 10;
+    constexpr int kWaveW = 128;
 
-    // WAV file name under header
-    d.SetCursor(layout.x, layout.y_body);
-    d.WriteString(name, Font_6x8, true);
+    const char* kPlaybackTypeLabel = "playback type";
+    const bool type_focused = app.perform_adsr_type_focus;
+    const int label_area_x0 = 0;
+    const int label_area_x1 = box_x - 1;
+    if(label_area_x1 >= label_area_x0)
+    {
+        const int label_area_w = label_area_x1 - label_area_x0 + 1;
+        const int max_chars = (label_area_w + 1) / kMicroAdvance;
+        if(max_chars > 0)
+        {
+            char clipped[24] = {};
+            int i = 0;
+            for(; kPlaybackTypeLabel[i] != '\0' && i < max_chars
+                  && i + 1 < static_cast<int>(sizeof(clipped));
+                ++i)
+                clipped[i] = kPlaybackTypeLabel[i];
+            clipped[i] = '\0';
+            const int draw_w = MicroStringWidth(clipped);
+            int draw_x = label_area_x0 + ((label_area_w - draw_w) / 2);
+            if(draw_x < label_area_x0)
+                draw_x = label_area_x0;
+            int draw_y = (kWaveY - kMicroH) / 2;
+            if(draw_y < 0)
+                draw_y = 0;
 
-    // MODE row (footer hints removed)
-    char line[32];
-    std::snprintf(line, sizeof(line), "> MODE:%s", PlayModeName(app.engine_play_mode[layer]));
-    d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    d.WriteString(line, Font_6x8, true);
+            constexpr int kTypeFocusPadX = 5;
+            constexpr int kTypeFocusPadY = 2;
+            int rx0 = draw_x - kTypeFocusPadX;
+            int ry0 = draw_y - kTypeFocusPadY;
+            int rx1 = draw_x + draw_w + (kTypeFocusPadX - 1);
+            int ry1 = draw_y + kMicroH + (kTypeFocusPadY - 1);
+            if(rx0 < label_area_x0)
+                rx0 = label_area_x0;
+            if(rx1 > label_area_x1)
+                rx1 = label_area_x1;
+            if(ry0 < 0)
+                ry0 = 0;
+            if(ry1 > (kWaveY - 1))
+                ry1 = kWaveY - 1;
+
+            if(type_focused)
+            {
+                DrawDottedRect(d, rx0, ry0, rx1, ry1, true);
+                const char* kTypeValues[kAdsrRowCount] = {"1shot", "loop", "adsr"};
+                const char* selected = kTypeValues[adsr_row % static_cast<uint8_t>(kAdsrRowCount)];
+                const int value_w = MiniString3x5Width(selected);
+                int value_x = rx0 + (((rx1 - rx0 + 1) - value_w) / 2);
+                int value_y = ry0 + (((ry1 - ry0 + 1) - kMini3x5H) / 2);
+                if(value_x < label_area_x0)
+                    value_x = label_area_x0;
+                if(value_y < 0)
+                    value_y = 0;
+                if(value_x + value_w - 1 > label_area_x1)
+                    value_x = label_area_x1 - value_w + 1;
+                DrawMiniString3x5(d, selected, value_x, value_y, true);
+            }
+            else
+            {
+                DrawMicroString(d, clipped, draw_x, draw_y, true);
+            }
+        }
+    }
+
+    int kWaveBottomY = static_cast<int>(d.Height()) - 8;
+    if(kWaveBottomY < kWaveY)
+        kWaveBottomY = kWaveY;
+    const int kWaveH = kWaveBottomY - kWaveY + 1;
+    const bool adsr_mode
+        = (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowAdsr);
+
+    DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true, adsr_mode);
+
+    static const char* kBottomLetters[4] = {"a", "d", "s", "r"};
+    const int bottom_y = kWaveBottomY + 2;
+    const int seg_w = static_cast<int>(d.Width()) / 4;
+    const uint8_t stage_focus = app.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+    const bool loop_stage_editing
+        = (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop);
+    const int preview_x0 = kWaveX + 1;
+    const int preview_x1 = kWaveX + kWaveW - 2;
+    const int preview_y0 = kWaveY + 1;
+    const int preview_y1 = kWaveBottomY - 1;
+    const int preview_w = preview_x1 - preview_x0;
+    const int preview_h = preview_y1 - preview_y0;
+
+    if(adsr_mode)
+    {
+        const int a_x = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_a_x[layer])) / 100;
+        const int d_x = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_d_x[layer])) / 100;
+        const int r_x = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_r_x[layer])) / 100;
+        const int sustain_y
+            = preview_y1 - (preview_h * static_cast<int>(app.perform_adsr_env_s_level[layer])) / 100;
+
+        d.DrawLine(a_x, kWaveY + 1, a_x, kWaveBottomY - 1, true);
+        d.DrawLine(d_x, kWaveY + 1, d_x, kWaveBottomY - 1, true);
+        d.DrawLine(r_x, kWaveY + 1, r_x, kWaveBottomY - 1, true);
+
+        d.DrawLine(preview_x0, preview_y1, a_x, preview_y0, true);
+        d.DrawLine(a_x, preview_y0, d_x, sustain_y, true);
+        d.DrawLine(d_x, sustain_y, r_x, sustain_y, true);
+        d.DrawLine(r_x, sustain_y, preview_x1, preview_y1, true);
+    }
+
+    for(int i = 0; i < 4; ++i)
+    {
+        const int seg_start = i * seg_w;
+        const int seg_end = (i == 3) ? (static_cast<int>(d.Width()) - 1) : ((i + 1) * seg_w - 1);
+        const int seg_center = seg_start + ((seg_end - seg_start + 1) / 2);
+        const bool stage_enabled = PerformAdsrStageEnabled(adsr_row, static_cast<uint8_t>(i));
+
+        if(adsr_mode)
+        {
+            const int w = MiniString3x5Width(kBottomLetters[i]);
+            int box_center = seg_center;
+            if(i == 0)
+                box_center = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_a_x[layer])) / 100;
+            else if(i == 1)
+                box_center = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_d_x[layer])) / 100;
+            else if(i == 2)
+            {
+                const int d_x
+                    = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_d_x[layer])) / 100;
+                const int r_x
+                    = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_r_x[layer])) / 100;
+                box_center = d_x + ((r_x - d_x) / 2);
+            }
+            else
+                box_center = preview_x0 + (preview_w * static_cast<int>(app.perform_adsr_env_r_x[layer])) / 100;
+            const int box_w = w + 6;
+            int box_x0 = box_center - (box_w / 2);
+            int box_x1 = box_x0 + box_w - 1;
+            if(box_x0 < seg_start)
+            {
+                box_x0 = seg_start;
+                box_x1 = box_x0 + box_w - 1;
+            }
+            if(box_x1 > seg_end)
+            {
+                box_x1 = seg_end;
+                box_x0 = box_x1 - box_w + 1;
+            }
+
+            const int box_y0 = bottom_y - 2;
+            const int box_y1 = bottom_y + kMini3x5H + 1;
+            const int value_x = box_x0 + ((box_w - w) / 2);
+            const int value_y = bottom_y;
+            if(!type_focused && stage_focus == static_cast<uint8_t>(i))
+            {
+                if(i == 2)
+                {
+                    d.DrawRect(box_x0, box_y0, box_x1, box_y1, true, true);
+                    DrawMiniString3x5(d, kBottomLetters[i], value_x, value_y, false);
+                }
+                else
+                {
+                    DrawDottedRect(d, box_x0, box_y0, box_x1, box_y1, true);
+                    DrawMiniString3x5(d, kBottomLetters[i], value_x, value_y, true);
+                }
+                continue;
+            }
+            DrawMiniString3x5(d, kBottomLetters[i], value_x, value_y, true);
+            continue;
+        }
+
+        if(loop_stage_editing && !type_focused && stage_focus == static_cast<uint8_t>(i))
+        {
+            char value_buf[4] = {};
+            const uint8_t value = PerformAdsrStageValue(app, layer, static_cast<uint8_t>(i));
+            std::snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(value));
+            const int value_w = MiniString3x5Width(value_buf);
+            const int box_w = value_w + 6;
+            int box_x0 = seg_center - (box_w / 2);
+            int box_x1 = box_x0 + box_w - 1;
+            if(box_x0 < seg_start)
+            {
+                box_x0 = seg_start;
+                box_x1 = box_x0 + box_w - 1;
+            }
+            if(box_x1 > seg_end)
+            {
+                box_x1 = seg_end;
+                box_x0 = box_x1 - box_w + 1;
+            }
+
+            const int box_y0 = bottom_y - 2;
+            const int box_y1 = bottom_y + kMini3x5H + 1;
+            const int value_x = box_x0 + ((box_w - value_w) / 2);
+            const int value_y = bottom_y;
+            DrawDottedRect(d, box_x0, box_y0, box_x1, box_y1, true);
+            DrawMiniString3x5(d, value_buf, value_x, value_y, true);
+        }
+        else
+        {
+            const int w = MiniString3x5Width(kBottomLetters[i]);
+            int x = seg_center - (w / 2);
+            if(x < seg_start)
+                x = seg_start;
+            if(x + w - 1 > seg_end)
+                x = seg_end - w + 1;
+            if(stage_enabled && !type_focused && stage_focus == static_cast<uint8_t>(i))
+            {
+                d.DrawRect(x - 2, bottom_y - 1, x + w + 1, bottom_y + kMini3x5H, true, true);
+                DrawMiniString3x5(d, kBottomLetters[i], x, bottom_y, false);
+                continue;
+            }
+            DrawMiniString3x5(d, kBottomLetters[i], x, bottom_y, true);
+            if(!stage_enabled)
+            {
+                int line_x0 = x - 1;
+                int line_x1 = x + w;
+                if(line_x0 < seg_start)
+                    line_x0 = seg_start;
+                if(line_x1 > seg_end)
+                    line_x1 = seg_end;
+                d.DrawLine(line_x0, bottom_y + 2, line_x1, bottom_y + 2, true);
+            }
+        }
+    }
 }
 
 static void PerformEmphasis_Render(UiScreenCtx& ctx)
@@ -6261,7 +6713,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                             PerformWaveEdit_Render,
                                             PerformWaveEdit_OnEnter};
     static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
-    static const UiScreen perform_adsr{UiScreenId::PerformAdsr, nullptr, nullptr, PerformAdsr_OnEvent, PerformAdsr_Render};
+    static const UiScreen perform_adsr{UiScreenId::PerformAdsr,
+                                       PerformAdsr_OnScreenEnter,
+                                       nullptr,
+                                       PerformAdsr_OnEvent,
+                                       PerformAdsr_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis,
                                            PerformEmphasis_OnScreenEnter,
                                            nullptr,

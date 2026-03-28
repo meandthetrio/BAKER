@@ -235,25 +235,67 @@
 - Exited by: `kUiBtnPodEnc` pop to PerformMenu.
 
 #### Focusable Objects
-1. **Mode field (`engine_play_mode[layer]`)**
-- Type: enum field (`ONESHOT` / `LOOP`)
-- Purpose: choose playback mode.
+1. **Playback type field (`perform_adsr_row[layer]`, `engine_play_mode[layer]`)**
+- Type: enum field (`1SHOT` / `LOOP` / `ADSR`)
+- Purpose: choose the screen’s playback-type row exactly like the simulator.
 - Behavior:
-  - `kUiEncExt` toggles mode on odd-step movement.
+  - `LEnc` cycles focus across `TYPE -> A -> D -> S -> R`.
+  - `REnc` edits the focused TYPE value when TYPE is focused.
+  - `1SHOT` and `LOOP` sync the existing `engine_play_mode[layer]` field through the shared ENGINE publish path.
+  - `ADSR` is UI-only in this pass and does not add new runtime plumbing.
 - Result:
-  - Publishes updated loop mode.
+  - Focus and row behavior match the simulator.
 - Notes:
-  - `perform_adsr_row` exists in state but current handler uses a single mode row.
+  - Disabled stages are skipped in `1SHOT`.
 
-2. **Layer toggle (`perform_layer`)**
+2. **Stage fields (`perform_adsr_stage_focus` + per-layer ADSR UI state)**
+- Type: focusable stage editors
+- Purpose: edit the currently focused stage for the active layer.
+- Behavior:
+  - In `LOOP` row:
+    - `REnc` edits `A`, `D`, `S`, or `R` numeric values.
+    - value ranges are `A/D/R = 1..100`, `S = 0..100`.
+  - In `ADSR` row:
+    - `REnc` edits graph points.
+    - `A`, `D`, and `R` move their x positions with the simulator’s minimum-gap constraints.
+    - `S` edits sustain level `0..100`.
+  - In `1SHOT` row:
+    - `D` and `S` are disabled and rendered crossed out, matching the simulator.
+- Result:
+  - Bottom-strip focus, boxed values, and graph editing match the simulator.
+
+3. **Layer toggle (`perform_layer`)**
 - Type: toggle action
 - Purpose: switch A/B layer.
 - Behavior:
   - `kUiBtnPod2` toggles layer.
 - Result:
-  - Layer context updates.
+  - Layer context updates, slot context syncs, and the shared header-flash timer is reused.
 - Notes:
-  - Same PERFORM pattern.
+  - Same PERFORM pattern as ENGINE and KEYZONE.
+
+#### Modifier Behavior
+- `LShift` / `RShift`:
+  - No ADSR-specific modifier behavior is implemented.
+  - The ADSR handler matches the simulator by returning early on generic `shift`.
+
+#### Entry Behavior
+- On screen enter:
+  - `perform_adsr_stage_focus = A`
+  - `perform_adsr_type_focus = false`
+  - active layer row initializes from existing `engine_play_mode[layer]`:
+    - `0 -> 1SHOT`
+    - `1 -> LOOP`
+  - focus is normalized so disabled stages are skipped
+
+#### Render Notes
+- Render mirrors the simulator layout closely:
+  - upper-right micro header `adsr a/b`
+  - centered `playback type` label / focus box
+  - waveform box reused as the main ADSR canvas
+  - bottom strip with `a d s r`
+  - loop-mode numeric stage boxes
+  - adsr-mode envelope graph, vertical stage guides, and stage-specific highlight treatment
 
 ### PerformEmphasis (`UiScreenId::PerformEmphasis`)
 - Parent: PerformMenu

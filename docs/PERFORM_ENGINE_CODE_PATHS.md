@@ -1,7 +1,7 @@
 # PERFORM ENGINE CODE PATHS
 
 ## Purpose
-This document maps the CURRENT IMPLEMENTED code paths for the `PerformEngine` screen and the shared PERFORM plumbing that `PerformKeyzone` now reuses.
+This document maps the CURRENT IMPLEMENTED code paths for the `PerformEngine` screen and the shared PERFORM plumbing that `PerformKeyzone` and `PerformAdsr` reuse.
 
 It exists to help feature work stay surgical and reuse existing plumbing instead of introducing duplicate paths.
 
@@ -12,9 +12,12 @@ This doc covers:
 
 - navigation into and out of `PerformEngine`
 - navigation into and out of `PerformKeyzone` where it reuses ENGINE-owned/shared PERFORM behavior
+- navigation into and out of `PerformAdsr` where it reuses the same shared PERFORM behavior
 - `AppState` fields owned or used by ENGINE
 - `AppState` / params fields reused by KEYZONE
+- `AppState` fields reused by ADSR UI
 - ENGINE lifecycle, event, enter, and render functions
+- ADSR lifecycle, event, and render functions
 - the existing sample load path reused by ENGINE
 - the existing param publish / runtime handoff paths reused by ENGINE and KEYZONE
 - closely related files that should be inspected before editing ENGINE behavior
@@ -82,6 +85,19 @@ Relevant state:
 Behavior:
 - `perform_menu_index == KEYZONE` enters `UiScreenId::PerformKeyzone`
 
+### PerformMenu to ADSR
+Relevant code:
+- `ui_screens.cpp`
+  - `PerformMenu_OnEvent(...)`
+  - `PerformMenu_OnEnter(...)`
+
+Relevant state:
+- `app_state.h`
+  - `perform_menu_index`
+
+Behavior:
+- `perform_menu_index == ADSR` enters `UiScreenId::PerformAdsr`
+
 ### ENGINE exits
 Relevant code:
 - `ui_screens.cpp`
@@ -102,6 +118,16 @@ Behavior:
 - `kUiBtnPodEnc` pops back to `UiScreenId::PerformMenu`
 - KEYZONE screen code itself ignores `LShift` (`ctx.lshift`)
 - shared parent-preview can still route encoder input back to `PerformMenu` above the screen handler
+
+### ADSR exits
+Relevant code:
+- `ui_screens.cpp`
+  - `PerformAdsr_OnScreenEnter(...)`
+  - normal back behavior via pod encoder button pop in shared nav flow
+
+Behavior:
+- `kUiBtnPodEnc` pops back to `UiScreenId::PerformMenu`
+- `PerformAdsr_OnScreenEnter(...)` resets ADSR focus to stage `A` and syncs the active layer row from `engine_play_mode[layer]`
 
 ---
 
@@ -159,6 +185,21 @@ Used by ENGINE to detect that a loaded sample has actually been applied on the a
 
 These are the per-layer MIDI note bounds edited by `PerformKeyzone`.
 They are UI-owned state that now publishes through the same shared params path used by ENGINE-layer values.
+
+### ADSR per-layer UI state
+- `perform_adsr_row[2]`
+- `perform_adsr_type_focus`
+- `perform_adsr_stage_focus`
+- `perform_adsr_loop_attack[2]`
+- `perform_adsr_loop_decay[2]`
+- `perform_adsr_loop_sustain[2]`
+- `perform_adsr_loop_release[2]`
+- `perform_adsr_env_a_x[2]`
+- `perform_adsr_env_d_x[2]`
+- `perform_adsr_env_r_x[2]`
+- `perform_adsr_env_s_level[2]`
+
+These are simulator-matched UI-owned ADSR fields. In this pass they stay on the UI side and are not added to a new audio/runtime parameter pipeline.
 
 ### KEYZONE render helpers reused in `ui_screens.cpp`
 - `DrawMicroString(...)`
@@ -248,6 +289,22 @@ Important rule:
 - ENGINE and KEYZONE should publish shared PERFORM state changes through this existing target/publish path
 - do not bypass this with direct audio-engine writes from UI code
 
+## `PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)`
+Relevant code:
+- `ui_screens.cpp`
+
+Current behavior mirrored from the simulator:
+- resets focus to stage `A`
+- clears `perform_adsr_type_focus`
+- initializes `perform_adsr_row[active_layer]` from existing `engine_play_mode[layer]`
+  - `0 -> 1SHOT`
+  - `1 -> LOOP`
+- normalizes focus with `PerformAdsrEnsureValidFocus(...)`
+- marks UI dirty
+
+Important rule:
+- ADSR entry reuses shared PERFORM layer ownership and existing loop-mode state instead of adding a new owner for playback type
+
 ## `PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)`
 Relevant code:
 - `ui_screens.cpp`
@@ -281,6 +338,40 @@ Current render behavior mirrored from the simulator:
 - repeated layer letters are clipped inside each layer box
 - touching split boundaries draw the same small bridge markers as the sim
 
+## `PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)`
+Relevant code:
+- `ui_screens.cpp`
+
+Current behavior mirrored from the simulator:
+- returns immediately when generic `ctx.shift` is held
+- `kUiBtnPod2` toggles `perform_layer`, syncs `sd_current_slot`, reuses `engine_header_invert_until_ms`, normalizes focus, and republishes shared ENGINE layer params
+- `kUiEncPod` cycles focus through `TYPE -> A -> D -> S -> R`, skipping disabled stages in `1SHOT`
+- `kUiEncExt` edits the currently focused item:
+  - TYPE focus cycles `1SHOT / LOOP / ADSR`
+  - TYPE changes to `1SHOT` or `LOOP` reuse existing `engine_play_mode[layer]` and `PublishEngineLayerParams(...)`
+  - LOOP stage focus edits numeric `A/D/S/R` values
+  - ADSR stage focus edits graph control points or sustain level
+
+Important rule:
+- the simulator’s UI-only ADSR state stays in `AppState`
+- only the already-existing playback-type hookup is reused
+- no new ADSR runtime/audio plumbing is added in this UI pass
+
+## `PerformAdsr_Render(UiScreenCtx& ctx)`
+Relevant code:
+- `ui_screens.cpp`
+
+Current render behavior mirrored from the simulator:
+- upper-right micro header box labeled `adsr a` or `adsr b`
+- centered `playback type` label area that changes to a boxed `1shot` / `loop` / `adsr` value when TYPE is focused
+- main waveform box reused as the ADSR canvas via `DrawWaveformPreview(...)`
+- ADSR mode draws the simulator envelope graph plus vertical guide lines
+- bottom strip draws `a d s r`
+  - LOOP mode shows dotted numeric edit boxes
+  - ADSR mode shows stage letters positioned under the graph
+  - focused sustain in ADSR mode uses the simulator’s filled highlight while the other ADSR boxes use dotted outlines
+  - disabled `1SHOT` stages are crossed out
+
 ## `EngineRefreshLoadedMetadata(AppState& app)`
 Relevant code:
 - `ui_screens.cpp`
@@ -313,7 +404,7 @@ Current behavior:
 
 Important rule:
 - waveform drawing already exists
-- ENGINE features should reuse this helper rather than introducing a second waveform renderer
+- ENGINE, KEYZONE, and ADSR features should reuse this helper rather than introducing a second waveform renderer
 
 ---
 

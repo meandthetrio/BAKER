@@ -239,16 +239,41 @@
 - Type: enum field (`1SHOT` / `LOOP` / `ADSR`)
 - Purpose: choose the screen’s playback-type row exactly like the simulator.
 - Behavior:
-  - `LEnc` cycles focus across `TYPE -> A -> D -> S -> R`.
+  - `LEnc` cycles focus across:
+    - `TYPE -> WAVE -> A -> D -> S -> R` when playback type is `LOOP`
+    - `TYPE -> A -> D -> S -> R` for non-`LOOP` rows
   - `REnc` edits the focused TYPE value when TYPE is focused.
   - `1SHOT` and `LOOP` sync the existing `engine_play_mode[layer]` field through the shared ENGINE publish path.
-  - `ADSR` is UI-only in this pass and does not add new runtime plumbing.
+  - `LOOP` also publishes the existing per-layer LOOP `A/D/S/R` values through the shared params path.
+  - `ADSR` remains UI-only and does not add a second runtime path.
 - Result:
   - Focus and row behavior match the simulator.
 - Notes:
   - Disabled stages are skipped in `1SHOT`.
+  - LOOP runtime semantics are:
+    - `A` = attack ms
+    - `D` = decay ms
+    - `S` = sustain level
+    - `R` = release ms
+  - LOOP playback reuses the loaded sample and ENGINE-selected trim region for forward looping, with note-off entering release.
 
-2. **Stage fields (`perform_adsr_stage_focus` + per-layer ADSR UI state)**
+2. **Wave preview field (`perform_adsr_wave_focus`, `perform_adsr_loop_crossfade[layer]`)**
+- Type: LOOP-only focusable waveform control
+- Purpose: edit the active layer’s symmetric LOOP seam crossfade without leaving the ADSR page.
+- Behavior:
+  - Only focusable when playback type is `LOOP`.
+  - `REnc` increases/decreases the active layer crossfade amount while focused.
+  - Focused preview uses a dotted outer border.
+  - Focused preview overlays the left/right crossfade regions with grid shading while leaving the middle region normal.
+  - Two vertical bars mark the current start/end crossfade bounds and move inward/outward with `REnc`.
+- Result:
+  - Active-layer LOOP seam crossfade can be edited directly from the reused waveform preview.
+- Notes:
+  - Crossfade amount is per-layer.
+  - `Pod2` layer toggle switches which layer-owned value the preview edits.
+  - Non-`LOOP` rows do not expose this focus target.
+
+3. **Stage fields (`perform_adsr_stage_focus` + per-layer ADSR UI state)**
 - Type: focusable stage editors
 - Purpose: edit the currently focused stage for the active layer.
 - Behavior:
@@ -264,7 +289,7 @@
 - Result:
   - Bottom-strip focus, boxed values, and graph editing match the simulator.
 
-3. **Layer toggle (`perform_layer`)**
+4. **Layer toggle (`perform_layer`)**
 - Type: toggle action
 - Purpose: switch A/B layer.
 - Behavior:
@@ -283,6 +308,7 @@
 - On screen enter:
   - `perform_adsr_stage_focus = A`
   - `perform_adsr_type_focus = false`
+  - `perform_adsr_wave_focus = false`
   - active layer row initializes from existing `engine_play_mode[layer]`:
     - `0 -> 1SHOT`
     - `1 -> LOOP`

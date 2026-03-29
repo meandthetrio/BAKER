@@ -25,6 +25,7 @@
   - Purpose: Single shared state container (UI flags, counters, SD state, sample/edit handoffs).
   - Thread: [SHARED]
   - Key symbols: `AppState`, `sd_published_*`, `sd_edit_*`, `ui_req_*`, `voices_active`
+  - Notes: shared PERFORM ADSR UI state now also owns LOOP wave-preview focus plus per-layer seam-crossfade amount
   - Milestones: TBD
 
 ### Audio engine (callback → voices → mix)
@@ -43,7 +44,7 @@
 - voice_engine.cpp / voice_engine.h
   - Purpose: Voice pool, sample playback, looping, ADSR, voice stealing, sample/edit apply.
   - Thread: [AUDIO]
-  - Key symbols: `VoiceEngine::ProcessEvents`, `RenderBlock`, `SetSample`, `SetSampleEdit`, `StealVoice_`
+  - Key symbols: `VoiceEngine::ProcessEvents`, `RenderBlock`, `SetSample`, `SetSampleEdit`, `SetLoopEnvelopeParams`, `SetLoopCrossfadeAmount`, `StealVoice_`
   - Milestones: TBD
 
 - mod_sources.cpp / mod_sources.h
@@ -71,6 +72,7 @@
   - Thread: [SHARED]
   - Writer: MAIN (EditTargets/Publish), Reader: AUDIO (AudioBlockTick)
   - Key symbols: `Params::EditTargets`, `PublishTargets`, `AudioBlockTick`, `PerformParamsTargets`
+  - Notes: shared PERFORM handoff now also carries per-layer LOOP ADSR runtime values and LOOP seam-crossfade amount
   - Milestones: TBD
 
 - mod_matrix.cpp / mod_matrix.h

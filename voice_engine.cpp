@@ -15,11 +15,12 @@ static constexpr float kFadeInMs           = 3.0f;
 static constexpr float kStopFadeMs         = 3.0f;
 static constexpr float kStopFadeMinMs      = 1.0f;
 static constexpr float kStopFadeMaxMs      = 5.0f;
+static constexpr float kLoopBoundaryFadeMs = 1.0f;
 static constexpr float kTwoPi              = 6.2831853071795864769f;
-static constexpr float kEnvAttackSec       = 0.005f;
-static constexpr float kEnvDecaySec        = 0.060f;
-static constexpr float kEnvSustainLevel    = 0.70f;
-static constexpr float kEnvReleaseSec      = 0.030f;
+static constexpr float kDefaultEnvAttackMs = 5.0f;
+static constexpr float kDefaultEnvDecayMs  = 60.0f;
+static constexpr float kDefaultEnvSustainLevel = 0.70f;
+static constexpr float kDefaultEnvReleaseMs = 30.0f;
 static constexpr float kMinRatio           = 0.25f;
 static constexpr float kMaxRatio           = 4.0f;
 static constexpr float kPitchModSemitones  = 2.0f;
@@ -45,12 +46,19 @@ static inline float ComputeRatio(uint8_t note, uint8_t root_key)
     return ratio;
 }
 
-static inline float ComputeFadeStep(float sample_rate)
+static inline float ComputeFadeStepMs(float sample_rate, float fade_ms)
 {
-    int fade_samples = static_cast<int>(sample_rate * 0.001f * kFadeInMs);
+    if(fade_ms < 0.0f)
+        fade_ms = 0.0f;
+    int fade_samples = static_cast<int>(sample_rate * 0.001f * fade_ms);
     if(fade_samples < 1)
         fade_samples = 1;
     return 1.0f / static_cast<float>(fade_samples);
+}
+
+static inline float ComputeFadeStep(float sample_rate)
+{
+    return ComputeFadeStepMs(sample_rate, kFadeInMs);
 }
 
 static inline void InitEnvelope(EnvStage& stage,
@@ -59,16 +67,31 @@ static inline void InitEnvelope(EnvStage& stage,
                                 float&    d_step,
                                 float&    r_step,
                                 float&    sustain,
+                                float     attack_ms,
+                                float     decay_ms,
+                                float     sustain_level,
+                                float     release_ms,
                                 float     sample_rate)
 {
-    int a_samps = static_cast<int>(kEnvAttackSec * sample_rate);
-    int d_samps = static_cast<int>(kEnvDecaySec * sample_rate);
-    int r_samps = static_cast<int>(kEnvReleaseSec * sample_rate);
+    if(attack_ms < 0.0f)
+        attack_ms = 0.0f;
+    if(decay_ms < 0.0f)
+        decay_ms = 0.0f;
+    if(release_ms < 0.0f)
+        release_ms = 0.0f;
+    if(sustain_level < 0.0f)
+        sustain_level = 0.0f;
+    if(sustain_level > 1.0f)
+        sustain_level = 1.0f;
+
+    int a_samps = static_cast<int>(sample_rate * 0.001f * attack_ms);
+    int d_samps = static_cast<int>(sample_rate * 0.001f * decay_ms);
+    int r_samps = static_cast<int>(sample_rate * 0.001f * release_ms);
     if(a_samps < 1) a_samps = 1;
     if(d_samps < 1) d_samps = 1;
     if(r_samps < 1) r_samps = 1;
 
-    sustain = kEnvSustainLevel;
+    sustain = sustain_level;
     stage   = EnvStage::Attack;
     level   = 0.0f;
     a_step  = 1.0f / static_cast<float>(a_samps);
@@ -81,9 +104,12 @@ static inline void InitEnvelope(EnvStage& stage,
 static inline void SetEnvelopeRelease(EnvStage& stage,
                                       float&    level,
                                       float&    r_step,
+                                      float     release_ms,
                                       float     sample_rate)
 {
-    int r_samps = static_cast<int>(kEnvReleaseSec * sample_rate);
+    if(release_ms < 0.0f)
+        release_ms = 0.0f;
+    int r_samps = static_cast<int>(sample_rate * 0.001f * release_ms);
     if(r_samps < 1) r_samps = 1;
     stage = EnvStage::Release;
     r_step = level / static_cast<float>(r_samps);
@@ -134,6 +160,45 @@ static inline void StepEnvelope(EnvStage& stage,
     }
 }
 
+static inline float ComputeLoopBoundaryFade(float pos,
+                                            uint32_t start,
+                                            uint32_t end,
+                                            float sample_rate)
+{
+    if(end <= start)
+        return 1.0f;
+
+    float fade_frames = sample_rate * 0.001f * kLoopBoundaryFadeMs;
+    const float region_frames = static_cast<float>(end - start);
+    if(fade_frames < 1.0f)
+        fade_frames = 1.0f;
+    if(fade_frames > region_frames * 0.5f)
+        fade_frames = region_frames * 0.5f;
+    if(fade_frames <= 0.0f)
+        return 1.0f;
+
+    const float start_f = static_cast<float>(start);
+    const float end_f = static_cast<float>(end);
+    float fade = 1.0f;
+    if(pos < start_f + fade_frames)
+        fade = (pos - start_f) / fade_frames;
+    else if(pos > end_f - fade_frames)
+        fade = (end_f - pos) / fade_frames;
+
+    if(fade < 0.0f)
+        fade = 0.0f;
+    if(fade > 1.0f)
+        fade = 1.0f;
+    return fade;
+}
+
+static inline uint8_t VoiceLayerForAllocation(const Voice& v)
+{
+    if(v.state == VoiceState::StealXFade)
+        return v.new_source_layer & 1u;
+    return v.source_layer & 1u;
+}
+
 static inline bool AdvancePos(float& pos,
                               int8_t& dir,
                               float ratio,
@@ -142,7 +207,8 @@ static inline bool AdvancePos(float& pos,
                               float le,
                               bool loop_enabled,
                               bool gate,
-                              LoopMode mode)
+                              LoopMode mode,
+                              float seam_offset = 0.0f)
 {
     if(!loop_enabled || !gate || le <= ls || le > len)
     {
@@ -154,9 +220,19 @@ static inline bool AdvancePos(float& pos,
 
     if(mode == LoopMode::Forward)
     {
+        if(seam_offset < 0.0f)
+            seam_offset = 0.0f;
+        const float loop_span = le - ls;
+        if(seam_offset >= loop_span)
+            seam_offset = 0.0f;
+
         pos += ratio;
         if(pos >= le)
-            pos = ls + (pos - le);
+        {
+            pos = ls + seam_offset + (pos - le);
+            while(pos >= le)
+                pos = ls + seam_offset + (pos - le);
+        }
     }
     else
     {
@@ -222,6 +298,59 @@ static inline float SampleAtLinearRegion(const Sample* s,
     const float fa = static_cast<float>(a) * (1.0f / 32768.0f);
     const float fb = static_cast<float>(b) * (1.0f / 32768.0f);
     return fa + frac * (fb - fa);
+}
+
+static inline uint32_t ComputeLoopSeamCrossfadeFrames(uint32_t start,
+                                                      uint32_t end,
+                                                      float amount)
+{
+    if(end <= start + 1)
+        return 0;
+    if(amount <= 0.0f)
+        return 0;
+    if(amount > 0.5f)
+        amount = 0.5f;
+
+    const uint32_t region_frames = end - start;
+    const uint32_t max_frames = region_frames / 2;
+    if(max_frames == 0)
+        return 0;
+
+    uint32_t frames = static_cast<uint32_t>((static_cast<float>(region_frames) * amount) + 0.5f);
+    if(frames == 0)
+        frames = 1;
+    if(frames > max_frames)
+        frames = max_frames;
+    return frames;
+}
+
+static inline float SampleAtLoopSeamCrossfade(const Sample* s,
+                                              float pos,
+                                              uint32_t start,
+                                              uint32_t end,
+                                              uint32_t seam_frames,
+                                              float sample_rate,
+                                              bool& used_xfade)
+{
+    used_xfade = false;
+    if(seam_frames == 0 || end <= start + seam_frames)
+        return SampleAtLinearRegion(s, pos, start, end, true, start, end);
+
+    const float seam_start = static_cast<float>(end - seam_frames);
+    if(pos < seam_start)
+        return SampleAtLinearRegion(s, pos, start, end, true, start, end);
+
+    float mix = (pos - seam_start) / static_cast<float>(seam_frames);
+    if(mix < 0.0f)
+        mix = 0.0f;
+    if(mix > 1.0f)
+        mix = 1.0f;
+
+    const float seam_pos = static_cast<float>(start) + (pos - seam_start);
+    const float tail = SampleAtLinearRegion(s, pos, start, end, true, start, end);
+    const float head = SampleAtLinearRegion(s, seam_pos, start, end, true, start, end);
+    used_xfade = true;
+    return tail * (1.0f - mix) + head * mix;
 }
 
 void VoiceEngine::BindDebug(std::atomic<uint32_t>* events_popped,
@@ -361,6 +490,40 @@ void VoiceEngine::SetEngineLoopEnabled(uint8_t layer, bool enabled)
     engine_loop_enabled_[layer & 1u] = enabled;
 }
 
+void VoiceEngine::SetLoopEnvelopeParams(uint8_t layer,
+                                        float attack_ms,
+                                        float decay_ms,
+                                        float sustain_level,
+                                        float release_ms)
+{
+    layer &= 1u;
+    if(attack_ms < 0.0f)
+        attack_ms = 0.0f;
+    if(decay_ms < 0.0f)
+        decay_ms = 0.0f;
+    if(sustain_level < 0.0f)
+        sustain_level = 0.0f;
+    if(sustain_level > 1.0f)
+        sustain_level = 1.0f;
+    if(release_ms < 0.0f)
+        release_ms = 0.0f;
+
+    loop_env_attack_ms_[layer] = attack_ms;
+    loop_env_decay_ms_[layer] = decay_ms;
+    loop_env_sustain_level_[layer] = sustain_level;
+    loop_env_release_ms_[layer] = release_ms;
+}
+
+void VoiceEngine::SetLoopCrossfadeAmount(uint8_t layer, float amount)
+{
+    layer &= 1u;
+    if(amount < 0.0f)
+        amount = 0.0f;
+    if(amount > 0.5f)
+        amount = 0.5f;
+    loop_crossfade_amount_[layer] = amount;
+}
+
 void VoiceEngine::StartStopFade_(Voice& v)
 {
     if(v.stop_fade_active)
@@ -399,6 +562,7 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.env_stage = EnvStage::Off;
     v.env_level = 0.0f;
     v.gate = false;
+    v.loop_voice = false;
     v.dir  = 1;
     v.new_pos = 0.0f;
     v.new_ratio = 1.0f;
@@ -410,6 +574,7 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.new_env_stage = EnvStage::Off;
     v.new_env_level = 0.0f;
     v.new_gate = false;
+    v.new_loop_voice = false;
     v.old_gate = false;
     v.mod_env.Reset();
     v.stop_fade_active = false;
@@ -486,6 +651,12 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
     {
         engine_filter_cutoff_hz_[layer] = 12000.0f;
         engine_filter_resonance_[layer] = 0.0f;
+        engine_loop_enabled_[layer] = false;
+        loop_env_attack_ms_[layer] = 5.0f;
+        loop_env_decay_ms_[layer] = 20.0f;
+        loop_env_sustain_level_[layer] = 1.0f;
+        loop_env_release_ms_[layer] = 50.0f;
+        loop_crossfade_amount_[layer] = 0.0625f;
     }
 
     if(voices_active_)
@@ -516,6 +687,7 @@ void VoiceEngine::StartVoice_(Voice& v,
         v.velocity = velocity;
         v.source_layer = source_layer & 1u;
         v.vel_layer = vel_layer;
+        v.loop_voice = false;
         v.start_id = start_id;
         return;
     }
@@ -543,49 +715,82 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.lpf_z = 0.0f;
     v.lpf_bp = 0.0f;
     v.gate = true;
+    v.loop_voice = engine_loop_enabled_[v.source_layer];
     v.dir  = 1;
     v.fade_in = 0.0f;
-    v.fade_in_step = ComputeFadeStep(sample_rate_);
+    v.fade_in_step = v.loop_voice ? ComputeFadeStepMs(sample_rate_, kLoopBoundaryFadeMs)
+                                  : ComputeFadeStep(sample_rate_);
     v.stop_fade_active = false;
     v.stop_fade_samples_remaining = 0;
     v.stop_fade_level = 0.0f;
     v.stop_fade_step = 0.0f;
+    v.new_loop_voice = false;
     InitEnvelope(v.env_stage,
                  v.env_level,
                  v.env_a_step,
                  v.env_d_step,
                  v.env_r_step,
                  v.env_sustain,
+                 v.loop_voice ? loop_env_attack_ms_[v.source_layer] : kDefaultEnvAttackMs,
+                 v.loop_voice ? loop_env_decay_ms_[v.source_layer] : kDefaultEnvDecayMs,
+                 v.loop_voice ? loop_env_sustain_level_[v.source_layer]
+                              : kDefaultEnvSustainLevel,
+                 v.loop_voice ? loop_env_release_ms_[v.source_layer] : kDefaultEnvReleaseMs,
                  sample_rate_);
 
     v.release_coeff = block_release_coeff_;
 }
 
-int VoiceEngine::AllocateVoice_(bool& stole,
+int VoiceEngine::AllocateVoice_(uint8_t source_layer,
+                                bool& stole,
                                 uint8_t& stolen_index,
                                 uint32_t& stolen_start_id)
 {
     stole = false;
     stolen_index = 0;
     stolen_start_id = 0;
+    source_layer &= 1u;
 
-    // Prefer the first idle voice.
+    uint8_t layer_active = 0;
     for(size_t i = 0; i < kMaxVoices; i++)
     {
-        if(voices_[i].state == VoiceState::Idle)
-            return (int)i;
+        if(voices_[i].state != VoiceState::Idle
+           && VoiceLayerForAllocation(voices_[i]) == source_layer)
+            ++layer_active;
     }
 
-    // No free voices: steal Oldest Note (smallest `start_id`).
+    if(layer_active < kMaxVoicesPerLayer)
+    {
+        for(size_t i = 0; i < kMaxVoices; i++)
+        {
+            if(voices_[i].state == VoiceState::Idle)
+                return static_cast<int>(i);
+        }
+    }
+
     size_t   best_idx = 0;
     uint32_t best_start_id = 0xFFFFFFFFu;
     for(size_t i = 0; i < kMaxVoices; i++)
     {
         if(voices_[i].state != VoiceState::Idle
+           && VoiceLayerForAllocation(voices_[i]) == source_layer
            && voices_[i].start_id < best_start_id)
         {
             best_start_id = voices_[i].start_id;
             best_idx = i;
+        }
+    }
+
+    if(best_start_id == 0xFFFFFFFFu)
+    {
+        for(size_t i = 0; i < kMaxVoices; i++)
+        {
+            if(voices_[i].state != VoiceState::Idle
+               && voices_[i].start_id < best_start_id)
+            {
+                best_start_id = voices_[i].start_id;
+                best_idx = i;
+            }
         }
     }
 
@@ -620,24 +825,50 @@ void VoiceEngine::NoteOff_(uint8_t note)
             continue;
         if(v.state == VoiceState::Playing || v.state == VoiceState::Releasing)
         {
-            StartStopFade_(v);
+            if(!v.loop_voice)
+                StartStopFade_(v);
             v.state = VoiceState::Releasing;
-            SetEnvelopeRelease(v.env_stage, v.env_level, v.env_r_step, sample_rate_);
-            v.gate = false;
+            const uint8_t layer = v.source_layer & 1u;
+            SetEnvelopeRelease(v.env_stage,
+                               v.env_level,
+                               v.env_r_step,
+                               v.loop_voice ? loop_env_release_ms_[layer]
+                                            : kDefaultEnvReleaseMs,
+                               sample_rate_);
+            if(!v.loop_voice)
+                v.gate = false;
             v.dir  = 1;
         }
         else if(v.state == VoiceState::StealXFade)
         {
-            StartStopFade_(v);
-            v.pos   = v.new_pos;
-            v.gain  = v.new_gain;
-            v.ratio = v.new_ratio;
-            v.source_layer = v.new_source_layer;
-            v.fade_in = v.new_fade_in;
-            v.fade_in_step = v.new_fade_in_step;
-            SetEnvelopeRelease(v.new_env_stage, v.new_env_level, v.new_env_r_step, sample_rate_);
-            v.new_gate = false;
-            v.new_dir  = 1;
+            if(v.new_loop_voice)
+            {
+                const uint8_t layer = v.new_source_layer & 1u;
+                SetEnvelopeRelease(v.new_env_stage,
+                                   v.new_env_level,
+                                   v.new_env_r_step,
+                                   loop_env_release_ms_[layer],
+                                   sample_rate_);
+                v.new_dir  = 1;
+            }
+            else
+            {
+                StartStopFade_(v);
+                v.pos   = v.new_pos;
+                v.gain  = v.new_gain;
+                v.ratio = v.new_ratio;
+                v.source_layer = v.new_source_layer;
+                v.fade_in = v.new_fade_in;
+                v.fade_in_step = v.new_fade_in_step;
+                v.loop_voice = v.new_loop_voice;
+                SetEnvelopeRelease(v.new_env_stage,
+                                   v.new_env_level,
+                                   v.new_env_r_step,
+                                   kDefaultEnvReleaseMs,
+                                   sample_rate_);
+                v.new_gate = false;
+                v.new_dir  = 1;
+            }
         }
     }
 }
@@ -674,7 +905,7 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                 bool     stole = false;
                 uint8_t  stolen_index = 0;
                 uint32_t stolen_start_id = 0;
-                const int idx = AllocateVoice_(stole, stolen_index, stolen_start_id);
+                const int idx = AllocateVoice_(source_layer, stole, stolen_index, stolen_start_id);
                 if(idx >= 0)
                 {
                     const uint32_t start_id = ++note_start_counter_;
@@ -710,8 +941,11 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                         v.new_ratio = ComputeRatio(note, sample->root_key);
                         v.new_gain = vel01 * kVoiceAmpScale;
                         v.new_source_layer = source_layer;
+                        v.new_loop_voice = engine_loop_enabled_[source_layer];
                         v.new_fade_in = 0.0f;
-                        v.new_fade_in_step = ComputeFadeStep(sample_rate_);
+                        v.new_fade_in_step
+                            = v.new_loop_voice ? ComputeFadeStepMs(sample_rate_, kLoopBoundaryFadeMs)
+                                               : ComputeFadeStep(sample_rate_);
                         v.new_gate = true;
                         v.new_dir  = 1;
                         InitEnvelope(v.new_env_stage,
@@ -720,6 +954,14 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                                      v.new_env_d_step,
                                      v.new_env_r_step,
                                      v.new_env_sustain,
+                                     v.new_loop_voice ? loop_env_attack_ms_[source_layer]
+                                                      : kDefaultEnvAttackMs,
+                                     v.new_loop_voice ? loop_env_decay_ms_[source_layer]
+                                                      : kDefaultEnvDecayMs,
+                                     v.new_loop_voice ? loop_env_sustain_level_[source_layer]
+                                                      : kDefaultEnvSustainLevel,
+                                     v.new_loop_voice ? loop_env_release_ms_[source_layer]
+                                                      : kDefaultEnvReleaseMs,
                                      sample_rate_);
 
                         int xfade_samples = (int)(sample_rate_ * kStealXfadeSec);
@@ -805,7 +1047,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     const Sample* edit_sample = edit_sample_;
     float engine_tune_scale[kEngineLayerCount] = {};
     float engine_gain_linear[kEngineLayerCount] = {};
-    bool  engine_loop_enabled[kEngineLayerCount] = {};
     for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
     {
         float tune = engine_tune_semitones_[layer];
@@ -819,7 +1060,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         if(gain < 0.0f)
             gain = 0.0f;
         engine_gain_linear[layer] = gain;
-        engine_loop_enabled[layer] = engine_loop_enabled_[layer];
     }
 
     float cutoff_norm = 0.0f;
@@ -936,17 +1176,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     uint32_t active = 0;
     uint32_t clip_block = 0;
     float max_env = 0.0f;
-    // Scale mix by number of *active* voices (not max voices) so single-voice preview is loud,
-    // while full polyphony remains safely attenuated.
-    uint32_t active_for_scale = 0;
-    for(size_t vi = 0; vi < kMaxVoices; vi++)
-    {
-        if(voices_[vi].state != VoiceState::Idle)
-            active_for_scale++;
-    }
-    if(active_for_scale == 0)
-        active_for_scale = 1;
-    const float mix_scale = 0.7f / static_cast<float>(active_for_scale);
+    const float mix_scale = 0.7f;
     uint32_t playhead_frame[2] = {0u, 0u};
     uint32_t playhead_active[2] = {0u, 0u};
     float playhead_metric[2] = {-1.0f, -1.0f};
@@ -1050,7 +1280,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             uint32_t le_i = v.sample->loop_end;
             const uint8_t old_layer = v.old_source_layer & 1u;
             const uint8_t new_layer = v.new_source_layer & 1u;
-            bool loop_enabled = v.sample->loop_enabled;
+            bool old_loop_enabled = v.sample->loop_enabled;
+            bool new_loop_enabled = v.sample->loop_enabled;
             float edit_gain = 1.0f;
             if(use_edit)
             {
@@ -1059,39 +1290,39 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 end = e.end_frame;
                 ls_i = e.loop_start;
                 le_i = e.loop_end;
-                loop_enabled = (e.loop_enable != 0);
+                old_loop_enabled = (e.loop_enable != 0);
+                new_loop_enabled = old_loop_enabled;
                 edit_gain = e.gain;
             }
-            if(engine_loop_enabled[new_layer])
+            if(v.loop_voice)
             {
-                if(!loop_enabled)
-                {
-                    loop_enabled = true;
-                    ls_i = start;
-                    le_i = end;
-                }
+                old_loop_enabled = true;
+                ls_i = start;
+                le_i = end;
             }
-            else
+            if(v.new_loop_voice)
             {
-                loop_enabled = false;
+                new_loop_enabled = true;
+                ls_i = start;
+                le_i = end;
             }
             const float length_f = static_cast<float>(end);
             const float ls = static_cast<float>(ls_i);
             const float le = static_cast<float>(le_i);
-            if(loop_enabled && old_pos >= length_f)
+            if(old_loop_enabled && old_pos >= length_f)
                 old_pos = ls + (old_pos - length_f);
-            if(loop_enabled && new_pos >= length_f)
+            if(new_loop_enabled && new_pos >= length_f)
                 new_pos = ls + (new_pos - length_f);
             if(old_pos < static_cast<float>(start))
                 old_pos = static_cast<float>(start);
             if(new_pos < static_cast<float>(start))
                 new_pos = static_cast<float>(start);
-            if(!loop_enabled && old_pos >= length_f && length_f > 0.0f)
+            if(!old_loop_enabled && old_pos >= length_f && length_f > 0.0f)
             {
                 old_gate = false;
                 old_pos = length_f - 1.0f;
             }
-            if(!loop_enabled && new_pos >= length_f && length_f > 0.0f)
+            if(!new_loop_enabled && new_pos >= length_f && length_f > 0.0f)
             {
                 new_gate = false;
                 new_pos = length_f - 1.0f;
@@ -1101,6 +1332,18 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             const float new_ratio = v.new_ratio * engine_tune_scale[new_layer] * pitch_scale;
             const float old_gain = v.old_gain * edit_gain * engine_gain_linear[old_layer];
             const float new_gain = v.new_gain * edit_gain * engine_gain_linear[new_layer];
+            const uint32_t old_seam_frames
+                = v.loop_voice ? ComputeLoopSeamCrossfadeFrames(start,
+                                                                end,
+                                                                loop_crossfade_amount_[old_layer])
+                               : 0u;
+            const uint32_t new_seam_frames
+                = v.new_loop_voice ? ComputeLoopSeamCrossfadeFrames(start,
+                                                                    end,
+                                                                    loop_crossfade_amount_[new_layer])
+                                   : 0u;
+            const LoopMode old_loop_mode = v.loop_voice ? LoopMode::Forward : loop_mode;
+            const LoopMode new_loop_mode = v.new_loop_voice ? LoopMode::Forward : loop_mode;
             float x = v.xfade_pos;
             const float x_step = v.xfade_step;
             float new_fade = v.new_fade_in;
@@ -1128,34 +1371,69 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
                 float s_old = 0.0f;
                 float s_new = 0.0f;
-                if(use_edit)
+                bool old_used_seam_xfade = false;
+                bool new_used_seam_xfade = false;
+                if(v.loop_voice)
+                {
+                    s_old = SampleAtLoopSeamCrossfade(v.sample,
+                                                      old_pos,
+                                                      start,
+                                                      end,
+                                                      old_seam_frames,
+                                                      sample_rate_,
+                                                      old_used_seam_xfade)
+                            * old_gain;
+                }
+                else if(use_edit)
                 {
                     s_old = SampleAtLinearRegion(v.sample,
                                                  old_pos,
                                                  start,
                                                  end,
-                                                 loop_enabled,
+                                                 old_loop_enabled,
                                                  ls_i,
                                                  le_i) * old_gain;
+                }
+                else
+                {
+                    const bool old_wrap = (old_loop_enabled && old_gate
+                                           && v.sample->loop_start == 0
+                                           && v.sample->loop_end == v.sample->length);
+                    s_old = SampleAtLinear(v.sample, old_pos, old_wrap) * old_gain;
+                }
+
+                if(v.new_loop_voice)
+                {
+                    s_new = SampleAtLoopSeamCrossfade(v.sample,
+                                                      new_pos,
+                                                      start,
+                                                      end,
+                                                      new_seam_frames,
+                                                      sample_rate_,
+                                                      new_used_seam_xfade)
+                            * new_gain;
+                }
+                else if(use_edit)
+                {
                     s_new = SampleAtLinearRegion(v.sample,
                                                  new_pos,
                                                  start,
                                                  end,
-                                                 loop_enabled,
+                                                 new_loop_enabled,
                                                  ls_i,
                                                  le_i) * new_gain;
                 }
                 else
                 {
-                    const bool old_wrap = (loop_enabled && old_gate
+                    const bool new_wrap = (new_loop_enabled && new_gate
                                            && v.sample->loop_start == 0
                                            && v.sample->loop_end == v.sample->length);
-                    const bool new_wrap = (loop_enabled && new_gate
-                                           && v.sample->loop_start == 0
-                                           && v.sample->loop_end == v.sample->length);
-                    s_old = SampleAtLinear(v.sample, old_pos, old_wrap) * old_gain;
                     s_new = SampleAtLinear(v.sample, new_pos, new_wrap) * new_gain;
                 }
+                if(v.loop_voice && old_seam_frames == 0u && !old_used_seam_xfade)
+                    s_old *= ComputeLoopBoundaryFade(old_pos, start, end, sample_rate_);
+                if(v.new_loop_voice && new_seam_frames == 0u && !new_used_seam_xfade)
+                    s_new *= ComputeLoopBoundaryFade(new_pos, start, end, sample_rate_);
                 s_new *= new_env_level;
                 const float fin_new = (new_fade < 1.0f) ? new_fade : 1.0f;
                 s_new *= fin_new;
@@ -1191,9 +1469,10 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                                length_f,
                                ls,
                                le,
-                               loop_enabled,
+                               old_loop_enabled,
                                old_gate,
-                               loop_mode))
+                               old_loop_mode,
+                               v.loop_voice ? static_cast<float>(old_seam_frames) : 0.0f))
                 {
                     old_gate = false;
                 }
@@ -1203,9 +1482,10 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                                length_f,
                                ls,
                                le,
-                               loop_enabled,
+                               new_loop_enabled,
                                new_gate,
-                               loop_mode))
+                               new_loop_mode,
+                               v.new_loop_voice ? static_cast<float>(new_seam_frames) : 0.0f))
                 {
                     new_env_stage = EnvStage::Off;
                     new_env_level = 0.0f;
@@ -1274,6 +1554,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 v.source_layer = v.new_source_layer;
                 v.fade_in = v.new_fade_in;
                 v.fade_in_step = v.new_fade_in_step;
+                v.loop_voice = v.new_loop_voice;
                 v.env_stage = v.new_env_stage;
                 v.env_level = v.new_env_level;
                 v.env_a_step = v.new_env_a_step;
@@ -1326,6 +1607,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             uint32_t ls_i = v.sample->loop_start;
             uint32_t le_i = v.sample->loop_end;
             bool loop_enabled = v.sample->loop_enabled;
+            const bool loop_voice = v.loop_voice;
             float edit_gain = 1.0f;
             if(use_edit)
             {
@@ -1337,23 +1619,22 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 loop_enabled = (e.loop_enable != 0);
                 edit_gain = e.gain;
             }
-            if(engine_loop_enabled[source_layer])
+            if(loop_voice)
             {
-                if(!loop_enabled)
-                {
-                    loop_enabled = true;
-                    ls_i = start;
-                    le_i = end;
-                }
-            }
-            else
-            {
-                loop_enabled = false;
+                loop_enabled = true;
+                ls_i = start;
+                le_i = end;
             }
             const float gain  = v.gain * edit_gain * engine_gain_linear[source_layer];
             const float length_f = static_cast<float>(end);
             const float ls = static_cast<float>(ls_i);
             const float le = static_cast<float>(le_i);
+            const uint32_t seam_frames
+                = loop_voice ? ComputeLoopSeamCrossfadeFrames(start,
+                                                              end,
+                                                              loop_crossfade_amount_[source_layer])
+                             : 0u;
+            const LoopMode voice_loop_mode = loop_voice ? LoopMode::Forward : loop_mode;
             bool gate = v.gate;
             int8_t dir = v.dir;
             if(stop_fade_active)
@@ -1376,7 +1657,19 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             for(size_t i = 0; i < size; i++)
             {
                 float s = 0.0f;
-                if(use_edit)
+                bool used_seam_xfade = false;
+                if(loop_voice)
+                {
+                    s = SampleAtLoopSeamCrossfade(v.sample,
+                                                  pos,
+                                                  start,
+                                                  end,
+                                                  seam_frames,
+                                                  sample_rate_,
+                                                  used_seam_xfade)
+                        * gain;
+                }
+                else if(use_edit)
                 {
                     s = SampleAtLinearRegion(v.sample,
                                              pos,
@@ -1393,6 +1686,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                                            && v.sample->loop_end == v.sample->length);
                     s = SampleAtLinear(v.sample, pos, wrap_end) * gain;
                 }
+                if(loop_voice && seam_frames == 0u && !used_seam_xfade)
+                    s *= ComputeLoopBoundaryFade(pos, start, end, sample_rate_);
                 s *= env_level;
                 const float fin = (fade < 1.0f) ? fade : 1.0f;
                 s *= fin;
@@ -1428,7 +1723,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                                le,
                                loop_enabled,
                                gate,
-                               loop_mode))
+                               voice_loop_mode,
+                               loop_voice ? static_cast<float>(seam_frames) : 0.0f))
                 {
                     if(!stop_fade_active)
                     {

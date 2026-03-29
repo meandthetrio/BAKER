@@ -239,6 +239,13 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
         g_voice.SetEngineFilterCutoffHz(layer, g_params.current.engine_filter_cutoff_hz[layer]);
         g_voice.SetEngineFilterResonance(layer, g_params.current.engine_filter_resonance[layer]);
         g_voice.SetEngineLoopEnabled(layer, g_params.current.engine_loop_mode[layer]);
+        g_voice.SetLoopEnvelopeParams(layer,
+                                      g_params.current.engine_loop_attack_ms[layer],
+                                      g_params.current.engine_loop_decay_ms[layer],
+                                      g_params.current.engine_loop_sustain_level[layer],
+                                      g_params.current.engine_loop_release_ms[layer]);
+        g_voice.SetLoopCrossfadeAmount(layer,
+                                       g_params.current.engine_loop_crossfade_amount[layer]);
     }
     g_voice.ProcessEvents(g_evtq);
     g_voice.RenderBlock(out[0], out[1], size);
@@ -327,6 +334,19 @@ int main(void)
         t.engine_filter_cutoff_hz[1] = 12000.0f;
         t.engine_filter_resonance[0] = 0.0f;
         t.engine_filter_resonance[1] = 0.0f;
+        for(uint8_t layer = 0; layer < PerformParamsTargets::kLayerCount; ++layer)
+        {
+            t.engine_loop_mode[layer] = (g_app.engine_play_mode[layer] != 0);
+            t.engine_loop_attack_ms[layer] = static_cast<float>(g_app.perform_adsr_loop_attack[layer]);
+            t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.perform_adsr_loop_decay[layer]);
+            t.engine_loop_sustain_level[layer]
+                = static_cast<float>(g_app.perform_adsr_loop_sustain[layer]) * 0.01f;
+            t.engine_loop_release_ms[layer]
+                = static_cast<float>(g_app.perform_adsr_loop_release[layer]);
+            t.engine_loop_crossfade_amount[layer] = g_app.perform_adsr_loop_crossfade[layer];
+            t.perform_keyzone_lo_note[layer] = g_app.perform_keyzone_lo_note[layer];
+            t.perform_keyzone_hi_note[layer] = g_app.perform_keyzone_hi_note[layer];
+        }
         g_params.PublishTargets();
     }
     ModMatrix_InitDefaults(g_app.mod_matrix, g_app.mod_routes_ui);

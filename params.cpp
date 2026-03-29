@@ -115,6 +115,11 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
             = SmoothToward(current.engine_gain_db[layer],
                            t.engine_gain_db[layer],
                            coeff);
+        current.engine_loop_attack_ms[layer] = t.engine_loop_attack_ms[layer];
+        current.engine_loop_decay_ms[layer] = t.engine_loop_decay_ms[layer];
+        current.engine_loop_sustain_level[layer] = t.engine_loop_sustain_level[layer];
+        current.engine_loop_release_ms[layer] = t.engine_loop_release_ms[layer];
+        current.engine_loop_crossfade_amount[layer] = t.engine_loop_crossfade_amount[layer];
     }
 
     // Bools snap immediately

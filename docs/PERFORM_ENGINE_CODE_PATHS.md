@@ -29,9 +29,12 @@ Primary source of truth is code:
 - `app_state.h`
 - `params.h`
 - `params.cpp`
+- `voice_engine.h`
+- `voice_engine.cpp`
 - `ui_requests.cpp`
 - `ui_worker.cpp`
 - `main.cpp`
+- `sample_edit.h`
 
 Reference docs to read first:
 
@@ -189,17 +192,19 @@ They are UI-owned state that now publishes through the same shared params path u
 ### ADSR per-layer UI state
 - `perform_adsr_row[2]`
 - `perform_adsr_type_focus`
+- `perform_adsr_wave_focus`
 - `perform_adsr_stage_focus`
 - `perform_adsr_loop_attack[2]`
 - `perform_adsr_loop_decay[2]`
 - `perform_adsr_loop_sustain[2]`
 - `perform_adsr_loop_release[2]`
+- `perform_adsr_loop_crossfade[2]`
 - `perform_adsr_env_a_x[2]`
 - `perform_adsr_env_d_x[2]`
 - `perform_adsr_env_r_x[2]`
 - `perform_adsr_env_s_level[2]`
 
-These are simulator-matched UI-owned ADSR fields. In this pass they stay on the UI side and are not added to a new audio/runtime parameter pipeline.
+These are simulator-matched UI-owned ADSR fields. The LOOP seam-crossfade amount remains layer-owned in this existing UI state and publishes through the same shared params handoff instead of adding a second owner.
 
 ### KEYZONE render helpers reused in `ui_screens.cpp`
 - `DrawMicroString(...)`
@@ -280,6 +285,12 @@ Current behavior:
   - `engine_tune_semitones[layer]`
   - `engine_gain_db[layer]`
   - `engine_loop_mode[layer]`
+- also writes LOOP runtime ADSR targets for both layers from existing ADSR UI state:
+  - `engine_loop_attack_ms[0..1]`
+  - `engine_loop_decay_ms[0..1]`
+  - `engine_loop_sustain_level[0..1]`
+  - `engine_loop_release_ms[0..1]`
+  - `engine_loop_crossfade_amount[0..1]`
 - also copies both KEYZONE note-bound arrays:
   - `perform_keyzone_lo_note[0..1]`
   - `perform_keyzone_hi_note[0..1]`
@@ -296,6 +307,7 @@ Relevant code:
 Current behavior mirrored from the simulator:
 - resets focus to stage `A`
 - clears `perform_adsr_type_focus`
+- clears `perform_adsr_wave_focus`
 - initializes `perform_adsr_row[active_layer]` from existing `engine_play_mode[layer]`
   - `0 -> 1SHOT`
   - `1 -> LOOP`
@@ -345,17 +357,22 @@ Relevant code:
 Current behavior mirrored from the simulator:
 - returns immediately when generic `ctx.shift` is held
 - `kUiBtnPod2` toggles `perform_layer`, syncs `sd_current_slot`, reuses `engine_header_invert_until_ms`, normalizes focus, and republishes shared ENGINE layer params
-- `kUiEncPod` cycles focus through `TYPE -> A -> D -> S -> R`, skipping disabled stages in `1SHOT`
+- `kUiEncPod` cycles focus through:
+  - `TYPE -> WAVE -> A -> D -> S -> R` when the active layer row is `LOOP`
+  - `TYPE -> A -> D -> S -> R` otherwise
+  - disabled stages are still skipped in `1SHOT`
 - `kUiEncExt` edits the currently focused item:
   - TYPE focus cycles `1SHOT / LOOP / ADSR`
   - TYPE changes to `1SHOT` or `LOOP` reuse existing `engine_play_mode[layer]` and `PublishEngineLayerParams(...)`
+  - LOOP wave-preview focus edits `perform_adsr_loop_crossfade[active_layer]`
   - LOOP stage focus edits numeric `A/D/S/R` values
   - ADSR stage focus edits graph control points or sustain level
 
 Important rule:
 - the simulator’s UI-only ADSR state stays in `AppState`
 - only the already-existing playback-type hookup is reused
-- no new ADSR runtime/audio plumbing is added in this UI pass
+- LOOP runtime now reuses the existing shared `Params` publish path instead of adding a second handoff
+- `ADSR` row remains UI-only in this pass
 
 ## `PerformAdsr_Render(UiScreenCtx& ctx)`
 Relevant code:
@@ -365,6 +382,9 @@ Current render behavior mirrored from the simulator:
 - upper-right micro header box labeled `adsr a` or `adsr b`
 - centered `playback type` label area that changes to a boxed `1shot` / `loop` / `adsr` value when TYPE is focused
 - main waveform box reused as the ADSR canvas via `DrawWaveformPreview(...)`
+  - solid border when unfocused
+  - dotted border when LOOP wave-preview focus is active
+  - focused LOOP preview overlays left/right crossfade regions with grid shading and vertical boundary bars
 - ADSR mode draws the simulator envelope graph plus vertical guide lines
 - bottom strip draws `a d s r`
   - LOOP mode shows dotted numeric edit boxes
@@ -400,6 +420,7 @@ Relevant code:
 Current behavior:
 - draws waveform outline and amplitude preview from `Sample`
 - optionally clamps and uses `SampleEdit`
+- optionally swaps the outer border to dotted when a caller wants focus styling
 - used by ENGINE render and wave-edit related UI
 
 Important rule:
@@ -517,6 +538,151 @@ Current render behavior:
 Important details:
 - the `WAVE` row is not just a text row; it is the waveform region
 - waveform display already reflects current sample/edit context for the active layer
+
+---
+
+## 9. LOOP Runtime Path
+
+This section documents the CURRENT IMPLEMENTED runtime path for playback type `LOOP`.
+
+### Playback type check
+Relevant code:
+- `main.cpp`
+  - `AudioCallback(...)`
+- `voice_engine.cpp`
+  - `StartVoice_(...)`
+  - `RenderBlock(...)`
+  - `NoteOff_(...)`
+
+Behavior:
+- UI publishes `engine_loop_mode[layer]` through `PublishEngineLayerParams(...)`
+- audio thread reads the published/smoothed value from `g_params.current.engine_loop_mode[layer]`
+- `AudioCallback(...)` forwards it to `VoiceEngine::SetEngineLoopEnabled(layer, ...)`
+- `StartVoice_(...)` snapshots that state into the per-voice `loop_voice` flag
+
+Important rule:
+- LOOP runtime reuses the existing ENGINE playback-type path
+- no second playback dispatch system was added
+
+### Selected loop region source
+Relevant code:
+- `sample_edit.h`
+  - `SampleEdit`
+  - `SampleEdit_Clamp(...)`
+- `main.cpp`
+  - audio callback edit apply handoff via `SetSampleEdit(...)`
+- `voice_engine.cpp`
+  - `RenderBlock(...)`
+
+Behavior:
+- selected region ownership remains in `SampleEdit`:
+  - `start_frame`
+  - `end_frame`
+- the audio callback reuses the existing `sd_edit_pending -> SetSampleEdit(...)` handoff
+- when `loop_voice` is active, `RenderBlock(...)` forces the loop span to the selected edit region:
+  - `loop_start = start_frame`
+  - `loop_end = end_frame`
+- existing sample-edit loop points are not used for PERFORM `LOOP`; the ENGINE-selected region is reused directly
+
+### LOOP seam crossfade amount
+Relevant code:
+- `app_state.h`
+  - `perform_adsr_loop_crossfade[2]`
+- `ui_worker.cpp`
+  - load completion path assigns the default `1/16` amount for the target layer
+- `ui_screens.cpp`
+  - `PublishEngineLayerParams(...)`
+- `params.h`
+  - `engine_loop_crossfade_amount[2]`
+- `main.cpp`
+  - `AudioCallback(...)` -> `SetLoopCrossfadeAmount(...)`
+- `voice_engine.cpp`
+  - `ComputeLoopSeamCrossfadeFrames(...)`
+  - `SampleAtLoopSeamCrossfade(...)`
+  - `RenderBlock(...)`
+
+Behavior:
+- the amount is owned per layer in existing shared PERFORM UI state
+- sample load completion reuses the existing load-finish/default-state path to reset that layer to `1/16`
+- `PublishEngineLayerParams(...)` republishes both layer values through the existing params handoff
+- `AudioCallback(...)` forwards the published amount into `VoiceEngine`
+- `RenderBlock(...)` consumes it only for `loop_voice` playback and crossfades the selected-region tail into the selected-region head at wrap
+- the amount is clamped to `0..1/2` of the selected region so the two seam bounds never cross
+
+### LOOP note-on / note-off handling
+Relevant code:
+- `main.cpp`
+  - `LayerEligibleForNote(...)`
+  - MIDI `NoteOn` / `NoteOff` event push
+- `voice_engine.cpp`
+  - `ProcessEvents(...)`
+  - `StartVoice_(...)`
+  - `NoteOff_(...)`
+
+Behavior:
+- main thread still owns KEYZONE gating through `LayerEligibleForNote(...)`
+- eligible layers push the existing `Event::NoteOnEvent(...)` with the layer encoded in `evt.value`
+- `ProcessEvents(...)` reuses the existing fixed voice pool, layer-aware allocation, and stealing path
+- `StartVoice_(...)` starts forward looping playback for LOOP voices
+- `NoteOff_(...)` now sends LOOP voices into release without the old stop-fade short-circuit, so `R` controls the release time
+- non-LOOP voices keep the prior note-off path
+
+### C4 transposition
+Relevant code:
+- `ui_worker.cpp`
+  - loaded/recorded `Sample.root_key = 60`
+- `voice_engine.cpp`
+  - `ComputeRatio(...)`
+  - `StartVoice_(...)`
+  - `ProcessEvents(...)` steal-xfade new-head setup
+
+Behavior:
+- loaded samples still use temporary root note `C4` by storing `root_key = 60`
+- playback rate is derived by `ComputeRatio(note, sample->root_key)`
+- LOOP reuses the existing sample-rate / transpose path rather than adding a parallel pitch system
+
+### LOOP ADSR envelope
+Relevant code:
+- `params.h`
+  - `engine_loop_attack_ms`
+  - `engine_loop_decay_ms`
+  - `engine_loop_sustain_level`
+  - `engine_loop_release_ms`
+- `params.cpp`
+  - `AudioBlockTick(...)`
+- `main.cpp`
+  - `AudioCallback(...)` -> `SetLoopEnvelopeParams(...)`
+- `voice_engine.cpp`
+  - `InitEnvelope(...)`
+  - `SetEnvelopeRelease(...)`
+  - `StartVoice_(...)`
+  - `NoteOff_(...)`
+  - `ProcessEvents(...)` steal-xfade new-head setup
+
+Behavior:
+- LOOP ADSR values are published through the existing params handoff
+- `StartVoice_(...)` uses per-layer LOOP values only when `loop_voice` is active:
+  - `A` = attack ms
+  - `D` = decay ms
+  - `S` = sustain level (`0 = silence`, `1 = 0 dB`)
+  - `R` = release ms
+- `NoteOff_(...)` applies the per-layer LOOP release time for LOOP voices
+- `1SHOT` and `ADSR` stay on the prior fixed envelope path
+
+### Fixed 1 ms edge fades
+Relevant code:
+- `voice_engine.cpp`
+  - `ComputeLoopBoundaryFade(...)`
+  - `RenderBlock(...)`
+  - `ComputeFadeStepMs(...)`
+  - `StartVoice_(...)`
+  - `ProcessEvents(...)` steal-xfade new-head setup
+
+Behavior:
+- LOOP voices get a fixed 1 ms start fade on note-on via the existing fade-in field
+- LOOP voices also get a fixed 1 ms gain trim near the selected region start/end in `RenderBlock(...)`
+- this edge fade is separate from the LOOP ADSR envelope
+- non-LOOP voices keep the prior fade behavior
 
 ---
 

@@ -1120,7 +1120,8 @@ static void DrawWaveformPreview(OledPager& d,
                                 int w,
                                 int h,
                                 bool on = true,
-                                bool outline_only = false);
+                                bool outline_only = false,
+                                bool dotted_border = false);
 
 static void DrawCirclePixels(OledPager& d, int cx, int cy, int r, bool on)
 {
@@ -2657,6 +2658,9 @@ static constexpr int32_t kAdsrRowOneShot = 0;
 static constexpr int32_t kAdsrRowLoop = 1;
 static constexpr int32_t kAdsrRowAdsr = 2;
 static constexpr int32_t kAdsrStageCount = 4;
+static constexpr float kPerformLoopCrossfadeMin = 0.0f;
+static constexpr float kPerformLoopCrossfadeMax = 0.5f;
+static constexpr float kPerformLoopCrossfadeStep = 1.0f / 128.0f;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -2720,12 +2724,62 @@ static bool PerformAdsrStageEnabled(uint8_t adsr_row, uint8_t stage)
     return true;
 }
 
-static void PerformAdsrEnsureValidFocus(AppState& app, uint8_t layer)
+static bool PerformAdsrWaveFocusable(uint8_t adsr_row)
+{
+    return (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop);
+}
+
+static int PerformAdsrFocusIndex(const AppState& app, uint8_t layer)
 {
     if(app.perform_adsr_type_focus)
+        return 0;
+
+    const uint8_t adsr_row = app.perform_adsr_row[layer & 1u];
+    if(PerformAdsrWaveFocusable(adsr_row) && app.perform_adsr_wave_focus)
+        return 1;
+
+    return static_cast<int>(app.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount))
+           + (PerformAdsrWaveFocusable(adsr_row) ? 2 : 1);
+}
+
+static void PerformAdsrSetFocusIndex(AppState& app, uint8_t layer, int idx)
+{
+    const uint8_t adsr_row = app.perform_adsr_row[layer & 1u];
+    if(idx <= 0)
+    {
+        app.perform_adsr_type_focus = true;
+        app.perform_adsr_wave_focus = false;
+        return;
+    }
+
+    if(PerformAdsrWaveFocusable(adsr_row) && idx == 1)
+    {
+        app.perform_adsr_type_focus = false;
+        app.perform_adsr_wave_focus = true;
+        return;
+    }
+
+    app.perform_adsr_type_focus = false;
+    app.perform_adsr_wave_focus = false;
+    const int stage_base = PerformAdsrWaveFocusable(adsr_row) ? 2 : 1;
+    app.perform_adsr_stage_focus
+        = static_cast<uint8_t>(ClampInt(idx - stage_base, 0, kAdsrStageCount - 1));
+}
+
+static void PerformAdsrEnsureValidFocus(AppState& app, uint8_t layer)
+{
+    const uint8_t adsr_row = PerformAdsrRow(app, layer);
+    if(app.perform_adsr_type_focus)
+    {
+        app.perform_adsr_wave_focus = false;
+        return;
+    }
+
+    if(!PerformAdsrWaveFocusable(adsr_row))
+        app.perform_adsr_wave_focus = false;
+    if(app.perform_adsr_wave_focus)
         return;
 
-    const uint8_t adsr_row = PerformAdsrRow(app, layer);
     const uint8_t stage = app.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
     if(PerformAdsrStageEnabled(adsr_row, stage))
         return;
@@ -2821,6 +2875,12 @@ static void PublishEngineLayerParams(UiScreenCtx& ctx)
     {
         t.perform_keyzone_lo_note[i] = app.perform_keyzone_lo_note[i];
         t.perform_keyzone_hi_note[i] = app.perform_keyzone_hi_note[i];
+        t.engine_loop_attack_ms[i] = static_cast<float>(app.perform_adsr_loop_attack[i]);
+        t.engine_loop_decay_ms[i] = static_cast<float>(app.perform_adsr_loop_decay[i]);
+        t.engine_loop_sustain_level[i]
+            = static_cast<float>(app.perform_adsr_loop_sustain[i]) * 0.01f;
+        t.engine_loop_release_ms[i] = static_cast<float>(app.perform_adsr_loop_release[i]);
+        t.engine_loop_crossfade_amount[i] = app.perform_adsr_loop_crossfade[i];
     }
     ctx.params->PublishTargets();
 }
@@ -2857,7 +2917,8 @@ static void DrawWaveformPreview(OledPager& d,
                                 int w,
                                 int h,
                                 bool on,
-                                bool outline_only)
+                                bool outline_only,
+                                bool dotted_border)
 {
     if(w < 3 || h < 3)
         return;
@@ -2866,7 +2927,10 @@ static void DrawWaveformPreview(OledPager& d,
     const int y0 = y;
     const int x1 = x + w - 1;
     const int y1 = y + h - 1;
-    d.DrawRect(x0, y0, x1, y1, on, false);
+    if(dotted_border)
+        DrawDottedRect(d, x0, y0, x1, y1, on);
+    else
+        d.DrawRect(x0, y0, x1, y1, on, false);
 
     if(sample.pcm == nullptr || sample.length == 0)
         return;
@@ -3618,8 +3682,10 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         const uint8_t layer = app.perform_layer & 1u;
         const uint8_t adsr_row = PerformAdsrRow(app, layer);
-        int idx = app.perform_adsr_type_focus ? 0 : (static_cast<int>(app.perform_adsr_stage_focus) + 1);
-        const int focus_count = kAdsrStageCount + 1;
+        int idx = PerformAdsrFocusIndex(app, layer);
+        const bool wave_focusable = PerformAdsrWaveFocusable(adsr_row);
+        const int focus_count = kAdsrStageCount + (wave_focusable ? 2 : 1);
+        const int stage_base = wave_focusable ? 2 : 1;
         int steps = (e.value < 0) ? -e.value : e.value;
         const int dir = (e.value < 0) ? -1 : 1;
         while(steps-- > 0)
@@ -3631,17 +3697,12 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                     idx += focus_count;
                 while(idx >= focus_count)
                     idx -= focus_count;
-            } while(idx != 0
-                    && !PerformAdsrStageEnabled(adsr_row, static_cast<uint8_t>(idx - 1)));
+            } while(idx >= stage_base
+                    && !PerformAdsrStageEnabled(adsr_row,
+                                                static_cast<uint8_t>(idx - stage_base)));
         }
 
-        if(idx == 0)
-            app.perform_adsr_type_focus = true;
-        else
-        {
-            app.perform_adsr_type_focus = false;
-            app.perform_adsr_stage_focus = static_cast<uint8_t>(idx - 1);
-        }
+        PerformAdsrSetFocusIndex(app, layer, idx);
         app.ui_dirty = true;
         return true;
     }
@@ -3685,6 +3746,23 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 PublishEngineLayerParams(ctx);
             }
             PerformAdsrEnsureValidFocus(app, layer);
+            app.ui_dirty = true;
+            return true;
+        }
+
+        if(app.perform_adsr_wave_focus
+           && (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop))
+        {
+            float next = app.perform_adsr_loop_crossfade[layer]
+                         + (static_cast<float>(e.value) * kPerformLoopCrossfadeStep);
+            if(next < kPerformLoopCrossfadeMin)
+                next = kPerformLoopCrossfadeMin;
+            if(next > kPerformLoopCrossfadeMax)
+                next = kPerformLoopCrossfadeMax;
+            if(next == app.perform_adsr_loop_crossfade[layer])
+                return false;
+            app.perform_adsr_loop_crossfade[layer] = next;
+            PublishEngineLayerParams(ctx);
             app.ui_dirty = true;
             return true;
         }
@@ -3743,6 +3821,7 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return false;
 
         value = static_cast<uint8_t>(next_value);
+        PublishEngineLayerParams(ctx);
         app.ui_dirty = true;
         return true;
     }
@@ -3757,6 +3836,7 @@ static void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
     AppState& app = *ctx.app;
     app.perform_adsr_stage_focus = 0;
     app.perform_adsr_type_focus = false;
+    app.perform_adsr_wave_focus = false;
     const uint8_t layer = app.perform_layer & 1u;
     PerformAdsrRow(app, layer) = (app.engine_play_mode[layer] & 1u) ? kAdsrRowLoop : kAdsrRowOneShot;
     PerformAdsrEnsureValidFocus(app, layer);
@@ -4064,6 +4144,8 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
 
     const char* kPlaybackTypeLabel = "playback type";
     const bool type_focused = app.perform_adsr_type_focus;
+    const bool wave_focused = (!type_focused && app.perform_adsr_wave_focus
+                               && PerformAdsrWaveFocusable(adsr_row));
     const int label_area_x0 = 0;
     const int label_area_x1 = box_x - 1;
     if(label_area_x1 >= label_area_x0)
@@ -4132,7 +4214,8 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
     const bool adsr_mode
         = (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowAdsr);
 
-    DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true, adsr_mode);
+    DrawWaveformPreview(
+        d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true, adsr_mode, wave_focused);
 
     static const char* kBottomLetters[4] = {"a", "d", "s", "r"};
     const int bottom_y = kWaveBottomY + 2;
@@ -4146,6 +4229,36 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
     const int preview_y1 = kWaveBottomY - 1;
     const int preview_w = preview_x1 - preview_x0;
     const int preview_h = preview_y1 - preview_y0;
+
+    if(wave_focused && sample_loaded && preview_x1 >= preview_x0 && preview_y1 >= preview_y0)
+    {
+        const int preview_pixels = preview_x1 - preview_x0 + 1;
+        int crossfade_px = static_cast<int>(
+            (static_cast<float>(preview_pixels - 1) * app.perform_adsr_loop_crossfade[layer]) + 0.5f);
+        if(crossfade_px < 0)
+            crossfade_px = 0;
+        const int max_crossfade_px = (preview_pixels - 1) / 2;
+        if(crossfade_px > max_crossfade_px)
+            crossfade_px = max_crossfade_px;
+
+        const int left_bar_x = preview_x0 + crossfade_px;
+        const int right_bar_x = preview_x1 - crossfade_px;
+        for(int yy = preview_y0; yy <= preview_y1; ++yy)
+        {
+            for(int xx = preview_x0; xx < left_bar_x; ++xx)
+            {
+                if(((xx + yy) & 1) == 0)
+                    d.DrawPixel(xx, yy, true);
+            }
+            for(int xx = right_bar_x + 1; xx <= preview_x1; ++xx)
+            {
+                if(((xx + yy) & 1) == 0)
+                    d.DrawPixel(xx, yy, true);
+            }
+        }
+        d.DrawLine(left_bar_x, preview_y0, left_bar_x, preview_y1, true);
+        d.DrawLine(right_bar_x, preview_y0, right_bar_x, preview_y1, true);
+    }
 
     if(adsr_mode)
     {

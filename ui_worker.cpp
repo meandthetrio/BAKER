@@ -622,6 +622,7 @@ static bool LoadStep(AppState& app, uint16_t budget)
             app.project_edit_pending = false;
         }
         app.sd_edit_slots[s_sd.loading_slot] = edit;
+        app.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
         app.sd_edit_pending = edit;
         app.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);
         app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);

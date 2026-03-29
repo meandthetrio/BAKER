@@ -153,11 +153,13 @@ struct AppState
     uint8_t perform_keyzone_hi_note[2] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
     uint8_t perform_adsr_row[2]   = {1u, 1u}; // 0=1SHOT, 1=LOOP, 2=ADSR
     bool    perform_adsr_type_focus = false;
+    bool    perform_adsr_wave_focus = false;
     uint8_t perform_adsr_stage_focus = 0; // 0=A, 1=D, 2=S, 3=R
     uint8_t perform_adsr_loop_attack[2] = {5u, 5u}; // 1..100
     uint8_t perform_adsr_loop_decay[2] = {20u, 20u}; // 1..100
     uint8_t perform_adsr_loop_sustain[2] = {100u, 100u}; // 0..100
     uint8_t perform_adsr_loop_release[2] = {50u, 50u}; // 1..100
+    float   perform_adsr_loop_crossfade[2] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     uint8_t perform_adsr_env_a_x[2] = {13u, 13u}; // 0..100, left->right
     uint8_t perform_adsr_env_d_x[2] = {38u, 38u}; // 0..100, must stay after A
     uint8_t perform_adsr_env_r_x[2] = {89u, 89u}; // 0..100, must stay after D

@@ -70,6 +70,7 @@ struct Voice
     float         env_r_step = 0.0f;
     float         env_sustain = 0.70f;
     bool          gate = false;
+    bool          loop_voice = false;
     int8_t        dir  = 1;
 
     float old_pos   = 0.0f;
@@ -91,6 +92,7 @@ struct Voice
     float    new_env_r_step = 0.0f;
     float    new_env_sustain = 0.70f;
     bool     new_gate = false;
+    bool     new_loop_voice = false;
     int8_t   new_dir  = 1;
     float xfade_pos  = 0.0f; // 0..1
     float xfade_step = 0.0f; // per-sample increment
@@ -165,6 +167,12 @@ class VoiceEngine
     void SetEngineFilterCutoffHz(uint8_t layer, float hz);
     void SetEngineFilterResonance(uint8_t layer, float resonance);
     void SetEngineLoopEnabled(uint8_t layer, bool enabled);
+    void SetLoopEnvelopeParams(uint8_t layer,
+                               float attack_ms,
+                               float decay_ms,
+                               float sustain_level,
+                               float release_ms);
+    void SetLoopCrossfadeAmount(uint8_t layer, float amount);
     void SetLoopMode(LoopMode mode)
     {
         loop_mode_.store(static_cast<uint8_t>(mode), std::memory_order_relaxed);
@@ -204,12 +212,18 @@ class VoiceEngine
     float env_decay_ms_  = 120.0f;
     float env_amount_    = 0.5f;
     static constexpr uint8_t kEngineLayerCount = 2;
+    static constexpr uint8_t kMaxVoicesPerLayer = 5;
     float engine_tune_semitones_[kEngineLayerCount] = {0.0f, 0.0f};
     float engine_gain_linear_[kEngineLayerCount]    = {1.0f, 1.0f};
     float engine_layer_scale_[kEngineLayerCount]    = {1.0f, 1.0f};
     float engine_filter_cutoff_hz_[kEngineLayerCount] = {12000.0f, 12000.0f};
     float engine_filter_resonance_[kEngineLayerCount] = {0.0f, 0.0f};
     bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};
+    float loop_env_attack_ms_[kEngineLayerCount] = {5.0f, 5.0f};
+    float loop_env_decay_ms_[kEngineLayerCount] = {20.0f, 20.0f};
+    float loop_env_sustain_level_[kEngineLayerCount] = {1.0f, 1.0f};
+    float loop_env_release_ms_[kEngineLayerCount] = {50.0f, 50.0f};
+    float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
     GlobalLFO lfo_;
     float sweep_phase_rate_  = 0.0f;
     float sweep_dir_rate_    = 1.0f;
@@ -244,7 +258,8 @@ class VoiceEngine
     std::atomic<uint32_t>* playhead_frame_out_[2] = {nullptr, nullptr};
     std::atomic<uint32_t>* playhead_active_out_[2] = {nullptr, nullptr};
 
-    int  AllocateVoice_(bool& stole,
+    int  AllocateVoice_(uint8_t source_layer,
+                        bool& stole,
                         uint8_t& stolen_index,
                         uint32_t& stolen_start_id);
     void StartVoice_(Voice& v,

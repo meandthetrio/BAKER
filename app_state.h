@@ -155,10 +155,10 @@ struct AppState
     bool    perform_adsr_type_focus = false;
     bool    perform_adsr_wave_focus = false;
     uint8_t perform_adsr_stage_focus = 0; // 0=A, 1=D, 2=S, 3=R
-    uint8_t perform_adsr_loop_attack[2] = {5u, 5u}; // 1..100
+    uint16_t perform_adsr_loop_attack[2] = {5u, 5u}; // 1..1000
     uint8_t perform_adsr_loop_decay[2] = {20u, 20u}; // 1..100
     uint8_t perform_adsr_loop_sustain[2] = {100u, 100u}; // 0..100
-    uint8_t perform_adsr_loop_release[2] = {50u, 50u}; // 1..100
+    uint16_t perform_adsr_loop_release[2] = {50u, 50u}; // 1..1000
     float   perform_adsr_loop_crossfade[2] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float   perform_adsr_loop_crossfade_shape[2] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_adsr_env_a_x[2] = {13u, 13u}; // 0..100, left->right

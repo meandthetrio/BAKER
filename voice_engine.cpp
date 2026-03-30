@@ -31,6 +31,8 @@ static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
 static constexpr float kEngineGainMinDb = -48.0f;
 static constexpr float kEngineGainMaxDb = 12.0f;
+static constexpr float kLoopEnvAttackReleaseMinMs = 1.0f;
+static constexpr float kLoopEnvAttackReleaseMaxMs = 1000.0f;
 static constexpr float kEmphasisDriveUiMaxLinear = 1.995262315f;
 
 static inline float Clamp01(float value)
@@ -533,16 +535,20 @@ void VoiceEngine::SetLoopEnvelopeParams(uint8_t layer,
                                         float release_ms)
 {
     layer &= 1u;
-    if(attack_ms < 0.0f)
-        attack_ms = 0.0f;
+    if(attack_ms < kLoopEnvAttackReleaseMinMs)
+        attack_ms = kLoopEnvAttackReleaseMinMs;
+    if(attack_ms > kLoopEnvAttackReleaseMaxMs)
+        attack_ms = kLoopEnvAttackReleaseMaxMs;
     if(decay_ms < 0.0f)
         decay_ms = 0.0f;
     if(sustain_level < 0.0f)
         sustain_level = 0.0f;
     if(sustain_level > 1.0f)
         sustain_level = 1.0f;
-    if(release_ms < 0.0f)
-        release_ms = 0.0f;
+    if(release_ms < kLoopEnvAttackReleaseMinMs)
+        release_ms = kLoopEnvAttackReleaseMinMs;
+    if(release_ms > kLoopEnvAttackReleaseMaxMs)
+        release_ms = kLoopEnvAttackReleaseMaxMs;
 
     loop_env_attack_ms_[layer] = attack_ms;
     loop_env_decay_ms_[layer] = decay_ms;

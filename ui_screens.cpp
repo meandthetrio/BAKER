@@ -2613,6 +2613,10 @@ static constexpr float kPerformLoopCrossfadeStep = 1.0f / 128.0f;
 static constexpr float kPerformLoopCrossfadeShapeMin = 0.0f;
 static constexpr float kPerformLoopCrossfadeShapeMax = 1.0f;
 static constexpr float kPerformLoopCrossfadeShapeStep = 1.0f / 64.0f;
+static constexpr uint16_t kPerformAdsrAttackReleaseMinMs = 1u;
+static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 1000u;
+static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
+static constexpr uint16_t kPerformAdsrSustainMax = 100u;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -2632,7 +2636,7 @@ static float ComputePerformLoopCrossfadeWeight(float mix, float shape, bool fade
     return linear + (equal_power - linear) * shape;
 }
 
-static uint8_t& PerformAdsrStageValue(AppState& app, uint8_t layer, uint8_t stage)
+static uint16_t PerformAdsrStageValue(const AppState& app, uint8_t layer, uint8_t stage)
 {
     const uint8_t safe_layer = layer & 1u;
     switch(stage % static_cast<uint8_t>(kAdsrStageCount))
@@ -2644,9 +2648,43 @@ static uint8_t& PerformAdsrStageValue(AppState& app, uint8_t layer, uint8_t stag
     }
 }
 
+static void SetPerformAdsrStageValue(AppState& app, uint8_t layer, uint8_t stage, uint16_t value)
+{
+    const uint8_t safe_layer = layer & 1u;
+    switch(stage % static_cast<uint8_t>(kAdsrStageCount))
+    {
+        case 0:
+            app.perform_adsr_loop_attack[safe_layer] = value;
+            return;
+        case 1:
+            app.perform_adsr_loop_decay[safe_layer] = static_cast<uint8_t>(value);
+            return;
+        case 2:
+            app.perform_adsr_loop_sustain[safe_layer] = static_cast<uint8_t>(value);
+            return;
+        default:
+            app.perform_adsr_loop_release[safe_layer] = value;
+            return;
+    }
+}
+
 static int PerformAdsrStageMin(uint8_t stage)
 {
-    return (stage % static_cast<uint8_t>(kAdsrStageCount)) == 2u ? 0 : 1;
+    return (stage % static_cast<uint8_t>(kAdsrStageCount)) == 2u
+               ? 0
+               : static_cast<int>(kPerformAdsrAttackReleaseMinMs);
+}
+
+static int PerformAdsrStageMax(uint8_t stage)
+{
+    switch(stage % static_cast<uint8_t>(kAdsrStageCount))
+    {
+        case 0:
+        case 3: return static_cast<int>(kPerformAdsrAttackReleaseMaxMs);
+        case 1: return static_cast<int>(kPerformAdsrDecayMaxMs);
+        case 2:
+        default: return static_cast<int>(kPerformAdsrSustainMax);
+    }
 }
 
 static uint8_t& PerformAdsrRow(AppState& app, uint8_t layer)
@@ -2798,22 +2836,47 @@ static const char* DriveModeLabel(uint8_t mode)
     return (ClampDriveMode(static_cast<int>(mode)) == 0u) ? "odd" : "even";
 }
 
-static int FormatUnityPct(uint32_t pct, char* out, size_t out_n)
+static constexpr float kProcessLayerLevelUiMax = 2.0f; // Match existing Daisy PROCESS edit clamp.
+
+static void FormatProcessLevelDb(float level, char* out, size_t out_n)
 {
-    if(pct > 200u)
-        pct = 200u;
-    if(pct == 100u)
+    if(out == nullptr || out_n == 0)
+        return;
+
+    if(level <= 0.00001f)
     {
-        std::snprintf(out, out_n, "UNITY");
-        return 5;
+        std::snprintf(out, out_n, "-infdb");
+        return;
     }
-    if(pct > 100u)
+
+    const float db = 20.0f * std::log10(level);
+    if(db > 0.049f)
+        std::snprintf(out, out_n, "+%.1fdb", static_cast<double>(db));
+    else if(db < -0.049f)
+        std::snprintf(out, out_n, "%.1fdb", static_cast<double>(db));
+    else
+        std::snprintf(out, out_n, "0.0db");
+}
+
+static float ProcessLevelToKnobNorm(float level)
+{
+    if(level <= 0.00001f)
+        return 0.0f;
+    if(level <= 1.0f)
     {
-        std::snprintf(out, out_n, "+%3lu", static_cast<unsigned long>(pct));
-        return 4;
+        float db = 20.0f * std::log10(level);
+        if(db < -60.0f)
+            db = -60.0f;
+        return ((db + 60.0f) / 60.0f) * 0.5f;
     }
-    std::snprintf(out, out_n, "%3lu", static_cast<unsigned long>(pct));
-    return 3;
+
+    float db = 20.0f * std::log10(level);
+    const float max_db = 20.0f * std::log10(kProcessLayerLevelUiMax);
+    if(db > max_db)
+        db = max_db;
+    if(max_db <= 0.0f)
+        return 0.5f;
+    return 0.5f + (db / max_db) * 0.5f;
 }
 
 static void PublishEngineLayerParams(UiScreenCtx& ctx)
@@ -2829,14 +2892,29 @@ static void PublishEngineLayerParams(UiScreenCtx& ctx)
     t.engine_loop_mode[layer] = (app.engine_play_mode[layer] != 0);
     for(uint8_t i = 0; i < kPerformLayerCount; ++i)
     {
+        const uint16_t clamped_attack = static_cast<uint16_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_attack[i]),
+                     static_cast<int>(kPerformAdsrAttackReleaseMinMs),
+                     static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
+        const uint16_t clamped_release = static_cast<uint16_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_release[i]),
+                     static_cast<int>(kPerformAdsrAttackReleaseMinMs),
+                     static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
+        const uint8_t clamped_decay = static_cast<uint8_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_decay[i]), 1, static_cast<int>(kPerformAdsrDecayMaxMs)));
+        const uint8_t clamped_sustain = static_cast<uint8_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_sustain[i]), 0, static_cast<int>(kPerformAdsrSustainMax)));
+        app.perform_adsr_loop_attack[i] = clamped_attack;
+        app.perform_adsr_loop_decay[i] = clamped_decay;
+        app.perform_adsr_loop_sustain[i] = clamped_sustain;
+        app.perform_adsr_loop_release[i] = clamped_release;
         t.engine_drive_mode[i] = ClampDriveMode(static_cast<int>(app.engine_drive_mode[i]));
         t.perform_keyzone_lo_note[i] = app.perform_keyzone_lo_note[i];
         t.perform_keyzone_hi_note[i] = app.perform_keyzone_hi_note[i];
-        t.engine_loop_attack_ms[i] = static_cast<float>(app.perform_adsr_loop_attack[i]);
-        t.engine_loop_decay_ms[i] = static_cast<float>(app.perform_adsr_loop_decay[i]);
-        t.engine_loop_sustain_level[i]
-            = static_cast<float>(app.perform_adsr_loop_sustain[i]) * 0.01f;
-        t.engine_loop_release_ms[i] = static_cast<float>(app.perform_adsr_loop_release[i]);
+        t.engine_loop_attack_ms[i] = static_cast<float>(clamped_attack);
+        t.engine_loop_decay_ms[i] = static_cast<float>(clamped_decay);
+        t.engine_loop_sustain_level[i] = static_cast<float>(clamped_sustain) * 0.01f;
+        t.engine_loop_release_ms[i] = static_cast<float>(clamped_release);
         t.engine_loop_crossfade_amount[i] = app.perform_adsr_loop_crossfade[i];
         t.engine_loop_crossfade_shape[i] = app.perform_adsr_loop_crossfade_shape[i];
     }
@@ -3851,13 +3929,14 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
 
         const uint8_t stage = app.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
-        uint8_t& value = PerformAdsrStageValue(app, layer, stage);
+        const uint16_t value = PerformAdsrStageValue(app, layer, stage);
         const int min_value = PerformAdsrStageMin(stage);
-        const int next_value = ClampInt(static_cast<int>(value) + e.value, min_value, 100);
+        const int max_value = PerformAdsrStageMax(stage);
+        const int next_value = ClampInt(static_cast<int>(value) + e.value, min_value, max_value);
         if(next_value == static_cast<int>(value))
             return false;
 
-        value = static_cast<uint8_t>(next_value);
+        SetPerformAdsrStageValue(app, layer, stage, static_cast<uint16_t>(next_value));
         PublishEngineLayerParams(ctx);
         app.ui_dirty = true;
         return true;
@@ -4426,8 +4505,8 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
 
         if(loop_stage_editing && !type_focused && stage_focus == static_cast<uint8_t>(i))
         {
-            char value_buf[4] = {};
-            const uint8_t value = PerformAdsrStageValue(app, layer, static_cast<uint8_t>(i));
+            char value_buf[6] = {};
+            const uint16_t value = PerformAdsrStageValue(app, layer, static_cast<uint8_t>(i));
             std::snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(value));
             const int value_w = MiniString3x5Width(value_buf);
             const int box_w = value_w + 6;
@@ -5445,9 +5524,25 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     }
 
     const UiLayout layout = UiLayout_Default();
-    char status[16];
-    BuildStatus(app, status, sizeof(status));
-    UiDraw_Header(d, layout, "MASTER FX BUS", status);
+    const char* header_label = "process";
+    const int header_w = MicroStringWidth(header_label);
+    const int box_w = header_w + 4;
+    const int header_box_h = kMicroH + 4;
+    int box_x = 128 - box_w;
+    if(box_x < 0)
+        box_x = 0;
+    const bool header_invert_flash = static_cast<int32_t>(app.engine_header_invert_until_ms - ctx.now_ms) > 0;
+    if(header_invert_flash)
+    {
+        d.DrawRect(box_x, 0, box_x + box_w - 1, header_box_h - 1, false, true);
+        d.DrawRect(box_x, 0, box_x + box_w - 1, header_box_h - 1, true, false);
+        DrawMicroString(d, header_label, box_x + 2, 2, true);
+    }
+    else
+    {
+        d.DrawRect(box_x, 0, box_x + box_w - 1, header_box_h - 1, true, true);
+        DrawMicroString(d, header_label, box_x + 2, 2, false);
+    }
 
     const uint8_t main_cursor = static_cast<uint8_t>(app.perform_process_main_cursor % 6u);
     const int32_t selected_index = (main_cursor >= 2u) ? static_cast<int32_t>(main_cursor - 2u) : -1;
@@ -5455,27 +5550,122 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     const int box_h = layout.y_footer - layout.y_body + layout.line_h;
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
 
-    // Left pane: master volume UI placeholders (display-only for now).
+    auto draw_process_knob = [&](int cx,
+                                 int cy,
+                                 int radius,
+                                 char side_letter,
+                                 const char* value_text,
+                                 float angle_rad,
+                                 bool focused)
+    {
+        DrawCirclePixels(d, cx, cy, radius, true);
+        d.DrawPixel(cx, cy, true);
+        const int hand_r = radius - 2;
+        const int hx = cx + static_cast<int>(std::cos(angle_rad) * static_cast<float>(hand_r));
+        const int hy = cy + static_cast<int>(std::sin(angle_rad) * static_cast<float>(hand_r));
+        d.DrawLine(cx, cy, hx, hy, true);
+
+        char side_text[2] = {side_letter, '\0'};
+        const int label_w = TinyStringWidth(side_text);
+        const int label_x = cx - radius - 9;
+        const int label_y = cy - (Font5x7::H / 2);
+        if(focused)
+        {
+            d.DrawRect(label_x - 3, label_y - 2, label_x + label_w + 2, label_y + Font5x7::H + 1, true, false);
+            DrawTinyString(d, side_text, label_x, label_y, true);
+        }
+        else
+        {
+            DrawTinyString(d, side_text, label_x, label_y, true);
+        }
+
+        if(value_text && value_text[0] != '\0')
+        {
+            auto process_value_advance = [](char ch, char next_ch) -> int
+            {
+                if(ch == '.')
+                    return 3;
+                if(next_ch == 'd')
+                    return 6;
+                if(ch == 'd' && next_ch == 'b')
+                    return 6;
+                if(next_ch == '.')
+                    return 5;
+                return 5;
+            };
+
+            auto process_value_width = [&](const char* s) -> int
+            {
+                if(s == nullptr || s[0] == '\0')
+                    return 0;
+                int width = 0;
+                for(int i = 0; s[i] != '\0'; ++i)
+                    width += process_value_advance(s[i], s[i + 1]);
+                return width;
+            };
+
+            auto draw_process_value = [&](const char* s, int x, int y)
+            {
+                int pen_x = x;
+                for(int i = 0; s[i] != '\0'; ++i)
+                {
+                    char ch = s[i];
+                    if(ch >= 'A' && ch <= 'Z')
+                        ch = static_cast<char>(ch - 'A' + 'a');
+
+                    uint8_t rows[Font5x7::H] = {};
+                    Font5x7::GetGlyphRows(ch, rows);
+                    for(int yy = 0; yy < Font5x7::H; ++yy)
+                    {
+                        const uint8_t row = rows[yy];
+                        for(int xx = 0; xx < Font5x7::W; ++xx)
+                        {
+                            if((row >> (Font5x7::W - 1 - xx)) & 1)
+                            {
+                                const int px = pen_x + xx - ((ch == '.') ? 1 : 0);
+                                const int py = y + yy;
+                                if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                                    d.DrawPixel(px, py, true);
+                            }
+                        }
+                    }
+                    pen_x += process_value_advance(ch, s[i + 1]);
+                }
+            };
+
+            auto draw_plus = [&](int x, int y)
+            {
+                d.DrawLine(x + 2, y + 1, x + 2, y + 5, true);
+                d.DrawLine(x, y + 3, x + 4, y + 3, true);
+            };
+
+            if(value_text[0] == '+')
+            {
+                const char* rest = value_text + 1;
+                const int rest_w = process_value_width(rest);
+                const int value_w = 5 + 1 + rest_w;
+                const int value_x = cx - (value_w / 2);
+                const int value_y = cy - radius - 8;
+                draw_plus(value_x, value_y);
+                draw_process_value(rest, value_x + 6, value_y);
+            }
+            else
+            {
+                const int value_w = process_value_width(value_text);
+                draw_process_value(value_text, cx - (value_w / 2), cy - radius - 8);
+            }
+        }
+    };
+
+    // Left pane: stacked layer volume knobs.
     constexpr int kLeftX = 0;
     constexpr int kLeftW = 60;
     const int left_y = box_y;
     const int left_h = box_h;
-    if(left_h > 6)
+    if(left_h > 24)
     {
-        const int gap = 2;
-        const int block_h = (left_h - gap) / 2;
-        const int block_w = kLeftW - 1;
-        const int x0 = kLeftX;
-        const int x1 = x0 + block_w - 1;
-        const int ay0 = left_y;
-        const int ay1 = ay0 + block_h - 1;
-        const int by0 = ay1 + gap + 1;
-        const int by1 = by0 + block_h - 1;
         const bool sel_a = (main_cursor == 0u);
         const bool sel_b = (main_cursor == 1u);
-
-        d.DrawRect(x0, ay0, x1, ay1, true, sel_a);
-        d.DrawRect(x0, by0, x1, by1, true, sel_b);
 
         const uint32_t a_pct = static_cast<uint32_t>(t.engine_layer_master_level[0] * 100.0f + 0.5f);
         const uint32_t b_pct = static_cast<uint32_t>(t.engine_layer_master_level[1] * 100.0f + 0.5f);
@@ -5484,23 +5674,19 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
 
         char a_buf[12];
         char b_buf[12];
-        FormatUnityPct(a_pct, a_buf, sizeof(a_buf));
-        FormatUnityPct(b_pct, b_buf, sizeof(b_buf));
-        const char* a_text = sel_a ? (app.perform_process_vol_muted[0] ? "MUTED" : a_buf) : "VOL A";
-        const char* b_text = sel_b ? (app.perform_process_vol_muted[1] ? "MUTED" : b_buf) : "VOL B";
+        FormatProcessLevelDb(t.engine_layer_master_level[0], a_buf, sizeof(a_buf));
+        FormatProcessLevelDb(t.engine_layer_master_level[1], b_buf, sizeof(b_buf));
+        const float a_norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[0]);
+        const float b_norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[1]);
+        const float a_angle = 2.0943951f + (a_norm * 5.2359878f);
+        const float b_angle = 2.0943951f + (b_norm * 5.2359878f);
 
-        const int a_w = static_cast<int>(std::strlen(a_text)) * 6;
-        const int b_w = static_cast<int>(std::strlen(b_text)) * 6;
-        int a_x = x0 + ((block_w - a_w) / 2);
-        int b_x = x0 + ((block_w - b_w) / 2);
-        if(a_x < x0 + 1) a_x = x0 + 1;
-        if(b_x < x0 + 1) b_x = x0 + 1;
-        const int a_y = ay0 + ((block_h - 8) / 2);
-        const int b_y = by0 + ((block_h - 8) / 2);
-        d.SetCursor(a_x, a_y);
-        d.WriteString(a_text, Font_6x8, !sel_a);
-        d.SetCursor(b_x, b_y);
-        d.WriteString(b_text, Font_6x8, !sel_b);
+        constexpr int kVolKnobRadius = 9;
+        const int knob_cx = kLeftX + (kLeftW / 2) - 1;
+        const int a_cy = left_y + 13;
+        const int b_cy = left_y + left_h - 13;
+        draw_process_knob(knob_cx, a_cy, kVolKnobRadius, 'a', a_buf, a_angle, sel_a);
+        draw_process_knob(knob_cx, b_cy, kVolKnobRadius, 'b', b_buf, b_angle, sel_b);
     }
 
     // Keep right half for FX faders.

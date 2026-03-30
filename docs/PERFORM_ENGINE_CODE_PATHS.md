@@ -240,6 +240,9 @@ They are UI-owned state that now publishes through the same shared params path u
 
 These are simulator-matched UI-owned ADSR fields. The LOOP seam-crossfade amount remains layer-owned in this existing UI state and publishes through the same shared params handoff instead of adding a second owner.
 
+- `perform_adsr_loop_attack[2]` and `perform_adsr_loop_release[2]` are the existing LOOP timing fields in milliseconds and now store `1..1000 ms`.
+- `perform_adsr_loop_decay[2]` and `perform_adsr_loop_sustain[2]` keep their existing UI ranges.
+
 ### EMPHASIS UI state
 - `perform_emphasis_row`
 

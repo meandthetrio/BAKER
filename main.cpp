@@ -339,14 +339,23 @@ int main(void)
         t.engine_filter_resonance[1] = 0.0f;
         for(uint8_t layer = 0; layer < PerformParamsTargets::kLayerCount; ++layer)
         {
+            float loop_attack_ms = static_cast<float>(g_app.perform_adsr_loop_attack[layer]);
+            if(loop_attack_ms < 1.0f)
+                loop_attack_ms = 1.0f;
+            if(loop_attack_ms > 1000.0f)
+                loop_attack_ms = 1000.0f;
+            float loop_release_ms = static_cast<float>(g_app.perform_adsr_loop_release[layer]);
+            if(loop_release_ms < 1.0f)
+                loop_release_ms = 1.0f;
+            if(loop_release_ms > 1000.0f)
+                loop_release_ms = 1000.0f;
             t.engine_drive_mode[layer] = g_app.engine_drive_mode[layer] & 1u;
             t.engine_loop_mode[layer] = (g_app.engine_play_mode[layer] != 0);
-            t.engine_loop_attack_ms[layer] = static_cast<float>(g_app.perform_adsr_loop_attack[layer]);
+            t.engine_loop_attack_ms[layer] = loop_attack_ms;
             t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.perform_adsr_loop_decay[layer]);
             t.engine_loop_sustain_level[layer]
                 = static_cast<float>(g_app.perform_adsr_loop_sustain[layer]) * 0.01f;
-            t.engine_loop_release_ms[layer]
-                = static_cast<float>(g_app.perform_adsr_loop_release[layer]);
+            t.engine_loop_release_ms[layer] = loop_release_ms;
             t.engine_loop_crossfade_amount[layer] = g_app.perform_adsr_loop_crossfade[layer];
             t.engine_loop_crossfade_shape[layer] = g_app.perform_adsr_loop_crossfade_shape[layer];
             t.perform_keyzone_lo_note[layer] = g_app.perform_keyzone_lo_note[layer];

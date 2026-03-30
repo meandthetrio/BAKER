@@ -286,7 +286,7 @@
 - Behavior:
   - In `LOOP` row:
     - `REnc` edits `A`, `D`, `S`, or `R` numeric values.
-    - value ranges are `A/D/R = 1..100`, `S = 0..100`.
+    - value ranges are `A/R = 1..1000 ms`, `D = 1..100`, `S = 0..100`.
   - In `ADSR` row:
     - `REnc` edits graph points.
     - `A`, `D`, and `R` move their x positions with the simulator’s minimum-gap constraints.
@@ -440,6 +440,10 @@
   - Updates `engine_layer_master_level[layer]` and local mute/unmuted bookkeeping.
 - Notes:
   - Encoder motion while muted is consumed but does not unmute.
+  - Main-screen render is now simulator-style:
+    - stacked left-side `A` / `B` knobs instead of placeholder blocks
+    - dB-formatted value text above each knob
+    - focused knob shows the existing PROCESS main cursor selection only; edit ownership is unchanged
 
 3. **FX quick controls (non-detail mode)**
 - Type: quick edit + entry action
@@ -518,6 +522,17 @@
   - Updates REVERB params (`reverb_*`).
 - Notes:
   - Direction toggles `reverb_reverse`.
+
+#### Render Notes
+- Main PROCESS view now matches the simulator layout intent:
+  - top-right micro header `process`
+  - left-side stacked A/B volume knobs with knob-hand render and side-letter focus labels
+  - dB value display above the A/B knobs
+  - existing right-side FX lane and in-screen detail rendering remain in place
+- Navigation and behavior are unchanged:
+  - same main cursor order: `VOL A -> VOL B -> FX lanes`
+  - same quick FX edit, FX reorder, detail entry/exit, and parent-preview behavior
+  - same existing Daisy PROCESS publish path and parameter ownership
 
 10. **Layer toggle (`perform_layer`)**
 - Type: toggle action

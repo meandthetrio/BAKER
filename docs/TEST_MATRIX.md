@@ -244,6 +244,37 @@
 - Fail conditions
   - Audio glitches, LATE spikes correlating with UI edits, stuck notes, or evidence of torn/partial state.
 
+## 1.6 PROCESS reverb Phase A.2 8-line tank
+- Setup
+  - Navigate to `START -> PERFORM -> PROCESS`.
+  - Select the REVERB lane and enter the existing REVERB detail screen.
+  - Load a sample with clear transients and hold repeated notes or a 5-voice chord.
+- Actions
+  - Set `Wet` to `0` and confirm dry-only output.
+  - Raise `Wet`, then sweep `Pre` from low to high values.
+  - Sweep `Dcy` from low to high while listening for tail length and stability.
+  - Sweep `Dmp` from low to high while holding the same bright/plucky source material.
+  - Toggle `DIR` once to confirm the UI/control path still behaves safely.
+  - Repeat while playing 5 voices and while making moderate UI edits.
+- Expected results
+  - `Wet = 0` is audibly dry.
+  - Bright plucks sound less like an exposed delay pattern than the earlier 4-line version.
+  - The tail feels denser and smoother than the prior build.
+  - `Pre` audibly moves the reverb onset later.
+  - `Dcy` extends the tail without runaway, bursts, or self-oscillation.
+  - `Dmp` audibly darkens and softens the later tail, and the useful change feels spread across the sweep rather than bunched at one end.
+  - Existing REVERB detail UI and quick reverb wet control remain usable.
+  - 5-voice playback remains stable enough for Phase A with no obvious zipper noise, glitches, or tail breakup.
+  - No new ringing, crackle, or CPU-stress symptoms are introduced by the refinement.
+  - `DIR` remains safe to toggle; in Phase A it may have no audible DSP change.
+- Fail conditions
+  - Wet leaks through at `Wet = 0`.
+  - Bright plucks still read mainly as exposed internal repeats instead of a denser field.
+  - Pre-delay is not audible or collapses into obvious combing/breakup.
+  - Decay runs away, chatters, or dies abruptly at moderate settings.
+  - Damp still feels bunched into a small part of the knob travel or only behaves like a blunt treble cut.
+  - Polyphony stress causes repeatable glitches, zippering, unstable tails, new ringing, or obvious CPU regressions.
+
 ## 2.0 Sample container stub playback
 - Setup
   - Default embedded sample (main.cpp sets `g_voice.SetSample(...)` at boot).

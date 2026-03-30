@@ -260,6 +260,53 @@
   - With 8–10 voices (max 10), mix stays clean at nominal gain; CLP remains ~0.
   - CLP increments only when intentionally driven (e.g., high level/sat).
 
+### 2.8 — PROCESS Reverb (Phase A Baker late tank)
+- Status: DONE
+- Proof (code)
+  - audio_engine.h/.cpp: existing PROCESS insert path is reused; only the internal reverb backend changed from the older comb/allpass design to a fixed Phase A Baker tank.
+  - audio_engine.cpp: reverb now uses mono-in / stereo-out processing with:
+    - one pre-delay buffer driven by existing `reverb_pre`
+    - 2 lightweight input diffusers
+    - 4 fixed late-tank delay lines near 23/31/43/59 ms at 48 kHz
+    - a fixed matrix mix for feedback/output
+    - per-line one-pole damping in feedback driven by existing `reverb_damp`
+    - decay gain driven by existing `reverb_decay`
+  - params.h/.cpp: existing `reverb_on`, `reverb_mix`, `reverb_pre`, `reverb_damp`, `reverb_decay`, and `reverb_reverse` publish/smoothing path is reused unchanged.
+  - ui_screens.cpp: existing PROCESS / REVERB detail screen and quick wet-mix control remain the active UI.
+- Proof (runtime)
+  - REVERB detail screen still edits `Pre`, `Dmp`, `Dcy`, `DIR`, and `Wet` through the existing params lane.
+  - `Pre` audibly offsets the tank onset, `Dmp` darkens the later tail, `Dcy` lengthens the tail without runaway, and `Wet` behaves as the normal blend control.
+  - Reverb ON/OFF still uses the existing tailing behavior in `audio_engine.cpp`, so turning it off lets the current tail decay out safely.
+- Deferred
+  - `reverb_reverse` remains published and UI-visible, but Phase A does not assign it a new reverse-reverb DSP behavior.
+  - No modulation, size parameter, dynamic tank scaling, or more expensive early-reflection/reverse plumbing is included in Phase A.
+
+### 2.8.1 — PROCESS Reverb (Phase A.1 voicing refinement)
+- Status: DONE
+- Proof (code)
+  - audio_engine.h/.cpp: the same existing 4-line Baker tank, existing insert order, and existing tailing behavior are reused with no new UI or param plumbing.
+  - audio_engine.cpp: input diffusion/voicing is refined with slightly stronger pre-tank smoothing and softer output tap voicing so bright plucks enter the tank less directly.
+  - audio_engine.cpp: `reverb_damp` now uses a shaped block-rate mapping to a feedback-loop lowpass cutoff range, keeping the same one-pole damping structure while making the sweep more evenly useful.
+- Proof (runtime)
+  - Bright plucky material should produce a smoother tail than the initial Phase A tuning, with no obvious new ringing.
+  - `Dmp` still means tail HF damping, but the sweep now moves from brighter/livelier to softer/darker in a more musical way across the knob range.
+  - `Pre`, `Dcy`, `Wet`, existing REVERB UI behavior, and the current safe placeholder `DIR` scope all remain intact.
+- Deferred
+  - Phase A.1 does not add modulation, more lines, a size control, new menus, or reverse-reverb DSP.
+
+### 2.8.2 — PROCESS Reverb (Phase A.2 8-line tank)
+- Status: DONE
+- Proof (code)
+  - audio_engine.h/.cpp: the existing PROCESS UI, param lane, smoothing path, insert order, and tailing behavior are reused unchanged.
+  - audio_engine.cpp: the internal late tank is moved from 4 fixed lines to 8 fixed lines near 17/21/26/31/37/45/54/66 ms at 48 kHz, with sample-level nudges to avoid neat relationships.
+  - audio_engine.cpp: feedback scattering now uses a cheap fixed 8-way Hadamard-style signed mix, while the current pre-delay, light pre-tank diffusion, per-line one-pole damping, and block-rate `reverb_damp` mapping remain in place.
+- Proof (runtime)
+  - Bright plucky material should expose fewer obvious internal repeats and read less like a delay than the prior 4-line build.
+  - The late field should be denser/smoother while `Pre`, `Dcy`, `Dmp`, and `Wet` keep the same user-facing meanings and behavior.
+  - 5-voice playback should remain stable enough for this phase with no new crackle, zipper noise, or runaway tails.
+- Deferred
+  - Phase A.2 still does not add modulation, reverse-reverb DSP, new controls, a size parameter, or alternate routing/plumbing.
+
 ### 3.0 — Keygroups / Zones
 - Status: PARTIAL
 - Proof (code)

@@ -522,6 +522,16 @@
   - Updates REVERB params (`reverb_*`).
 - Notes:
   - Direction toggles `reverb_reverse`.
+  - Phase A Baker reverb keeps the existing 5-field REVERB detail screen unchanged:
+    - `Pre` = pre-delay amount into the tank
+    - `Dmp` = high-frequency damping / tail softening inside the feedback loop
+    - `Dcy` = overall tank decay / feedback amount
+    - `Wet` = reverb wet mix
+  - The current Baker backend is denser internally than the original 4-line version, but the visible REVERB controls and their meanings stay unchanged.
+  - Phase A.1 refines `Dmp` so the full sweep is more evenly useful on bright material:
+    - low `Dmp` stays brighter and livelier
+    - high `Dmp` gets softer/darker without collapsing into a blunt treble cut
+  - `DIR` remains published and visible for UI continuity, but Phase A does not add a reverse-reverb DSP path; toggling it is currently a safe placeholder/pass-through control.
 
 #### Render Notes
 - Main PROCESS view now matches the simulator layout intent:

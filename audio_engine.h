@@ -32,7 +32,6 @@ class AudioEngine
   public:
     static constexpr size_t kDelayMaxSamples = 12000; // ~250ms @ 48k (small on purpose)
   private:
-    float  delay_buf_[kDelayMaxSamples];
     size_t delay_wr_  = 0;
     size_t delay_len_ = 6000;
     float  delay_fb_  = 0.55f;
@@ -47,20 +46,8 @@ class AudioEngine
     void DelayProcess_(float dryL, float dryR, float mix, bool feed_input,
                        float& outL, float& outR);
 
-    // ---- SIMPLE REVERB (Schroeder-ish: 4 comb + 2 allpass per channel) ----
-    struct Comb
-    {
-        float*  buf = nullptr;
-        size_t  len = 0;
-        size_t  idx = 0;
-        float   fb  = 0.8f;
-
-        void Init(float* b, size_t l) { buf = b; len = l; idx = 0; }
-        void Clear();
-        float Process(float in);
-    };
-
-    struct Allpass
+    // ---- PHASE A BAKER REVERB (mono-in, stereo-out 8-line late tank) ----
+    struct Diffuser
     {
         float*  buf = nullptr;
         size_t  len = 0;
@@ -72,28 +59,46 @@ class AudioEngine
         float Process(float in);
     };
 
-    // Tuned-ish delay lengths (small, SRAM-friendly). These are samples @ 48k.
+    struct TankLine
+    {
+        float*  buf = nullptr;
+        size_t  len = 0;
+        size_t  idx = 0;
+        float   damp_z = 0.0f;
+
+        void Init(float* b, size_t l) { buf = b; len = l; idx = 0; }
+        void Clear();
+        float Read() const;
+        void  WriteAdvance(float in);
+    };
+
   public:
-    static constexpr size_t kC1L = 1116, kC2L = 1188, kC3L = 1277, kC4L = 1356;
-    static constexpr size_t kC1R = 1139, kC2R = 1211, kC3R = 1300, kC4R = 1379;
-    static constexpr size_t kA1L = 225,  kA2L = 341;
-    static constexpr size_t kA1R = 248,  kA2R = 364;
+    static constexpr size_t kReverbTankCount = 8;
+    static constexpr size_t kReverbPreMaxSamples = 5761; // ~120 ms @ 48k
+    static constexpr size_t kReverbDiff1Len = 149;
+    static constexpr size_t kReverbDiff2Len = 211;
+    static constexpr size_t kReverbDiff3Len = 293;
+    static constexpr size_t kReverbTank1Len = 821;  // ~17.1 ms @ 48k
+    static constexpr size_t kReverbTank2Len = 1013; // ~21.1 ms @ 48k
+    static constexpr size_t kReverbTank3Len = 1249; // ~26.0 ms @ 48k
+    static constexpr size_t kReverbTank4Len = 1499; // ~31.2 ms @ 48k
+    static constexpr size_t kReverbTank5Len = 1783; // ~37.1 ms @ 48k
+    static constexpr size_t kReverbTank6Len = 2179; // ~45.4 ms @ 48k
+    static constexpr size_t kReverbTank7Len = 2591; // ~54.0 ms @ 48k
+    static constexpr size_t kReverbTank8Len = 3187; // ~66.4 ms @ 48k
   private:
-    float comb1L_[kC1L], comb2L_[kC2L], comb3L_[kC3L], comb4L_[kC4L];
-    float comb1R_[kC1R], comb2R_[kC2R], comb3R_[kC3R], comb4R_[kC4R];
-    float ap1L_[kA1L], ap2L_[kA2L];
-    float ap1R_[kA1R], ap2R_[kA2R];
+    Diffuser reverb_diffusers_[3];
+    TankLine reverb_tank_[kReverbTankCount];
+    size_t   reverb_pre_len_ = 1;
+    size_t   reverb_pre_wr_  = 0;
+    float    reverb_decay_gain_ = 0.78f;
+    float    reverb_damp_coeff_ = 0.35f;
 
-    Comb    combL_[4];
-    Comb    combR_[4];
-    Allpass apL_[2];
-    Allpass apR_[2];
-
-    float reverb_fb_ = 0.82f; // tail length control
-    void  ReverbInit_();
-    void  ReverbClear_();
-    void  ReverbProcess_(float inL, float inR, bool feed_input,
-                         float& wetL, float& wetR);
+    void ReverbInit_();
+    void ReverbClear_();
+    void ReverbUpdateParams_(const PerformParamsCurrent& p);
+    void ReverbProcess_(float inL, float inR, bool feed_input,
+                        float& wetL, float& wetR);
 
     bool     reverb_active_  = false;
     bool     reverb_tailing_ = false;

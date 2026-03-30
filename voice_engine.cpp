@@ -31,6 +31,16 @@ static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
 static constexpr float kEngineGainMinDb = -48.0f;
 static constexpr float kEngineGainMaxDb = 12.0f;
+static constexpr float kEmphasisDriveUiMaxLinear = 1.995262315f;
+
+static inline float Clamp01(float value)
+{
+    if(value < 0.0f)
+        return 0.0f;
+    if(value > 1.0f)
+        return 1.0f;
+    return value;
+}
 
 // Voice pool lives in fast RAM (DTCM). Uses `mem_regions.h` section macro.
 ADSR2_SECTION(".dtcmram") static Voice g_voice_pool[VoiceEngine::kMaxVoices];
@@ -324,11 +334,28 @@ static inline uint32_t ComputeLoopSeamCrossfadeFrames(uint32_t start,
     return frames;
 }
 
+static inline float ComputeLoopSeamCrossfadeWeight(float mix, float shape, bool fade_in)
+{
+    if(mix < 0.0f)
+        mix = 0.0f;
+    if(mix > 1.0f)
+        mix = 1.0f;
+    if(shape < 0.0f)
+        shape = 0.0f;
+    if(shape > 1.0f)
+        shape = 1.0f;
+
+    const float linear = fade_in ? mix : (1.0f - mix);
+    const float equal_power = fade_in ? std::sqrt(mix) : std::sqrt(1.0f - mix);
+    return linear + (equal_power - linear) * shape;
+}
+
 static inline float SampleAtLoopSeamCrossfade(const Sample* s,
                                               float pos,
                                               uint32_t start,
                                               uint32_t end,
                                               uint32_t seam_frames,
+                                              float shape,
                                               float sample_rate,
                                               bool& used_xfade)
 {
@@ -349,8 +376,10 @@ static inline float SampleAtLoopSeamCrossfade(const Sample* s,
     const float seam_pos = static_cast<float>(start) + (pos - seam_start);
     const float tail = SampleAtLinearRegion(s, pos, start, end, true, start, end);
     const float head = SampleAtLinearRegion(s, seam_pos, start, end, true, start, end);
+    const float tail_weight = ComputeLoopSeamCrossfadeWeight(mix, shape, false);
+    const float head_weight = ComputeLoopSeamCrossfadeWeight(mix, shape, true);
     used_xfade = true;
-    return tail * (1.0f - mix) + head * mix;
+    return tail * tail_weight + head * head_weight;
 }
 
 void VoiceEngine::BindDebug(std::atomic<uint32_t>* events_popped,
@@ -447,11 +476,18 @@ void VoiceEngine::SetEngineTuneSemitones(uint8_t layer, float semitones)
 void VoiceEngine::SetEngineGainDb(uint8_t layer, float db)
 {
     layer &= 1u;
+    db *= 0.1f; // UI/publish path stores tenths of dB.
     if(db < kEngineGainMinDb)
         db = kEngineGainMinDb;
     if(db > kEngineGainMaxDb)
         db = kEngineGainMaxDb;
     engine_gain_linear_[layer] = std::pow(10.0f, db / 20.0f);
+}
+
+void VoiceEngine::SetEngineDriveMode(uint8_t layer, uint8_t mode)
+{
+    layer &= 1u;
+    engine_drive_mode_[layer] = (mode == 0u) ? 0u : 1u;
 }
 
 void VoiceEngine::SetEngineLayerScale(uint8_t layer, float scale)
@@ -522,6 +558,89 @@ void VoiceEngine::SetLoopCrossfadeAmount(uint8_t layer, float amount)
     if(amount > 0.5f)
         amount = 0.5f;
     loop_crossfade_amount_[layer] = amount;
+}
+
+void VoiceEngine::SetLoopCrossfadeShape(uint8_t layer, float shape)
+{
+    layer &= 1u;
+    if(shape < 0.0f)
+        shape = 0.0f;
+    if(shape > 1.0f)
+        shape = 1.0f;
+    loop_crossfade_shape_[layer] = shape;
+}
+
+float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
+{
+    layer &= 1u;
+    LayerBusState& state = layer_bus_state_[layer];
+
+    float drive_linear = engine_gain_linear_[layer];
+    if(drive_linear < 1.0f)
+        drive_linear = 1.0f;
+    const float drive_norm = (drive_linear - 1.0f) / (kEmphasisDriveUiMaxLinear - 1.0f);
+    const float clamped_drive_norm = Clamp01(drive_norm);
+    // Keep the bottom of the knob mostly clean, then ramp quickly into obvious saturation.
+    const float drive_taper = std::pow(clamped_drive_norm, 1.8f);
+    const float shape_blend = std::pow(clamped_drive_norm, 0.72f);
+    const float pre_gain = 1.0f + (27.0f * drive_taper);
+    const float base_makeup = 1.0f / (1.0f + (0.24f * drive_taper));
+
+    float driven = 0.0f;
+    if(engine_drive_mode_[layer] == 0u)
+    {
+        const float odd_core = std::tanh(input * pre_gain);
+        const float odd_shaped = input + ((odd_core - input) * shape_blend);
+        driven = odd_shaped * base_makeup;
+    }
+    else
+    {
+        const float positive_drive = pre_gain * (1.18f + (0.34f * drive_taper));
+        const float negative_drive = pre_gain * (0.72f + (0.08f * drive_taper));
+        const float pos_core = (input > 0.0f) ? std::tanh(input * positive_drive) : 0.0f;
+        const float neg_core = (input < 0.0f) ? -std::tanh((-input) * negative_drive) : 0.0f;
+        const float asym_core = pos_core + neg_core;
+        const float even_shaped = input + ((asym_core - input) * shape_blend);
+        const float even_makeup = base_makeup * (1.04f + (0.16f * drive_taper));
+        const float asym = even_shaped * even_makeup;
+        const float dc_blocked = asym - state.drive_dc_x + (0.995f * state.drive_dc_y);
+        state.drive_dc_x = asym;
+        state.drive_dc_y = dc_blocked;
+        driven = dc_blocked;
+    }
+
+    float cutoff_hz = engine_filter_cutoff_hz_[layer];
+    if(cutoff_hz < 20.0f)
+        cutoff_hz = 20.0f;
+    if(cutoff_hz > 20000.0f)
+        cutoff_hz = 20000.0f;
+
+    float g = 1.0f - std::exp((-kTwoPi * cutoff_hz) / sample_rate_);
+    if(g < 0.0015f)
+        g = 0.0015f;
+    if(g > 0.70f)
+        g = 0.70f;
+
+    float resonance = engine_filter_resonance_[layer];
+    if(resonance < 0.0f)
+        resonance = 0.0f;
+    if(resonance > 1.0f)
+        resonance = 1.0f;
+    const float resonance_shaped
+        = resonance * resonance * (1.5f - (0.5f * resonance));
+    const float feedback = resonance_shaped * (3.85f - (0.5f * g));
+
+    float ladder_in = driven - feedback * (state.pole4 - (0.12f * state.pole3));
+    ladder_in = std::tanh(ladder_in);
+
+    state.pole1 += g * (ladder_in - state.pole1);
+    state.pole2 += g * (state.pole1 - state.pole2);
+    state.pole3 += g * (state.pole2 - state.pole3);
+    state.pole4 += g * (state.pole3 - state.pole4);
+
+    float out = state.pole4 * (1.0f - (0.18f * resonance_shaped));
+    out = std::tanh(out * (1.12f + (0.32f * resonance_shaped)));
+    return out * 0.97f;
 }
 
 void VoiceEngine::StartStopFade_(Voice& v)
@@ -649,7 +768,11 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
 
     for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
     {
-        engine_filter_cutoff_hz_[layer] = 12000.0f;
+        engine_gain_linear_[layer] = 1.0f;
+        engine_drive_mode_[layer] = 0u;
+        layer_bus_state_[layer] = LayerBusState{};
+        engine_layer_scale_[layer] = 1.0f;
+        engine_filter_cutoff_hz_[layer] = 20000.0f;
         engine_filter_resonance_[layer] = 0.0f;
         engine_loop_enabled_[layer] = false;
         loop_env_attack_ms_[layer] = 5.0f;
@@ -657,6 +780,7 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
         loop_env_sustain_level_[layer] = 1.0f;
         loop_env_release_ms_[layer] = 50.0f;
         loop_crossfade_amount_[layer] = 0.0625f;
+        loop_crossfade_shape_[layer] = 0.0f;
     }
 
     if(voices_active_)
@@ -1046,7 +1170,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     const SampleEdit edit = current_edit_;
     const Sample* edit_sample = edit_sample_;
     float engine_tune_scale[kEngineLayerCount] = {};
-    float engine_gain_linear[kEngineLayerCount] = {};
+    float engine_voice_gain[kEngineLayerCount] = {};
     for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
     {
         float tune = engine_tune_semitones_[layer];
@@ -1056,27 +1180,11 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             tune = kEngineTuneMaxSemitones;
         engine_tune_scale[layer] = std::pow(2.0f, tune / 12.0f);
 
-        float gain = engine_gain_linear_[layer] * engine_layer_scale_[layer];
+        float gain = engine_layer_scale_[layer];
         if(gain < 0.0f)
             gain = 0.0f;
-        engine_gain_linear[layer] = gain;
+        engine_voice_gain[layer] = gain;
     }
-
-    float cutoff_norm = 0.0f;
-    if(active_lock_.enabled)
-    {
-        cutoff_norm = active_lock_.cutoff_norm;
-    }
-    else
-    {
-        float hz = lpf_cutoff_hz_;
-        if(hz < kLockCutoffMinHz) hz = kLockCutoffMinHz;
-        if(hz > kLockCutoffMaxHz) hz = kLockCutoffMaxHz;
-        const float ratio = kLockCutoffMaxHz / kLockCutoffMinHz;
-        cutoff_norm = std::log(hz / kLockCutoffMinHz) / std::log(ratio);
-    }
-    if(cutoff_norm < 0.0f) cutoff_norm = 0.0f;
-    if(cutoff_norm > 1.0f) cutoff_norm = 1.0f;
 
     float lfo_depth = lfo_depth_;
     float env_amount = env_amount_;
@@ -1134,20 +1242,13 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
     float route0_amount = (routes) ? routes_local[0].amount : 0.0f;
     Macros_Smooth(macro_smoothed_, active_macros_, macro_smooth_coeff_);
-    Macros_Apply(macro_smoothed_, &cutoff_norm, &lfo_depth, &env_amount, &route0_amount, nullptr);
+    Macros_Apply(macro_smoothed_, nullptr, &lfo_depth, &env_amount, &route0_amount, nullptr);
 
     if(routes)
     {
         routes_local[0].amount = route0_amount;
         routes = routes_local;
     }
-
-    const float ratio = kLockCutoffMaxHz / kLockCutoffMinHz;
-    float cutoff_hz = kLockCutoffMinHz * std::pow(ratio, cutoff_norm);
-    if(cutoff_hz < 20.0f)
-        cutoff_hz = 20.0f;
-    if(cutoff_hz > 20000.0f)
-        cutoff_hz = 20000.0f;
 
     depth = lfo_depth;
     lfo_.SetRateHz(rate_hz);
@@ -1199,7 +1300,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         if(env_val > max_env)
             max_env = env_val;
 
-        float mod_cutoff = 0.0f;
         float mod_pitch  = 0.0f;
         if(routes)
         {
@@ -1215,9 +1315,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                     src_val = env_val;
 
                 const float mod_val = src_val * r.amount;
-                if(r.dst == static_cast<uint8_t>(ModDest::FilterCutoff))
-                    mod_cutoff += mod_val;
-                else if(r.dst == static_cast<uint8_t>(ModDest::Pitch))
+                if(r.dst == static_cast<uint8_t>(ModDest::Pitch))
                     mod_pitch += mod_val;
             }
         }
@@ -1227,36 +1325,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         if(mod_pitch < -1.0f)
             mod_pitch = -1.0f;
         const float pitch_scale = std::pow(2.0f, (mod_pitch * kPitchModSemitones) / 12.0f);
-
-        if(mod_cutoff > 1.0f)
-            mod_cutoff = 1.0f;
-        if(mod_cutoff < -0.95f)
-            mod_cutoff = -0.95f;
-
-        const uint8_t src_layer = v.source_layer & 1u;
-        const float cutoff_base = active_lock_.enabled ? cutoff_hz : engine_filter_cutoff_hz_[src_layer];
-        float voice_cutoff = cutoff_base * v.vel_brightness;
-        voice_cutoff = voice_cutoff * (1.0f + mod_cutoff);
-        if(voice_cutoff < 20.0f)
-            voice_cutoff = 20.0f;
-        if(voice_cutoff > 20000.0f)
-            voice_cutoff = 20000.0f;
-        float svf_f = 2.0f * std::sin(0.5f * kTwoPi * voice_cutoff / sample_rate_);
-        if(svf_f < 0.001f)
-            svf_f = 0.001f;
-        else if(svf_f > 0.98f)
-            svf_f = 0.98f;
-        float res_ui = engine_filter_resonance_[src_layer];
-        if(res_ui < 0.0f) res_ui = 0.0f;
-        if(res_ui > 1.0f) res_ui = 1.0f;
-        // Keep low-RESO region audible and spread useful movement across the whole sweep.
-        const float res_eff = 0.10f + (0.90f * res_ui);
-        const float res_shaped = std::pow(res_eff, 0.65f);
-        float svf_d = 1.90f - (1.78f * res_shaped); // lower damping => stronger resonance
-        const float d_floor = 0.05f + (0.12f * svf_f);
-        if(svf_d < d_floor) svf_d = d_floor;
-        if(svf_d > 2.0f) svf_d = 2.0f;
-        const float lpf_makeup = 1.12f - (0.18f * res_ui);
 
         if(v.state == VoiceState::StealXFade)
         {
@@ -1330,8 +1398,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
             const float old_ratio = v.old_ratio * engine_tune_scale[old_layer] * pitch_scale;
             const float new_ratio = v.new_ratio * engine_tune_scale[new_layer] * pitch_scale;
-            const float old_gain = v.old_gain * edit_gain * engine_gain_linear[old_layer];
-            const float new_gain = v.new_gain * edit_gain * engine_gain_linear[new_layer];
+            const float old_gain = v.old_gain * edit_gain * engine_voice_gain[old_layer];
+            const float new_gain = v.new_gain * edit_gain * engine_voice_gain[new_layer];
             const uint32_t old_seam_frames
                 = v.loop_voice ? ComputeLoopSeamCrossfadeFrames(start,
                                                                 end,
@@ -1354,8 +1422,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             const float new_env_d_step = v.new_env_d_step;
             float new_env_r_step = v.new_env_r_step;
             const float new_env_sustain = v.new_env_sustain;
-            float lpf_z = v.lpf_z;
-            float lpf_bp = v.lpf_bp;
 
             if(stop_fade_active)
             {
@@ -1380,6 +1446,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                                                       start,
                                                       end,
                                                       old_seam_frames,
+                                                      loop_crossfade_shape_[old_layer],
                                                       sample_rate_,
                                                       old_used_seam_xfade)
                             * old_gain;
@@ -1409,6 +1476,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                                                       start,
                                                       end,
                                                       new_seam_frames,
+                                                      loop_crossfade_shape_[new_layer],
                                                       sample_rate_,
                                                       new_used_seam_xfade)
                             * new_gain;
@@ -1438,17 +1506,20 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 const float fin_new = (new_fade < 1.0f) ? new_fade : 1.0f;
                 s_new *= fin_new;
 
-                float s     = s_old * (1.0f - x_clamped) + s_new * x_clamped;
+                const float old_mix = s_old * (1.0f - x_clamped);
+                const float new_mix = s_new * x_clamped;
+                float* old_bus = (old_layer == 0u) ? outL : outR;
+                float* new_bus = (new_layer == 0u) ? outL : outR;
                 if(stop_fade_active)
-                    s *= stop_fade_level;
-                lpf_z += svf_f * lpf_bp;
-                const float hp = s - lpf_z - (svf_d * lpf_bp);
-                lpf_bp += svf_f * hp;
-                float lpf_out = lpf_z * lpf_makeup;
-                if(lpf_out > 2.0f) lpf_out = 2.0f;
-                if(lpf_out < -2.0f) lpf_out = -2.0f;
-                outL[i] += lpf_out;
-                outR[i] += lpf_out;
+                {
+                    old_bus[i] += old_mix * stop_fade_level;
+                    new_bus[i] += new_mix * stop_fade_level;
+                }
+                else
+                {
+                    old_bus[i] += old_mix;
+                    new_bus[i] += new_mix;
+                }
 
                 if(stop_fade_active)
                 {
@@ -1539,8 +1610,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             v.old_dir  = old_dir;
             v.new_gate = new_gate;
             v.new_dir  = new_dir;
-            v.lpf_z    = lpf_z;
-            v.lpf_bp   = lpf_bp;
             v.stop_fade_active = stop_fade_active;
             v.stop_fade_samples_remaining = stop_fade_remaining;
             v.stop_fade_level = stop_fade_level;
@@ -1625,7 +1694,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 ls_i = start;
                 le_i = end;
             }
-            const float gain  = v.gain * edit_gain * engine_gain_linear[source_layer];
+            const float gain  = v.gain * edit_gain * engine_voice_gain[source_layer];
             const float length_f = static_cast<float>(end);
             const float ls = static_cast<float>(ls_i);
             const float le = static_cast<float>(le_i);
@@ -1651,8 +1720,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             const float env_d_step = v.env_d_step;
             float env_r_step = v.env_r_step;
             const float env_sustain = v.env_sustain;
-            float lpf_z = v.lpf_z;
-            float lpf_bp = v.lpf_bp;
+            float* layer_bus = (source_layer == 0u) ? outL : outR;
 
             for(size_t i = 0; i < size; i++)
             {
@@ -1665,6 +1733,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                                                   start,
                                                   end,
                                                   seam_frames,
+                                                  loop_crossfade_shape_[source_layer],
                                                   sample_rate_,
                                                   used_seam_xfade)
                         * gain;
@@ -1693,14 +1762,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 s *= fin;
                 if(stop_fade_active)
                     s *= stop_fade_level;
-                lpf_z += svf_f * lpf_bp;
-                const float hp = s - lpf_z - (svf_d * lpf_bp);
-                lpf_bp += svf_f * hp;
-                float lpf_out = lpf_z * lpf_makeup;
-                if(lpf_out > 2.0f) lpf_out = 2.0f;
-                if(lpf_out < -2.0f) lpf_out = -2.0f;
-                outL[i] += lpf_out;
-                outR[i] += lpf_out;
+                layer_bus[i] += s;
 
                 if(stop_fade_active)
                 {
@@ -1767,8 +1829,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                 v.env_r_step = env_r_step;
                 v.gate = gate;
                 v.dir  = dir;
-                v.lpf_z = lpf_z;
-                v.lpf_bp = lpf_bp;
                 v.stop_fade_active = stop_fade_active;
                 v.stop_fade_samples_remaining = stop_fade_remaining;
                 v.stop_fade_level = stop_fade_level;
@@ -1797,7 +1857,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
     for(size_t i = 0; i < size; i++)
     {
-        float mix = outL[i] * mix_scale;
+        const float layer_a = ProcessLayerBusSample_(0u, outL[i]);
+        const float layer_b = ProcessLayerBusSample_(1u, outR[i]);
+        float mix = (layer_a + layer_b) * mix_scale;
         outL[i] = mix;
         outR[i] = mix;
         if(mix > 1.0f || mix < -1.0f)

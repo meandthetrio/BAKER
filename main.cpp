@@ -220,6 +220,7 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
     {
         g_voice.SetEngineTuneSemitones(layer, g_params.current.engine_tune_semitones[layer]);
         g_voice.SetEngineGainDb(layer, g_params.current.engine_gain_db[layer]);
+        g_voice.SetEngineDriveMode(layer, g_params.current.engine_drive_mode[layer]);
         float layer_level = g_params.current.engine_layer_master_level[layer];
         if(layer_level < 0.0f)
             layer_level = 0.0f;
@@ -246,6 +247,8 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
                                       g_params.current.engine_loop_release_ms[layer]);
         g_voice.SetLoopCrossfadeAmount(layer,
                                        g_params.current.engine_loop_crossfade_amount[layer]);
+        g_voice.SetLoopCrossfadeShape(layer,
+                                      g_params.current.engine_loop_crossfade_shape[layer]);
     }
     g_voice.ProcessEvents(g_evtq);
     g_voice.RenderBlock(out[0], out[1], size);
@@ -330,12 +333,13 @@ int main(void)
         auto& t = g_params.EditTargets();
         t.lfo_rate_hz = 0.0f;
         t.lfo_depth = 0.0f;
-        t.engine_filter_cutoff_hz[0] = 12000.0f;
-        t.engine_filter_cutoff_hz[1] = 12000.0f;
+        t.engine_filter_cutoff_hz[0] = 20000.0f;
+        t.engine_filter_cutoff_hz[1] = 20000.0f;
         t.engine_filter_resonance[0] = 0.0f;
         t.engine_filter_resonance[1] = 0.0f;
         for(uint8_t layer = 0; layer < PerformParamsTargets::kLayerCount; ++layer)
         {
+            t.engine_drive_mode[layer] = g_app.engine_drive_mode[layer] & 1u;
             t.engine_loop_mode[layer] = (g_app.engine_play_mode[layer] != 0);
             t.engine_loop_attack_ms[layer] = static_cast<float>(g_app.perform_adsr_loop_attack[layer]);
             t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.perform_adsr_loop_decay[layer]);
@@ -344,6 +348,7 @@ int main(void)
             t.engine_loop_release_ms[layer]
                 = static_cast<float>(g_app.perform_adsr_loop_release[layer]);
             t.engine_loop_crossfade_amount[layer] = g_app.perform_adsr_loop_crossfade[layer];
+            t.engine_loop_crossfade_shape[layer] = g_app.perform_adsr_loop_crossfade_shape[layer];
             t.perform_keyzone_lo_note[layer] = g_app.perform_keyzone_lo_note[layer];
             t.perform_keyzone_hi_note[layer] = g_app.perform_keyzone_hi_note[layer];
         }

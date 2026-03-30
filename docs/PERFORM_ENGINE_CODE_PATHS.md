@@ -1,7 +1,7 @@
 # PERFORM ENGINE CODE PATHS
 
 ## Purpose
-This document maps the CURRENT IMPLEMENTED code paths for the `PerformEngine` screen and the shared PERFORM plumbing that `PerformKeyzone` and `PerformAdsr` reuse.
+This document maps the CURRENT IMPLEMENTED code paths for the `PerformEngine` screen and the shared PERFORM plumbing that `PerformKeyzone`, `PerformAdsr`, and `PerformEmphasis` reuse.
 
 It exists to help feature work stay surgical and reuse existing plumbing instead of introducing duplicate paths.
 
@@ -13,13 +13,16 @@ This doc covers:
 - navigation into and out of `PerformEngine`
 - navigation into and out of `PerformKeyzone` where it reuses ENGINE-owned/shared PERFORM behavior
 - navigation into and out of `PerformAdsr` where it reuses the same shared PERFORM behavior
+- navigation into and out of `PerformEmphasis` where it reuses the same shared PERFORM behavior
 - `AppState` fields owned or used by ENGINE
 - `AppState` / params fields reused by KEYZONE
 - `AppState` fields reused by ADSR UI
+- `AppState` / params fields reused by EMPHASIS UI
 - ENGINE lifecycle, event, enter, and render functions
 - ADSR lifecycle, event, and render functions
+- EMPHASIS lifecycle, event, and render functions
 - the existing sample load path reused by ENGINE
-- the existing param publish / runtime handoff paths reused by ENGINE and KEYZONE
+- the existing param publish / runtime handoff paths reused by ENGINE, KEYZONE, ADSR-loop, and EMPHASIS
 - closely related files that should be inspected before editing ENGINE behavior
 
 ## Source of Truth
@@ -101,6 +104,19 @@ Relevant state:
 Behavior:
 - `perform_menu_index == ADSR` enters `UiScreenId::PerformAdsr`
 
+### PerformMenu to EMPHASIS
+Relevant code:
+- `ui_screens.cpp`
+  - `PerformMenu_OnEvent(...)`
+  - `PerformMenu_OnEnter(...)`
+
+Relevant state:
+- `app_state.h`
+  - `perform_menu_index`
+
+Behavior:
+- `perform_menu_index == EMPHASIS` enters `UiScreenId::PerformEmphasis`
+
 ### ENGINE exits
 Relevant code:
 - `ui_screens.cpp`
@@ -132,6 +148,16 @@ Behavior:
 - `kUiBtnPodEnc` pops back to `UiScreenId::PerformMenu`
 - `PerformAdsr_OnScreenEnter(...)` resets ADSR focus to stage `A` and syncs the active layer row from `engine_play_mode[layer]`
 
+### EMPHASIS exits
+Relevant code:
+- `ui_screens.cpp`
+  - `PerformEmphasis_OnScreenEnter(...)`
+  - normal back behavior via pod encoder button pop in shared nav flow
+
+Behavior:
+- `kUiBtnPodEnc` pops back to `UiScreenId::PerformMenu`
+- `PerformEmphasis_OnScreenEnter(...)` does not inject new defaults; it only invalidates the screen so the existing shared state renders immediately
+
 ---
 
 ## 2. ENGINE-Owned / ENGINE-Used AppState Fields
@@ -155,10 +181,17 @@ Defined in `app_state.h` unless otherwise noted.
   - edited on the `TUNE` row
 
 - `engine_gain_db[2]`
-  - not edited on ENGINE screen today, but published by the same layer-param path
+  - reused by EMPHASIS as drive in tenths of dB (`0..60 = 0.0..6.0 dB`)
+  - published by the same shared layer-param path as ENGINE
+
+- `engine_drive_mode[2]`
+  - reused by EMPHASIS as the per-layer drive saturation selector
+  - values are `0 = odd`, `1 = even`
+  - published through the same shared layer-param path instead of a side channel
 
 - `engine_play_mode[2]`
   - not edited on ENGINE screen today, but loop-mode publish shares the same path
+  - default-initialized in `AppState` to `LOOP` for both layers, and reused as the startup playback-type source
 
 ### Per-layer loaded sample metadata shown by ENGINE
 - `engine_sample_path[2]`
@@ -199,12 +232,19 @@ They are UI-owned state that now publishes through the same shared params path u
 - `perform_adsr_loop_sustain[2]`
 - `perform_adsr_loop_release[2]`
 - `perform_adsr_loop_crossfade[2]`
+- `perform_adsr_loop_crossfade_shape[2]`
 - `perform_adsr_env_a_x[2]`
 - `perform_adsr_env_d_x[2]`
 - `perform_adsr_env_r_x[2]`
 - `perform_adsr_env_s_level[2]`
 
 These are simulator-matched UI-owned ADSR fields. The LOOP seam-crossfade amount remains layer-owned in this existing UI state and publishes through the same shared params handoff instead of adding a second owner.
+
+### EMPHASIS UI state
+- `perform_emphasis_row`
+
+This is the simulator-matched EMPHASIS focus row owner in `AppState`.
+It stays in the existing shared PERFORM state container instead of adding a parallel EMPHASIS state object.
 
 ### KEYZONE render helpers reused in `ui_screens.cpp`
 - `DrawMicroString(...)`
@@ -285,12 +325,15 @@ Current behavior:
   - `engine_tune_semitones[layer]`
   - `engine_gain_db[layer]`
   - `engine_loop_mode[layer]`
+- also writes the new per-layer EMPHASIS drive mode for both layers from existing shared UI state:
+  - `engine_drive_mode[0..1]`
 - also writes LOOP runtime ADSR targets for both layers from existing ADSR UI state:
   - `engine_loop_attack_ms[0..1]`
   - `engine_loop_decay_ms[0..1]`
   - `engine_loop_sustain_level[0..1]`
   - `engine_loop_release_ms[0..1]`
   - `engine_loop_crossfade_amount[0..1]`
+  - `engine_loop_crossfade_shape[0..1]`
 - also copies both KEYZONE note-bound arrays:
   - `perform_keyzone_lo_note[0..1]`
   - `perform_keyzone_hi_note[0..1]`
@@ -298,6 +341,7 @@ Current behavior:
 
 Important rule:
 - ENGINE and KEYZONE should publish shared PERFORM state changes through this existing target/publish path
+- ADSR LOOP and EMPHASIS should continue to reuse this same path for their existing handoffs
 - do not bypass this with direct audio-engine writes from UI code
 
 ## `PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)`
@@ -316,6 +360,36 @@ Current behavior mirrored from the simulator:
 
 Important rule:
 - ADSR entry reuses shared PERFORM layer ownership and existing loop-mode state instead of adding a new owner for playback type
+
+## `PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)`
+Relevant code:
+- `ui_screens.cpp`
+
+Current behavior mirrored from the simulator:
+- does not overwrite filter or drive values on entry
+- only marks UI dirty so the existing shared targets/current values render immediately
+
+Important rule:
+- this page is a UI-parity pass over existing handoff reuse
+- do not add an EMPHASIS-specific runtime init path unless the repo later proves it is required
+
+## `PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)`
+Relevant code:
+- `ui_screens.cpp`
+
+Current behavior mirrored from the simulator:
+- ignores global shift-modified routing (`ctx.shift`)
+- `kUiEncPod` cycles the 3 EMPHASIS rows with wrap
+- `kUiEncExt` edits the focused control:
+  - `DRIVE` updates `engine_gain_db[layer]` in tenths of dB and republishes through `PublishEngineLayerParams(...)`
+  - `RShift + DRIVE` reuses that same handler and publish path, but edits `engine_drive_mode[layer]` instead and temporarily swaps the knob label to `odd` / `even`
+  - `CUTOFF` updates `engine_filter_cutoff_hz[layer]` in `ctx.params->EditTargets()` using the existing nonlinear cutoff mapping, then calls `PublishTargets()`
+  - `RESO` updates `engine_filter_resonance[layer]` in `ctx.params->EditTargets()`, then calls `PublishTargets()`
+- `kUiBtnPod2` toggles `perform_layer`, syncs `sd_current_slot`, flashes `engine_header_invert_until_ms`, and republishes shared layer params
+
+Important rule:
+- EMPHASIS reuses the existing ENGINE shared layer owner and publish path
+- this pass adds only the minimal new shared state needed for drive mode and does not add duplicate nav, state, or audio-thread plumbing
 
 ## `PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)`
 Relevant code:
@@ -365,6 +439,7 @@ Current behavior mirrored from the simulator:
   - TYPE focus cycles `1SHOT / LOOP / ADSR`
   - TYPE changes to `1SHOT` or `LOOP` reuse existing `engine_play_mode[layer]` and `PublishEngineLayerParams(...)`
   - LOOP wave-preview focus edits `perform_adsr_loop_crossfade[active_layer]`
+  - `RShift + kUiEncExt` on LOOP wave-preview focus edits `perform_adsr_loop_crossfade_shape[active_layer]`
   - LOOP stage focus edits numeric `A/D/S/R` values
   - ADSR stage focus edits graph control points or sustain level
 
@@ -385,6 +460,7 @@ Current render behavior mirrored from the simulator:
   - solid border when unfocused
   - dotted border when LOOP wave-preview focus is active
   - focused LOOP preview overlays left/right crossfade regions with grid shading and vertical boundary bars
+  - while `RShift` is held on focused LOOP preview, those same left/right regions temporarily render the per-layer seam fade-out / fade-in curves instead, with the waveform still visible underneath
 - ADSR mode draws the simulator envelope graph plus vertical guide lines
 - bottom strip draws `a d s r`
   - LOOP mode shows dotted numeric edit boxes
@@ -588,14 +664,17 @@ Behavior:
 Relevant code:
 - `app_state.h`
   - `perform_adsr_loop_crossfade[2]`
+  - `perform_adsr_loop_crossfade_shape[2]`
 - `ui_worker.cpp`
-  - load completion path assigns the default `1/16` amount for the target layer
+  - load completion path assigns the default `1/16` amount and linear shape for the target layer
 - `ui_screens.cpp`
   - `PublishEngineLayerParams(...)`
 - `params.h`
   - `engine_loop_crossfade_amount[2]`
+  - `engine_loop_crossfade_shape[2]`
 - `main.cpp`
   - `AudioCallback(...)` -> `SetLoopCrossfadeAmount(...)`
+  - `AudioCallback(...)` -> `SetLoopCrossfadeShape(...)`
 - `voice_engine.cpp`
   - `ComputeLoopSeamCrossfadeFrames(...)`
   - `SampleAtLoopSeamCrossfade(...)`
@@ -603,11 +682,13 @@ Relevant code:
 
 Behavior:
 - the amount is owned per layer in existing shared PERFORM UI state
-- sample load completion reuses the existing load-finish/default-state path to reset that layer to `1/16`
-- `PublishEngineLayerParams(...)` republishes both layer values through the existing params handoff
-- `AudioCallback(...)` forwards the published amount into `VoiceEngine`
-- `RenderBlock(...)` consumes it only for `loop_voice` playback and crossfades the selected-region tail into the selected-region head at wrap
+- the shape is owned beside it in the same existing shared PERFORM UI state
+- sample load completion reuses the existing load-finish/default-state path to reset that layer to `1/16` and linear shape
+- `PublishEngineLayerParams(...)` republishes both layers' amount and shape through the existing params handoff
+- `AudioCallback(...)` forwards the published amount and shape into `VoiceEngine`
+- `RenderBlock(...)` consumes them only for `loop_voice` playback and crossfades the selected-region tail into the selected-region head at wrap
 - the amount is clamped to `0..1/2` of the selected region so the two seam bounds never cross
+- the shape is clamped to `0..1` and remaps the seam blend weights from linear toward equal-power-like without changing the existing seam length or handoff rules
 
 ### LOOP note-on / note-off handling
 Relevant code:
@@ -843,15 +924,17 @@ This is the load path future ENGINE features should reuse.
 
 ## 11. ENGINE Param Publish / Audio Handoff Reuse Path
 
-This is the existing safe path for tune and related per-layer engine values.
+This is the existing safe path for tune and related per-layer engine values, including EMPHASIS.
 
 ### Step 1: ENGINE edits local AppState value
 Relevant code:
 - `ui_screens.cpp`
   - `PerformEngine_OnEvent(...)`
 
-Current example:
-- edits `engine_tune_semitones[layer]` on `TUNE` row
+Current examples:
+- `PerformEngine` edits `engine_tune_semitones[layer]` on `TUNE`
+- `PerformEmphasis` edits `engine_gain_db[layer]` / `engine_drive_mode[layer]` on `DRIVE`
+- `PerformEmphasis` edits `engine_filter_cutoff_hz[layer]` / `engine_filter_resonance[layer]` on `CUTOFF` / `RESO`
 
 ### Step 2: ENGINE publishes active-layer params
 Relevant code:
@@ -873,6 +956,10 @@ Behavior:
 - `AudioBlockTick(...)` smooths:
   - `engine_tune_semitones`
   - `engine_gain_db`
+  - `engine_filter_cutoff_hz`
+  - `engine_filter_resonance`
+- `AudioBlockTick(...)` snapshots:
+  - `engine_drive_mode`
 - `AudioBlockTick(...)` applies loop mode as target state
 - `AudioBlockTick(...)` also snapshots the published KEYZONE note bounds into `Params::current`
 
@@ -884,6 +971,9 @@ Behavior:
 - per block / tick, audio side calls:
   - `g_voice.SetEngineTuneSemitones(layer, g_params.current.engine_tune_semitones[layer])`
   - `g_voice.SetEngineGainDb(layer, g_params.current.engine_gain_db[layer])`
+  - `g_voice.SetEngineDriveMode(layer, g_params.current.engine_drive_mode[layer])`
+  - `g_voice.SetEngineFilterCutoffHz(layer, g_params.current.engine_filter_cutoff_hz[layer])`
+  - `g_voice.SetEngineFilterResonance(layer, g_params.current.engine_filter_resonance[layer])`
 
 Important rule:
 - ENGINE parameter changes should continue to flow:
@@ -903,6 +993,50 @@ ENGINE UI edit
 → `g_voice.SetEngine...(...)`
 
 This is the param path future ENGINE controls should reuse where applicable.
+
+## 11B. EMPHASIS DSP Application Point
+
+This section documents the corrected runtime application point for EMPHASIS.
+
+### Previous path
+- the old implementation applied EMPHASIS cutoff/resonance inside the per-voice render loop in `VoiceEngine::RenderBlock(...)`
+- each voice carried its own temporary filter state for that path
+
+### Current path
+Relevant code:
+- `main.cpp`
+  - `AudioCallback(...)`
+- `voice_engine.h`
+  - per-layer `LayerBusState`
+- `voice_engine.cpp`
+  - `SetEngineGainDb(...)`
+  - `SetEngineDriveMode(...)`
+  - `SetEngineFilterCutoffHz(...)`
+  - `SetEngineFilterResonance(...)`
+  - `ProcessLayerBusSample_(...)`
+  - `RenderBlock(...)`
+
+Behavior:
+- voices still render and sum by layer inside `VoiceEngine::RenderBlock(...)`
+- `RenderBlock(...)` now uses the output buffers as temporary layer buses:
+  - `outL` = layer A summed bus
+  - `outR` = layer B summed bus
+- after voice summing, each layer bus is processed once through:
+  - layer drive using the existing `engine_gain_db[layer]`
+  - the new per-layer `engine_drive_mode[layer]`
+  - a compact 4-pole lowpass stage with shared layer resonance/cutoff state
+- the visible `0.0..6.0 dB` DRIVE control is still reused as-is, but the bus DSP now applies a stronger nonlinear internal gain taper so:
+  - low values stay mostly clean
+  - mid values warm/thicken audibly
+  - high values reach obvious saturation
+- EVEN mode keeps the asymmetric shaper path but now normalizes and compensates its output more closely against ODD
+- only after that bus-stage processing are layer A and layer B summed to the final output
+
+Important rule:
+- EMPHASIS cutoff/resonance no longer use the old per-voice application path
+- there is now a single DSP state per layer bus inside `VoiceEngine`, not one filter state per voice
+- the UI/control ownership and the UI -> `Params` -> `PublishTargets()` -> audio callback handoff are reused unchanged
+- startup defaults for `engine_filter_cutoff_hz[layer]` are now `20 kHz` in the shared targets/current path and the audio-side `VoiceEngine` state
 
 ---
 

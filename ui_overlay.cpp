@@ -6,6 +6,7 @@
 #include "oled_pager.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 using namespace daisy;
@@ -84,11 +85,11 @@ void UiOverlay_Render(const AppState& app,
     oled.WriteString(buf, Font_6x8, true);
 
     oled.SetCursor(x, y + layout.line_h * 2);
-    std::snprintf(buf, sizeof(buf), "A T:%+d G:%+dd %s", tune_a, gain_a, mode_a);
+    std::snprintf(buf, sizeof(buf), "A T:%+d G:%+d.%dd %s", tune_a, gain_a / 10, std::abs(gain_a % 10), mode_a);
     oled.WriteString(buf, Font_6x8, true);
 
     oled.SetCursor(x, y + layout.line_h * 3);
-    std::snprintf(buf, sizeof(buf), "B T:%+d G:%+dd %s", tune_b, gain_b, mode_b);
+    std::snprintf(buf, sizeof(buf), "B T:%+d G:%+d.%dd %s", tune_b, gain_b / 10, std::abs(gain_b % 10), mode_b);
     oled.WriteString(buf, Font_6x8, true);
 
     oled.SetCursor(x, y + layout.line_h * 4);

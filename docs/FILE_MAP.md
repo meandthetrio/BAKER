@@ -25,7 +25,7 @@
   - Purpose: Single shared state container (UI flags, counters, SD state, sample/edit handoffs).
   - Thread: [SHARED]
   - Key symbols: `AppState`, `sd_published_*`, `sd_edit_*`, `ui_req_*`, `voices_active`
-  - Notes: shared PERFORM ADSR UI state now also owns LOOP wave-preview focus plus per-layer seam-crossfade amount
+  - Notes: shared PERFORM ADSR UI state now also owns LOOP wave-preview focus plus per-layer seam-crossfade amount and shape; shared PERFORM engine state also owns the per-layer EMPHASIS drive mode selector (`odd`/`even`)
   - Milestones: TBD
 
 ### Audio engine (callback → voices → mix)
@@ -42,9 +42,10 @@
   - Milestones: TBD
 
 - voice_engine.cpp / voice_engine.h
-  - Purpose: Voice pool, sample playback, looping, ADSR, voice stealing, sample/edit apply.
+  - Purpose: Voice pool, sample playback, looping, ADSR, voice stealing, sample/edit apply, and per-layer EMPHASIS bus DSP.
   - Thread: [AUDIO]
-  - Key symbols: `VoiceEngine::ProcessEvents`, `RenderBlock`, `SetSample`, `SetSampleEdit`, `SetLoopEnvelopeParams`, `SetLoopCrossfadeAmount`, `StealVoice_`
+  - Key symbols: `VoiceEngine::ProcessEvents`, `RenderBlock`, `SetSample`, `SetSampleEdit`, `SetLoopEnvelopeParams`, `SetLoopCrossfadeAmount`, `SetLoopCrossfadeShape`, `SetEngineDriveMode`, `ProcessLayerBusSample_`
+  - Notes: EMPHASIS cutoff/resonance now process each summed layer bus in `RenderBlock(...)` instead of the old per-voice filter stage
   - Milestones: TBD
 
 - mod_sources.cpp / mod_sources.h
@@ -72,7 +73,7 @@
   - Thread: [SHARED]
   - Writer: MAIN (EditTargets/Publish), Reader: AUDIO (AudioBlockTick)
   - Key symbols: `Params::EditTargets`, `PublishTargets`, `AudioBlockTick`, `PerformParamsTargets`
-  - Notes: shared PERFORM handoff now also carries per-layer LOOP ADSR runtime values and LOOP seam-crossfade amount
+  - Notes: shared PERFORM handoff now also carries per-layer LOOP ADSR runtime values plus LOOP seam-crossfade amount and shape, and the per-layer EMPHASIS drive mode
   - Milestones: TBD
 
 - mod_matrix.cpp / mod_matrix.h

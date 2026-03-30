@@ -571,26 +571,6 @@ static void DrawLoadWordmark(OledPager& d, int x, int y, bool on)
     constexpr int a_x = 10;  // width 3 (10..12), 1px gap after o
     constexpr int d_x = 14;  // width 4 (14..17), 1px gap after a
 
-    auto draw_char = [&](char ch, int cx, int cy)
-    {
-        uint8_t rows[Font5x7::H] = {};
-        Font5x7::GetGlyphRows(ch, rows);
-        for(int yy = 0; yy < Font5x7::H; ++yy)
-        {
-            const uint8_t row = rows[yy];
-            for(int xx = 0; xx < Font5x7::W; ++xx)
-            {
-                if((row >> (Font5x7::W - 1 - xx)) & 1)
-                {
-                    const int px = cx + xx;
-                    const int py = cy + yy;
-                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                        d.DrawPixel(px, py, on);
-                }
-            }
-        }
-    };
-
     auto draw_char_3x5 = [&](char ch, int cx, int cy)
     {
         uint8_t rows[5] = {};
@@ -853,6 +833,34 @@ static void DrawMicroString(OledPager& d, const char* str, int x, int y, bool on
 
     for(int i = 0; str[i] != '\0'; ++i)
     {
+        if(str[i] == 'm')
+        {
+            // Let lowercase 'm' use the existing 1px tracking gap so its right inner void stays visible.
+            static constexpr uint8_t kMicroMRows[kMicroH] = {
+                0b00000,
+                0b11110,
+                0b10101,
+                0b10101,
+                0b10101,
+                0b10101,
+            };
+            for(int yy = 0; yy < kMicroH; ++yy)
+            {
+                const uint8_t row = kMicroMRows[yy];
+                for(int xx = 0; xx < 5; ++xx)
+                {
+                    if((row >> (4 - xx)) & 1u)
+                    {
+                        const int px = x + i * kMicroAdvance + xx;
+                        const int py = y + yy;
+                        if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                            d.DrawPixel(px, py, on);
+                    }
+                }
+            }
+            continue;
+        }
+
         uint8_t rows[kMicroH] = {};
         GetMicroGlyph(str[i], rows);
         for(int yy = 0; yy < kMicroH; ++yy)
@@ -881,45 +889,6 @@ static int MicroStringWidth(const char* str)
     {
     }
     return count * kMicroAdvance - 1;
-}
-
-static bool IsWordBreak(char c)
-{
-    return c == ' ' || c == '_' || c == '-' || c == '/' || c == ':';
-}
-
-static void ToTitleCase(const char* in, char* out, size_t out_sz)
-{
-    if(out_sz == 0)
-        return;
-    out[0] = '\0';
-    if(!in)
-        return;
-
-    bool cap_next = true;
-    size_t j = 0;
-    for(size_t i = 0; in[i] != '\0' && j + 1 < out_sz; ++i)
-    {
-        char c = in[i];
-        if(c == '_')
-            c = ' ';
-
-        if(IsWordBreak(c))
-        {
-            out[j++] = c;
-            cap_next = true;
-            continue;
-        }
-
-        if(c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c - 'A' + (cap_next ? 'A' : 'a'));
-        else if(c >= 'a' && c <= 'z')
-            c = static_cast<char>(c - 'a' + (cap_next ? 'A' : 'a'));
-
-        out[j++] = c;
-        cap_next = false;
-    }
-    out[j] = '\0';
 }
 
 static void ToLowerCase(const char* in, char* out, size_t out_sz)
@@ -1136,26 +1105,6 @@ static void DrawCirclePixels(OledPager& d, int cx, int cy, int r, bool on)
             const int dy = y - cy;
             const int d2 = dx * dx + dy * dy;
             if(d2 >= r2 - r && d2 <= r2 + r)
-                d.DrawPixel(x, y, on);
-        }
-    }
-}
-
-static void DrawFilledCirclePixels(OledPager& d, int cx, int cy, int r, bool on)
-{
-    if(r <= 0)
-    {
-        d.DrawPixel(cx, cy, on);
-        return;
-    }
-    const int r2 = r * r;
-    for(int y = cy - r; y <= cy + r; ++y)
-    {
-        for(int x = cx - r; x <= cx + r; ++x)
-        {
-            const int dx = x - cx;
-            const int dy = y - cy;
-            if((dx * dx + dy * dy) <= r2)
                 d.DrawPixel(x, y, on);
         }
     }
@@ -2661,6 +2610,9 @@ static constexpr int32_t kAdsrStageCount = 4;
 static constexpr float kPerformLoopCrossfadeMin = 0.0f;
 static constexpr float kPerformLoopCrossfadeMax = 0.5f;
 static constexpr float kPerformLoopCrossfadeStep = 1.0f / 128.0f;
+static constexpr float kPerformLoopCrossfadeShapeMin = 0.0f;
+static constexpr float kPerformLoopCrossfadeShapeMax = 1.0f;
+static constexpr float kPerformLoopCrossfadeShapeStep = 1.0f / 64.0f;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -2671,9 +2623,13 @@ static int ClampInt(int v, int lo, int hi)
     return v;
 }
 
-static const char* LayerName(uint8_t layer)
+static float ComputePerformLoopCrossfadeWeight(float mix, float shape, bool fade_in)
 {
-    return (layer & 1u) ? "B" : "A";
+    mix = Clamp01(mix);
+    shape = Clamp01(shape);
+    const float linear = fade_in ? mix : (1.0f - mix);
+    const float equal_power = fade_in ? std::sqrt(mix) : std::sqrt(1.0f - mix);
+    return linear + (equal_power - linear) * shape;
 }
 
 static uint8_t& PerformAdsrStageValue(AppState& app, uint8_t layer, uint8_t stage)
@@ -2804,14 +2760,6 @@ static void ExtractBaseName(const char* path, char* out, size_t out_n)
     std::snprintf(out, out_n, "%s", base);
 }
 
-static void FormatSignedInt(int v, char* out, size_t out_n)
-{
-    if(v > 0)
-        std::snprintf(out, out_n, "+%d", v);
-    else
-        std::snprintf(out, out_n, "%d", v);
-}
-
 static void FormatMidiNoteName(uint8_t note, char* out, size_t out_n)
 {
     if(!out || out_n == 0)
@@ -2826,20 +2774,28 @@ static void FormatMidiNoteName(uint8_t note, char* out, size_t out_n)
     std::snprintf(out, out_n, "%s%d", kNames[pitch], octave);
 }
 
-static void FormatSignedIntWithPlus(int v, char* out, size_t out_n)
+static void FormatDbTenths(int v_tenths, char* out, size_t out_n)
 {
-    if(v > 0)
-        std::snprintf(out, out_n, "+%d", v);
+    const int sign = (v_tenths < 0) ? -1 : 1;
+    const int abs_tenths = (v_tenths < 0) ? -v_tenths : v_tenths;
+    const int whole = abs_tenths / 10;
+    const int frac = abs_tenths % 10;
+    if(sign < 0)
+        std::snprintf(out, out_n, "-%d.%ddB", whole, frac);
     else
-        std::snprintf(out, out_n, "%d", v);
+        std::snprintf(out, out_n, "%d.%ddB", whole, frac);
 }
 
-static void FormatDb(int v, char* out, size_t out_n)
+static uint8_t ClampDriveMode(int value)
 {
-    if(v > 0)
-        std::snprintf(out, out_n, "+%ddB", v);
-    else
-        std::snprintf(out, out_n, "%ddB", v);
+    if(value <= 0)
+        return 0u;
+    return 1u;
+}
+
+static const char* DriveModeLabel(uint8_t mode)
+{
+    return (ClampDriveMode(static_cast<int>(mode)) == 0u) ? "odd" : "even";
 }
 
 static int FormatUnityPct(uint32_t pct, char* out, size_t out_n)
@@ -2873,6 +2829,7 @@ static void PublishEngineLayerParams(UiScreenCtx& ctx)
     t.engine_loop_mode[layer] = (app.engine_play_mode[layer] != 0);
     for(uint8_t i = 0; i < kPerformLayerCount; ++i)
     {
+        t.engine_drive_mode[i] = ClampDriveMode(static_cast<int>(app.engine_drive_mode[i]));
         t.perform_keyzone_lo_note[i] = app.perform_keyzone_lo_note[i];
         t.perform_keyzone_hi_note[i] = app.perform_keyzone_hi_note[i];
         t.engine_loop_attack_ms[i] = static_cast<float>(app.perform_adsr_loop_attack[i]);
@@ -2881,6 +2838,7 @@ static void PublishEngineLayerParams(UiScreenCtx& ctx)
             = static_cast<float>(app.perform_adsr_loop_sustain[i]) * 0.01f;
         t.engine_loop_release_ms[i] = static_cast<float>(app.perform_adsr_loop_release[i]);
         t.engine_loop_crossfade_amount[i] = app.perform_adsr_loop_crossfade[i];
+        t.engine_loop_crossfade_shape[i] = app.perform_adsr_loop_crossfade_shape[i];
     }
     ctx.params->PublishTargets();
 }
@@ -3005,6 +2963,79 @@ static void DrawWaveformPreview(OledPager& d,
 
         for(int yy = top; yy <= bot; ++yy)
             d.DrawPixel(xx, yy, on);
+    }
+}
+
+static void DrawPerformLoopCrossfadeCurve(OledPager& d,
+                                          int x0,
+                                          int y0,
+                                          int x1,
+                                          int y1,
+                                          float shape,
+                                          bool fade_in)
+{
+    if(x1 < x0 || y1 < y0)
+        return;
+
+    const int w = x1 - x0 + 1;
+    const int h = y1 - y0 + 1;
+    if(w <= 0 || h <= 0 || w > 128)
+        return;
+
+    int y_top[128] = {};
+    int y_bottom[128] = {};
+    for(int i = 0; i < w; ++i)
+    {
+        const float mix = (w <= 1) ? 0.0f : (static_cast<float>(i) / static_cast<float>(w - 1));
+        const float weight = ComputePerformLoopCrossfadeWeight(mix, shape, fade_in);
+        int center_y = y1 - static_cast<int>(weight * static_cast<float>(h - 1) + 0.5f);
+        if(center_y < y0)
+            center_y = y0;
+        if(center_y > y1)
+            center_y = y1;
+
+        int top = center_y;
+        int bottom = center_y + 1;
+        if(bottom > y1)
+        {
+            bottom = y1;
+            top = (y1 > y0) ? (y1 - 1) : y0;
+        }
+
+        y_top[i] = top;
+        y_bottom[i] = bottom;
+    }
+
+    for(int i = 0; i < w; ++i)
+    {
+        const int xx = x0 + i;
+        for(int dx = -2; dx <= 2; ++dx)
+        {
+            const int px = xx + dx;
+            if(px < x0 || px > x1)
+                continue;
+            for(int py = y_top[i] - 2; py <= y_bottom[i] + 2; ++py)
+            {
+                if(py < y0 || py > y1)
+                    continue;
+                d.DrawPixel(px, py, false);
+            }
+        }
+    }
+
+    int prev_x = x0;
+    int prev_top = y_top[0];
+    int prev_bottom = y_bottom[0];
+    d.DrawPixel(prev_x, prev_top, true);
+    d.DrawPixel(prev_x, prev_bottom, true);
+    for(int i = 1; i < w; ++i)
+    {
+        const int xx = x0 + i;
+        d.DrawLine(prev_x, prev_top, xx, y_top[i], true);
+        d.DrawLine(prev_x, prev_bottom, xx, y_bottom[i], true);
+        prev_x = xx;
+        prev_top = y_top[i];
+        prev_bottom = y_bottom[i];
     }
 }
 
@@ -3199,7 +3230,6 @@ static void PerformEngine_Render(UiScreenCtx& ctx)
         DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, false);
     }
 
-    const char* load_label = "LoaD";
     const int load_w = LoadWordmarkWidth();
     const int tune_w = TuneWordmarkWidth();
     constexpr int kScreenW = 128;
@@ -3753,15 +3783,22 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(app.perform_adsr_wave_focus
            && (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop))
         {
-            float next = app.perform_adsr_loop_crossfade[layer]
-                         + (static_cast<float>(e.value) * kPerformLoopCrossfadeStep);
-            if(next < kPerformLoopCrossfadeMin)
-                next = kPerformLoopCrossfadeMin;
-            if(next > kPerformLoopCrossfadeMax)
-                next = kPerformLoopCrossfadeMax;
-            if(next == app.perform_adsr_loop_crossfade[layer])
+            float& target = ctx.rshift ? app.perform_adsr_loop_crossfade_shape[layer]
+                                       : app.perform_adsr_loop_crossfade[layer];
+            const float step = ctx.rshift ? kPerformLoopCrossfadeShapeStep
+                                          : kPerformLoopCrossfadeStep;
+            const float min_value = ctx.rshift ? kPerformLoopCrossfadeShapeMin
+                                               : kPerformLoopCrossfadeMin;
+            const float max_value = ctx.rshift ? kPerformLoopCrossfadeShapeMax
+                                               : kPerformLoopCrossfadeMax;
+            float next = target + (static_cast<float>(e.value) * step);
+            if(next < min_value)
+                next = min_value;
+            if(next > max_value)
+                next = max_value;
+            if(next == target)
                 return false;
-            app.perform_adsr_loop_crossfade[layer] = next;
+            target = next;
             PublishEngineLayerParams(ctx);
             app.ui_dirty = true;
             return true;
@@ -3870,10 +3907,27 @@ static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         const float delta_norm = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
         if(app.perform_emphasis_row == 0)
         {
-            // GAIN row (existing behavior)
+            if(ctx.rshift)
+            {
+                int mode = static_cast<int>(app.engine_drive_mode[layer]) + e.value;
+                while(mode < 0)
+                    mode += 2;
+                while(mode >= 2)
+                    mode -= 2;
+                const uint8_t next_mode = ClampDriveMode(mode);
+                if(next_mode != app.engine_drive_mode[layer])
+                {
+                    app.engine_drive_mode[layer] = next_mode;
+                    PublishEngineLayerParams(ctx);
+                    app.ui_dirty = true;
+                }
+                return true;
+            }
+
+            // DRIVE row: 0.0 dB at 7 o'clock through +6.0 dB at 5 o'clock in 0.1 dB steps.
             int v = static_cast<int>(app.engine_gain_db[layer]) + e.value;
-            v = ClampInt(v, -32, 6);
-            const int8_t vv = static_cast<int8_t>(v);
+            v = ClampInt(v, 0, 60);
+            const int16_t vv = static_cast<int16_t>(v);
             if(vv != app.engine_gain_db[layer])
             {
                 app.engine_gain_db[layer] = vv;
@@ -3908,6 +3962,7 @@ static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         app.perform_layer ^= 1u;
         const uint8_t layer = app.perform_layer & 1u;
         app.sd_current_slot.store(layer, std::memory_order_release);
+        app.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
         app.ui_dirty = true;
         return true;
@@ -3918,14 +3973,9 @@ static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 static void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.params)
+    if(!ctx.app)
         return;
-    AppState& app = *ctx.app;
-    const uint8_t layer = app.perform_layer & 1u;
-    PerformParamsTargets& t = ctx.params->EditTargets();
-    t.engine_filter_resonance[layer] = 0.5f; // default 50 on EMPHASIS entry
-    ctx.params->PublishTargets();
-    app.ui_dirty = true;
+    ctx.app->ui_dirty = true;
 }
 
 static void PerformKeyzone_Render(UiScreenCtx& ctx)
@@ -4243,17 +4293,52 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
 
         const int left_bar_x = preview_x0 + crossfade_px;
         const int right_bar_x = preview_x1 - crossfade_px;
-        for(int yy = preview_y0; yy <= preview_y1; ++yy)
+        if(ctx.rshift)
         {
-            for(int xx = preview_x0; xx < left_bar_x; ++xx)
+            for(int yy = preview_y0; yy <= preview_y1; ++yy)
             {
-                if(((xx + yy) & 1) == 0)
-                    d.DrawPixel(xx, yy, true);
+                for(int xx = preview_x0; xx <= left_bar_x; ++xx)
+                {
+                    if(((xx + yy) & 1) != 0)
+                        d.DrawPixel(xx, yy, false);
+                }
+                for(int xx = right_bar_x; xx <= preview_x1; ++xx)
+                {
+                    if(((xx + yy) & 1) != 0)
+                        d.DrawPixel(xx, yy, false);
+                }
             }
-            for(int xx = right_bar_x + 1; xx <= preview_x1; ++xx)
+            DrawPerformLoopCrossfadeCurve(d,
+                                          preview_x0,
+                                          preview_y0,
+                                          left_bar_x,
+                                          preview_y1,
+                                          app.perform_adsr_loop_crossfade_shape[layer],
+                                          false);
+            DrawPerformLoopCrossfadeCurve(d,
+                                          right_bar_x,
+                                          preview_y0,
+                                          preview_x1,
+                                          preview_y1,
+                                          app.perform_adsr_loop_crossfade_shape[layer],
+                                          true);
+            d.DrawRect(preview_x0, preview_y0, left_bar_x, preview_y1, true, false);
+            d.DrawRect(right_bar_x, preview_y0, preview_x1, preview_y1, true, false);
+        }
+        else
+        {
+            for(int yy = preview_y0; yy <= preview_y1; ++yy)
             {
-                if(((xx + yy) & 1) == 0)
-                    d.DrawPixel(xx, yy, true);
+                for(int xx = preview_x0; xx < left_bar_x; ++xx)
+                {
+                    if(((xx + yy) & 1) == 0)
+                        d.DrawPixel(xx, yy, true);
+                }
+                for(int xx = right_bar_x + 1; xx <= preview_x1; ++xx)
+                {
+                    if(((xx + yy) & 1) == 0)
+                        d.DrawPixel(xx, yy, true);
+                }
             }
         }
         d.DrawLine(left_bar_x, preview_y0, left_bar_x, preview_y1, true);
@@ -4407,91 +4492,134 @@ static void PerformEmphasis_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     const uint8_t layer = app.perform_layer & 1u;
-    const Sample& sample = app.sd_slots[layer];
-    const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
-
-    const UiLayout layout = UiLayout_Default();
-    char status[16];
-    BuildStatus(app, status, sizeof(status));
-    char title[16];
-    std::snprintf(title, sizeof(title), "EMPH %s", LayerName(layer));
-    UiDraw_Header(d, layout, title, status);
-
-    const char* name = sample_loaded ? app.engine_sample_name[layer] : "NO SAMPLE LOADED";
-    if(name == nullptr || name[0] == '\0')
-        name = sample_loaded ? "LOADED" : "NO SAMPLE LOADED";
-
-    // WAV file name under header
-    d.SetCursor(layout.x, layout.y_body);
-    d.WriteString(name, Font_6x8, true);
-
-    // GAIN row
-    char gain_buf[12];
-    FormatDb(app.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
     const float cutoff_hz = t.engine_filter_cutoff_hz[layer];
     const float resonance = Clamp01(t.engine_filter_resonance[layer]);
-
-    auto draw_h_fader = [&](int y,
-                            const char* label,
-                            float norm,
-                            bool selected,
-                            const char* value_text)
+    char header_label[16] = {};
+    std::snprintf(header_label, sizeof(header_label), "emph %c", layer == 0 ? 'a' : 'b');
+    const int header_w = MicroStringWidth(header_label);
+    const int box_w = header_w + 4;
+    const int box_h = kMicroH + 4;
+    int box_x = 128 - box_w;
+    if(box_x < 0)
+        box_x = 0;
+    const bool header_invert_flash
+        = static_cast<int32_t>(app.engine_header_invert_until_ms - ctx.now_ms) > 0;
+    if(header_invert_flash)
     {
-        if(norm < 0.0f) norm = 0.0f;
-        if(norm > 1.0f) norm = 1.0f;
-        char line[20];
-        std::snprintf(line, sizeof(line), "%c %s", selected ? '>' : ' ', label);
-        d.SetCursor(layout.x, y);
-        d.WriteString(line, Font_6x8, true);
-        d.SetCursor(96, y);
-        d.WriteString(value_text, Font_6x8, true);
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, false, true);
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, false);
+        DrawMicroString(d, header_label, box_x + 2, 2, true);
+    }
+    else
+    {
+        d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, true);
+        DrawMicroString(d, header_label, box_x + 2, 2, false);
+    }
 
-        const int x0 = 30;
-        const int x1 = 92;
-        const int y0 = y + 8;
-        const int y1 = y0 + 4;
-        d.DrawRect(x0, y0, x1, y1, true, false);
-        const int span = x1 - x0 - 2;
-        int hx = x0 + 1 + static_cast<int>(norm * static_cast<float>(span) + 0.5f);
-        if(hx < x0 + 1) hx = x0 + 1;
-        if(hx > x1 - 1) hx = x1 - 1;
-        const int hy = y0 + ((y1 - y0) / 2);
-        DrawFilledCirclePixels(d, hx, hy, 2, true);
-        if(selected)
-            d.DrawRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, true, false);
+    auto clamp01f = [](float v) -> float
+    {
+        if(v < 0.0f) return 0.0f;
+        if(v > 1.0f) return 1.0f;
+        return v;
     };
 
-    char gain_line[16];
-    std::snprintf(gain_line, sizeof(gain_line), "%s", gain_buf);
-    float gain_norm = (static_cast<float>(app.engine_gain_db[layer]) + 32.0f) / 38.0f;
+    auto draw_knob = [&](int cx,
+                         int cy,
+                         int radius,
+                         const char* label,
+                         const char* value_text,
+                         float angle_rad,
+                         int focus_style)
+    {
+        DrawCirclePixels(d, cx, cy, radius, true);
+        d.DrawPixel(cx, cy, true);
+        const int hand_r = radius - 2;
+        const int hx = cx + static_cast<int>(std::cos(angle_rad) * static_cast<float>(hand_r));
+        const int hy = cy + static_cast<int>(std::sin(angle_rad) * static_cast<float>(hand_r));
+        d.DrawLine(cx, cy, hx, hy, true);
+
+        const int label_w = TinyStringWidth(label);
+        const int label_x = cx - (label_w / 2);
+        const int label_y = cy + radius + 5;
+        if(focus_style == 1)
+        {
+            d.DrawRect(label_x - 2, label_y - 1, label_x + label_w + 1, label_y + Font5x7::H, true, false);
+            DrawTinyString(d, label, label_x, label_y, true);
+        }
+        else if(focus_style == 2)
+        {
+            DrawDottedRect(d, label_x - 2, label_y - 1, label_x + label_w + 1, label_y + Font5x7::H, true);
+            DrawTinyString(d, label, label_x, label_y, true);
+        }
+        else
+        {
+            DrawTinyString(d, label, label_x, label_y, true);
+        }
+        if(value_text && value_text[0] != '\0')
+        {
+            const int value_w = TinyStringWidth(value_text);
+            DrawTinyString(d, value_text, cx - (value_w / 2), cy - radius - 8, true);
+        }
+    };
+
+    char gain_buf[12];
+    FormatDbTenths(app.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
+    const bool drive_mode_focus = (app.perform_emphasis_row == 0u) && ctx.rshift;
+    const char* drive_label = drive_mode_focus ? DriveModeLabel(app.engine_drive_mode[layer]) : "drive";
+    const char* drive_value = drive_mode_focus ? "" : gain_buf;
 
     float cutoff = cutoff_hz;
     if(cutoff < 20.0f) cutoff = 20.0f;
     if(cutoff > 20000.0f) cutoff = 20000.0f;
-    const float cutoff_norm = AdsrFltFaderFromCutoffHz(cutoff);
-
     char cutoff_buf[16];
     const uint32_t lpf_hz = static_cast<uint32_t>(cutoff + 0.5f);
-    if(lpf_hz >= 1000)
+    if(lpf_hz >= 1000u)
     {
-        const uint32_t khz_whole = lpf_hz / 1000u;
-        const uint32_t hz_frac   = lpf_hz % 1000u;
-        std::snprintf(cutoff_buf,
-                      sizeof(cutoff_buf),
-                      "%lu.%03luk",
-                      (unsigned long)khz_whole,
-                      (unsigned long)hz_frac);
+        if((lpf_hz % 1000u) == 0u)
+            std::snprintf(cutoff_buf, sizeof(cutoff_buf), "%luk", (unsigned long)(lpf_hz / 1000u));
+        else
+            std::snprintf(cutoff_buf,
+                          sizeof(cutoff_buf),
+                          "%lu.%01luk",
+                          (unsigned long)(lpf_hz / 1000u),
+                          (unsigned long)((lpf_hz % 1000u) / 100u));
     }
     else
-        std::snprintf(cutoff_buf, sizeof(cutoff_buf), "%3lu", (unsigned long)lpf_hz);
+        std::snprintf(cutoff_buf, sizeof(cutoff_buf), "%lu", (unsigned long)lpf_hz);
 
-    char reso_buf[12];
-    std::snprintf(reso_buf, sizeof(reso_buf), "%3d", static_cast<int>(resonance * 100.0f + 0.5f));
+    const int gain_tenths = static_cast<int>(app.engine_gain_db[layer]);
+    const float gain_norm = clamp01f(static_cast<float>(gain_tenths) / 60.0f);
+    const float gain_angle = 2.0943951f + (gain_norm * 5.2359878f);
 
-    draw_h_fader(layout.y_body + layout.line_h, "GAIN", gain_norm, app.perform_emphasis_row == 0, gain_line);
-    draw_h_fader(layout.y_body + layout.line_h * 3, "FILT", cutoff_norm, app.perform_emphasis_row == 1, cutoff_buf);
-    draw_h_fader(layout.y_body + layout.line_h * 5, "RESO", resonance, app.perform_emphasis_row == 2, reso_buf);
+    const float cutoff_norm = AdsrFltFaderFromCutoffHz(cutoff);
+    const float cutoff_angle = 2.0943951f + (cutoff_norm * 5.2359878f);
+    const float reso_angle = 2.0943951f + (resonance * 5.2359878f);
+
+    constexpr int kKnobRadius = 12;
+    constexpr int kKnobCy = 28;
+    constexpr int kKnobCx[3] = {22, 64, 106};
+    draw_knob(kKnobCx[0],
+              kKnobCy,
+              kKnobRadius,
+              drive_label,
+              drive_value,
+              gain_angle,
+              app.perform_emphasis_row == 0 ? (drive_mode_focus ? 2 : 1) : 0);
+    draw_knob(kKnobCx[1],
+              kKnobCy,
+              kKnobRadius,
+              "cutoff",
+              cutoff_buf,
+              cutoff_angle,
+              app.perform_emphasis_row == 1 ? 2 : 0);
+    draw_knob(kKnobCx[2],
+              kKnobCy,
+              kKnobRadius,
+              "reso",
+              "",
+              reso_angle,
+              app.perform_emphasis_row == 2 ? 2 : 0);
 }
 
 static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

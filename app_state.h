@@ -160,6 +160,7 @@ struct AppState
     uint8_t perform_adsr_loop_sustain[2] = {100u, 100u}; // 0..100
     uint8_t perform_adsr_loop_release[2] = {50u, 50u}; // 1..100
     float   perform_adsr_loop_crossfade[2] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
+    float   perform_adsr_loop_crossfade_shape[2] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_adsr_env_a_x[2] = {13u, 13u}; // 0..100, left->right
     uint8_t perform_adsr_env_d_x[2] = {38u, 38u}; // 0..100, must stay after A
     uint8_t perform_adsr_env_r_x[2] = {89u, 89u}; // 0..100, must stay after D
@@ -182,8 +183,9 @@ struct AppState
     bool    record_preview_hold = false;
     bool    record_preview_gate = false;
     int8_t  engine_tune_semitones[2] = {0, 0};
-    int8_t  engine_gain_db[2] = {0, 0};
-    uint8_t engine_play_mode[2] = {0, 0}; // 0=OneShot, 1=Loop
+    int16_t engine_gain_db[2] = {0, 0}; // tenths of dB, 0..60 = 0.0..6.0 dB
+    uint8_t engine_drive_mode[2] = {0u, 0u}; // 0=odd, 1=even
+    uint8_t engine_play_mode[2] = {1, 1}; // 0=OneShot, 1=Loop
     char    engine_sample_path[2][kSdPathMax] = {};
     char    engine_sample_name[2][kSdNameMax] = {};
     uint8_t engine_load_target_layer = 0xFFu;

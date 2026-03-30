@@ -120,6 +120,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.engine_loop_sustain_level[layer] = t.engine_loop_sustain_level[layer];
         current.engine_loop_release_ms[layer] = t.engine_loop_release_ms[layer];
         current.engine_loop_crossfade_amount[layer] = t.engine_loop_crossfade_amount[layer];
+        current.engine_loop_crossfade_shape[layer] = t.engine_loop_crossfade_shape[layer];
     }
 
     // Bools snap immediately
@@ -135,6 +136,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {
         current.engine_loop_mode[layer] = t.engine_loop_mode[layer];
+        current.engine_drive_mode[layer] = t.engine_drive_mode[layer];
         current.perform_keyzone_lo_note[layer] = t.perform_keyzone_lo_note[layer];
         current.perform_keyzone_hi_note[layer] = t.perform_keyzone_hi_note[layer];
     }

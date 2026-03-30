@@ -263,13 +263,20 @@
 - Behavior:
   - Only focusable when playback type is `LOOP`.
   - `REnc` increases/decreases the active layer crossfade amount while focused.
+  - `RShift + REnc` increases/decreases the active layer crossfade shape while focused.
   - Focused preview uses a dotted outer border.
   - Focused preview overlays the left/right crossfade regions with grid shading while leaving the middle region normal.
+  - While `RShift` is held, the two crossfade boxes temporarily render the fade-shape curves instead:
+    - left box shows fade-out
+    - right box shows fade-in
+    - waveform stays faintly visible underneath
+    - each curve is 2 px thick with a 2 px negative-space outline
   - Two vertical bars mark the current start/end crossfade bounds and move inward/outward with `REnc`.
 - Result:
-  - Active-layer LOOP seam crossfade can be edited directly from the reused waveform preview.
+  - Active-layer LOOP seam crossfade length and shape can be edited directly from the reused waveform preview.
 - Notes:
   - Crossfade amount is per-layer.
+  - Crossfade shape is also per-layer and defaults to linear on new sample load.
   - `Pod2` layer toggle switches which layer-owned value the preview edits.
   - Non-`LOOP` rows do not expose this focus target.
 
@@ -301,8 +308,11 @@
 
 #### Modifier Behavior
 - `LShift` / `RShift`:
-  - No ADSR-specific modifier behavior is implemented.
-  - The ADSR handler matches the simulator by returning early on generic `shift`.
+  - `LShift` continues to have no ADSR-specific behavior.
+  - `RShift` only changes behavior when the LOOP wave preview is focused:
+    - `RShift + REnc` edits per-layer seam crossfade shape
+    - holding `RShift` temporarily swaps the focused LOOP preview overlay from shaded seam regions to the curve-display view
+  - ADSR still returns early on generic `shift` (`LShift`) rather than adding a second modifier system.
 
 #### Entry Behavior
 - On screen enter:
@@ -312,6 +322,7 @@
   - active layer row initializes from existing `engine_play_mode[layer]`:
     - `0 -> 1SHOT`
     - `1 -> LOOP`
+  - startup/default playback type comes from `engine_play_mode[layer]`, which now defaults to `LOOP`
   - focus is normalized so disabled stages are skipped
 
 #### Render Notes
@@ -330,38 +341,44 @@
 
 #### Focusable Objects
 1. **Row selector (`perform_emphasis_row`)**
-- Type: row selector (`GAIN`, `FILT`, `RESO`)
+- Type: row selector (`DRIVE`, `CUTOFF`, `RESO`)
 - Purpose: choose editable emphasis field.
 - Behavior:
   - `kUiEncPod` cycles 3 rows.
 - Result:
   - Changes edit focus.
 - Notes:
-  - On screen enter, resonance is initialized to 50% for current layer.
+  - Row order matches the simulator knob order left-to-right.
 
 2. **Gain field (`engine_gain_db[layer]`)**
 - Type: numeric field
-- Purpose: adjust gain in dB.
+- Purpose: adjust drive in tenths of dB.
 - Behavior:
-  - `kUiEncExt` edits on `GAIN` row.
+  - `kUiEncExt` edits drive amount on `DRIVE` row.
+  - while `DRIVE` is focused and `RShift` is held:
+    - the knob label temporarily shows `odd` or `even`
+    - `kUiEncExt` changes the active layer's drive mode instead of the drive amount
 - Result:
-  - Clamped `-32..+6`; params published.
+  - Drive amount remains clamped `0..60` and drive mode remains clamped `odd/even`; both publish through the shared ENGINE layer param path.
 - Notes:
-  - Integer dB step behavior.
+  - Stored as tenths of dB (`0.0..6.0 dB`) to match the simulator display and knob sweep.
+  - DSP now applies a stronger nonlinear taper internally so low settings stay subtle and the top of the knob reaches obvious saturation.
+  - `odd` = symmetric saturation, `even` = asymmetric saturation.
 
 3. **Filter cutoff field (`engine_filter_cutoff_hz[layer]`)**
 - Type: mapped continuous field
-- Purpose: adjust cutoff using ADSR-style nonlinear mapping.
+- Purpose: adjust the lowpass cutoff for the active layer's summed output bus using ADSR-style nonlinear mapping.
 - Behavior:
-  - `kUiEncExt` edits on `FILT` row.
+  - `kUiEncExt` edits on `CUTOFF` row.
 - Result:
   - Params published.
 - Notes:
   - Uses accelerated encoder timing.
+  - Default startup value is fully open at `20 kHz` for both layers.
 
 4. **Resonance field (`engine_filter_resonance[layer]`)**
 - Type: normalized field
-- Purpose: adjust resonance `0..1`.
+- Purpose: adjust resonance `0..1` for the active layer's summed output bus.
 - Behavior:
   - `kUiEncExt` edits on `RESO` row.
 - Result:
@@ -375,9 +392,24 @@
 - Behavior:
   - `kUiBtnPod2` toggles layer.
 - Result:
-  - Layer context update.
+  - Layer context update, shared slot sync, and shared header invert flash.
 - Notes:
-  - Shared behavior across PERFORM screens.
+  - Reuses the same `perform_layer` ownership and POD2 behavior as ENGINE, KEYZONE, and ADSR.
+
+#### Screen Enter
+- `PerformEmphasis_OnScreenEnter(...)` only marks the screen dirty.
+- No EMPHASIS-specific reset or new runtime handoff is introduced on entry.
+- Existing published values remain the source of truth when the page opens, matching the simulator behavior.
+
+#### Render Notes
+- Render matches the simulator layout intent:
+  - upper-right micro header `emph a/b`
+  - three centered knobs in `drive`, `cutoff`, `reso` order
+  - value text above `drive` and `cutoff`
+  - while `DRIVE` is focused and `RShift` is held, the left knob label swaps from `drive` to `odd` or `even`
+  - focus styling by row:
+    - `drive` uses solid label box
+    - `cutoff` and `reso` use dotted label boxes
 
 ### PerformProcess (`UiScreenId::PerformProcess`)
 - Parent: PerformMenu

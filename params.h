@@ -36,7 +36,7 @@ struct PerformParamsTargets
     float reverb_pre   = 0.5f;
     float reverb_damp  = 0.5f;
     float reverb_decay = 0.5f;
-    bool  reverb_reverse = false;
+    float reverb_mod     = 0.0f;
     float lpf_cutoff_hz = 12000.0f;
     float lfo_rate_hz   = 0.0f;
     float lfo_depth     = 0.0f;
@@ -92,7 +92,7 @@ struct PerformParamsCurrent
     float reverb_pre   = 0.5f;
     float reverb_damp  = 0.5f;
     float reverb_decay = 0.5f;
-    bool  reverb_reverse = false;
+    float reverb_mod     = 0.0f;
     float lpf_cutoff_hz = 12000.0f;
     float lfo_rate_hz   = 0.0f;
     float lfo_depth     = 0.0f;

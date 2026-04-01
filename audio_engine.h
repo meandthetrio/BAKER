@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "mem_regions.h"
 #include "params.h"
+#include "Effects/Reverb/DattorroReverb.h"
 
 // Audio Engine Layer:
 // - Reads Params::current only.
@@ -46,59 +47,13 @@ class AudioEngine
     void DelayProcess_(float dryL, float dryR, float mix, bool feed_input,
                        float& outL, float& outR);
 
-    // ---- PHASE A BAKER REVERB (mono-in, stereo-out 8-line late tank) ----
-    struct Diffuser
-    {
-        float*  buf = nullptr;
-        size_t  len = 0;
-        size_t  idx = 0;
-        float   g   = 0.5f;
-
-        void Init(float* b, size_t l) { buf = b; len = l; idx = 0; }
-        void Clear();
-        float Process(float in);
-    };
-
-    struct TankLine
-    {
-        float*  buf = nullptr;
-        size_t  len = 0;
-        size_t  idx = 0;
-        float   damp_z = 0.0f;
-
-        void Init(float* b, size_t l) { buf = b; len = l; idx = 0; }
-        void Clear();
-        float Read() const;
-        void  WriteAdvance(float in);
-    };
-
-  public:
-    static constexpr size_t kReverbTankCount = 8;
-    static constexpr size_t kReverbPreMaxSamples = 5761; // ~120 ms @ 48k
-    static constexpr size_t kReverbDiff1Len = 149;
-    static constexpr size_t kReverbDiff2Len = 211;
-    static constexpr size_t kReverbDiff3Len = 293;
-    static constexpr size_t kReverbTank1Len = 821;  // ~17.1 ms @ 48k
-    static constexpr size_t kReverbTank2Len = 1013; // ~21.1 ms @ 48k
-    static constexpr size_t kReverbTank3Len = 1249; // ~26.0 ms @ 48k
-    static constexpr size_t kReverbTank4Len = 1499; // ~31.2 ms @ 48k
-    static constexpr size_t kReverbTank5Len = 1783; // ~37.1 ms @ 48k
-    static constexpr size_t kReverbTank6Len = 2179; // ~45.4 ms @ 48k
-    static constexpr size_t kReverbTank7Len = 2591; // ~54.0 ms @ 48k
-    static constexpr size_t kReverbTank8Len = 3187; // ~66.4 ms @ 48k
-  private:
-    Diffuser reverb_diffusers_[3];
-    TankLine reverb_tank_[kReverbTankCount];
-    size_t   reverb_pre_len_ = 1;
-    size_t   reverb_pre_wr_  = 0;
-    float    reverb_decay_gain_ = 0.78f;
-    float    reverb_damp_coeff_ = 0.35f;
-
-    void ReverbInit_();
+    // ---- DATTORRO REVERB ----
     void ReverbClear_();
-    void ReverbUpdateParams_(const PerformParamsCurrent& p);
-    void ReverbProcess_(float inL, float inR, bool feed_input,
-                        float& wetL, float& wetR);
+    void ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p);
+    void ReverbProcessDattorro_(float inL, float inR, bool feed_input,
+                                float& wetL, float& wetR);
+
+    DattorroReverb dattorro_;
 
     bool     reverb_active_  = false;
     bool     reverb_tailing_ = false;

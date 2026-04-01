@@ -87,6 +87,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.reverb_pre   = SmoothToward(current.reverb_pre, t.reverb_pre, coeff);
     current.reverb_damp  = SmoothToward(current.reverb_damp, t.reverb_damp, coeff);
     current.reverb_decay = SmoothToward(current.reverb_decay, t.reverb_decay, coeff);
+    current.reverb_mod   = SmoothToward(current.reverb_mod, t.reverb_mod, coeff);
     current.lpf_cutoff_hz = SmoothToward(current.lpf_cutoff_hz, t.lpf_cutoff_hz, coeff);
     current.lfo_rate_hz   = SmoothToward(current.lfo_rate_hz, t.lfo_rate_hz, coeff);
     current.lfo_depth     = SmoothToward(current.lfo_depth, t.lfo_depth, coeff);
@@ -130,7 +131,6 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.mod_on    = t.mod_on;
     current.sat_mode  = t.sat_mode;
     current.mod_mode  = t.mod_mode;
-    current.reverb_reverse = t.reverb_reverse;
     for(uint8_t i = 0; i < 4; ++i)
         current.fx_order[i] = t.fx_order[i];
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)

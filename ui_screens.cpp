@@ -4967,17 +4967,15 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                         t.reverb_decay = Clamp01(t.reverb_decay + delta);
                         changed = true;
                     }
+                    else if(pidx == 3)
+                    {
+                        t.reverb_mod = Clamp01(t.reverb_mod + delta);
+                        changed = true;
+                    }
                     else if(pidx == 4)
                     {
                         t.reverb_mix = Clamp01(t.reverb_mix + delta);
                         t.reverb_on = (t.reverb_mix > 0.001f);
-                        changed = true;
-                    }
-                    else if(pidx == 3)
-                    {
-                        int steps = (e.value > 0) ? e.value : -e.value;
-                        while(steps-- > 0)
-                            t.reverb_reverse = !t.reverb_reverse;
                         changed = true;
                     }
                     break;
@@ -5391,113 +5389,17 @@ static void DrawFxDetailScreen(OledPager& d,
         const int fader_w = kDisplayW - (kMargin * 2);
         if(fader_w > 4)
         {
-            const char* fader_labels[kReverbFaderCount] = {"Pre", "Dmp", "Dcy", "DIR", "Wet"};
-            const float fader_values[kReverbFaderCount] = {t.reverb_pre, t.reverb_damp, t.reverb_decay, t.reverb_reverse ? 1.0f : 0.0f, t.reverb_mix};
+            const char* fader_labels[kReverbFaderCount] = {"Pre", "Dmp", "Dcy", "Mod", "Wet"};
+            const float fader_values[kReverbFaderCount] = {t.reverb_pre, t.reverb_damp, t.reverb_decay, t.reverb_mod, t.reverb_mix};
             int param_index = selected_param;
             const bool fader_select_active = (param_index >= 0 && param_index < kReverbFaderCount);
             if(!fader_select_active) param_index = 0;
-            const bool hide_handles[kReverbFaderCount] = {false, false, false, true, false};
-            const bool hide_rails[kReverbFaderCount] = {false, false, false, true, false};
+            const bool hide_handles[kReverbFaderCount] = {false, false, false, false, false};
+            const bool hide_rails[kReverbFaderCount] = {false, false, false, false, false};
             const int fader_offsets[kReverbFaderCount] = {0, 1, -1, 0, 0};
             DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
                                      fader_labels, fader_values, kReverbFaderCount, fader_select_active, param_index,
                                      fader_offsets, nullptr, hide_rails, hide_handles);
-
-            const int label_y = block_y + block_h - Font5x7::H - 1;
-            const int line_top = block_y + 2;
-            const int line_bottom = label_y - 2;
-            const int fader_left = fader_x + 2;
-            const int fader_right = fader_x + fader_w - 3;
-            const int span_x = fader_right - fader_left;
-            int line_x = fader_left;
-            if(kReverbFaderCount > 1 && span_x > 0)
-                line_x = fader_left + (span_x * 3) / (kReverbFaderCount - 1);
-            const char* dir_label = "DIR";
-            const int dir_w = TinyStringWidth(dir_label);
-            int dir_x = line_x - (dir_w / 2);
-            if(dir_x < fader_x + 1) dir_x = fader_x + 1;
-            if(dir_x + dir_w > fader_x + fader_w - 2) dir_x = fader_x + fader_w - 2 - dir_w;
-            line_x = dir_x + (dir_w / 2);
-            const bool reverse_on = t.reverb_reverse;
-            const char* on_label = "REV";
-            const char* off_label = "FOR";
-            const int on_w = TinyStringWidth(on_label);
-            const int off_w = TinyStringWidth(off_label);
-            const int text_y_on = line_top + 1;
-            const int text_y_off = text_y_on + Font5x7::H + 2;
-            const int text_bottom = text_y_off + Font5x7::H + 1;
-            const int text_x_on = line_x - (on_w / 2);
-            const int text_x_off = line_x - (off_w / 2);
-            if(reverse_on)
-            {
-                d.DrawRect(text_x_on - 1, text_y_on - 1, text_x_on + on_w, text_y_on + Font5x7::H, true, true);
-                DrawTinyString(d, on_label, text_x_on, text_y_on, false);
-                DrawTinyString(d, off_label, text_x_off, text_y_off, true);
-            }
-            else
-            {
-                DrawTinyString(d, on_label, text_x_on, text_y_on, true);
-                d.DrawRect(text_x_off - 1, text_y_off - 1, text_x_off + off_w, text_y_off + Font5x7::H, true, true);
-                DrawTinyString(d, off_label, text_x_off, text_y_off, false);
-            }
-            if(reverse_on)
-            {
-                const int area_left = line_x - 6;
-                const int area_right = line_x + 6;
-                const int area_top = line_top;
-                const int area_bottom = line_bottom;
-                const int area_w = area_right - area_left + 1;
-                const int area_h = area_bottom - area_top + 1;
-                if(area_w > 4 && area_h > 4)
-                {
-                    const int icon_top = (text_bottom + 1 > area_top) ? (text_bottom + 1) : area_top;
-                    const int icon_bottom = area_bottom;
-                    const int icon_h = icon_bottom - icon_top + 1;
-                    if(icon_h >= 7)
-                    {
-                        const int cx = line_x + 3;
-                        const int cy = icon_top + (icon_h / 2);
-                        const int travel = 6;
-                        int phase = static_cast<int>((now_ms / 100) % (travel + 2));
-                        int shift = travel - phase;
-                        if(shift < 0) shift = travel;
-                        d.DrawLine(cx - 8, cy - 3, cx - 8, cy + 3, true);
-                        const int tri_shift = shift;
-                        d.DrawPixel(cx - 1 - tri_shift, cy, true);
-                        d.DrawPixel(cx - tri_shift, cy - 1, true);
-                        d.DrawPixel(cx - tri_shift, cy, true);
-                        d.DrawPixel(cx - tri_shift, cy + 1, true);
-                        d.DrawPixel(cx + 1 - tri_shift, cy - 2, true);
-                        d.DrawPixel(cx + 1 - tri_shift, cy - 1, true);
-                        d.DrawPixel(cx + 1 - tri_shift, cy, true);
-                        d.DrawPixel(cx + 1 - tri_shift, cy + 1, true);
-                        d.DrawPixel(cx + 1 - tri_shift, cy + 2, true);
-                        d.DrawPixel(cx + 2 - tri_shift, cy - 3, true);
-                        d.DrawPixel(cx + 2 - tri_shift, cy - 2, true);
-                        d.DrawPixel(cx + 2 - tri_shift, cy - 1, true);
-                        d.DrawPixel(cx + 2 - tri_shift, cy, true);
-                        d.DrawPixel(cx + 2 - tri_shift, cy + 1, true);
-                        d.DrawPixel(cx + 2 - tri_shift, cy + 2, true);
-                        d.DrawPixel(cx + 2 - tri_shift, cy + 3, true);
-                        d.DrawPixel(cx + 3 - tri_shift, cy, true);
-                        d.DrawPixel(cx + 4 - tri_shift, cy - 1, true);
-                        d.DrawPixel(cx + 4 - tri_shift, cy, true);
-                        d.DrawPixel(cx + 4 - tri_shift, cy + 1, true);
-                        d.DrawPixel(cx + 5 - tri_shift, cy - 2, true);
-                        d.DrawPixel(cx + 5 - tri_shift, cy - 1, true);
-                        d.DrawPixel(cx + 5 - tri_shift, cy, true);
-                        d.DrawPixel(cx + 5 - tri_shift, cy + 1, true);
-                        d.DrawPixel(cx + 5 - tri_shift, cy + 2, true);
-                        d.DrawPixel(cx + 6 - tri_shift, cy - 3, true);
-                        d.DrawPixel(cx + 6 - tri_shift, cy - 2, true);
-                        d.DrawPixel(cx + 6 - tri_shift, cy - 1, true);
-                        d.DrawPixel(cx + 6 - tri_shift, cy, true);
-                        d.DrawPixel(cx + 6 - tri_shift, cy + 1, true);
-                        d.DrawPixel(cx + 6 - tri_shift, cy + 2, true);
-                        d.DrawPixel(cx + 6 - tri_shift, cy + 3, true);
-                    }
-                }
-            }
         }
     }
 }

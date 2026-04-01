@@ -28,6 +28,7 @@ CPP_SOURCES += mod_sources.cpp
 CPP_SOURCES += mod_matrix.cpp
 CPP_SOURCES += plocks.cpp
 CPP_SOURCES += macros.cpp
+CPP_SOURCES += Effects/Reverb/DattorroReverb.cpp
 
 # Library Locations
 LIBDAISY_DIR = ../../libDaisy

@@ -157,7 +157,7 @@ class DattorroReverb
 
     void  Clear_();
     void  ConfigureSize_(float size);
-    float ProcessPredelay_(float input);
+    float ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line, float input);
 
     float sample_rate_ = kSampleRate;
     float damping_     = 0.0f;
@@ -172,8 +172,10 @@ class DattorroReverb
 
     daisysp::Oscillator                      oscillator_;
     daisysp::DelayLine<float, kPredelayMax> predelay_;
+    daisysp::DelayLine<float, kPredelayMax> predelay_r_;
 
     Allpass               allpass_[4];
+    Allpass               allpass_r_[4];
     StaticAllpassFourTap  tank_allpass_[4];
     StateVariable         bandwidth_filter_[2];
     StateVariable         damping_filter_[2];
@@ -187,6 +189,10 @@ class DattorroReverb
     ADSR2_ALIGN32 float input_ap2_buf_[kInputAp2Max];
     ADSR2_ALIGN32 float input_ap3_buf_[kInputAp3Max];
     ADSR2_ALIGN32 float input_ap4_buf_[kInputAp4Max];
+    ADSR2_ALIGN32 float input_ap1_r_buf_[kInputAp1Max];
+    ADSR2_ALIGN32 float input_ap2_r_buf_[kInputAp2Max];
+    ADSR2_ALIGN32 float input_ap3_r_buf_[kInputAp3Max];
+    ADSR2_ALIGN32 float input_ap4_r_buf_[kInputAp4Max];
     ADSR2_ALIGN32 float tank_ap1_buf_[kTankAp1Max];
     ADSR2_ALIGN32 float tank_ap2_buf_[kTankAp2Max];
     ADSR2_ALIGN32 float tank_ap3_buf_[kTankAp3Max];

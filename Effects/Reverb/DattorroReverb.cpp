@@ -392,6 +392,8 @@ void DattorroReverb::Clear_()
 
     predelay_.Reset();
     predelay_.SetDelay(static_cast<size_t>(0));
+    predelay_r_.Reset();
+    predelay_r_.SetDelay(static_cast<size_t>(0));
 
     allpass_[0].Clear();
     allpass_[1].Clear();
@@ -405,6 +407,19 @@ void DattorroReverb::Clear_()
     allpass_[1].SetFeedback(0.75f);
     allpass_[2].SetFeedback(0.625f);
     allpass_[3].SetFeedback(0.625f);
+
+    allpass_r_[0].Clear();
+    allpass_r_[1].Clear();
+    allpass_r_[2].Clear();
+    allpass_r_[3].Clear();
+    allpass_r_[0].SetLength(static_cast<size_t>(0.0048f * sample_rate_));
+    allpass_r_[1].SetLength(static_cast<size_t>(0.0036f * sample_rate_));
+    allpass_r_[2].SetLength(static_cast<size_t>(0.0127f * sample_rate_));
+    allpass_r_[3].SetLength(static_cast<size_t>(0.0093f * sample_rate_));
+    allpass_r_[0].SetFeedback(0.75f);
+    allpass_r_[1].SetFeedback(0.75f);
+    allpass_r_[2].SetFeedback(0.625f);
+    allpass_r_[3].SetFeedback(0.625f);
 
     ConfigureSize_(kSize);
 
@@ -433,10 +448,11 @@ void DattorroReverb::Clear_()
     previous_right_tank_ = 0.0f;
 }
 
-float DattorroReverb::ProcessPredelay_(float input)
+float DattorroReverb::ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line,
+                                           float                            input)
 {
-    const float output = predelay_.Read();
-    predelay_.Write(input);
+    const float output = line.Read();
+    line.Write(input);
     return output;
 }
 
@@ -448,6 +464,10 @@ void DattorroReverb::Init()
     allpass_[1].Init(input_ap2_buf_, kInputAp2Max);
     allpass_[2].Init(input_ap3_buf_, kInputAp3Max);
     allpass_[3].Init(input_ap4_buf_, kInputAp4Max);
+    allpass_r_[0].Init(input_ap1_r_buf_, kInputAp1Max);
+    allpass_r_[1].Init(input_ap2_r_buf_, kInputAp2Max);
+    allpass_r_[2].Init(input_ap3_r_buf_, kInputAp3Max);
+    allpass_r_[3].Init(input_ap4_r_buf_, kInputAp4Max);
     tank_allpass_[0].Init(tank_ap1_buf_, kTankAp1Max);
     tank_allpass_[1].Init(tank_ap2_buf_, kTankAp2Max);
     tank_allpass_[2].Init(tank_ap3_buf_, kTankAp3Max);
@@ -460,6 +480,7 @@ void DattorroReverb::Init()
     early_delay_[1].Init(early_delay_r_buf_, kEarlyDelayRMax);
 
     predelay_.Init();
+    predelay_r_.Init();
 
     control_rate_ = static_cast<uint32_t>(sample_rate_ / 1000.0f);
     if(control_rate_ == 0)
@@ -502,6 +523,7 @@ void DattorroReverb::SetPredelay(float ms)
     predelay_ms_ = ms;
     predelay_base_samples_ = static_cast<size_t>(predelay_ms_ * (sample_rate_ / 1000.0f));
     predelay_.SetDelay(predelay_base_samples_);
+    predelay_r_.SetDelay(predelay_base_samples_);
 }
 
 void DattorroReverb::SetDamping(float value)
@@ -555,8 +577,7 @@ void DattorroReverb::Process(const float inL,
         const float hz = 0.6f;
         oscillator_.SetFreq(hz * static_cast<float>(control_rate_));
 
-        // NOTE: `mod_` is now used as stereo width injection (see below),
-        // so predelay motion uses a small fixed depth.
+        // `mod_` scales wet Mid/Side width after the tank (see below); predelay uses fixed depth.
         constexpr float kPredelayModDepthSamples = 5.0f; // ~0.1ms @ 48k
         const float m = oscillator_.Process(); // [-1..1]
         const int32_t mod_samps = static_cast<int32_t>(m * kPredelayModDepthSamples);
@@ -565,7 +586,9 @@ void DattorroReverb::Process(const float inL,
             want = 0;
         if(want >= static_cast<int32_t>(kPredelayMax - 1))
             want = static_cast<int32_t>(kPredelayMax - 1);
-        predelay_.SetDelay(static_cast<size_t>(want));
+        const size_t d = static_cast<size_t>(want);
+        predelay_.SetDelay(d);
+        predelay_r_.SetDelay(d);
     }
     ++control_rate_counter_;
 
@@ -597,22 +620,16 @@ void DattorroReverb::Process(const float inL,
                          + early_delay_[1].GetIndex(7) * 0.1f
                          + (bandwidthLeft * 0.2f + bandwidthRight * 0.4f) * 0.5f);
 
-    // Step 1 stereo widening:
-    // - keep the existing mono predelay+diffuser timing path (single delay line),
-    // - but inject stereo difference (side) at the tank entrances using `mod_` as width.
-    const float mid  = 0.5f * (bandwidthLeft + bandwidthRight);
-    const float side = 0.5f * (bandwidthLeft - bandwidthRight);
-
-    // Shape width so low values are more controllable.
-    const float kInject = mod_ * mod_;
-
-    const float predelayMonoInput = ProcessPredelay_(mid);
-    float smearedInput = predelayMonoInput;
+    // Step 2: stereo predelay + input diffuser (L/R parallel chains into the tank).
+    float smearedL = ProcessPredelayLine_(predelay_, bandwidthLeft);
+    float smearedR = ProcessPredelayLine_(predelay_r_, bandwidthRight);
     for(int i = 0; i < 4; ++i)
-        smearedInput = allpass_[i].Process(smearedInput);
+        smearedL = allpass_[i].Process(smearedL);
+    for(int i = 0; i < 4; ++i)
+        smearedR = allpass_r_[i].Process(smearedR);
 
-    const float tankInL = smearedInput + kInject * side;
-    const float tankInR = smearedInput - kInject * side;
+    const float tankInL = smearedL;
+    const float tankInR = smearedR;
 
     float leftTank = tank_allpass_[0].Process(tankInL + previous_right_tank_);
     leftTank = tank_delay_[0].Process(leftTank);
@@ -650,8 +667,18 @@ void DattorroReverb::Process(const float inL,
     accumulatorR = (accumulatorR * kEarlyMix)
                  + ((1.0f - kEarlyMix) * earlyReflectionsR);
 
-    const float wetL = accumulatorL * kGain;
-    const float wetR = accumulatorR * kGain;
+    float wetL = accumulatorL * kGain;
+    float wetR = accumulatorR * kGain;
+
+    // Wet-only stereo width: boost side of the reverb wet; `mod_` squared for low-end control.
+    constexpr float kWetSideMaxExtra = 1.5f;
+    const float     wetMid           = 0.5f * (wetL + wetR);
+    const float     wetSide          = 0.5f * (wetL - wetR);
+    const float     widthCurve       = mod_ * mod_;
+    const float     sideBoost        = 1.0f + widthCurve * kWetSideMaxExtra;
+    const float     wetSideW         = wetSide * sideBoost;
+    wetL                             = wetMid + wetSideW;
+    wetR                             = wetMid - wetSideW;
 
     outL = inL + wetL * out_gain_;
     outR = inR + wetR * out_gain_;

@@ -67,10 +67,7 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
     // Keep internal wet gain fixed at 1.0; mod is applied inside Dattorro.
     dattorro_.SetWetDry(1.0f);
 
-    // For now we forward mod by encoding it into the predelay modulation depth
-    // implemented inside DattorroReverb (see DattorroReverb.* changes).
-    // This avoids touching AudioEngine’s wet-mix/tail logic.
-    // NOTE: this method exists on the class in this repo after the swap.
+    // `mod` is wet Mid/Side stereo width inside DattorroReverb; predelay wobble is fixed.
     dattorro_.SetMod(mod);
 }
 

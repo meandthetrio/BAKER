@@ -108,6 +108,22 @@ struct LayerBusState
     float pole4 = 0.0f;
 };
 
+// Per-block cached scalars for EMPHASIS (drive + ladder); poles/DC stay in LayerBusState.
+struct LayerEmphasisCoeffs
+{
+    bool  odd_drive = true;
+    float pre_gain = 1.0f;
+    float shape_blend = 0.0f;
+    float base_makeup = 1.0f;
+    float positive_drive = 1.0f;
+    float negative_drive = 1.0f;
+    float even_makeup = 1.0f;
+    float g = 0.0f;
+    float feedback = 0.0f;
+    float pole4_linear_scale = 1.0f;
+    float tanh_input_scale = 1.12f;
+};
+
 class VoiceEngine
 {
   public:
@@ -232,6 +248,7 @@ class VoiceEngine
     float engine_filter_cutoff_hz_[kEngineLayerCount] = {20000.0f, 20000.0f};
     float engine_filter_resonance_[kEngineLayerCount] = {0.0f, 0.0f};
     LayerBusState layer_bus_state_[kEngineLayerCount]{};
+    LayerEmphasisCoeffs emphasis_coeff_[kEngineLayerCount]{};
     bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};
     float loop_env_attack_ms_[kEngineLayerCount] = {5.0f, 5.0f};
     float loop_env_decay_ms_[kEngineLayerCount] = {20.0f, 20.0f};
@@ -288,6 +305,7 @@ class VoiceEngine
     void FinishStopFade_(Voice& v);
     void NoteOff_(uint8_t note);
     void AllNotesOff_();
+    void RecomputeLayerEmphasisCoeffs_(uint8_t layer);
     float ProcessLayerBusSample_(uint8_t layer, float input);
 
     static uint32_t PackVoiceDebug_(uint8_t idx, uint8_t note, uint8_t vel);

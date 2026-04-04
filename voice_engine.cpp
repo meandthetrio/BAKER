@@ -576,44 +576,28 @@ void VoiceEngine::SetLoopCrossfadeShape(uint8_t layer, float shape)
     loop_crossfade_shape_[layer] = shape;
 }
 
-float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
+void VoiceEngine::RecomputeLayerEmphasisCoeffs_(uint8_t layer)
 {
     layer &= 1u;
-    LayerBusState& state = layer_bus_state_[layer];
+    LayerEmphasisCoeffs& c = emphasis_coeff_[layer];
 
     float drive_linear = engine_gain_linear_[layer];
     if(drive_linear < 1.0f)
         drive_linear = 1.0f;
     const float drive_norm = (drive_linear - 1.0f) / (kEmphasisDriveUiMaxLinear - 1.0f);
     const float clamped_drive_norm = Clamp01(drive_norm);
-    // Keep the bottom of the knob mostly clean, then ramp quickly into obvious saturation.
     const float drive_taper = std::pow(clamped_drive_norm, 1.8f);
     const float shape_blend = std::pow(clamped_drive_norm, 0.72f);
     const float pre_gain = 1.0f + (27.0f * drive_taper);
     const float base_makeup = 1.0f / (1.0f + (0.24f * drive_taper));
 
-    float driven = 0.0f;
-    if(engine_drive_mode_[layer] == 0u)
-    {
-        const float odd_core = std::tanh(input * pre_gain);
-        const float odd_shaped = input + ((odd_core - input) * shape_blend);
-        driven = odd_shaped * base_makeup;
-    }
-    else
-    {
-        const float positive_drive = pre_gain * (1.18f + (0.34f * drive_taper));
-        const float negative_drive = pre_gain * (0.72f + (0.08f * drive_taper));
-        const float pos_core = (input > 0.0f) ? std::tanh(input * positive_drive) : 0.0f;
-        const float neg_core = (input < 0.0f) ? -std::tanh((-input) * negative_drive) : 0.0f;
-        const float asym_core = pos_core + neg_core;
-        const float even_shaped = input + ((asym_core - input) * shape_blend);
-        const float even_makeup = base_makeup * (1.04f + (0.16f * drive_taper));
-        const float asym = even_shaped * even_makeup;
-        const float dc_blocked = asym - state.drive_dc_x + (0.995f * state.drive_dc_y);
-        state.drive_dc_x = asym;
-        state.drive_dc_y = dc_blocked;
-        driven = dc_blocked;
-    }
+    c.odd_drive = (engine_drive_mode_[layer] == 0u);
+    c.pre_gain = pre_gain;
+    c.shape_blend = shape_blend;
+    c.base_makeup = base_makeup;
+    c.positive_drive = pre_gain * (1.18f + (0.34f * drive_taper));
+    c.negative_drive = pre_gain * (0.72f + (0.08f * drive_taper));
+    c.even_makeup = base_makeup * (1.04f + (0.16f * drive_taper));
 
     float cutoff_hz = engine_filter_cutoff_hz_[layer];
     if(cutoff_hz < 20.0f)
@@ -626,6 +610,7 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
         g = 0.0015f;
     if(g > 0.70f)
         g = 0.70f;
+    c.g = g;
 
     float resonance = engine_filter_resonance_[layer];
     if(resonance < 0.0f)
@@ -634,18 +619,47 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
         resonance = 1.0f;
     const float resonance_shaped
         = resonance * resonance * (1.5f - (0.5f * resonance));
-    const float feedback = resonance_shaped * (3.85f - (0.5f * g));
+    c.feedback = resonance_shaped * (3.85f - (0.5f * g));
+    c.pole4_linear_scale = 1.0f - (0.18f * resonance_shaped);
+    c.tanh_input_scale = 1.12f + (0.32f * resonance_shaped);
+}
 
-    float ladder_in = driven - feedback * (state.pole4 - (0.12f * state.pole3));
+float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
+{
+    layer &= 1u;
+    LayerBusState& state = layer_bus_state_[layer];
+    const LayerEmphasisCoeffs& c = emphasis_coeff_[layer];
+
+    float driven = 0.0f;
+    if(c.odd_drive)
+    {
+        const float odd_core = std::tanh(input * c.pre_gain);
+        const float odd_shaped = input + ((odd_core - input) * c.shape_blend);
+        driven = odd_shaped * c.base_makeup;
+    }
+    else
+    {
+        const float pos_core = (input > 0.0f) ? std::tanh(input * c.positive_drive) : 0.0f;
+        const float neg_core = (input < 0.0f) ? -std::tanh((-input) * c.negative_drive) : 0.0f;
+        const float asym_core = pos_core + neg_core;
+        const float even_shaped = input + ((asym_core - input) * c.shape_blend);
+        const float asym = even_shaped * c.even_makeup;
+        const float dc_blocked = asym - state.drive_dc_x + (0.995f * state.drive_dc_y);
+        state.drive_dc_x = asym;
+        state.drive_dc_y = dc_blocked;
+        driven = dc_blocked;
+    }
+
+    float ladder_in = driven - c.feedback * (state.pole4 - (0.12f * state.pole3));
     ladder_in = std::tanh(ladder_in);
 
-    state.pole1 += g * (ladder_in - state.pole1);
-    state.pole2 += g * (state.pole1 - state.pole2);
-    state.pole3 += g * (state.pole2 - state.pole3);
-    state.pole4 += g * (state.pole3 - state.pole4);
+    state.pole1 += c.g * (ladder_in - state.pole1);
+    state.pole2 += c.g * (state.pole1 - state.pole2);
+    state.pole3 += c.g * (state.pole2 - state.pole3);
+    state.pole4 += c.g * (state.pole3 - state.pole4);
 
-    float out = state.pole4 * (1.0f - (0.18f * resonance_shaped));
-    out = std::tanh(out * (1.12f + (0.32f * resonance_shaped)));
+    float out = state.pole4 * c.pole4_linear_scale;
+    out = std::tanh(out * c.tanh_input_scale);
     return out * 0.97f;
 }
 
@@ -788,6 +802,9 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
         loop_crossfade_amount_[layer] = 0.0625f;
         loop_crossfade_shape_[layer] = 0.0f;
     }
+
+    RecomputeLayerEmphasisCoeffs_(0u);
+    RecomputeLayerEmphasisCoeffs_(1u);
 
     if(voices_active_)
         voices_active_->store(0, std::memory_order_relaxed);
@@ -1279,6 +1296,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
     std::memset(outL, 0, sizeof(float) * size);
     std::memset(outR, 0, sizeof(float) * size);
+
+    RecomputeLayerEmphasisCoeffs_(0u);
+    RecomputeLayerEmphasisCoeffs_(1u);
 
     uint32_t active = 0;
     uint32_t clip_block = 0;

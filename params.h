@@ -32,7 +32,7 @@ struct PerformParamsTargets
     float delay_time   = 0.5f;
     float delay_feedback = 0.5f;
     float delay_spread = 0.5f;
-    float delay_freeze = 0.0f;
+    float delay_mid    = 0.0f;
     float reverb_pre   = 0.5f;
     float reverb_damp  = 0.5f;
     float reverb_decay = 0.5f;
@@ -88,7 +88,7 @@ struct PerformParamsCurrent
     float delay_time   = 0.5f;
     float delay_feedback = 0.5f;
     float delay_spread = 0.5f;
-    float delay_freeze = 0.0f;
+    float delay_mid    = 0.0f;
     float reverb_pre   = 0.5f;
     float reverb_damp  = 0.5f;
     float reverb_decay = 0.5f;

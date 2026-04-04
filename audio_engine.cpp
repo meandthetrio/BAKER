@@ -2,7 +2,9 @@
 #include <cmath>
 #include <cstring>
 
-ADSR2_SRAM ADSR2_ALIGN32 static float g_delay_buf[AudioEngine::kDelayMaxSamples];
+// Large stereo delay lines live in SDRAM (see sd_sample_pool.cpp).
+ADSR2_SECTION(".sdram_bss") ADSR2_ALIGN32 static float g_delay_buf_L[AudioEngine::kDelayMaxSamples];
+ADSR2_SECTION(".sdram_bss") ADSR2_ALIGN32 static float g_delay_buf_R[AudioEngine::kDelayMaxSamples];
 
 inline float AudioEngine::SoftClip(float x)
 {
@@ -13,23 +15,36 @@ inline float AudioEngine::SoftClip(float x)
 // ---- Delay ----
 void AudioEngine::DelayClear_()
 {
-    std::memset(g_delay_buf, 0, sizeof(g_delay_buf));
+    std::memset(g_delay_buf_L, 0, sizeof(g_delay_buf_L));
+    std::memset(g_delay_buf_R, 0, sizeof(g_delay_buf_R));
     delay_wr_ = 0;
+    for(auto& b : delay_mid_hp_)
+        b.Reset();
+    for(auto& b : delay_mid_lp_)
+        b.Reset();
 }
 
-void AudioEngine::DelayProcess_(float dryL, float dryR, float mix, bool feed_input,
-                                float& outL, float& outR)
+void AudioEngine::DelayProcess_(float dryL, float dryR, float mix, bool feed_input, size_t len_l,
+                                size_t len_r, float fb, float& outL, float& outR)
 {
-    const float in_mono = feed_input ? (0.5f * (dryL + dryR)) : 0.0f;
+    const float inL = feed_input ? dryL : 0.0f;
+    const float inR = feed_input ? dryR : 0.0f;
 
-    const size_t rd = (delay_wr_ + kDelayMaxSamples - delay_len_) % kDelayMaxSamples;
-    const float  d  = g_delay_buf[rd];
+    const size_t wr  = delay_wr_;
+    const size_t rdL = (wr + kDelayMaxSamples - len_l) % kDelayMaxSamples;
+    const size_t rdR = (wr + kDelayMaxSamples - len_r) % kDelayMaxSamples;
+    float        dL  = g_delay_buf_L[rdL];
+    float        dR  = g_delay_buf_R[rdR];
 
-    g_delay_buf[delay_wr_] = in_mono + d * delay_fb_;
-    delay_wr_ = (delay_wr_ + 1) % kDelayMaxSamples;
+    dL = delay_mid_lp_[0].Process(delay_mid_hp_[0].Process(dL));
+    dR = delay_mid_lp_[1].Process(delay_mid_hp_[1].Process(dR));
 
-    outL = dryL + d * mix;
-    outR = dryR + d * mix;
+    g_delay_buf_L[wr] = inL + dL * fb;
+    g_delay_buf_R[wr] = inR + dR * fb;
+    delay_wr_         = (wr + 1) % kDelayMaxSamples;
+
+    outL = dryL + dL * mix;
+    outR = dryR + dR * mix;
 }
 
 void AudioEngine::ReverbClear_()
@@ -96,13 +111,6 @@ void AudioEngine::Init(float sample_rate, size_t block_size)
 {
     sample_rate_ = sample_rate;
     block_size_  = block_size;
-
-    // Delay length ~200ms (kept small until we decide SDRAM placement)
-    const float delay_ms = 200.0f;
-    size_t want = (size_t)(sample_rate_ * (delay_ms * 0.001f));
-    if(want < 1) want = 1;
-    if(want >= kDelayMaxSamples) want = kDelayMaxSamples - 1;
-    delay_len_ = want;
 
     DelayClear_();
 
@@ -202,6 +210,62 @@ void AudioEngine::ProcessBlock(const float* inL,
 
     ReverbUpdateParamsDattorro_(p);
 
+    // Delay lengths + feedback (smoothed params, constant within block)
+    float dt = p.delay_time;
+    if(dt < 0.0f)
+        dt = 0.0f;
+    else if(dt > 1.0f)
+        dt = 1.0f;
+    float sp = p.delay_spread;
+    if(sp < 0.0f)
+        sp = 0.0f;
+    else if(sp > 1.0f)
+        sp = 1.0f;
+    const float t_ms      = dt * kDelayTimeMaxMs;
+    const float t_samps_f = t_ms * sample_rate_ * (1.0f / 1000.0f);
+    size_t      len_r     = (size_t)(t_samps_f + 0.5f);
+    if(len_r < 1)
+        len_r = 1;
+    if(len_r >= kDelayMaxSamples)
+        len_r = kDelayMaxSamples - 1;
+    size_t len_l = (size_t)(t_samps_f * (1.0f - sp) + 0.5f);
+    if(len_l < 1)
+        len_l = 1;
+    if(len_l > len_r)
+        len_l = len_r;
+
+    float dfb = p.delay_feedback;
+    if(dfb < 0.0f)
+        dfb = 0.0f;
+    else if(dfb > 1.0f)
+        dfb = 1.0f;
+    static constexpr float kDelayFeedbackMax = 0.97f;
+    const float            delay_fb          = dfb * kDelayFeedbackMax;
+
+    float mid = p.delay_mid;
+    if(mid < 0.0f)
+        mid = 0.0f;
+    else if(mid > 1.0f)
+        mid = 1.0f;
+    const float fc_hp = 20.0f + mid * (400.0f - 20.0f);
+    const float fc_lp = 20000.0f + mid * (800.0f - 20000.0f);
+    const float nyq   = 0.5f * sample_rate_;
+    float       fc_lp_c = fc_lp;
+    float       fc_hp_c = fc_hp;
+    if(fc_lp_c > nyq * 0.49f)
+        fc_lp_c = nyq * 0.49f;
+    if(fc_hp_c < 20.0f)
+        fc_hp_c = 20.0f;
+    if(fc_hp_c >= fc_lp_c * 0.99f)
+        fc_hp_c = fc_lp_c * 0.25f;
+
+    static constexpr float kButterQ = 0.7071067811865476f;
+    for(int ch = 0; ch < 2; ++ch)
+    {
+        delay_mid_hp_[ch].SetHighpass(fc_hp_c, sample_rate_, kButterQ);
+        delay_mid_lp_[ch].SetLowpass(fc_lp_c, sample_rate_, kButterQ);
+    }
+
     float delay_wet_peak  = 0.0f;
     float reverb_wet_peak = 0.0f;
 
@@ -231,7 +295,7 @@ void AudioEngine::ProcessBlock(const float* inL,
                         const float mix  = p.delay_on ? delay_mix_on : delay_tail_mix_;
 
                         float dl, dr;
-                        DelayProcess_(l, r, mix, feed, dl, dr);
+                        DelayProcess_(l, r, mix, feed, len_l, len_r, delay_fb, dl, dr);
 
                         delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dl - l));
                         delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dr - r));

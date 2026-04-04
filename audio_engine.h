@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include "delay_biquad.h"
 #include "mem_regions.h"
 #include "params.h"
 #include "Effects/Reverb/DattorroReverb.h"
@@ -29,13 +30,15 @@ class AudioEngine
     // ---- SAT ----
     static inline float SoftClip(float x);
 
-    // ---- DELAY (mono feedback delay) ----
+    // ---- DELAY (stereo lines + MID band-limit on tap for wet and feedback) ----
   public:
-    static constexpr size_t kDelayMaxSamples = 12000; // ~250ms @ 48k (small on purpose)
+    static constexpr size_t kDelayMaxSamples = 24000; // 500ms @ 48k
+    static constexpr float  kDelayTimeMaxMs  = 500.0f;
   private:
-    size_t delay_wr_  = 0;
-    size_t delay_len_ = 6000;
-    float  delay_fb_  = 0.55f;
+    size_t delay_wr_ = 0;
+
+    DelayMidBiquad delay_mid_hp_[2]{};
+    DelayMidBiquad delay_mid_lp_[2]{};
 
     bool     delay_active_  = false;
     bool     delay_tailing_ = false;
@@ -44,8 +47,8 @@ class AudioEngine
     float    delay_tail_mix_         = 0.0f;
 
     void DelayClear_();
-    void DelayProcess_(float dryL, float dryR, float mix, bool feed_input,
-                       float& outL, float& outR);
+    void DelayProcess_(float dryL, float dryR, float mix, bool feed_input, size_t len_l,
+                       size_t len_r, float fb, float& outL, float& outR);
 
     // ---- DATTORRO REVERB ----
     void ReverbClear_();

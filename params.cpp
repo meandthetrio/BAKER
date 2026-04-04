@@ -83,7 +83,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.delay_time   = SmoothToward(current.delay_time, t.delay_time, coeff);
     current.delay_feedback = SmoothToward(current.delay_feedback, t.delay_feedback, coeff);
     current.delay_spread = SmoothToward(current.delay_spread, t.delay_spread, coeff);
-    current.delay_freeze = SmoothToward(current.delay_freeze, t.delay_freeze, coeff);
+    current.delay_mid    = SmoothToward(current.delay_mid, t.delay_mid, coeff);
     current.reverb_pre   = SmoothToward(current.reverb_pre, t.reverb_pre, coeff);
     current.reverb_damp  = SmoothToward(current.reverb_damp, t.reverb_damp, coeff);
     current.reverb_decay = SmoothToward(current.reverb_decay, t.reverb_decay, coeff);

@@ -4721,7 +4721,7 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             case 0: return 4; // SAT + mode toggle
             case 1: return 4; // MOD + algo toggle
-            case 2: return 5; // DELAY + FRZ toggle
+            case 2: return 5; // DELAY: TIM FBK SPRD MID MIX
             case 3: return 5; // REVERB + DIR toggle
             default: return 3;
         }
@@ -4792,6 +4792,12 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 return true;
             }
             app.perform_process_detail_active = true;
+            {
+                const uint8_t c = static_cast<uint8_t>((app.perform_process_main_cursor - 2u) & 0x03u);
+                const uint8_t fid = app.perform_process_fx_order[c];
+                if(fid == 2u && app.perform_process_detail_param[c] > 4u)
+                    app.perform_process_detail_param[c] = 0u;
+            }
             app.ui_dirty = true;
             return true;
         }
@@ -4936,17 +4942,15 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                         t.delay_spread = Clamp01(t.delay_spread + delta);
                         changed = true;
                     }
+                    else if(pidx == 3)
+                    {
+                        t.delay_mid = Clamp01(t.delay_mid + delta);
+                        changed = true;
+                    }
                     else if(pidx == 4)
                     {
                         t.delay_mix = Clamp01(t.delay_mix + delta);
                         t.delay_on = (t.delay_mix > 0.001f);
-                        changed = true;
-                    }
-                    else if(pidx == 3)
-                    {
-                        int steps = (e.value > 0) ? e.value : -e.value;
-                        while(steps-- > 0)
-                            t.delay_freeze = (t.delay_freeze >= 0.5f) ? 0.0f : 1.0f;
                         changed = true;
                     }
                     break;
@@ -5089,6 +5093,7 @@ static void DrawFxDetailScreen(OledPager& d,
                                uint8_t selected_param,
                                uint32_t now_ms)
 {
+    (void)now_ms;
     constexpr int kDisplayW = 128;
     constexpr int kDisplayH = 64;
     constexpr int kPerformFaderCount = 4;
@@ -5290,93 +5295,16 @@ static void DrawFxDetailScreen(OledPager& d,
         const int fader_w = kDisplayW - (kMargin * 2);
         if(fader_w > 4)
         {
-            const char* fader_labels[kDelayFaderCount] = {"TIM", "FBK", "SPRD", "FRZ", "MIX"};
-            const float fader_values[kDelayFaderCount] = {t.delay_time, t.delay_feedback, t.delay_spread, 0.0f, t.delay_mix};
+            const char* fader_labels[kDelayFaderCount] = {"TIM", "FBK", "SPRD", "MID", "MIX"};
+            const float fader_values[kDelayFaderCount]
+                = {t.delay_time, t.delay_feedback, t.delay_spread, t.delay_mid, t.delay_mix};
             int param_index = selected_param;
             const bool fader_select_active = (param_index >= 0 && param_index < kDelayFaderCount);
             if(!fader_select_active) param_index = 0;
-            const bool hide_handles[kDelayFaderCount] = {false, false, false, true, false};
-            const bool hide_rails[kDelayFaderCount] = {false, false, false, true, false};
             const int fader_offsets[kDelayFaderCount] = {0, 0, 0, 0, 0};
             DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
                                      fader_labels, fader_values, kDelayFaderCount, fader_select_active, param_index,
-                                     fader_offsets, nullptr, hide_rails, hide_handles);
-
-            const int label_y = block_y + block_h - Font5x7::H - 1;
-            const int line_top = block_y + 2;
-            const int line_bottom = label_y - 2;
-            const int fader_left = fader_x + 2;
-            const int fader_right = fader_x + fader_w - 3;
-            const int span_x = fader_right - fader_left;
-            int line_x = fader_left;
-            if(kDelayFaderCount > 1 && span_x > 0)
-                line_x = fader_left + (span_x * 3) / (kDelayFaderCount - 1);
-            const char* frz_label = "FRZ";
-            const int frz_w = TinyStringWidth(frz_label);
-            int frz_x = line_x - (frz_w / 2);
-            if(frz_x < fader_x + 1) frz_x = fader_x + 1;
-            if(frz_x + frz_w > fader_x + fader_w - 2) frz_x = fader_x + fader_w - 2 - frz_w;
-            line_x = frz_x + (frz_w / 2);
-            const bool freeze_on = (t.delay_freeze >= 0.5f);
-            const char* on_label = "ON";
-            const char* off_label = "OFF";
-            const int on_w = TinyStringWidth(on_label);
-            const int off_w = TinyStringWidth(off_label);
-            const int text_x_on = line_x - (on_w / 2);
-            const int text_x_off = line_x - (off_w / 2);
-            const int state_gap = 2;
-            const int text_y_on = line_top + 1;
-            const int text_y_off = text_y_on + Font5x7::H + state_gap;
-            const int text_top = text_y_on - 1;
-            const int text_bottom = text_y_off + Font5x7::H + 1;
-            const bool highlight = (fader_select_active && param_index == 3);
-
-            auto DrawSnowflake = [&](int sx, int sy, bool on)
-            {
-                d.DrawPixel(sx, sy, on);
-                d.DrawPixel(sx - 1, sy, on);
-                d.DrawPixel(sx + 1, sy, on);
-                d.DrawPixel(sx, sy - 1, on);
-                d.DrawPixel(sx, sy + 1, on);
-            };
-
-            const int area_left = line_x - 6;
-            const int area_right = line_x + 6;
-            const int area_top = line_top;
-            const int area_bottom = line_bottom;
-            const int area_w = area_right - area_left + 1;
-            const int area_h = area_bottom - area_top + 1;
-            if(area_w > 4 && area_h > 4 && freeze_on)
-            {
-                for(int i = 0; i < 6; ++i)
-                {
-                    const int sx = area_left + static_cast<int>((now_ms / 120 + i * 7) % area_w);
-                    const int sy = area_top + static_cast<int>((now_ms / 60 + i * 9) % area_h);
-                    if(sy < text_top || sy > text_bottom)
-                        DrawSnowflake(sx, sy, true);
-                }
-            }
-
-            if(freeze_on)
-            {
-                if(highlight)
-                {
-                    d.DrawRect(text_x_on - 1, text_y_on - 1, text_x_on + on_w, text_y_on + Font5x7::H, true, true);
-                    DrawTinyString(d, on_label, text_x_on, text_y_on, false);
-                }
-                else DrawTinyString(d, on_label, text_x_on, text_y_on, true);
-                DrawTinyString(d, off_label, text_x_off, text_y_off, true);
-            }
-            else
-            {
-                DrawTinyString(d, on_label, text_x_on, text_y_on, true);
-                if(highlight)
-                {
-                    d.DrawRect(text_x_off - 1, text_y_off - 1, text_x_off + off_w, text_y_off + Font5x7::H, true, true);
-                    DrawTinyString(d, off_label, text_x_off, text_y_off, false);
-                }
-                else DrawTinyString(d, off_label, text_x_off, text_y_off, true);
-            }
+                                     fader_offsets, nullptr, nullptr, nullptr);
         }
     }
     else if(index == 3)

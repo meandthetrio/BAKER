@@ -30,7 +30,7 @@
 
 ### Audio engine (callback → voices → mix)
 - audio_engine.cpp / audio_engine.h
-  - Purpose: FX/mix layer (delay/reverb/sat), block processing.
+  - Purpose: FX/mix layer (stereo dual delay / reverb / sat), block processing.
   - Thread: [AUDIO]
   - Key symbols: `AudioEngine::ProcessBlock`, `AudioEngine::Init`, `kDelayMaxSamples`
   - Milestones: TBD

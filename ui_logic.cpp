@@ -42,10 +42,13 @@ bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& 
        && UiNav_Active(app.ui_nav) == UiScreenId::PerformProcess)
     {
         const bool saved_detail = app.perform_process_detail_active;
-        app.perform_process_detail_active = false;
+        const bool saved_eqg    = app.perform_process_eq_graph_active;
+        app.perform_process_detail_active  = false;
+        app.perform_process_eq_graph_active = false;
         const UiScreen& process = GetScreen(UiScreenId::PerformProcess);
         const bool handled = process.OnEvent && process.OnEvent(parent_ctx, pe);
-        app.perform_process_detail_active = saved_detail;
+        app.perform_process_detail_active   = saved_detail;
+        app.perform_process_eq_graph_active = saved_eqg;
         if(handled)
         {
             app.ui_dirty = true;
@@ -78,13 +81,15 @@ void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms
         const bool focus_has_submenu = (app.perform_process_main_cursor >= 2u);
         if(focus_has_submenu)
         {
-            app.perform_process_detail_active = true;
+            app.perform_process_detail_active   = app.ui_parent_preview_origin_process_detail;
+            app.perform_process_eq_graph_active = app.ui_parent_preview_origin_process_eq_graph;
         }
         else
         {
             app.perform_process_main_cursor = app.ui_parent_preview_origin_main_cursor;
             app.perform_process_fx_cursor = app.ui_parent_preview_origin_fx_cursor;
-            app.perform_process_detail_active = app.ui_parent_preview_origin_process_detail;
+            app.perform_process_detail_active   = app.ui_parent_preview_origin_process_detail;
+            app.perform_process_eq_graph_active = app.ui_parent_preview_origin_process_eq_graph;
         }
     }
     else if(app.ui_parent_preview_mode == 1
@@ -118,7 +123,8 @@ void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms
     app.ui_parent_preview_origin_screen = UiScreenId::COUNT;
     app.ui_parent_preview_origin_main_cursor = 0;
     app.ui_parent_preview_origin_fx_cursor = 0;
-    app.ui_parent_preview_origin_process_detail = false;
+    app.ui_parent_preview_origin_process_detail   = false;
+    app.ui_parent_preview_origin_process_eq_graph = false;
     app.ui_dirty = true;
 }
 } // namespace
@@ -240,12 +246,14 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             {
                 app.ui_lshift_held = true;
                 const UiScreenId active = UiNav_Active(app.ui_nav);
-                if(active == UiScreenId::PerformProcess && app.perform_process_detail_active)
+                if(active == UiScreenId::PerformProcess
+                   && (app.perform_process_detail_active || app.perform_process_eq_graph_active))
                 {
                     app.ui_parent_preview_origin_screen = active;
                     app.ui_parent_preview_origin_main_cursor = app.perform_process_main_cursor;
                     app.ui_parent_preview_origin_fx_cursor = app.perform_process_fx_cursor;
-                    app.ui_parent_preview_origin_process_detail = app.perform_process_detail_active;
+                    app.ui_parent_preview_origin_process_detail   = app.perform_process_detail_active;
+                    app.ui_parent_preview_origin_process_eq_graph = app.perform_process_eq_graph_active;
                     app.ui_parent_preview_active = true;
                     app.ui_parent_preview_mode = 2;
                     app.ui_parent_preview_from_top = app.ui_nav.top;
@@ -256,7 +264,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                     app.ui_parent_preview_origin_screen = active;
                     app.ui_parent_preview_origin_main_cursor = app.perform_process_main_cursor;
                     app.ui_parent_preview_origin_fx_cursor = app.perform_process_fx_cursor;
-                    app.ui_parent_preview_origin_process_detail = app.perform_process_detail_active;
+                    app.ui_parent_preview_origin_process_detail   = app.perform_process_detail_active;
+                    app.ui_parent_preview_origin_process_eq_graph = app.perform_process_eq_graph_active;
                     app.ui_parent_preview_active = true;
                     app.ui_parent_preview_mode = 1;
                     app.ui_parent_preview_from_top = app.ui_nav.top;
@@ -297,9 +306,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         {
             // Toggle SHIFT menu.
             const UiScreenId active = UiNav_Active(app.ui_nav);
-            if(active == UiScreenId::PerformProcess && app.perform_process_detail_active)
+            if(active == UiScreenId::PerformProcess
+               && (app.perform_process_detail_active || app.perform_process_eq_graph_active))
             {
-                // Let PROCESS detail consume POD1 as "back to PROCESS".
+                // Let PROCESS detail / EQ graph consume POD1 as "back to PROCESS".
                 // Do not globally open SHIFT menu from inside FX detail.
             }
             else

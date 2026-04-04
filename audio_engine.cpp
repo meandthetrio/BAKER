@@ -18,10 +18,6 @@ void AudioEngine::DelayClear_()
     std::memset(g_delay_buf_L, 0, sizeof(g_delay_buf_L));
     std::memset(g_delay_buf_R, 0, sizeof(g_delay_buf_R));
     delay_wr_ = 0;
-    for(auto& b : delay_mid_hp_)
-        b.Reset();
-    for(auto& b : delay_mid_lp_)
-        b.Reset();
 }
 
 void AudioEngine::DelayProcess_(float dryL, float dryR, float mix, bool feed_input, size_t len_l,
@@ -33,11 +29,8 @@ void AudioEngine::DelayProcess_(float dryL, float dryR, float mix, bool feed_inp
     const size_t wr  = delay_wr_;
     const size_t rdL = (wr + kDelayMaxSamples - len_l) % kDelayMaxSamples;
     const size_t rdR = (wr + kDelayMaxSamples - len_r) % kDelayMaxSamples;
-    float        dL  = g_delay_buf_L[rdL];
-    float        dR  = g_delay_buf_R[rdR];
-
-    dL = delay_mid_lp_[0].Process(delay_mid_hp_[0].Process(dL));
-    dR = delay_mid_lp_[1].Process(delay_mid_hp_[1].Process(dR));
+    const float  dL  = g_delay_buf_L[rdL];
+    const float  dR  = g_delay_buf_R[rdR];
 
     g_delay_buf_L[wr] = inL + dL * fb;
     g_delay_buf_R[wr] = inR + dR * fb;
@@ -128,6 +121,9 @@ void AudioEngine::Init(float sample_rate, size_t block_size)
     reverb_tail_blocks_left_ = 0;
     reverb_quiet_blocks_     = 0;
     reverb_tail_mix_         = 0.0f;
+
+    tilt_eq_.Reset();
+    eq_run_prev_ = false;
 }
 
 void AudioEngine::ProcessBlock(const float* inL,
@@ -210,29 +206,39 @@ void AudioEngine::ProcessBlock(const float* inL,
 
     ReverbUpdateParamsDattorro_(p);
 
-    // Delay lengths + feedback (smoothed params, constant within block)
-    float dt = p.delay_time;
-    if(dt < 0.0f)
-        dt = 0.0f;
-    else if(dt > 1.0f)
-        dt = 1.0f;
-    float sp = p.delay_spread;
-    if(sp < 0.0f)
-        sp = 0.0f;
-    else if(sp > 1.0f)
-        sp = 1.0f;
-    const float t_ms      = dt * kDelayTimeMaxMs;
-    const float t_samps_f = t_ms * sample_rate_ * (1.0f / 1000.0f);
-    size_t      len_r     = (size_t)(t_samps_f + 0.5f);
-    if(len_r < 1)
-        len_r = 1;
-    if(len_r >= kDelayMaxSamples)
-        len_r = kDelayMaxSamples - 1;
-    size_t len_l = (size_t)(t_samps_f * (1.0f - sp) + 0.5f);
-    if(len_l < 1)
-        len_l = 1;
-    if(len_l > len_r)
-        len_l = len_r;
+    const bool eq_run = (p.eq_on && p.eq_mix > 1e-5f);
+    if(eq_run && !eq_run_prev_)
+        tilt_eq_.Reset();
+    eq_run_prev_ = eq_run;
+    if(eq_run)
+    {
+        float tilt = p.eq_tilt_db;
+        if(tilt < -kTiltEqTiltMaxDb)
+            tilt = -kTiltEqTiltMaxDb;
+        else if(tilt > kTiltEqTiltMaxDb)
+            tilt = kTiltEqTiltMaxDb;
+        const float center_hz = TiltEq_CenterNormToHz(p.eq_center_norm);
+        tilt_eq_.SetFromParams(center_hz, tilt, sample_rate_, p.eq_q);
+    }
+
+    // Delay L/R times + feedback (smoothed params, constant within block)
+    auto delay_len_from_norm = [this](float n) -> size_t
+    {
+        if(n < 0.0f)
+            n = 0.0f;
+        else if(n > 1.0f)
+            n = 1.0f;
+        const float t_ms      = n * kDelayTimeMaxMs;
+        const float t_samps_f = t_ms * sample_rate_ * (1.0f / 1000.0f);
+        size_t      len       = (size_t)(t_samps_f + 0.5f);
+        if(len < 1)
+            len = 1;
+        if(len >= kDelayMaxSamples)
+            len = kDelayMaxSamples - 1;
+        return len;
+    };
+    const size_t len_l = delay_len_from_norm(p.delay_time_l);
+    const size_t len_r = delay_len_from_norm(p.delay_time_r);
 
     float dfb = p.delay_feedback;
     if(dfb < 0.0f)
@@ -241,30 +247,6 @@ void AudioEngine::ProcessBlock(const float* inL,
         dfb = 1.0f;
     static constexpr float kDelayFeedbackMax = 0.97f;
     const float            delay_fb          = dfb * kDelayFeedbackMax;
-
-    float mid = p.delay_mid;
-    if(mid < 0.0f)
-        mid = 0.0f;
-    else if(mid > 1.0f)
-        mid = 1.0f;
-    const float fc_hp = 20.0f + mid * (400.0f - 20.0f);
-    const float fc_lp = 20000.0f + mid * (800.0f - 20000.0f);
-    const float nyq   = 0.5f * sample_rate_;
-    float       fc_lp_c = fc_lp;
-    float       fc_hp_c = fc_hp;
-    if(fc_lp_c > nyq * 0.49f)
-        fc_lp_c = nyq * 0.49f;
-    if(fc_hp_c < 20.0f)
-        fc_hp_c = 20.0f;
-    if(fc_hp_c >= fc_lp_c * 0.99f)
-        fc_hp_c = fc_lp_c * 0.25f;
-
-    static constexpr float kButterQ = 0.7071067811865476f;
-    for(int ch = 0; ch < 2; ++ch)
-    {
-        delay_mid_hp_[ch].SetHighpass(fc_hp_c, sample_rate_, kButterQ);
-        delay_mid_lp_[ch].SetLowpass(fc_lp_c, sample_rate_, kButterQ);
-    }
 
     float delay_wet_peak  = 0.0f;
     float reverb_wet_peak = 0.0f;
@@ -286,7 +268,9 @@ void AudioEngine::ProcessBlock(const float* inL,
                         r = SoftClip(r * pre);
                     }
                     break;
-                case 1: // MOD (placeholder in current CuzEngine audio chain)
+                case 1: // EQ (tilt peaking bells)
+                    if(eq_run)
+                        tilt_eq_.ProcessSample(l, r, p.eq_mix);
                     break;
                 case 2: // DELAY
                     if(delay_active_ || delay_tailing_)

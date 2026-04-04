@@ -14,7 +14,7 @@ struct PerformParamsTargets
     bool  delay_on  = false;
     bool  reverb_on = false;
     bool  sat_on    = false;
-    bool  mod_on    = false;
+    bool  eq_on     = false;
 
     float delay_mix  = 0.0f;
     float reverb_mix = 0.0f;
@@ -24,15 +24,13 @@ struct PerformParamsTargets
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit
-    float mod_mix      = 0.0f;
-    float mod_rate_hz  = 0.5f;
-    float mod_wow      = 0.5f;
-    float tape_rate    = 0.5f;
-    uint8_t mod_mode   = 0; // 0=chorus, 1=tape
-    float delay_time   = 0.5f;
+    float eq_mix          = 0.0f;
+    float eq_center_norm  = 0.5f;
+    float eq_tilt_db      = 0.0f;
+    float eq_q            = 1.2f; // peaking Q both bells, UI range 0.5..1.7
+    float delay_time_l   = 0.5f;
+    float delay_time_r   = 0.5f;
     float delay_feedback = 0.5f;
-    float delay_spread = 0.5f;
-    float delay_mid    = 0.0f;
     float reverb_pre   = 0.5f;
     float reverb_damp  = 0.5f;
     float reverb_decay = 0.5f;
@@ -58,7 +56,7 @@ struct PerformParamsTargets
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_keyzone_lo_note[kLayerCount] = {kPerformKeyzoneMinNote, kPerformKeyzoneMinNote};
     uint8_t perform_keyzone_hi_note[kLayerCount] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
-    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=MOD,2=DELAY,3=REVERB
+    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 
 struct PerformParamsCurrent
@@ -70,7 +68,7 @@ struct PerformParamsCurrent
     bool  delay_on  = false;
     bool  reverb_on = false;
     bool  sat_on    = false;
-    bool  mod_on    = false;
+    bool  eq_on     = false;
 
     float delay_mix  = 0.0f;
     float reverb_mix = 0.0f;
@@ -80,15 +78,13 @@ struct PerformParamsCurrent
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit
-    float mod_mix      = 0.0f;
-    float mod_rate_hz  = 0.5f;
-    float mod_wow      = 0.5f;
-    float tape_rate    = 0.5f;
-    uint8_t mod_mode   = 0; // 0=chorus, 1=tape
-    float delay_time   = 0.5f;
+    float eq_mix          = 0.0f;
+    float eq_center_norm  = 0.5f;
+    float eq_tilt_db      = 0.0f;
+    float eq_q            = 1.2f; // peaking Q both bells, UI range 0.5..1.7
+    float delay_time_l   = 0.5f;
+    float delay_time_r   = 0.5f;
     float delay_feedback = 0.5f;
-    float delay_spread = 0.5f;
-    float delay_mid    = 0.0f;
     float reverb_pre   = 0.5f;
     float reverb_damp  = 0.5f;
     float reverb_decay = 0.5f;
@@ -114,7 +110,7 @@ struct PerformParamsCurrent
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_keyzone_lo_note[kLayerCount] = {kPerformKeyzoneMinNote, kPerformKeyzoneMinNote};
     uint8_t perform_keyzone_hi_note[kLayerCount] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
-    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=MOD,2=DELAY,3=REVERB
+    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 
 class Params

@@ -6,8 +6,8 @@ USE_FATFS = 1
 # Sources
 CPP_SOURCES = main.cpp
 CPP_SOURCES += params.cpp
+CPP_SOURCES += tilt_eq.cpp
 CPP_SOURCES += audio_engine.cpp
-CPP_SOURCES += delay_biquad.cpp
 CPP_SOURCES += ui_logic.cpp
 CPP_SOURCES += ui_render.cpp
 CPP_SOURCES += ui_input.cpp

@@ -466,7 +466,7 @@
 - Result:
   - Moves parameter focus.
 - Notes:
-  - Param count: SAT 4, MOD 4, DELAY 5 (TIM/FBK/SPRD/MID/MIX), REVERB 5.
+  - Param count: SAT 4, MOD 4, DELAY 4 (LTM/RTM/FBK/MIX), REVERB 5.
 
 5. **Detail mode parameter edit (`kUiEncExt`)**
 - Type: in-screen submenu edit
@@ -506,11 +506,11 @@
 - Purpose: edit DELAY-specific params.
 - Behavior:
   - POD encoder selects param index.
-  - EXT encoder edits time, feedback, spread, MID (band-limit on delay tap for wet + feedback), mix.
+  - EXT encoder edits L time, R time, feedback, mix. With **RSHIFT** held, turning the EXT encoder while **LTM** or **RTM** is focused moves **both** `delay_time_l` and `delay_time_r` together (each clamped 0..1).
 - Result:
   - Updates DELAY params (`delay_*`).
 - Notes:
-  - MID sweeps HPF/LPF corners on the delayed signal only (wet path and feedback); 0% ≈ 20 Hz HPF / 20 kHz LPF, 100% ≈ 400 Hz HPF / 800 Hz LPF (12 dB/oct each).
+  - Stereo **dual delay**: independent L/R tap times (each 0–1000 ms at 48 kHz from `delay_time_l` / `delay_time_r` 0..1), shared feedback per channel (L tap → L feedback, R → R), shared wet mix.
 
 9. **FX detail submenu: REVERB**
 - Type: in-screen submenu

@@ -138,6 +138,7 @@ struct AppState
     uint8_t  ui_parent_preview_origin_main_cursor = 0;
     uint8_t  ui_parent_preview_origin_fx_cursor = 0;
     bool     ui_parent_preview_origin_process_detail = false;
+    bool     ui_parent_preview_origin_process_eq_graph = false;
     bool     ui_btn1_held  = false;
     bool     ui_btn2_held  = false;
     UiValueEdit value_edit{};
@@ -166,13 +167,14 @@ struct AppState
     uint8_t perform_adsr_env_r_x[2] = {89u, 89u}; // 0..100, must stay after D
     uint8_t perform_adsr_env_s_level[2] = {50u, 50u}; // 0..100, low->high
     uint8_t perform_emphasis_row  = 0; // 0=GAIN, 1=FILTER, 2=RESO
-    uint8_t perform_process_fx_cursor = 0; // 0=S, 1=M, 2=D, 3=R
-    uint8_t perform_process_fx_order[4] = {0, 1, 2, 3}; // 0=S,1=M,2=D,3=R
+    uint8_t perform_process_fx_cursor = 0; // 0=S, 1=E, 2=D, 3=R
+    uint8_t perform_process_fx_order[4] = {0, 1, 2, 3}; // 0=S,1=E,2=D,3=R
     uint8_t perform_process_main_cursor = 2; // 0=VOL A, 1=VOL B, 2..5=S/M/D/R
     uint16_t perform_process_vol_pct[2] = {100u, 100u}; // 0..200, UNITY=100
     bool    perform_process_vol_muted[2] = {false, false};
     float   perform_process_vol_unmuted_level[2] = {1.0f, 1.0f};
     bool    perform_process_detail_active = false;
+    bool    perform_process_eq_graph_active = false;
     uint8_t perform_process_detail_param[4] = {0, 0, 0, 0};
     RecordUiState record_state = RecordUiState::SourceSelect;
     uint8_t record_source_index = 0; // 0=LINE IN, 1=MIC

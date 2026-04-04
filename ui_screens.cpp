@@ -13,6 +13,7 @@
 #include "ui_requests.h"
 #include "sd_browser_state.h"
 #include "sample_edit.h"
+#include "tilt_eq.h"
 
 #include <cmath>
 #include <cstdio>
@@ -25,6 +26,24 @@ static float Clamp01(float x)
 {
     if(x < 0.0f) return 0.0f;
     if(x > 1.0f) return 1.0f;
+    return x;
+}
+
+static float ClampEqTiltDb(float x)
+{
+    if(x < -kTiltEqTiltMaxDb)
+        return -kTiltEqTiltMaxDb;
+    if(x > kTiltEqTiltMaxDb)
+        return kTiltEqTiltMaxDb;
+    return x;
+}
+
+static float ClampEqQ(float x)
+{
+    if(x < kTiltEqQMin)
+        return kTiltEqQMin;
+    if(x > kTiltEqQMax)
+        return kTiltEqQMax;
     return x;
 }
 
@@ -1071,6 +1090,215 @@ static void DrawVerticalFadersInRect(OledPager& d,
             {
                 DrawTinyString(d, label, label_x, label_y, true);
             }
+        }
+    }
+}
+
+// Clockwise perimeter (inclusive rect), then sparse dots with phase advancing ~1 step / 200ms.
+static void DrawClockwiseMarchingDottedRect(OledPager& d, int x0, int y0, int x1, int y1, uint32_t now_ms)
+{
+    if(x1 < x0)
+    {
+        const int t = x0;
+        x0 = x1;
+        x1 = t;
+    }
+    if(y1 < y0)
+    {
+        const int t = y0;
+        y0 = y1;
+        y1 = t;
+    }
+    if(x1 - x0 < 1 || y1 - y0 < 1)
+        return;
+
+    int px[320];
+    int py[320];
+    int n = 0;
+    auto push = [&](int x, int y)
+    {
+        if(n < static_cast<int>(sizeof(px) / sizeof(px[0])))
+        {
+            px[n] = x;
+            py[n] = y;
+            ++n;
+        }
+    };
+    for(int x = x0; x <= x1; ++x)
+        push(x, y0);
+    for(int y = y0 + 1; y <= y1; ++y)
+        push(x1, y);
+    for(int x = x1 - 1; x >= x0; --x)
+        push(x, y1);
+    for(int y = y1 - 1; y > y0; --y)
+        push(x0, y);
+    if(n <= 0)
+        return;
+    const int step = static_cast<int>(now_ms / 200u);
+    for(int i = 0; i < n; ++i)
+    {
+        if(((i + step) % 3) == 0)
+            d.DrawPixel(px[i], py[i], true);
+    }
+}
+
+// DELAY detail: vertical letter stacks (LTM/RTM/FBK/MIX), each glyph centered in the label column.
+static void DrawDelayDetailFaders(OledPager& d,
+                                  int x,
+                                  int y,
+                                  int w,
+                                  int h,
+                                  const char* const labels[4],
+                                  const float values[4],
+                                  bool select_active,
+                                  int selected_index,
+                                  int out_lbl_x0[4],
+                                  int out_lbl_y0[4],
+                                  int out_lbl_x1[4],
+                                  int out_lbl_y1[4])
+{
+    for(int i = 0; i < 4; ++i)
+    {
+        out_lbl_x0[i] = 0;
+        out_lbl_y0[i] = 0;
+        out_lbl_x1[i] = 0;
+        out_lbl_y1[i] = 0;
+    }
+    if(w <= 2 || h <= 2)
+        return;
+
+    constexpr int kCharColW   = 6;
+    constexpr int kLabelGap   = 2;
+    constexpr int kShiftLtmRtmFbkPx = 5;
+    constexpr int kMixLabelLeftPx   = 3;
+    constexpr int kDisplayH         = 64;
+    const int       line_top    = y + 2;
+    const int       line_bottom = y + h - 2;
+    if(line_bottom <= line_top)
+        return;
+
+    int fader_left = x + 4 + kCharColW + kLabelGap;
+    int fader_right = x + w - 5;
+    if(fader_right <= fader_left)
+        return;
+
+    const int span_x = fader_right - fader_left;
+    const int span_y = line_bottom - line_top;
+    constexpr int kCount = 4;
+
+    for(int f = 0; f < kCount; ++f)
+    {
+        int line_x = fader_left;
+        if(kCount > 1 && span_x > 0)
+            line_x = fader_left + (span_x * f) / (kCount - 1);
+        // LTM/RTM/FBK: rails shift right; labels stay on the unshifted column grid.
+        const int rail_x_center = line_x + ((f <= 2) ? kShiftLtmRtmFbkPx : 0);
+
+        int col_right = line_x - kLabelGap;
+        int col_left  = col_right - kCharColW + 1;
+        if(f == 3)
+        {
+            col_left -= kMixLabelLeftPx;
+            col_right -= kMixLabelLeftPx;
+        }
+        const char* lab     = labels[f];
+        const int   lab_len = (lab != nullptr) ? static_cast<int>(std::strlen(lab)) : 0;
+        if(lab != nullptr && lab_len > 0)
+        {
+            constexpr int kMaxLabelStack = 3;
+            const int     nch            = lab_len < kMaxLabelStack ? lab_len : kMaxLabelStack;
+            constexpr int kStackGap      = 1;
+            const int     stack_h        = nch * Font5x7::H + (nch > 1 ? (nch - 1) * kStackGap : 0);
+            const int     y_start        = line_top + (span_y - stack_h) / 2;
+            if(y_start >= line_top && nch > 0)
+            {
+                out_lbl_x0[f] = col_left - 1;
+                out_lbl_y0[f] = y_start - 1;
+                out_lbl_x1[f] = col_right;
+                out_lbl_y1[f] = y_start + stack_h;
+
+                const bool inv_fbk_mix = select_active && f == selected_index && f >= 2;
+                if(inv_fbk_mix)
+                {
+                    d.DrawRect(out_lbl_x0[f], out_lbl_y0[f], out_lbl_x1[f], out_lbl_y1[f], true, true);
+                }
+                for(int c = 0; c < nch; ++c)
+                {
+                    char      one[2] = {lab[c], '\0'};
+                    const int cw     = TinyStringWidth(one);
+                    int       cx     = col_left + (kCharColW - cw) / 2;
+                    if(cx < x + 1)
+                        cx = x + 1;
+                    const int cy = y_start + c * (Font5x7::H + kStackGap);
+                    DrawTinyString(d, one, cx, cy, !inv_fbk_mix);
+                }
+            }
+        }
+
+        int rail_x = rail_x_center;
+        if(rail_x < x + 1)
+            rail_x = x + 1;
+        if(rail_x > x + w - 2)
+            rail_x = x + w - 2;
+
+        const int rail_top    = (f <= 1) ? 0 : line_top;
+        const int rail_bottom = (f <= 1) ? (kDisplayH - 1) : line_bottom;
+        const int span_y_rail = rail_bottom - rail_top;
+        if(span_y_rail < 1)
+            continue;
+
+        d.DrawLine(rail_x, rail_top, rail_x, rail_bottom, true);
+        d.DrawLine(rail_x - 1, rail_top, rail_x + 1, rail_top, true);
+        d.DrawLine(rail_x - 1, rail_bottom, rail_x + 1, rail_bottom, true);
+
+        const float value  = values[f];
+        int         tick_y = rail_bottom - static_cast<int>(value * static_cast<float>(span_y_rail) + 0.5f);
+
+        int handle_w = 7;
+        const int max_w = (x + w - 2) - (x + 1) + 1;
+        if(handle_w > max_w)
+            handle_w = max_w;
+        if((handle_w & 1) == 0 && handle_w > 1)
+            --handle_w;
+        int handle_x0 = rail_x - handle_w / 2;
+        int handle_x1 = handle_x0 + handle_w - 1;
+        if(handle_x0 < x + 1)
+        {
+            handle_x0 = x + 1;
+            handle_x1 = handle_x0 + handle_w - 1;
+        }
+        if(handle_x1 > x + w - 2)
+        {
+            handle_x1 = x + w - 2;
+            handle_x0 = handle_x1 - handle_w + 1;
+        }
+        int handle_y0 = tick_y - 5;
+        int handle_y1 = tick_y + 5;
+        if(handle_y0 < rail_top)
+            handle_y0 = rail_top;
+        if(handle_y1 > rail_bottom)
+            handle_y1 = rail_bottom;
+
+        d.DrawRect(handle_x0, handle_y0, handle_x1, handle_y1, true, false);
+        if(handle_x1 - handle_x0 >= 2 && handle_y1 - handle_y0 >= 2)
+            d.DrawRect(handle_x0 + 1, handle_y0 + 1, handle_x1 - 1, handle_y1 - 1, false, true);
+        if((handle_x1 - handle_x0) >= 4 && (handle_y1 - handle_y0) >= 4)
+        {
+            d.DrawPixel(handle_x0, handle_y0, false);
+            d.DrawPixel(handle_x1, handle_y0, false);
+            d.DrawPixel(handle_x0, handle_y1, false);
+            d.DrawPixel(handle_x1, handle_y1, false);
+        }
+        const int center_y = handle_y0 + ((handle_y1 - handle_y0) / 2);
+        const int inner_x0 = handle_x0 + 1;
+        const int inner_x1 = handle_x1 - 1;
+        if(inner_x1 > inner_x0)
+        {
+            d.DrawLine(inner_x0, center_y, inner_x1, center_y, true);
+            if(center_y - 2 >= handle_y0 + 1)
+                d.DrawLine(inner_x0, center_y - 2, inner_x1, center_y - 2, true);
+            if(center_y + 2 <= handle_y1 - 1)
+                d.DrawLine(inner_x0, center_y + 2, inner_x1, center_y + 2, true);
         }
     }
 }
@@ -4720,8 +4948,8 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         switch(id)
         {
             case 0: return 4; // SAT + mode toggle
-            case 1: return 4; // MOD + algo toggle
-            case 2: return 5; // DELAY: TIM FBK SPRD MID MIX
+            case 1: return 1; // EQ: graph only (no classic detail)
+            case 2: return 4; // DELAY: LTM RTM FBK MIX
             case 3: return 5; // REVERB + DIR toggle
             default: return 3;
         }
@@ -4740,15 +4968,22 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown
        && (e.id == kUiBtnPod1 || e.id == kUiBtnPodEnc)
-       && app.perform_process_detail_active)
+       && (app.perform_process_detail_active || app.perform_process_eq_graph_active))
     {
-        app.perform_process_detail_active = false;
+        app.perform_process_detail_active   = false;
+        app.perform_process_eq_graph_active = false;
         app.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
+        if(app.perform_process_eq_graph_active)
+        {
+            app.ui_dirty = true;
+            return true;
+        }
+
         if(!app.perform_process_detail_active)
         {
             if(!main_selects_fx)
@@ -4791,12 +5026,19 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 app.ui_dirty = true;
                 return true;
             }
-            app.perform_process_detail_active = true;
             {
-                const uint8_t c = static_cast<uint8_t>((app.perform_process_main_cursor - 2u) & 0x03u);
+                const uint8_t c   = static_cast<uint8_t>((app.perform_process_main_cursor - 2u) & 0x03u);
                 const uint8_t fid = app.perform_process_fx_order[c];
-                if(fid == 2u && app.perform_process_detail_param[c] > 4u)
-                    app.perform_process_detail_param[c] = 0u;
+                if(fid == 1u)
+                {
+                    app.perform_process_eq_graph_active = true;
+                }
+                else
+                {
+                    app.perform_process_detail_active = true;
+                    if(fid == 2u && app.perform_process_detail_param[c] > 3u)
+                        app.perform_process_detail_param[c] = 0u;
+                }
             }
             app.ui_dirty = true;
             return true;
@@ -4809,6 +5051,15 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
+        if(app.perform_process_eq_graph_active && fx_id == 1u)
+        {
+            PerformParamsTargets& t = ctx.params->EditTargets();
+            const float           step = 0.018f * static_cast<float>(e.value);
+            t.eq_center_norm           = Clamp01(t.eq_center_norm + step);
+            ctx.params->PublishTargets();
+            app.ui_dirty = true;
+            return true;
+        }
         if(app.perform_process_detail_active)
         {
             int idx = static_cast<int>(app.perform_process_detail_param[cursor]) + e.value;
@@ -4837,6 +5088,22 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         static uint32_t s_last_ext_t_ms = 0u;
         const float delta = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
+        if(app.perform_process_eq_graph_active && fx_id == 1u)
+        {
+            PerformParamsTargets& t = ctx.params->EditTargets();
+            if(ctx.rshift)
+            {
+                // RShift + Ext: Q for both bells (0.5 .. 1.7)
+                t.eq_q = ClampEqQ(t.eq_q + delta * (kTiltEqQMax - kTiltEqQMin) * 1.25f);
+            }
+            else
+            {
+                t.eq_tilt_db = ClampEqTiltDb(t.eq_tilt_db + delta * 18.0f);
+            }
+            ctx.params->PublishTargets();
+            app.ui_dirty = true;
+            return true;
+        }
         if(app.perform_process_detail_active)
         {
             PerformParamsTargets& t = ctx.params->EditTargets();
@@ -4893,61 +5160,35 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                         changed = true;
                     }
                     break;
-                case 1: // MOD
-                    if(pidx == 0)
-                    {
-                        if(t.mod_mode == 1)
-                            t.mod_wow = Clamp01(t.mod_wow + delta);
-                        else
-                            t.lfo_depth = Clamp01(t.lfo_depth + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 1)
-                    {
-                        if(t.mod_mode == 1)
-                            t.tape_rate = Clamp01(t.tape_rate + delta);
-                        else
-                            t.mod_rate_hz = Clamp01(t.mod_rate_hz + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 2)
-                    {
-                        t.mod_mix = Clamp01(t.mod_mix + delta);
-                        t.mod_on = (t.mod_mix > 0.001f);
-                        changed = true;
-                    }
-                    else if(pidx == 3)
-                    {
-                        const int dir = (e.value > 0) ? 1 : -1;
-                        int steps = (e.value > 0) ? e.value : -e.value;
-                        while(steps-- > 0)
-                            t.mod_mode = (dir > 0) ? ((t.mod_mode + 1u) & 1u)
-                                                   : ((t.mod_mode == 0) ? 1u : 0u);
-                        changed = true;
-                    }
-                    break;
                 case 2: // DELAY
                     if(pidx == 0)
                     {
-                        t.delay_time = Clamp01(t.delay_time + delta);
+                        if(ctx.rshift)
+                        {
+                            t.delay_time_l = Clamp01(t.delay_time_l + delta);
+                            t.delay_time_r = Clamp01(t.delay_time_r + delta);
+                        }
+                        else
+                            t.delay_time_l = Clamp01(t.delay_time_l + delta);
                         changed = true;
                     }
                     else if(pidx == 1)
+                    {
+                        if(ctx.rshift)
+                        {
+                            t.delay_time_l = Clamp01(t.delay_time_l + delta);
+                            t.delay_time_r = Clamp01(t.delay_time_r + delta);
+                        }
+                        else
+                            t.delay_time_r = Clamp01(t.delay_time_r + delta);
+                        changed = true;
+                    }
+                    else if(pidx == 2)
                     {
                         t.delay_feedback = Clamp01(t.delay_feedback + delta);
                         changed = true;
                     }
-                    else if(pidx == 2)
-                    {
-                        t.delay_spread = Clamp01(t.delay_spread + delta);
-                        changed = true;
-                    }
                     else if(pidx == 3)
-                    {
-                        t.delay_mid = Clamp01(t.delay_mid + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 4)
                     {
                         t.delay_mix = Clamp01(t.delay_mix + delta);
                         t.delay_on = (t.delay_mix > 0.001f);
@@ -4997,7 +5238,7 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 app.ui_dirty = true;
                 return true;
             }
-            // RSHIFT + R encoder reorders focused S/M/D/R lane, clamped at edges.
+            // RSHIFT + R encoder reorders focused S/E/D/R lane, clamped at edges.
             const int dir = (e.value > 0) ? 1 : -1;
             const int from = static_cast<int>(main_cursor - 2u);
             const int to = from + dir;
@@ -5063,8 +5304,9 @@ static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 t.sat_drive = Clamp01(t.sat_drive + delta);
                 t.sat_on = (t.sat_drive > 0.001f);
                 break;
-            case 1: // M = modulation amount (existing plumbing)
-                t.lfo_depth = Clamp01(t.lfo_depth + delta);
+            case 1: // E = EQ wet
+                t.eq_mix = Clamp01(t.eq_mix + delta);
+                t.eq_on  = (t.eq_mix > 0.001f);
                 break;
             case 2: // D = delay wet
                 t.delay_mix = Clamp01(t.delay_mix + delta);
@@ -5091,13 +5333,13 @@ static void DrawFxDetailScreen(OledPager& d,
                                const PerformParamsTargets& t,
                                uint8_t fx_id,
                                uint8_t selected_param,
-                               uint32_t now_ms)
+                               uint32_t now_ms,
+                               bool rshift_held)
 {
-    (void)now_ms;
     constexpr int kDisplayW = 128;
     constexpr int kDisplayH = 64;
     constexpr int kPerformFaderCount = 4;
-    constexpr int kDelayFaderCount = 5;
+    constexpr int kDelayFaderCount = 4;
     constexpr int kReverbFaderCount = 5;
     constexpr int kBitResoStepCount = 3;
     static const char* kBitResoLabels[kBitResoStepCount] = {"CRUSH", "STATIC", "HISS"};
@@ -5111,17 +5353,32 @@ static void DrawFxDetailScreen(OledPager& d,
         return idx;
     };
 
-    const char* labels[kPerformFaderCount] = {"SATURATION", "MODULATION", "DELAY", "REVERB"};
+    const char* labels[kPerformFaderCount] = {"SATURATION", "EQ", "DELAY", "REVERB"};
     int index = static_cast<int>(fx_id & 0x03u);
     if(index < 0 || index >= kPerformFaderCount)
         index = 0;
 
-    const char* label = labels[index];
-    const int text_w = TinyStringWidth(label);
-    int text_x = (kDisplayW - text_w) / 2;
-    if(text_x < 0)
-        text_x = 0;
-    DrawTinyString(d, label, text_x, 1, true);
+    if(index == 2)
+    {
+        const char*   hdr       = "delay";
+        const int     header_w = MicroStringWidth(hdr);
+        const int     box_w    = header_w + 4;
+        const int     header_box_h = kMicroH + 4;
+        int           box_x    = kDisplayW - box_w;
+        if(box_x < 0)
+            box_x = 0;
+        d.DrawRect(box_x, 0, box_x + box_w - 1, header_box_h - 1, true, true);
+        DrawMicroString(d, hdr, box_x + 2, 2, false);
+    }
+    else
+    {
+        const char* label   = labels[index];
+        const int   text_w  = TinyStringWidth(label);
+        int         text_x  = (kDisplayW - text_w) / 2;
+        if(text_x < 0)
+            text_x = 0;
+        DrawTinyString(d, label, text_x, 1, true);
+    }
 
     if(index == 0)
     {
@@ -5217,94 +5474,49 @@ static void DrawFxDetailScreen(OledPager& d,
     }
     else if(index == 1)
     {
-        constexpr int kMargin = 2;
-        constexpr int kGap = 2;
-        const int block_x = kMargin;
-        const int block_w = kDisplayW / 4;
-        const int block_y = Font5x7::H + 4;
-        int block_h = kDisplayH - block_y - kMargin;
-        if(block_h < 3) block_h = 3;
-        const bool chorus_selected = (t.mod_mode == 0);
-        const bool tape_selected = (t.mod_mode == 1);
-        const bool algo_selected = (selected_param == 3);
-        const int algo_x0 = block_x;
-        const int algo_y0 = block_y;
-        const int algo_x1 = block_x + block_w - 1;
-        const int algo_y1 = block_y + block_h - 1;
-        const int algo_pad = 2;
-        const int algo_gap = 2;
-        const int inner_x0 = algo_x0 + algo_pad;
-        const int inner_y0 = algo_y0 + algo_pad;
-        const int inner_x1 = algo_x1 - algo_pad;
-        const int inner_y1 = algo_y1 - algo_pad;
-        const int inner_h = inner_y1 - inner_y0 + 1;
-        const int box_h = (inner_h - algo_gap) / 2;
-        const int box1_y0 = inner_y0;
-        const int box1_y1 = box1_y0 + box_h - 1;
-        const int box2_y0 = box1_y1 + algo_gap + 1;
-        const int box2_y1 = box2_y0 + box_h - 1;
-        if(algo_selected)
-        {
-            d.DrawRect(algo_x0, algo_y0, algo_x1, algo_y1, true, false);
-            if(algo_x1 - algo_x0 > 2 && algo_y1 - algo_y0 > 2)
-                d.DrawRect(algo_x0 + 1, algo_y0 + 1, algo_x1 - 1, algo_y1 - 1, true, false);
-        }
-        d.DrawRect(inner_x0, box1_y0, inner_x1, box1_y1, true, chorus_selected);
-        d.DrawRect(inner_x0, box2_y0, inner_x1, box2_y1, true, tape_selected);
-        const int label_w1 = TinyStringWidth("CHRS");
-        const int label_w2 = TinyStringWidth("TAPE");
-        const int label_y1 = box1_y0 + (box_h - Font5x7::H) / 2;
-        const int label_y2 = box2_y0 + (box_h - Font5x7::H) / 2;
-        const int inner_w = inner_x1 - inner_x0 + 1;
-        int label_x1 = inner_x0 + (inner_w - label_w1) / 2;
-        int label_x2 = inner_x0 + (inner_w - label_w2) / 2;
-        if(label_x1 < inner_x0 + 1) label_x1 = inner_x0 + 1;
-        if(label_x1 + label_w1 > inner_x1 - 1) label_x1 = inner_x1 - 1 - label_w1;
-        if(label_x2 < inner_x0 + 1) label_x2 = inner_x0 + 1;
-        if(label_x2 + label_w2 > inner_x1 - 1) label_x2 = inner_x1 - 1 - label_w2;
-        DrawTinyString(d, "CHRS", label_x1, label_y1, !chorus_selected);
-        DrawTinyString(d, "TAPE", label_x2, label_y2, !tape_selected);
-
-        const int fader_offset = 8;
-        const int fader_x = block_x + block_w + kGap + fader_offset;
-        const int fader_w = kDisplayW - fader_x - kMargin;
-        if(fader_w > 4)
-        {
-            const char* fader_labels[3] = {(t.mod_mode == 1) ? "DROP" : "DPTH",
-                                           (t.mod_mode == 1) ? "RATE" : "SPD",
-                                           "MIX"};
-            const float fader_values[3] = {(t.mod_mode == 1) ? t.mod_wow : t.lfo_depth,
-                                           (t.mod_mode == 1) ? t.tape_rate : t.mod_rate_hz,
-                                           t.mod_mix};
-            int param_index = selected_param;
-            const bool fader_select_active = (param_index >= 0 && param_index < 3);
-            if(!fader_select_active && !algo_selected) param_index = 0;
-            const int fader_offsets[3] = {0, 0, 0};
-            DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
-                                     fader_labels, fader_values, 3, fader_select_active, param_index,
-                                     fader_offsets, nullptr, nullptr, nullptr);
-        }
+        // EQ uses the graph submenu (Ext click); classic detail is not used for fx_id 1.
+        const char* msg = "EXT: graph";
+        const int   mw   = TinyStringWidth(msg);
+        int         mx   = (kDisplayW - mw) / 2;
+        if(mx < 0)
+            mx = 0;
+        DrawTinyString(d, msg, mx, kDisplayH / 2 - Font5x7::H, true);
     }
     else if(index == 2)
     {
         constexpr int kMargin = 2;
-        const int block_y = Font5x7::H + 4;
-        int block_h = kDisplayH - block_y - kMargin;
-        if(block_h < 3) block_h = 3;
+        const int     header_box_h = kMicroH + 4;
+        const int     block_y    = header_box_h;
+        int           block_h    = kDisplayH - block_y - kMargin;
+        if(block_h < 3)
+            block_h = 3;
         const int fader_x = kMargin;
         const int fader_w = kDisplayW - (kMargin * 2);
         if(fader_w > 4)
         {
-            const char* fader_labels[kDelayFaderCount] = {"TIM", "FBK", "SPRD", "MID", "MIX"};
+            const char* fader_labels[kDelayFaderCount] = {"LTM", "RTM", "FBK", "MIX"};
             const float fader_values[kDelayFaderCount]
-                = {t.delay_time, t.delay_feedback, t.delay_spread, t.delay_mid, t.delay_mix};
+                = {t.delay_time_l, t.delay_time_r, t.delay_feedback, t.delay_mix};
             int param_index = selected_param;
             const bool fader_select_active = (param_index >= 0 && param_index < kDelayFaderCount);
-            if(!fader_select_active) param_index = 0;
-            const int fader_offsets[kDelayFaderCount] = {0, 0, 0, 0, 0};
-            DrawVerticalFadersInRect(d, fader_x, block_y, fader_w, block_h,
-                                     fader_labels, fader_values, kDelayFaderCount, fader_select_active, param_index,
-                                     fader_offsets, nullptr, nullptr, nullptr);
+            if(!fader_select_active)
+                param_index = 0;
+            int lb_x0[4], lb_y0[4], lb_x1[4], lb_y1[4];
+            DrawDelayDetailFaders(d, fader_x, block_y, fader_w, block_h, fader_labels, fader_values,
+                                fader_select_active, param_index, lb_x0, lb_y0, lb_x1, lb_y1);
+
+            if(rshift_held)
+            {
+                DrawClockwiseMarchingDottedRect(d, lb_x0[0] - 1, lb_y0[0] - 1, lb_x1[0] + 1, lb_y1[0] + 1, now_ms);
+                DrawClockwiseMarchingDottedRect(d, lb_x0[1] - 1, lb_y0[1] - 1, lb_x1[1] + 1, lb_y1[1] + 1, now_ms);
+            }
+            else
+            {
+                if(fader_select_active && param_index == 0)
+                    DrawDottedRect(d, lb_x0[0] - 1, lb_y0[0] - 1, lb_x1[0] + 1, lb_y1[0] + 1, true);
+                if(fader_select_active && param_index == 1)
+                    DrawDottedRect(d, lb_x0[1] - 1, lb_y0[1] - 1, lb_x1[1] + 1, lb_y1[1] + 1, true);
+            }
         }
     }
     else if(index == 3)
@@ -5332,6 +5544,95 @@ static void DrawFxDetailScreen(OledPager& d,
     }
 }
 
+static void DrawEqGraphScreen(OledPager& d, const PerformParamsTargets& t, uint32_t now_ms)
+{
+    constexpr int   kDisplayW = 128;
+    constexpr int   kDisplayH = 64;
+    constexpr float kPlotSr   = 48000.f;
+    constexpr float kFMin     = 20.f;
+    constexpr float kFMax     = 20000.f;
+
+    d.Fill(false);
+
+    const int plot_x0 = 2;
+    const int plot_x1 = kDisplayW - 3;
+    const int plot_y0 = 9;
+    const int plot_y1 = kDisplayH - 11;
+
+    const char* hdr = "eq";
+    const int   hw  = MicroStringWidth(hdr);
+    int         hx  = (kDisplayW - hw) / 2;
+    if(hx < 0)
+        hx = 0;
+    DrawMicroString(d, hdr, hx, 0, true);
+
+    const float center_hz = TiltEq_CenterNormToHz(t.eq_center_norm);
+    const float tilt      = ClampEqTiltDb(t.eq_tilt_db);
+    const float kLogSpan = std::log10(static_cast<double>(kFMax / kFMin));
+
+    static uint32_t s_last_curve_ms = 0u;
+    static float    s_prev_c        = -999.f;
+    static float    s_prev_t        = -999.f;
+    static float    s_prev_q        = -999.f;
+    static int16_t  s_y[128];
+
+    const float eq_q = ClampEqQ(t.eq_q);
+    const bool recompute = (now_ms - s_last_curve_ms >= 72u)
+                           || (std::fabs(t.eq_center_norm - s_prev_c) > 0.0005f)
+                           || (std::fabs(t.eq_tilt_db - s_prev_t) > 0.02f)
+                           || (std::fabs(eq_q - s_prev_q) > 0.015f);
+
+    if(recompute)
+    {
+        for(int px = plot_x0; px <= plot_x1; ++px)
+        {
+            const float tn = (static_cast<float>(px - plot_x0))
+                             / static_cast<float>(plot_x1 - plot_x0);
+            const float f  = kFMin * std::pow(10.f, tn * kLogSpan);
+            float       db = TiltEq_CascadeMagnitudeDb(center_hz, tilt, f, kPlotSr, eq_q);
+            if(db > 9.f)
+                db = 9.f;
+            if(db < -9.f)
+                db = -9.f;
+            const float yn = static_cast<float>(plot_y0)
+                             + (9.f - db) / 18.f * static_cast<float>(plot_y1 - plot_y0);
+            int         y  = static_cast<int>(yn + 0.5f);
+            if(y < plot_y0)
+                y = plot_y0;
+            if(y > plot_y1)
+                y = plot_y1;
+            s_y[px] = static_cast<int16_t>(y);
+        }
+        s_last_curve_ms = now_ms;
+        s_prev_c        = t.eq_center_norm;
+        s_prev_t        = t.eq_tilt_db;
+        s_prev_q        = eq_q;
+    }
+
+    for(int px = plot_x0; px < plot_x1; ++px)
+        d.DrawLine(px, s_y[px], px + 1, s_y[px + 1], true);
+
+    auto hz_to_x = [&](float hz) -> int
+    {
+        const float lg = static_cast<float>(std::log10(static_cast<double>(hz / kFMin))) / kLogSpan;
+        return plot_x0
+               + static_cast<int>(lg * static_cast<float>(plot_x1 - plot_x0) + 0.5f);
+    };
+
+    // Tiny font: micro glyph set has no reliable digits (narrow "1" vanishes in 5x7->4x6 crop).
+    const int lab_y = kDisplayH - Font5x7::H;
+    auto draw_hz_label = [&](const char* s, float hz)
+    {
+        const int x   = hz_to_x(hz);
+        const int w   = TinyStringWidth(s);
+        const int lx  = x - w / 2;
+        DrawTinyString(d, s, lx, lab_y, true);
+    };
+    draw_hz_label("100", 100.f);
+    draw_hz_label("1k", 1000.f);
+    draw_hz_label("10k", 10000.f);
+}
+
 static void PerformProcess_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display || !ctx.params)
@@ -5343,13 +5644,26 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
+    if(app.perform_process_eq_graph_active)
+    {
+        const uint8_t cursor = app.perform_process_fx_cursor & 0x03u;
+        const uint8_t g_fx = app.perform_process_fx_order[cursor];
+        if(g_fx == 1u)
+        {
+            const PerformParamsTargets& tg = ctx.params->TargetsForUI();
+            DrawEqGraphScreen(d, tg, ctx.now_ms);
+            return;
+        }
+        app.perform_process_eq_graph_active = false;
+    }
+
     if(app.perform_process_detail_active)
     {
         const uint8_t cursor = app.perform_process_fx_cursor & 0x03u;
         const uint8_t fx_id = app.perform_process_fx_order[cursor];
         const uint8_t pidx = app.perform_process_detail_param[cursor];
         const PerformParamsTargets& t = ctx.params->TargetsForUI();
-        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms);
+        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift);
         return;
     }
 
@@ -5522,7 +5836,7 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
     // Keep right half for FX faders.
     constexpr int kPaneX = 60;
     constexpr int kPaneW = 64;
-    const char* labels[4] = {"S", "M", "D", "R"};
+    const char* labels[4] = {"S", "E", "D", "R"};
     float values[4] = {};
     for(int i = 0; i < 4; ++i)
     {
@@ -5530,7 +5844,7 @@ static void PerformProcess_Render(UiScreenCtx& ctx)
         switch(fx_id)
         {
             case 0: labels[i] = "S"; values[i] = Clamp01(t.sat_drive); break;
-            case 1: labels[i] = "M"; values[i] = Clamp01(t.lfo_depth); break;
+            case 1: labels[i] = "E"; values[i] = Clamp01(t.eq_mix); break;
             case 2: labels[i] = "D"; values[i] = Clamp01(t.delay_mix); break;
             case 3:
             default:
@@ -7104,13 +7418,16 @@ void UiRouter_Render(UiScreenCtx& ctx)
         if(ctx.app->ui_parent_preview_mode == 2
            && UiNav_Active(ctx.app->ui_nav) == UiScreenId::PerformProcess)
         {
-            // In-screen parent: PROCESS detail -> PROCESS main.
+            // In-screen parent: PROCESS detail / EQ graph -> PROCESS main.
             const bool saved_detail = ctx.app->perform_process_detail_active;
-            ctx.app->perform_process_detail_active = false;
+            const bool saved_eqg    = ctx.app->perform_process_eq_graph_active;
+            ctx.app->perform_process_detail_active  = false;
+            ctx.app->perform_process_eq_graph_active = false;
             const UiScreen& active = GetScreen(UiScreenId::PerformProcess);
             if(active.Render)
                 active.Render(ctx);
-            ctx.app->perform_process_detail_active = saved_detail;
+            ctx.app->perform_process_detail_active   = saved_detail;
+            ctx.app->perform_process_eq_graph_active = saved_eqg;
             return;
         }
 

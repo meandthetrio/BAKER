@@ -1,9 +1,9 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include "delay_biquad.h"
 #include "mem_regions.h"
 #include "params.h"
+#include "tilt_eq.h"
 #include "Effects/Reverb/DattorroReverb.h"
 
 // Audio Engine Layer:
@@ -30,15 +30,12 @@ class AudioEngine
     // ---- SAT ----
     static inline float SoftClip(float x);
 
-    // ---- DELAY (stereo lines + MID band-limit on tap for wet and feedback) ----
+    // ---- DELAY (stereo dual delay: independent L/R tap times, per-channel feedback) ----
   public:
-    static constexpr size_t kDelayMaxSamples = 24000; // 500ms @ 48k
-    static constexpr float  kDelayTimeMaxMs  = 500.0f;
+    static constexpr size_t kDelayMaxSamples = 48000; // 1000ms @ 48k
+    static constexpr float  kDelayTimeMaxMs  = 1000.0f;
   private:
     size_t delay_wr_ = 0;
-
-    DelayMidBiquad delay_mid_hp_[2]{};
-    DelayMidBiquad delay_mid_lp_[2]{};
 
     bool     delay_active_  = false;
     bool     delay_tailing_ = false;
@@ -47,8 +44,8 @@ class AudioEngine
     float    delay_tail_mix_         = 0.0f;
 
     void DelayClear_();
-    void DelayProcess_(float dryL, float dryR, float mix, bool feed_input, size_t len_l,
-                       size_t len_r, float fb, float& outL, float& outR);
+    void DelayProcess_(float dryL, float dryR, float mix, bool feed_input, size_t len_l, size_t len_r,
+                       float fb, float& outL, float& outR);
 
     // ---- DATTORRO REVERB ----
     void ReverbClear_();
@@ -57,6 +54,9 @@ class AudioEngine
                                 float& wetL, float& wetR);
 
     DattorroReverb dattorro_;
+
+    TiltEqStereo tilt_eq_{};
+    bool           eq_run_prev_ = false;
 
     bool     reverb_active_  = false;
     bool     reverb_tailing_ = false;

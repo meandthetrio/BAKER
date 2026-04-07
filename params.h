@@ -54,8 +54,8 @@ struct PerformParamsTargets
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
-    uint8_t perform_keyzone_lo_note[kLayerCount] = {kPerformKeyzoneMinNote, kPerformKeyzoneMinNote};
-    uint8_t perform_keyzone_hi_note[kLayerCount] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
+    uint8_t perform_keyzone_lo_note[kLayerCount] = {60u, 60u}; // C4
+    uint8_t perform_keyzone_hi_note[kLayerCount] = {72u, 72u}; // C5
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 
@@ -108,8 +108,8 @@ struct PerformParamsCurrent
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
-    uint8_t perform_keyzone_lo_note[kLayerCount] = {kPerformKeyzoneMinNote, kPerformKeyzoneMinNote};
-    uint8_t perform_keyzone_hi_note[kLayerCount] = {kPerformKeyzoneMaxNote, kPerformKeyzoneMaxNote};
+    uint8_t perform_keyzone_lo_note[kLayerCount] = {60u, 60u}; // C4
+    uint8_t perform_keyzone_hi_note[kLayerCount] = {72u, 72u}; // C5
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 

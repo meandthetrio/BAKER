@@ -388,46 +388,6 @@ static int TinyStringWidth(const char* str)
     return count * char_w - 1;
 }
 
-static void DrawTinyStringClipped(OledPager& d,
-                                  const char* str,
-                                  int x,
-                                  int y,
-                                  bool on,
-                                  int clip_x0,
-                                  int clip_y0,
-                                  int clip_x1,
-                                  int clip_y1)
-{
-    if(str == nullptr)
-        return;
-
-    const int char_w = Font5x7::W + 1;
-    for(int i = 0; str[i] != '\0'; ++i)
-    {
-        char ch = str[i];
-        if(ch >= 'A' && ch <= 'Z')
-            ch = static_cast<char>(ch - 'A' + 'a');
-
-        uint8_t rows[Font5x7::H] = {};
-        Font5x7::GetGlyphRows(ch, rows);
-        for(int yy = 0; yy < Font5x7::H; ++yy)
-        {
-            const uint8_t row = rows[yy];
-            for(int xx = 0; xx < Font5x7::W; ++xx)
-            {
-                if((row >> (Font5x7::W - 1 - xx)) & 1u)
-                {
-                    const int px = x + i * char_w + xx;
-                    const int py = y + yy;
-                    if(px >= clip_x0 && px <= clip_x1 && py >= clip_y0 && py <= clip_y1
-                       && px >= 0 && px < 128 && py >= 0 && py < 64)
-                        d.DrawPixel(px, py, on);
-                }
-            }
-        }
-    }
-}
-
 static constexpr int kMini3x5W = 3;
 static constexpr int kMini3x5H = 5;
 static constexpr int kMini3x5Advance = kMini3x5W + 1;
@@ -3897,11 +3857,12 @@ static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppState& app = *ctx.app;
 
-    // POD2 toggles layer (same behavior as ENGINE).
+    // POD2 toggles layer and keeps focus on the BACK (start) marker.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
         app.perform_layer ^= 1u;
         const uint8_t layer = app.perform_layer & 1u;
+        app.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u);
         app.sd_current_slot.store(layer, std::memory_order_release);
         app.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
@@ -3935,9 +3896,28 @@ static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
-    const uint8_t layer = app.perform_layer & 1u;
     if(e.type == UiInputType::EncDelta && e.value != 0)
     {
+        const uint8_t layer = app.perform_layer & 1u;
+        if(ctx.rshift)
+        {
+            if(e.id != kUiEncPod && e.id != kUiEncExt)
+                return false;
+            const int dir = (e.value < 0) ? -1 : 1;
+            const int lo = static_cast<int>(app.perform_keyzone_lo_note[layer]);
+            const int hi = static_cast<int>(app.perform_keyzone_hi_note[layer]);
+            const int delta_min = static_cast<int>(kPerformKeyzoneMinNote) - lo;
+            const int delta_max = static_cast<int>(kPerformKeyzoneMaxNote) - hi;
+            const int applied = ClampInt(dir, delta_min, delta_max);
+            if(applied == 0)
+                return false;
+            app.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(lo + applied);
+            app.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(hi + applied);
+            PublishEngineLayerParams(ctx);
+            app.ui_dirty = true;
+            return true;
+        }
+
         if(e.id == kUiEncPod)
         {
             const int next_lo = ClampInt(static_cast<int>(app.perform_keyzone_lo_note[layer]) + e.value,
@@ -3946,45 +3926,21 @@ static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             if(next_lo == static_cast<int>(app.perform_keyzone_lo_note[layer]))
                 return false;
             app.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(next_lo);
-            PublishEngineLayerParams(ctx);
+            app.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u); // back marker
             app.ui_dirty = true;
+            PublishEngineLayerParams(ctx);
             return true;
         }
 
         if(e.id == kUiEncExt)
         {
-            if(ctx.rshift)
-            {
-                const int keyzone_delta = (e.value < 0) ? -1 : 1;
-                const int a_lo = static_cast<int>(app.perform_keyzone_lo_note[0]);
-                const int a_hi = static_cast<int>(app.perform_keyzone_hi_note[0]);
-                const int b_lo = static_cast<int>(app.perform_keyzone_lo_note[1]);
-                const int b_hi = static_cast<int>(app.perform_keyzone_hi_note[1]);
-
-                int delta_min = a_lo - a_hi;
-                if((static_cast<int>(kPerformKeyzoneMinNote) - b_lo) > delta_min)
-                    delta_min = static_cast<int>(kPerformKeyzoneMinNote) - b_lo;
-                int delta_max = static_cast<int>(kPerformKeyzoneMaxNote) - a_hi;
-                if((b_hi - b_lo) < delta_max)
-                    delta_max = b_hi - b_lo;
-
-                const int applied_delta = ClampInt(keyzone_delta, delta_min, delta_max);
-                if(applied_delta == 0)
-                    return false;
-
-                app.perform_keyzone_hi_note[0] = static_cast<uint8_t>(a_hi + applied_delta);
-                app.perform_keyzone_lo_note[1] = static_cast<uint8_t>(b_lo + applied_delta);
-                PublishEngineLayerParams(ctx);
-                app.ui_dirty = true;
-                return true;
-            }
-
             const int next_hi = ClampInt(static_cast<int>(app.perform_keyzone_hi_note[layer]) + e.value,
                                          static_cast<int>(app.perform_keyzone_lo_note[layer]),
                                          static_cast<int>(kPerformKeyzoneMaxNote));
             if(next_hi == static_cast<int>(app.perform_keyzone_hi_note[layer]))
                 return false;
             app.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(next_hi);
+            app.perform_keyzone_marker_focus = static_cast<uint8_t>((layer * 2u) + 1u); // forward marker
             PublishEngineLayerParams(ctx);
             app.ui_dirty = true;
             return true;
@@ -4285,6 +4241,200 @@ static void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
     ctx.app->ui_dirty = true;
 }
 
+static int KeyzonePageFromNote(uint8_t note)
+{
+    // Pages are C0-C1 .. C7-C8, clamped to the supported note range.
+    const int octave = (static_cast<int>(note) / 12) - 1;
+    return ClampInt(octave, 0, 7);
+}
+
+static void DrawKeyzoneUiRangeTemplate(
+    OledPager& d, AppState& app, uint8_t layer, bool highlight_both, int x0, int y0)
+{
+    constexpr int kAreaW = 128;
+    constexpr int kAreaH = 48;
+    constexpr int kWhiteKeyCount = 7;
+    constexpr int kWhiteW = 16;
+    constexpr int kWhiteH = 46;
+    constexpr int kBlackW = 8;
+    constexpr int kBlackH = 28;
+
+    const int total_white_w = kWhiteKeyCount * kWhiteW;
+    const int kb_x0 = x0 + ((kAreaW - total_white_w) / 2);
+    const int kb_y0 = y0 + ((kAreaH - kWhiteH) / 2);
+    const int kb_x1 = kb_x0 + total_white_w - 1;
+    const int kb_y1 = kb_y0 + kWhiteH - 1;
+
+    // Real-keyboard contrast on monochrome OLED: white bed + black key cutouts.
+    d.DrawRect(kb_x0, kb_y0, kb_x1, kb_y1, true, true);
+    for(int i = 1; i < kWhiteKeyCount; ++i)
+    {
+        const int x = kb_x0 + (i * kWhiteW);
+        d.DrawLine(x, kb_y0 + 1, x, kb_y1 - 1, false);
+    }
+
+    // Black keys above C,D,F,G,A.
+    const int black_after_white_idx[5] = {0, 1, 3, 4, 5};
+    for(int i = 0; i < 5; ++i)
+    {
+        const int after_white = black_after_white_idx[i];
+        const int center_x = kb_x0 + ((after_white + 1) * kWhiteW);
+        const int bx0 = center_x - (kBlackW / 2);
+        const int bx1 = bx0 + kBlackW - 1;
+        const int by0 = kb_y0;
+        const int by1 = kb_y0 + kBlackH - 1;
+        d.DrawRect(bx0, by0, bx1, by1, false, true);
+    }
+
+    const uint8_t lo_note = app.perform_keyzone_lo_note[layer & 1u];
+    const uint8_t hi_note = app.perform_keyzone_hi_note[layer & 1u];
+    const uint8_t focused_marker = app.perform_keyzone_marker_focus & 1u; // 0=back/start, 1=forward/end
+    const int page = KeyzonePageFromNote((focused_marker == 0u) ? lo_note : hi_note);
+    const int page_start = 12 * (page + 1); // Cn MIDI note
+    const int page_end = page_start + 11;
+    auto semitone_in_page = [&](uint8_t note) -> int
+    {
+        int semitone = static_cast<int>(note) - page_start;
+        if(semitone < 0)
+            semitone = 0;
+        if(semitone > 11)
+            semitone = 11;
+        return semitone;
+    };
+    auto key_rect_for_note = [&](uint8_t note, int& rx0, int& ry0, int& rx1, int& ry1)
+    {
+        const int semitone = semitone_in_page(note);
+        switch(semitone)
+        {
+            case 1:
+            case 3:
+            case 6:
+            case 8:
+            case 10:
+            {
+                const int after_white = (semitone == 1) ? 0 : (semitone == 3) ? 1 : (semitone == 6) ? 3
+                                                                                : (semitone == 8) ? 4
+                                                                                                  : 5;
+                const int center_x = kb_x0 + ((after_white + 1) * kWhiteW);
+                rx0 = center_x - (kBlackW / 2);
+                rx1 = rx0 + kBlackW - 1;
+                ry0 = kb_y0;
+                ry1 = kb_y0 + kBlackH - 1;
+                return;
+            }
+            default:
+            {
+                const int white_idx = (semitone == 0) ? 0
+                                      : (semitone == 2) ? 1
+                                      : (semitone == 4) ? 2
+                                      : (semitone == 5) ? 3
+                                      : (semitone == 7) ? 4
+                                      : (semitone == 9) ? 5
+                                                        : 6;
+                rx0 = kb_x0 + (white_idx * kWhiteW);
+                rx1 = rx0 + kWhiteW - 1;
+                ry0 = kb_y0;
+                ry1 = kb_y1;
+                return;
+            }
+        }
+    };
+    auto draw_white_key_outline_solid = [&](int white_idx, bool on, int inset)
+    {
+        const int x0 = kb_x0 + (white_idx * kWhiteW);
+        const int x1 = x0 + kWhiteW - 1;
+        const int y0 = kb_y0;
+        const int y1 = kb_y1;
+        const int y_cut = kb_y0 + kBlackH - 1;
+        const int cut = kBlackW / 2;
+
+        const bool cut_left = (white_idx == 1 || white_idx == 2 || white_idx == 4 || white_idx == 5
+                               || white_idx == 6);
+        const bool cut_right = (white_idx == 0 || white_idx == 1 || white_idx == 3 || white_idx == 4
+                                || white_idx == 5);
+
+        const int ix0 = x0 + inset;
+        const int ix1 = x1 - inset;
+        const int iy0 = y0 + inset;
+        const int iy1 = y1 - inset;
+        const int iy_cut = y_cut - inset;
+        const int ux0 = x0 + (cut_left ? cut : 0) + inset;
+        const int ux1 = x1 - (cut_right ? cut : 0) - inset;
+
+        if(ix0 > ix1 || iy0 > iy1 || ux0 > ux1)
+            return;
+
+        d.DrawLine(ux0, iy0, ux1, iy0, on);
+        d.DrawLine(ux1, iy0, ux1, iy_cut, on);
+        if(cut_right)
+            d.DrawLine(ux1, iy_cut, ix1, iy_cut, on);
+        d.DrawLine(ix1, iy_cut, ix1, iy1, on);
+        d.DrawLine(ix0, iy1, ix1, iy1, on);
+        d.DrawLine(ix0, iy_cut, ix0, iy1, on);
+        if(cut_left)
+            d.DrawLine(ix0, iy_cut, ux0, iy_cut, on);
+        d.DrawLine(ux0, iy0, ux0, iy_cut, on);
+    };
+    auto fill_white_key = [&](int white_idx, bool on)
+    {
+        const int x0 = kb_x0 + (white_idx * kWhiteW);
+        const int x1 = x0 + kWhiteW - 1;
+        const int y0 = kb_y0;
+        const int y1 = kb_y1;
+        const int y_cut = kb_y0 + kBlackH - 1;
+        const int cut = kBlackW / 2;
+
+        const bool cut_left = (white_idx == 1 || white_idx == 2 || white_idx == 4 || white_idx == 5
+                               || white_idx == 6);
+        const bool cut_right = (white_idx == 0 || white_idx == 1 || white_idx == 3 || white_idx == 4
+                                || white_idx == 5);
+
+        const int ux0 = x0 + (cut_left ? cut : 0);
+        const int ux1 = x1 - (cut_right ? cut : 0);
+        d.DrawRect(ux0, y0, ux1, y_cut, on, true);
+        d.DrawRect(x0, y_cut + 1, x1, y1, on, true);
+    };
+
+    auto highlight_note = [&](uint8_t note)
+    {
+        const int active_semitone = semitone_in_page(note);
+        if(active_semitone == 1 || active_semitone == 3 || active_semitone == 6 || active_semitone == 8
+           || active_semitone == 10)
+        {
+            int arx0 = 0, ary0 = 0, arx1 = 0, ary1 = 0;
+            key_rect_for_note(note, arx0, ary0, arx1, ary1);
+            // Selected black key: inversion only (no dotted barrier).
+            d.DrawRect(arx0, ary0, arx1, ary1, true, true);
+            d.DrawRect(arx0, ary0, arx1, ary1, false, false);
+        }
+        else
+        {
+            const int white_idx = (active_semitone == 0) ? 0
+                                  : (active_semitone == 2) ? 1
+                                  : (active_semitone == 4) ? 2
+                                  : (active_semitone == 5) ? 3
+                                  : (active_semitone == 7) ? 4
+                                  : (active_semitone == 9) ? 5
+                                                           : 6;
+            // Selected white key: inversion + clean solid contour.
+            fill_white_key(white_idx, false);
+            draw_white_key_outline_solid(white_idx, true, 1);
+        }
+    };
+
+    if(highlight_both)
+    {
+        // In linked-shift mode, track only the low endpoint on the keyboard view.
+        highlight_note(lo_note);
+    }
+    else
+    {
+        const uint8_t active_note = (focused_marker == 0u) ? lo_note : hi_note;
+        highlight_note(active_note);
+    }
+
+}
+
 static void PerformKeyzone_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
@@ -4382,78 +4532,7 @@ static void PerformKeyzone_Render(UiScreenCtx& ctx)
         draw_animated_dotted_box(hi_box_x0, box_top, hi_box_x1, box_bottom);
     }
 
-    auto keyzone_left_x = [&](uint8_t midi_note)
-    {
-        const int note = ClampInt(static_cast<int>(midi_note),
-                                  static_cast<int>(kPerformKeyzoneMinNote),
-                                  static_cast<int>(kPerformKeyzoneMaxNote));
-        const int span = static_cast<int>(kPerformKeyzoneMaxNote - kPerformKeyzoneMinNote);
-        const int offset = note - static_cast<int>(kPerformKeyzoneMinNote);
-        return (offset * 127 + (span / 2)) / span;
-    };
-
-    auto draw_layer_box = [&](int rect_x0,
-                              int rect_x1,
-                              int section_index,
-                              char layer_letter,
-                              bool dotted)
-    {
-        const int section_y0 = section_index * kSectionH;
-        const int rect_y0 = section_y0;
-        const int rect_y1 = section_y0 + kSectionH - 1;
-        d.DrawRect(rect_x0, rect_y0, rect_x1, rect_y1, true, false);
-
-        if(dotted)
-        {
-            for(int y = rect_y0 + 1; y <= rect_y1 - 1; ++y)
-            {
-                const int x_start = rect_x0 + 1 + ((y - rect_y0) & 1);
-                for(int x = x_start; x <= rect_x1 - 1; x += 2)
-                    d.DrawPixel(x, y, true);
-            }
-        }
-
-        char label[2] = {layer_letter, '\0'};
-        const int label_w = TinyStringWidth(label);
-        const int label_y = rect_y0 + ((rect_y1 - rect_y0 + 1 - Font5x7::H) / 2);
-        const int step = label_w + 1;
-        const int pattern_origin_x = 1;
-        int label_x = pattern_origin_x;
-        while(label_x + label_w - 1 < rect_x0)
-            label_x += step;
-        for(; label_x <= rect_x1 - 1; label_x += step)
-        {
-            DrawTinyStringClipped(
-                d, label, label_x, label_y, true, rect_x0 + 1, rect_y0 + 1, rect_x1 - 1, rect_y1 - 1);
-        }
-    };
-
-    const int a_rect_x0 = keyzone_left_x(app.perform_keyzone_lo_note[0]);
-    const int a_rect_x1 = ClampInt(keyzone_left_x(app.perform_keyzone_hi_note[0]), a_rect_x0, 127);
-    const int b_rect_x0 = keyzone_left_x(app.perform_keyzone_lo_note[1]);
-    const int b_rect_x1 = ClampInt(keyzone_left_x(app.perform_keyzone_hi_note[1]), b_rect_x0, 127);
-
-    draw_layer_box(a_rect_x0, a_rect_x1, 1, 'a', layer != 0);
-    draw_layer_box(b_rect_x0, b_rect_x1, 2, 'b', layer == 0);
-
-    const int a_dot_y = kSectionH + (kSectionH / 2);
-    const int b_dot_y = (2 * kSectionH) + (kSectionH / 2);
-    if(static_cast<int>(app.perform_keyzone_hi_note[0]) + 1
-       == static_cast<int>(app.perform_keyzone_lo_note[1]))
-    {
-        if(a_rect_x1 + 3 < 128 && a_dot_y + 1 < 64)
-            d.DrawRect(a_rect_x1 + 2, a_dot_y, a_rect_x1 + 3, a_dot_y + 1, true, true);
-        if(b_rect_x0 - 3 >= 0 && b_dot_y + 1 < 64)
-            d.DrawRect(b_rect_x0 - 3, b_dot_y, b_rect_x0 - 2, b_dot_y + 1, true, true);
-    }
-    if(static_cast<int>(app.perform_keyzone_hi_note[1]) + 1
-       == static_cast<int>(app.perform_keyzone_lo_note[0]))
-    {
-        if(b_rect_x1 + 3 < 128 && b_dot_y + 1 < 64)
-            d.DrawRect(b_rect_x1 + 2, b_dot_y, b_rect_x1 + 3, b_dot_y + 1, true, true);
-        if(a_rect_x0 - 3 >= 0 && a_dot_y + 1 < 64)
-            d.DrawRect(a_rect_x0 - 3, a_dot_y, a_rect_x0 - 2, a_dot_y + 1, true, true);
-    }
+    DrawKeyzoneUiRangeTemplate(d, app, layer, ctx.rshift, 0, kSectionH);
 }
 
 static void PerformAdsr_Render(UiScreenCtx& ctx)
@@ -7447,3 +7526,4 @@ void UiRouter_Render(UiScreenCtx& ctx)
     if(active.Render)
         active.Render(ctx);
 }
+

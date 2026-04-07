@@ -150,9 +150,10 @@ struct AppState
     uint8_t perform_wave_edit_cursor = 0; // 0=TRIM START, 1=TRIM END
     SampleEdit perform_wave_edit_entry[kSdSampleSlots]{};
     bool    perform_wave_edit_has_entry = false;
-    uint8_t perform_keyzone_lo_note[2] = {60u, 60u}; // C4
-    uint8_t perform_keyzone_hi_note[2] = {72u, 72u}; // C5
+    uint8_t perform_keyzone_lo_note[2] = {48u, 48u}; // C3
+    uint8_t perform_keyzone_hi_note[2] = {60u, 60u}; // C4
     uint8_t perform_keyzone_marker_focus = 0; // 0=A Lo, 1=A Hi, 2=B Lo, 3=B Hi
+    uint8_t perform_keyzone_window_octave[2] = {2u, 2u}; // visible window start octave per layer
     uint8_t perform_adsr_row[2]   = {1u, 1u}; // 0=1SHOT, 1=LOOP, 2=ADSR
     bool    perform_adsr_type_focus = false;
     bool    perform_adsr_wave_focus = false;

@@ -4243,25 +4243,29 @@ static void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
 
 static int KeyzonePageFromNote(uint8_t note)
 {
-    // Pages are C0-C1 .. C7-C8, clamped to the supported note range.
+    // Pages are C0-B0 .. C8-B8, clamped to the supported note range.
     const int octave = (static_cast<int>(note) / 12) - 1;
-    return ClampInt(octave, 0, 7);
+    return ClampInt(octave, 0, 8);
 }
 
 static void DrawKeyzoneUiRangeTemplate(
     OledPager& d, AppState& app, uint8_t layer, bool highlight_both, int x0, int y0)
 {
     constexpr int kAreaW = 128;
-    constexpr int kAreaH = 48;
-    constexpr int kWhiteKeyCount = 7;
-    constexpr int kWhiteW = 16;
-    constexpr int kWhiteH = 46;
-    constexpr int kBlackW = 8;
-    constexpr int kBlackH = 28;
+    constexpr int kVisibleOctaves = 3;
+    constexpr int kPageCount = 9; // C0-B0 .. C8-B8
+    constexpr int kWhiteKeyCount = 7 * kVisibleOctaves;
+    // Geometry matched to the provided reference image: wide 3-octave span,
+    // shallow white keys, and ~60% black-key height.
+    constexpr int kWhiteW = 6;
+    constexpr int kWhiteH = 28;
+    constexpr int kBlackW = 3;
+    constexpr int kBlackH = 17;
 
     const int total_white_w = kWhiteKeyCount * kWhiteW;
     const int kb_x0 = x0 + ((kAreaW - total_white_w) / 2);
-    const int kb_y0 = y0 + ((kAreaH - kWhiteH) / 2);
+    // Use upper available space and preserve blank space below for future UI.
+    const int kb_y0 = y0 + 2;
     const int kb_x1 = kb_x0 + total_white_w - 1;
     const int kb_y1 = kb_y0 + kWhiteH - 1;
 
@@ -4273,133 +4277,151 @@ static void DrawKeyzoneUiRangeTemplate(
         d.DrawLine(x, kb_y0 + 1, x, kb_y1 - 1, false);
     }
 
-    // Black keys above C,D,F,G,A.
+    // Black keys above C,D,F,G,A for each visible octave.
     const int black_after_white_idx[5] = {0, 1, 3, 4, 5};
-    for(int i = 0; i < 5; ++i)
+    for(int oct = 0; oct < kVisibleOctaves; ++oct)
     {
-        const int after_white = black_after_white_idx[i];
-        const int center_x = kb_x0 + ((after_white + 1) * kWhiteW);
-        const int bx0 = center_x - (kBlackW / 2);
-        const int bx1 = bx0 + kBlackW - 1;
-        const int by0 = kb_y0;
-        const int by1 = kb_y0 + kBlackH - 1;
-        d.DrawRect(bx0, by0, bx1, by1, false, true);
+        for(int i = 0; i < 5; ++i)
+        {
+            const int after_white = (oct * 7) + black_after_white_idx[i];
+            const int center_x = kb_x0 + ((after_white + 1) * kWhiteW);
+            const int bx0 = center_x - (kBlackW / 2);
+            const int bx1 = bx0 + kBlackW - 1;
+            const int by0 = kb_y0;
+            const int by1 = kb_y0 + kBlackH - 1;
+            d.DrawRect(bx0, by0, bx1, by1, false, true);
+        }
     }
 
     const uint8_t lo_note = app.perform_keyzone_lo_note[layer & 1u];
     const uint8_t hi_note = app.perform_keyzone_hi_note[layer & 1u];
-    const uint8_t focused_marker = app.perform_keyzone_marker_focus & 1u; // 0=back/start, 1=forward/end
-    const int page = KeyzonePageFromNote((focused_marker == 0u) ? lo_note : hi_note);
-    const int page_start = 12 * (page + 1); // Cn MIDI note
-    const int page_end = page_start + 11;
+    const uint8_t focused_marker = app.perform_keyzone_marker_focus & 1u; // 0=LO, 1=HI
+    const uint8_t focus_note = (focused_marker == 0u) ? lo_note : hi_note;
+    int window_octave = static_cast<int>(app.perform_keyzone_window_octave[layer & 1u]);
+    window_octave = ClampInt(window_octave, 0, kPageCount - kVisibleOctaves);
+    int page_start = 12 * (window_octave + 1); // Cn MIDI note
+    int page_end = page_start + (12 * kVisibleOctaves) - 1;
+    const int focus_n = static_cast<int>(focus_note);
+    if(focus_n < page_start)
+    {
+        window_octave = KeyzonePageFromNote(focus_note);
+        window_octave = ClampInt(window_octave, 0, kPageCount - kVisibleOctaves);
+        page_start = 12 * (window_octave + 1);
+        page_end = page_start + (12 * kVisibleOctaves) - 1;
+    }
+    else if(focus_n > page_end)
+    {
+        window_octave = KeyzonePageFromNote(focus_note) - (kVisibleOctaves - 1);
+        window_octave = ClampInt(window_octave, 0, kPageCount - kVisibleOctaves);
+        page_start = 12 * (window_octave + 1);
+        page_end = page_start + (12 * kVisibleOctaves) - 1;
+    }
+    app.perform_keyzone_window_octave[layer & 1u] = static_cast<uint8_t>(window_octave);
+    auto white_idx_from_semitone_in_oct = [](int semi_in_oct) -> int
+    {
+        switch(semi_in_oct)
+        {
+            case 0: return 0;
+            case 2: return 1;
+            case 4: return 2;
+            case 5: return 3;
+            case 7: return 4;
+            case 9: return 5;
+            case 11: return 6;
+            default: return -1;
+        }
+    };
+    auto black_after_white_from_semitone = [](int semi_in_oct) -> int
+    {
+        switch(semi_in_oct)
+        {
+            case 1: return 0;
+            case 3: return 1;
+            case 6: return 3;
+            case 8: return 4;
+            case 10: return 5;
+            default: return -1;
+        }
+    };
+    auto is_black = [](int semi_in_oct) -> bool
+    {
+        return semi_in_oct == 1 || semi_in_oct == 3 || semi_in_oct == 6 || semi_in_oct == 8
+               || semi_in_oct == 10;
+    };
     auto semitone_in_page = [&](uint8_t note) -> int
     {
         int semitone = static_cast<int>(note) - page_start;
         if(semitone < 0)
             semitone = 0;
-        if(semitone > 11)
-            semitone = 11;
+        if(semitone > (12 * kVisibleOctaves) - 1)
+            semitone = (12 * kVisibleOctaves) - 1;
         return semitone;
+    };
+    auto note_in_window = [&](uint8_t note) -> bool
+    {
+        const int n = static_cast<int>(note);
+        return n >= page_start && n <= page_end;
     };
     auto key_rect_for_note = [&](uint8_t note, int& rx0, int& ry0, int& rx1, int& ry1)
     {
         const int semitone = semitone_in_page(note);
-        switch(semitone)
+        const int oct = semitone / 12;
+        const int semi_in_oct = semitone % 12;
+        if(is_black(semi_in_oct))
         {
-            case 1:
-            case 3:
-            case 6:
-            case 8:
-            case 10:
-            {
-                const int after_white = (semitone == 1) ? 0 : (semitone == 3) ? 1 : (semitone == 6) ? 3
-                                                                                : (semitone == 8) ? 4
-                                                                                                  : 5;
-                const int center_x = kb_x0 + ((after_white + 1) * kWhiteW);
-                rx0 = center_x - (kBlackW / 2);
-                rx1 = rx0 + kBlackW - 1;
-                ry0 = kb_y0;
-                ry1 = kb_y0 + kBlackH - 1;
-                return;
-            }
-            default:
-            {
-                const int white_idx = (semitone == 0) ? 0
-                                      : (semitone == 2) ? 1
-                                      : (semitone == 4) ? 2
-                                      : (semitone == 5) ? 3
-                                      : (semitone == 7) ? 4
-                                      : (semitone == 9) ? 5
-                                                        : 6;
-                rx0 = kb_x0 + (white_idx * kWhiteW);
-                rx1 = rx0 + kWhiteW - 1;
-                ry0 = kb_y0;
-                ry1 = kb_y1;
-                return;
-            }
+            const int after_white = black_after_white_from_semitone(semi_in_oct) + (oct * 7);
+            const int center_x = kb_x0 + ((after_white + 1) * kWhiteW);
+            rx0 = center_x - (kBlackW / 2);
+            rx1 = rx0 + kBlackW - 1;
+            ry0 = kb_y0;
+            ry1 = kb_y0 + kBlackH - 1;
+            return;
         }
+        const int white_idx = white_idx_from_semitone_in_oct(semi_in_oct) + (oct * 7);
+        rx0 = kb_x0 + (white_idx * kWhiteW);
+        rx1 = rx0 + kWhiteW - 1;
+        ry0 = kb_y0;
+        ry1 = kb_y1;
     };
-    auto draw_white_key_outline_solid = [&](int white_idx, bool on, int inset)
+    auto draw_white_arrow_marker = [&](int white_idx, bool left_arrow)
     {
         const int x0 = kb_x0 + (white_idx * kWhiteW);
         const int x1 = x0 + kWhiteW - 1;
-        const int y0 = kb_y0;
-        const int y1 = kb_y1;
         const int y_cut = kb_y0 + kBlackH - 1;
-        const int cut = kBlackW / 2;
-
-        const bool cut_left = (white_idx == 1 || white_idx == 2 || white_idx == 4 || white_idx == 5
-                               || white_idx == 6);
-        const bool cut_right = (white_idx == 0 || white_idx == 1 || white_idx == 3 || white_idx == 4
-                                || white_idx == 5);
-
-        const int ix0 = x0 + inset;
-        const int ix1 = x1 - inset;
-        const int iy0 = y0 + inset;
-        const int iy1 = y1 - inset;
-        const int iy_cut = y_cut - inset;
-        const int ux0 = x0 + (cut_left ? cut : 0) + inset;
-        const int ux1 = x1 - (cut_right ? cut : 0) - inset;
-
-        if(ix0 > ix1 || iy0 > iy1 || ux0 > ux1)
+        if(x1 - x0 + 1 < 5)
             return;
 
-        d.DrawLine(ux0, iy0, ux1, iy0, on);
-        d.DrawLine(ux1, iy0, ux1, iy_cut, on);
-        if(cut_right)
-            d.DrawLine(ux1, iy_cut, ix1, iy_cut, on);
-        d.DrawLine(ix1, iy_cut, ix1, iy1, on);
-        d.DrawLine(ix0, iy1, ix1, iy1, on);
-        d.DrawLine(ix0, iy_cut, ix0, iy1, on);
-        if(cut_left)
-            d.DrawLine(ix0, iy_cut, ux0, iy_cut, on);
-        d.DrawLine(ux0, iy0, ux0, iy_cut, on);
-    };
-    auto fill_white_key = [&](int white_idx, bool on)
-    {
-        const int x0 = kb_x0 + (white_idx * kWhiteW);
-        const int x1 = x0 + kWhiteW - 1;
-        const int y0 = kb_y0;
-        const int y1 = kb_y1;
-        const int y_cut = kb_y0 + kBlackH - 1;
-        const int cut = kBlackW / 2;
+        const int marker_h = 6;
+        const int marker_y0 = y_cut + 1 + ((kb_y1 - (y_cut + 1) + 1 - marker_h) / 2);
+        const int marker_y1 = marker_y0 + marker_h - 1;
+        if(marker_y0 < y_cut + 1 || marker_y1 > kb_y1)
+            return;
 
-        const bool cut_left = (white_idx == 1 || white_idx == 2 || white_idx == 4 || white_idx == 5
-                               || white_idx == 6);
-        const bool cut_right = (white_idx == 0 || white_idx == 1 || white_idx == 3 || white_idx == 4
-                                || white_idx == 5);
-
-        const int ux0 = x0 + (cut_left ? cut : 0);
-        const int ux1 = x1 - (cut_right ? cut : 0);
-        d.DrawRect(ux0, y0, ux1, y_cut, on, true);
-        d.DrawRect(x0, y_cut + 1, x1, y1, on, true);
+        // Keep the arrow centered in the white key for both LO and HI markers.
+        const int cx = (x0 + x1) / 2;
+        constexpr int kArrowShiftRight = 1;
+        if(left_arrow)
+        {
+            const int stem_x = ClampInt(cx + 1 + kArrowShiftRight, x0 + 3, x1 - 1);
+            d.DrawRect(stem_x, marker_y0, stem_x, marker_y1, false, true); // 1x6 stem
+            d.DrawRect(stem_x - 1, marker_y0 + 1, stem_x - 1, marker_y1 - 1, false, true); // 1x4
+            d.DrawRect(stem_x - 2, marker_y0 + 2, stem_x - 2, marker_y1 - 2, false, true); // 1x2
+        }
+        else
+        {
+            const int stem_x = ClampInt(cx - 1 + kArrowShiftRight, x0 + 1, x1 - 3);
+            d.DrawRect(stem_x, marker_y0, stem_x, marker_y1, false, true); // 1x6 stem
+            d.DrawRect(stem_x + 1, marker_y0 + 1, stem_x + 1, marker_y1 - 1, false, true); // 1x4
+            d.DrawRect(stem_x + 2, marker_y0 + 2, stem_x + 2, marker_y1 - 2, false, true); // 1x2
+        }
     };
 
-    auto highlight_note = [&](uint8_t note)
+    auto highlight_note = [&](uint8_t note, bool is_lo_endpoint)
     {
         const int active_semitone = semitone_in_page(note);
-        if(active_semitone == 1 || active_semitone == 3 || active_semitone == 6 || active_semitone == 8
-           || active_semitone == 10)
+        const int oct = active_semitone / 12;
+        const int semi_in_oct = active_semitone % 12;
+        if(is_black(semi_in_oct))
         {
             int arx0 = 0, ary0 = 0, arx1 = 0, ary1 = 0;
             key_rect_for_note(note, arx0, ary0, arx1, ary1);
@@ -4409,28 +4431,23 @@ static void DrawKeyzoneUiRangeTemplate(
         }
         else
         {
-            const int white_idx = (active_semitone == 0) ? 0
-                                  : (active_semitone == 2) ? 1
-                                  : (active_semitone == 4) ? 2
-                                  : (active_semitone == 5) ? 3
-                                  : (active_semitone == 7) ? 4
-                                  : (active_semitone == 9) ? 5
-                                                           : 6;
-            // Selected white key: inversion + clean solid contour.
-            fill_white_key(white_idx, false);
-            draw_white_key_outline_solid(white_idx, true, 1);
+            const int white_idx = white_idx_from_semitone_in_oct(semi_in_oct) + (oct * 7);
+            // White-key selection: directional marker only.
+            draw_white_arrow_marker(white_idx, is_lo_endpoint);
         }
     };
 
-    if(highlight_both)
+    const bool show_lo = note_in_window(lo_note);
+    const bool show_hi = note_in_window(hi_note);
+    if(show_lo)
+        highlight_note(lo_note, true);
+    if(show_hi && (!show_lo || hi_note != lo_note))
+        highlight_note(hi_note, false);
+
+    if(highlight_both && !show_lo && !show_hi)
     {
-        // In linked-shift mode, track only the low endpoint on the keyboard view.
-        highlight_note(lo_note);
-    }
-    else
-    {
-        const uint8_t active_note = (focused_marker == 0u) ? lo_note : hi_note;
-        highlight_note(active_note);
+        // In linked-shift mode, ensure some visual feedback by drawing focused endpoint if both are off-window.
+        highlight_note(focus_note, focused_marker == 0u);
     }
 
 }

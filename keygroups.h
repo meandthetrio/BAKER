@@ -3,7 +3,7 @@
 #include <cstdint>
 
 static constexpr uint8_t kPerformKeyzoneMinNote = 12u; // C0
-static constexpr uint8_t kPerformKeyzoneMaxNote = 108u; // C8
+static constexpr uint8_t kPerformKeyzoneMaxNote = 119u; // B8
 static constexpr uint8_t kPerformKeyzoneDefaultSplitAHi = 71u; // B4
 static constexpr uint8_t kPerformKeyzoneDefaultSplitBLo = 72u; // C5
 

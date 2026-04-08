@@ -574,13 +574,17 @@
   - Layer B `TUNE` shows and sounds like its saved value.
   - Layer A KEYZONE screen shows its saved low/high notes.
   - Layer B KEYZONE screen shows its saved low/high notes.
+  - Layer A ADSR screen shows its saved row and its saved loop/graph values.
+  - Layer B ADSR screen shows its saved row and its saved loop/graph values.
   - Actual note gating/playback matches the restored KEYZONE ranges.
+  - Actual playback mode/loop behavior matches the restored ADSR state.
   - Project load still uses the worker path and does not introduce audible glitches or multi-second UI stalls.
 - Fail conditions
   - WAV A and WAV B collapse onto the same restored layer.
   - Layer A or layer B restores the wrong saved sample.
   - Tune values swap between layers or reset to default.
   - KEYZONE ranges swap between layers or reset to default.
+  - ADSR row, loop values, crossfade settings, or graph values swap between layers or reset to default.
   - Either saved layer remains empty after project recall.
   - Normal non-project sample load behavior changes unexpectedly.
 
@@ -600,13 +604,16 @@
   - WAV A returns in ENGINE layer A / slot 0.
   - Layer A `TUNE` shows and sounds like its saved value.
   - Layer A KEYZONE screen shows its saved low/high notes.
+  - Layer A ADSR screen shows its saved row and its saved loop/graph values.
   - Actual note gating/playback matches the restored KEYZONE range.
+  - Actual playback mode/loop behavior matches the restored ADSR state.
   - Layer B stays empty unless it was loaded separately on purpose.
 - Fail conditions
   - WAV A lands in layer B / slot 1 after reboot.
   - Layer A remains empty after project recall.
   - Layer A `TUNE` resets or restores to the wrong value.
   - Layer A KEYZONE bounds reset or restore to the wrong values.
+  - Layer A ADSR state resets or restores to the wrong values.
   - Normal non-project sample load behavior changes unexpectedly.
 
 ## 4.7 Project recall restores B-only after reboot
@@ -615,6 +622,7 @@
   - Load known WAV B into ENGINE layer B.
   - Set ENGINE layer B `TUNE` to an obvious non-default value.
   - In KEYZONE, set a clearly identifiable low/high note range for layer B.
+  - In ADSR, set layer B to a clearly identifiable row/mode and distinct loop/graph values.
   - Leave layer A empty.
 - Actions
   - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
@@ -625,14 +633,40 @@
   - WAV B returns in ENGINE layer B / slot 1.
   - Layer B `TUNE` shows and sounds like its saved value.
   - Layer B KEYZONE screen shows its saved low/high notes.
+  - Layer B ADSR screen shows its saved row and its saved loop/graph values.
   - Actual note gating/playback matches the restored KEYZONE range.
+  - Actual playback mode/loop behavior matches the restored ADSR state.
   - Layer A stays empty unless it was loaded separately on purpose.
 - Fail conditions
   - WAV B lands in layer A / slot 0 after reboot.
   - Layer B remains empty after project recall.
   - Layer B `TUNE` resets or restores to the wrong value.
   - Layer B KEYZONE bounds reset or restore to the wrong values.
+  - Layer B ADSR state resets or restores to the wrong values.
   - Normal non-project sample load behavior changes unexpectedly.
+
+## 4.8 Project recall restores per-layer ADSR submenu state
+- Setup
+  - Boot device fresh.
+  - Load known WAV A into ENGINE layer A.
+  - Load different WAV B into ENGINE layer B.
+- Actions
+  - In ADSR, set layer A to `1SHOT` and layer B to `LOOP`, with clearly different loop A/D/S/R and crossfade settings where applicable.
+  - Save Project 1, power cycle, and load Project 1.
+  - Repeat with layer A set to `LOOP` and layer B set to `ADSR`.
+  - Repeat with both layers set to `ADSR` but with clearly different graph/control-point values.
+  - Repeat with both layers set to `LOOP` but with clearly different loop A/D/S/R and crossfade/shape values.
+- Expected results
+  - Layer A ADSR row restores to the saved row and remains visible when re-entering the ADSR screen.
+  - Layer B ADSR row restores to the saved row and remains visible when re-entering the ADSR screen.
+  - LOOP A/D/S/R values restore to the correct layer.
+  - LOOP crossfade amount and crossfade shape restore to the correct layer.
+  - ADSR graph/control-point values restore to the correct layer.
+  - No saved ADSR state swaps between layers after reboot and reload.
+- Fail conditions
+  - Entering the ADSR screen overwrites the restored saved row from another state source.
+  - LOOP values, crossfade settings, or graph values restore to the wrong layer.
+  - Restored ADSR values reset to defaults after reboot/reload.
 
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup

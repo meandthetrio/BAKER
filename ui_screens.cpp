@@ -4144,7 +4144,9 @@ static void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
     app.perform_adsr_type_focus = false;
     app.perform_adsr_wave_focus = false;
     const uint8_t layer = app.perform_layer & 1u;
-    PerformAdsrRow(app, layer) = (app.engine_play_mode[layer] & 1u) ? kAdsrRowLoop : kAdsrRowOneShot;
+    uint8_t& adsr_row = PerformAdsrRow(app, layer);
+    if(adsr_row >= static_cast<uint8_t>(kAdsrRowCount))
+        adsr_row = (app.engine_play_mode[layer] & 1u) ? kAdsrRowLoop : kAdsrRowOneShot;
     PerformAdsrEnsureValidFocus(app, layer);
     app.ui_dirty = true;
 }

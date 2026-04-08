@@ -267,6 +267,11 @@ static bool ProjectManifestValid(const ProjectManifestV3& m)
 
 static bool ProjectManifestValid(const ProjectManifestV4& m)
 {
+    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 4u;
+}
+
+static bool ProjectManifestValid(const ProjectManifestV5& m)
+{
     return std::memcmp(m.magic, "AKPJ", 4) == 0
            && m.version == kProjectManifestVersion;
 }
@@ -337,7 +342,42 @@ static void ProjectManifestUpgrade(ProjectManifestV4& dst, const ProjectManifest
     dst.mod_route_selected = src.mod_route_selected;
 }
 
-static bool ProjectManifestHasLayer(const ProjectManifestV4& m, uint8_t layer)
+static void ProjectManifestUpgrade(ProjectManifestV5& dst, const ProjectManifestV4& src)
+{
+    dst = ProjectManifestV5{};
+    dst.sample_present_mask = src.sample_present_mask;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
+        dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
+        dst.perform_adsr_row[slot] = 1u;
+        dst.engine_play_mode[slot] = 1u;
+        dst.perform_adsr_loop_attack[slot] = 5u;
+        dst.perform_adsr_loop_decay[slot] = 20u;
+        dst.perform_adsr_loop_sustain[slot] = 100u;
+        dst.perform_adsr_loop_release[slot] = 50u;
+        dst.perform_adsr_loop_crossfade[slot] = 0.0625f;
+        dst.perform_adsr_loop_crossfade_shape[slot] = 0.0f;
+        dst.perform_adsr_env_a_x[slot] = 13u;
+        dst.perform_adsr_env_d_x[slot] = 38u;
+        dst.perform_adsr_env_r_x[slot] = 89u;
+        dst.perform_adsr_env_s_level[slot] = 50u;
+    }
+    dst.seq_running = src.seq_running;
+    dst.plock_apply_enabled = src.plock_apply_enabled;
+    dst.lfo_wave = src.lfo_wave;
+    dst.macro_sel = src.macro_sel;
+    dst.seq_bpm = src.seq_bpm;
+    dst.macro_ui = src.macro_ui;
+    for(size_t i = 0; i < kMaxModRoutes; ++i)
+        dst.mod_routes[i] = src.mod_routes[i];
+    dst.mod_route_selected = src.mod_route_selected;
+}
+
+static bool ProjectManifestHasLayer(const ProjectManifestV5& m, uint8_t layer)
 {
     if(layer >= kProjectSampleLayerCount)
         return false;
@@ -371,6 +411,53 @@ static void ClampProjectKeyzoneRange(uint8_t& lo, uint8_t& hi)
         hi = lo;
 }
 
+static uint8_t ClampProjectAdsrRow(int value)
+{
+    if(value < 0)
+        value = 0;
+    if(value > 2)
+        value = 2;
+    return static_cast<uint8_t>(value);
+}
+
+static uint8_t ClampProjectPlayMode(int value)
+{
+    return (value != 0) ? 1u : 0u;
+}
+
+static float ClampProjectFloat(float value, float lo, float hi)
+{
+    if(value < lo)
+        value = lo;
+    if(value > hi)
+        value = hi;
+    return value;
+}
+
+static void ClampProjectAdsrGraph(uint8_t& a_x, uint8_t& d_x, uint8_t& r_x, uint8_t& s_level)
+{
+    constexpr int kMinGap = 6;
+    int a = ClampProjectMidiNote(a_x);
+    int d = ClampProjectMidiNote(d_x);
+    int r = ClampProjectMidiNote(r_x);
+    int s = ClampProjectMidiNote(s_level);
+
+    if(a > 100 - (2 * kMinGap))
+        a = 100 - (2 * kMinGap);
+    d = (d < a + kMinGap) ? (a + kMinGap) : d;
+    if(d > 100 - kMinGap)
+        d = 100 - kMinGap;
+    r = (r < d + kMinGap) ? (d + kMinGap) : r;
+    if(r > 100)
+        r = 100;
+    s = (s < 0) ? 0 : ((s > 100) ? 100 : s);
+
+    a_x = static_cast<uint8_t>(a);
+    d_x = static_cast<uint8_t>(d);
+    r_x = static_cast<uint8_t>(r);
+    s_level = static_cast<uint8_t>(s);
+}
+
 static void PublishProjectPerformParams(Params& params, const AppState& app)
 {
     PerformParamsTargets& t = params.EditTargets();
@@ -379,6 +466,14 @@ static void PublishProjectPerformParams(Params& params, const AppState& app)
         t.engine_tune_semitones[layer] = static_cast<float>(app.engine_tune_semitones[layer]);
         t.perform_keyzone_lo_note[layer] = app.perform_keyzone_lo_note[layer];
         t.perform_keyzone_hi_note[layer] = app.perform_keyzone_hi_note[layer];
+        t.engine_loop_mode[layer] = (app.engine_play_mode[layer] != 0);
+        t.engine_loop_attack_ms[layer] = static_cast<float>(app.perform_adsr_loop_attack[layer]);
+        t.engine_loop_decay_ms[layer] = static_cast<float>(app.perform_adsr_loop_decay[layer]);
+        t.engine_loop_sustain_level[layer]
+            = static_cast<float>(app.perform_adsr_loop_sustain[layer]) * 0.01f;
+        t.engine_loop_release_ms[layer] = static_cast<float>(app.perform_adsr_loop_release[layer]);
+        t.engine_loop_crossfade_amount[layer] = app.perform_adsr_loop_crossfade[layer];
+        t.engine_loop_crossfade_shape[layer] = app.perform_adsr_loop_crossfade_shape[layer];
     }
     params.PublishTargets();
 }
@@ -1260,7 +1355,7 @@ static bool SaveProject(AppState& app)
         return false;
     }
 
-    ProjectManifestV4 manifest{};
+    ProjectManifestV5 manifest{};
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
         const Sample& sample = app.sd_slots[slot];
@@ -1278,6 +1373,18 @@ static bool SaveProject(AppState& app)
         manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine_tune_semitones[slot]);
         manifest.perform_keyzone_lo_note[slot] = app.perform_keyzone_lo_note[slot];
         manifest.perform_keyzone_hi_note[slot] = app.perform_keyzone_hi_note[slot];
+        manifest.perform_adsr_row[slot] = ClampProjectAdsrRow(app.perform_adsr_row[slot]);
+        manifest.engine_play_mode[slot] = ClampProjectPlayMode(app.engine_play_mode[slot]);
+        manifest.perform_adsr_loop_attack[slot] = app.perform_adsr_loop_attack[slot];
+        manifest.perform_adsr_loop_decay[slot] = app.perform_adsr_loop_decay[slot];
+        manifest.perform_adsr_loop_sustain[slot] = app.perform_adsr_loop_sustain[slot];
+        manifest.perform_adsr_loop_release[slot] = app.perform_adsr_loop_release[slot];
+        manifest.perform_adsr_loop_crossfade[slot] = app.perform_adsr_loop_crossfade[slot];
+        manifest.perform_adsr_loop_crossfade_shape[slot] = app.perform_adsr_loop_crossfade_shape[slot];
+        manifest.perform_adsr_env_a_x[slot] = app.perform_adsr_env_a_x[slot];
+        manifest.perform_adsr_env_d_x[slot] = app.perform_adsr_env_d_x[slot];
+        manifest.perform_adsr_env_r_x[slot] = app.perform_adsr_env_r_x[slot];
+        manifest.perform_adsr_env_s_level[slot] = app.perform_adsr_env_s_level[slot];
     }
 
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
@@ -1288,6 +1395,30 @@ static bool SaveProject(AppState& app)
         manifest.perform_keyzone_hi_note[slot] = app.perform_keyzone_hi_note[slot];
         ClampProjectKeyzoneRange(manifest.perform_keyzone_lo_note[slot],
                                  manifest.perform_keyzone_hi_note[slot]);
+        manifest.perform_adsr_row[slot] = ClampProjectAdsrRow(app.perform_adsr_row[slot]);
+        manifest.engine_play_mode[slot] = ClampProjectPlayMode(app.engine_play_mode[slot]);
+        if(manifest.perform_adsr_loop_attack[slot] < 1u)
+            manifest.perform_adsr_loop_attack[slot] = 1u;
+        if(manifest.perform_adsr_loop_attack[slot] > 1000u)
+            manifest.perform_adsr_loop_attack[slot] = 1000u;
+        if(manifest.perform_adsr_loop_decay[slot] < 1u)
+            manifest.perform_adsr_loop_decay[slot] = 1u;
+        if(manifest.perform_adsr_loop_decay[slot] > 100u)
+            manifest.perform_adsr_loop_decay[slot] = 100u;
+        if(manifest.perform_adsr_loop_sustain[slot] > 100u)
+            manifest.perform_adsr_loop_sustain[slot] = 100u;
+        if(manifest.perform_adsr_loop_release[slot] < 1u)
+            manifest.perform_adsr_loop_release[slot] = 1u;
+        if(manifest.perform_adsr_loop_release[slot] > 1000u)
+            manifest.perform_adsr_loop_release[slot] = 1000u;
+        manifest.perform_adsr_loop_crossfade[slot]
+            = ClampProjectFloat(manifest.perform_adsr_loop_crossfade[slot], 0.0f, 0.5f);
+        manifest.perform_adsr_loop_crossfade_shape[slot]
+            = ClampProjectFloat(manifest.perform_adsr_loop_crossfade_shape[slot], 0.0f, 1.0f);
+        ClampProjectAdsrGraph(manifest.perform_adsr_env_a_x[slot],
+                              manifest.perform_adsr_env_d_x[slot],
+                              manifest.perform_adsr_env_r_x[slot],
+                              manifest.perform_adsr_env_s_level[slot]);
     }
 
     if(manifest.sample_present_mask == 0u)
@@ -1403,20 +1534,33 @@ static bool LoadProject(AppState& app, Params& params)
         return false;
     }
 
-    ProjectManifestV4 manifest{};
+    ProjectManifestV5 manifest{};
     const FSIZE_t manifest_size = f_size(&s_sd.file);
     UINT br = 0;
     FRESULT rd = FR_INT_ERR;
-    if(manifest_size == sizeof(ProjectManifestV4))
+    if(manifest_size == sizeof(ProjectManifestV5))
     {
         rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifestV4))
+    {
+        ProjectManifestV4 legacy_v4{};
+        rd = f_read(&s_sd.file, &legacy_v4, sizeof(legacy_v4), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v4) && ProjectManifestValid(legacy_v4))
+            ProjectManifestUpgrade(manifest, legacy_v4);
+        else
+            rd = FR_INVALID_OBJECT;
     }
     else if(manifest_size == sizeof(ProjectManifestV3))
     {
         ProjectManifestV3 legacy_v3{};
         rd = f_read(&s_sd.file, &legacy_v3, sizeof(legacy_v3), &br);
         if(rd == FR_OK && br == sizeof(legacy_v3) && ProjectManifestValid(legacy_v3))
-            ProjectManifestUpgrade(manifest, legacy_v3);
+        {
+            ProjectManifestV4 legacy_v4{};
+            ProjectManifestUpgrade(legacy_v4, legacy_v3);
+            ProjectManifestUpgrade(manifest, legacy_v4);
+        }
         else
             rd = FR_INVALID_OBJECT;
     }
@@ -1428,7 +1572,9 @@ static bool LoadProject(AppState& app, Params& params)
         {
             ProjectManifestV3 legacy_v3{};
             ProjectManifestUpgrade(legacy_v3, legacy_v2);
-            ProjectManifestUpgrade(manifest, legacy_v3);
+            ProjectManifestV4 legacy_v4{};
+            ProjectManifestUpgrade(legacy_v4, legacy_v3);
+            ProjectManifestUpgrade(manifest, legacy_v4);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1443,7 +1589,9 @@ static bool LoadProject(AppState& app, Params& params)
             ProjectManifestUpgrade(legacy_v2, legacy);
             ProjectManifestV3 legacy_v3{};
             ProjectManifestUpgrade(legacy_v3, legacy_v2);
-            ProjectManifestUpgrade(manifest, legacy_v3);
+            ProjectManifestV4 legacy_v4{};
+            ProjectManifestUpgrade(legacy_v4, legacy_v3);
+            ProjectManifestUpgrade(manifest, legacy_v4);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1453,8 +1601,10 @@ static bool LoadProject(AppState& app, Params& params)
         manifest.wav_path[slot][sizeof(manifest.wav_path[slot]) - 1] = '\0';
 
     const bool manifest_ok
-        = (manifest_size == sizeof(ProjectManifestV4) && rd == FR_OK && br == sizeof(manifest)
+        = (manifest_size == sizeof(ProjectManifestV5) && rd == FR_OK && br == sizeof(manifest)
            && ProjectManifestValid(manifest))
+          || (manifest_size == sizeof(ProjectManifestV4) && rd == FR_OK
+              && br == sizeof(ProjectManifestV4))
           || (manifest_size == sizeof(ProjectManifestV3) && rd == FR_OK
               && br == sizeof(ProjectManifestV3))
           || (manifest_size == sizeof(ProjectManifest) && rd == FR_OK
@@ -1488,6 +1638,38 @@ static bool LoadProject(AppState& app, Params& params)
         app.perform_keyzone_hi_note[slot] = manifest.perform_keyzone_hi_note[slot];
         ClampProjectKeyzoneRange(app.perform_keyzone_lo_note[slot],
                                  app.perform_keyzone_hi_note[slot]);
+        app.perform_adsr_row[slot] = ClampProjectAdsrRow(manifest.perform_adsr_row[slot]);
+        app.engine_play_mode[slot] = ClampProjectPlayMode(manifest.engine_play_mode[slot]);
+        app.perform_adsr_loop_attack[slot] = manifest.perform_adsr_loop_attack[slot];
+        if(app.perform_adsr_loop_attack[slot] < 1u)
+            app.perform_adsr_loop_attack[slot] = 1u;
+        if(app.perform_adsr_loop_attack[slot] > 1000u)
+            app.perform_adsr_loop_attack[slot] = 1000u;
+        app.perform_adsr_loop_decay[slot] = manifest.perform_adsr_loop_decay[slot];
+        if(app.perform_adsr_loop_decay[slot] < 1u)
+            app.perform_adsr_loop_decay[slot] = 1u;
+        if(app.perform_adsr_loop_decay[slot] > 100u)
+            app.perform_adsr_loop_decay[slot] = 100u;
+        app.perform_adsr_loop_sustain[slot] = manifest.perform_adsr_loop_sustain[slot];
+        if(app.perform_adsr_loop_sustain[slot] > 100u)
+            app.perform_adsr_loop_sustain[slot] = 100u;
+        app.perform_adsr_loop_release[slot] = manifest.perform_adsr_loop_release[slot];
+        if(app.perform_adsr_loop_release[slot] < 1u)
+            app.perform_adsr_loop_release[slot] = 1u;
+        if(app.perform_adsr_loop_release[slot] > 1000u)
+            app.perform_adsr_loop_release[slot] = 1000u;
+        app.perform_adsr_loop_crossfade[slot]
+            = ClampProjectFloat(manifest.perform_adsr_loop_crossfade[slot], 0.0f, 0.5f);
+        app.perform_adsr_loop_crossfade_shape[slot]
+            = ClampProjectFloat(manifest.perform_adsr_loop_crossfade_shape[slot], 0.0f, 1.0f);
+        app.perform_adsr_env_a_x[slot] = manifest.perform_adsr_env_a_x[slot];
+        app.perform_adsr_env_d_x[slot] = manifest.perform_adsr_env_d_x[slot];
+        app.perform_adsr_env_r_x[slot] = manifest.perform_adsr_env_r_x[slot];
+        app.perform_adsr_env_s_level[slot] = manifest.perform_adsr_env_s_level[slot];
+        ClampProjectAdsrGraph(app.perform_adsr_env_a_x[slot],
+                              app.perform_adsr_env_d_x[slot],
+                              app.perform_adsr_env_r_x[slot],
+                              app.perform_adsr_env_s_level[slot]);
     }
     PublishProjectPerformParams(params, app);
 

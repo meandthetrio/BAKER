@@ -410,13 +410,13 @@
 - Status: PARTIAL
 - Proof (code)
   - ui_requests.h: `SaveProject` / `LoadProject` requests (plus `SavePreset` stub).
-  - ui_worker.cpp: `SaveProject` / `LoadProject` route through fixed slot filenames `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` and keep file I/O on the worker path; `LoadProject` now restores saved layer A/B sample paths into explicit slots 0/1 instead of the generic inactive-slot path and republishes saved per-layer ENGINE tune plus per-layer KEYZONE note bounds through `Params`.
-  - project_manifest.h: serialized fields (per-layer wav path/edit, per-layer ENGINE tune, per-layer KEYZONE bounds, seq/plock flags, BPM, LFO wave, macros, mod routes) plus legacy v1/v2/v3 upgrade support for older manifests.
+  - ui_worker.cpp: `SaveProject` / `LoadProject` route through fixed slot filenames `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` and keep file I/O on the worker path; `LoadProject` now restores saved layer A/B sample paths into explicit slots 0/1 instead of the generic inactive-slot path and republishes saved per-layer ENGINE tune, per-layer KEYZONE note bounds, and ADSR loop/playback state through `Params`.
+  - project_manifest.h: serialized fields (per-layer wav path/edit, per-layer ENGINE tune, per-layer KEYZONE bounds, per-layer ADSR submenu state, seq/plock flags, BPM, LFO wave, macros, mod routes) plus legacy v1/v2/v3/v4 upgrade support for older manifests.
   - app_state.h + ui_screens.cpp: `current_project_slot` is UI-owned state; Button1 Settings screen owns `PROJECT SLOT`, `SAVE PROJECT`, and `LOAD PROJECT`, and pushing save/load opens the temporary `ProjectStatus` screen on trigger.
 - Proof (runtime)
   - Press Button1, select `SAVE PROJECT`: project-status screen opens immediately showing slot + SAVE action; status updates live (`P01 SAVING` / `P01 SAVED`) and remains visible until REnc click dismisses it.
   - Press Button1, select `LOAD PROJECT`: project-status screen opens immediately showing slot + LOAD action; status updates live and remains visible until REnc click dismisses it.
-  - Reboot regression fix: save after loading WAV A into ENGINE layer A and WAV B into ENGINE layer B, set distinct KEYZONE note ranges per layer, reboot, then load the project; each layer returns with its saved sample, tune, and KEYZONE range.
+  - Reboot regression fix: save after loading WAV A into ENGINE layer A and WAV B into ENGINE layer B, set distinct KEYZONE note ranges and distinct ADSR submenu state per layer, reboot, then load the project; each layer returns with its saved sample, tune, KEYZONE range, and ADSR row/loop/graph state.
   - Loading an unused slot fails safely with visible `PNN EMPTY`.
   - TBD: Preset save/load beyond project file (SavePreset is stub; no file I/O).
 
@@ -424,13 +424,13 @@
 - Status: PARTIAL
 - Proof (code)
   - ui_requests.h: `SaveProject` / `LoadProject` request types reachable from Settings.
-  - ui_worker.cpp: `SaveProject`/`LoadProject` serialize `ProjectManifest` to fixed numbered slot files and preserve the temp-file rename safety pattern; `LoadProject` restores each saved layer by sequencing explicit target-slot loads inside the existing worker request and republishes saved per-layer ENGINE tune plus KEYZONE note bounds through the existing params path.
-  - project_manifest.h: fields persisted (per-layer wav paths, per-layer edits, per-layer ENGINE tune, per-layer KEYZONE low/high notes, seq/plock flags, BPM, LFO wave, macro state, mod routes).
-  - app_state.h + ui_screens.cpp: `current_project_slot` persists the selected slot; `project_action` + `project_action_slot` + `project_status` drive the temporary project-status screen; `project_edit_pending_mask` tracks per-layer edit reapply during project recall.
+  - ui_worker.cpp: `SaveProject`/`LoadProject` serialize `ProjectManifest` to fixed numbered slot files and preserve the temp-file rename safety pattern; `LoadProject` restores each saved layer by sequencing explicit target-slot loads inside the existing worker request and republishes saved per-layer ENGINE tune, KEYZONE note bounds, and ADSR loop/playback state through the existing params path.
+  - project_manifest.h: fields persisted (per-layer wav paths, per-layer edits, per-layer ENGINE tune, per-layer KEYZONE low/high notes, per-layer ADSR row/playback state, per-layer ADSR loop A/D/S/R, per-layer ADSR loop crossfade/shape, per-layer ADSR graph points, seq/plock flags, BPM, LFO wave, macro state, mod routes).
+  - app_state.h + ui_screens.cpp: `current_project_slot` persists the selected slot; `project_action` + `project_action_slot` + `project_status` drive the temporary project-status screen; `project_edit_pending_mask` tracks per-layer edit reapply during project recall; `PerformAdsr_OnScreenEnter` now preserves a restored saved ADSR row instead of blindly regenerating it from `engine_play_mode`.
 - Proof (runtime)
   - Press Button1 → choose `PROJECT SLOT` and set slot 1 → trigger Save Project; temporary project-status screen appears immediately, shows slot/action/status, and stays up until REnc click.
-  - Change state; use Settings to select slot 2 → Save Project; load each slot from Settings and confirm per-layer WAV path + per-layer edit + per-layer ENGINE tune + per-layer KEYZONE range + macros/mod routes restore deterministically for that slot.
-  - Layer assignment regression: boot device, load WAV A into ENGINE layer A and WAV B into ENGINE layer B, set distinct tune values and KEYZONE ranges, save project, power cycle, load project, and confirm each layer returns with the correct sample, tune, and KEYZONE bounds.
-  - Single-layer regressions: repeat with only layer A populated and only layer B populated; confirm the saved layer, tune, and KEYZONE range restore correctly.
+  - Change state; use Settings to select slot 2 → Save Project; load each slot from Settings and confirm per-layer WAV path + per-layer edit + per-layer ENGINE tune + per-layer KEYZONE range + per-layer ADSR submenu state + macros/mod routes restore deterministically for that slot.
+  - Layer assignment regression: boot device, load WAV A into ENGINE layer A and WAV B into ENGINE layer B, set distinct tune values, KEYZONE ranges, and ADSR settings, save project, power cycle, load project, and confirm each layer returns with the correct sample, tune, KEYZONE bounds, and ADSR submenu state.
+  - Single-layer regressions: repeat with only layer A populated and only layer B populated; confirm the saved layer, tune, KEYZONE range, and ADSR submenu state restore correctly.
   - Select an unused slot and confirm load fails safely with visible `PNN EMPTY` and no partial state application.
   - TBD: restore of all performance params (FX/LPF/etc.) not currently in manifest.

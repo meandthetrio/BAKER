@@ -41,6 +41,15 @@ enum class RecordUiState : uint8_t
     SaveWait,
 };
 
+enum class ProjectAction : uint8_t
+{
+    None = 0,
+    Save,
+    Load,
+};
+
+static constexpr uint8_t kProjectSlotCount = 8;
+
 struct AppState
 {
     PerformPage page = PerformPage::Main;
@@ -200,7 +209,7 @@ struct AppState
     uint8_t mod_field_cursor = 0;
 
     // SHIFT menu (opened by POD BUTTON1)
-    uint8_t shift_menu_cursor = 0; // 0=DELETE, 1=VOLUME
+    uint8_t shift_menu_cursor = 0; // 0=DELETE, 1=VOLUME, 2=PROJECT SLOT, 3=SAVE PROJECT, 4=LOAD PROJECT
     bool    shift_menu_edit_volume = false;
 
     // SD delete flow (entered via SHIFT→DELETE)
@@ -244,6 +253,9 @@ struct AppState
 
     UiListMenu sample_edit_menu{};
     bool sample_edit_menu_inited = false;
+    uint8_t current_project_slot = 0;
+    ProjectAction project_action = ProjectAction::None;
+    uint8_t project_action_slot = 0;
     char project_status[16] = {};
     bool project_edit_pending = false;
     SampleEdit project_pending_edit{};

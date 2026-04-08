@@ -507,37 +507,70 @@
 ## 4.3 Preset save/load correctness / stress
 - Setup
   - SD inserted; overlay visible; known parameter positions.
-  - Use Project Save/Load (preset save is stub).
+  - Use Project Save/Load with a known selected project slot (preset save is stub).
 - Actions
   - Change several params (FX mix, LPF, MOD routes, macro values).
-  - Trigger Save Project; while saving, hammer UI + play MIDI.
+  - Press Button1 to open Settings, navigate to `PROJECT SLOT`, choose a slot with EXT encoder, then navigate to `SAVE PROJECT` and trigger it.
+  - Confirm the temporary project-status screen appears immediately, shows the selected slot + `ACTION: SAVE`, and updates live while saving.
+  - While saving, hammer UI + play MIDI.
   - Change params to different values.
-  - Trigger Load Project; verify values restore and WAV reloads.
+  - Press Button1 if needed to return to Settings, keep the same slot selected, navigate to `LOAD PROJECT`, and trigger it.
+  - Confirm the temporary project-status screen appears immediately, shows the selected slot + `ACTION: LOAD`, and updates live while loading.
+  - Verify values restore and WAV reloads, then dismiss the screen with REnc click back to Settings.
   - Repeat rapidly (save/load back-to-back).
 - Expected results
   - No UI stall; ctrl_hz stable; audio stable (LATE near 0).
-  - Save completes with PRJ SAVED; load restores values deterministically.
+  - Save/load both open the temporary project-status screen from Settings immediately and keep it open until REnc click.
+  - Save completes with `PNN SAVED`; load restores values deterministically from the selected slot.
   - No partial application (“half updated” params).
 - Fail conditions
-  - Load doesn’t restore; corrupted save; stuck busy; glitches during ops.
+  - HUD still exposes a project control path, screen does not appear, auto-closes unexpectedly, REnc click does not dismiss it, load doesn’t restore, corrupted save, stuck busy, glitches during ops.
 
 ## 4.4 Project save/load correctness / stress
 - Setup
   - SD inserted, overlay visible.
   - Make a distinct state: pick a sample, set trim/loop/gain, change MOD routes + macros.
 - Actions
-  - Trigger Save Project.
+  - Press Button1 to open Settings, select `PROJECT SLOT`, set slot 1, and trigger `SAVE PROJECT`.
+  - Confirm the temporary project-status screen appears immediately and shows slot 1 + SAVE action.
   - While saving: hammer UI, scroll menus, send dense MIDI.
-  - Change state to something obviously different.
-  - Trigger Load Project.
+  - Change state to something obviously different, use Settings to set slot 2, and trigger Save Project again.
+  - Confirm the temporary project-status screen appears immediately and shows slot 2 + SAVE action.
+  - Use Settings to load slot 1 and confirm slot 1 state returns.
+  - Use Settings to load slot 2 and confirm slot 2 state returns.
+  - Use Settings to select an unused slot and trigger Load Project.
+  - Confirm the temporary project-status screen appears immediately, shows the selected slot + LOAD action, and updates to `PNN EMPTY` or equivalent visible empty-slot result.
+  - Dismiss each project-status screen with REnc click back to Settings.
   - Repeat (save, change, load) multiple times.
 - Expected results
   - No multi‑second stalls; ctrl_hz stable; audio stable (LATE near 0).
-  - Save ends OK; load ends OK.
-  - State restores deterministically (sample path + edit + macros + mod routes + seq flags).
+  - Save ends OK in the selected slot; load ends OK for populated slots.
+  - State restores deterministically per slot (sample path + edit + macros + mod routes + seq flags).
+  - Unused-slot load fails safely with visible `PNN EMPTY`.
+  - Temporary project-status screen shows slot/action/live status and never auto-closes on its own.
+  - No HUD path is needed for project save/load.
   - No “half restored” state.
 - Fail conditions
-  - UI freeze, stuck busy, corrupted saves, load restores only some fields, audio glitches.
+  - UI freeze, stuck busy, corrupted saves, load restores only some fields, empty-slot load partially applies state, project-status screen is missing/stale, HUD still exposes project save/load, audio glitches.
+
+## 4.5 Project recall restores layer A after reboot
+- Setup
+  - Boot device fresh.
+  - Ensure ENGINE layer A is selected and layer B is empty or obviously different.
+  - Load a known WAV into ENGINE layer A.
+- Actions
+  - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
+  - Power cycle the device.
+  - Press Button1, select the same project slot, and trigger `LOAD PROJECT`.
+  - Enter ENGINE and inspect layer A and layer B.
+- Expected results
+  - The saved WAV returns in ENGINE layer A / slot 0.
+  - Layer B does not receive that restored WAV unless it was loaded separately on purpose.
+  - Project load still uses the worker path and does not introduce audible glitches or multi-second UI stalls.
+- Fail conditions
+  - Restored WAV lands in layer B / slot 1 after reboot.
+  - Layer A remains empty after project recall.
+  - Normal non-project sample load behavior changes unexpectedly.
 
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup

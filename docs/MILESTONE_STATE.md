@@ -410,20 +410,26 @@
 - Status: PARTIAL
 - Proof (code)
   - ui_requests.h: `SaveProject` / `LoadProject` requests (plus `SavePreset` stub).
-  - ui_worker.cpp: `SaveProject` writes `PROJECT1.AKPRJ`; `LoadProject` reads manifest and applies state.
+  - ui_worker.cpp: `SaveProject` / `LoadProject` route through fixed slot filenames `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` and keep file I/O on the worker path; `LoadProject` now restores `manifest.wav_path` into explicit slot 0 / layer A for the current single-sample project model.
   - project_manifest.h: serialized fields (wav path, edit, seq/plock flags, BPM, LFO wave, macros, mod routes).
-  - app_state.h + ui_screens.cpp: `project_status` displayed in HUD.
+  - app_state.h + ui_screens.cpp: `current_project_slot` is UI-owned state; Button1 Settings screen owns `PROJECT SLOT`, `SAVE PROJECT`, and `LOAD PROJECT`, and pushing save/load opens the temporary `ProjectStatus` screen on trigger.
 - Proof (runtime)
-  - Save Project writes status (PRJ SAVING/PRJ SAVED); Load Project restores params/mappings and triggers WAV load.
+  - Press Button1, select `SAVE PROJECT`: project-status screen opens immediately showing slot + SAVE action; status updates live (`P01 SAVING` / `P01 SAVED`) and remains visible until REnc click dismisses it.
+  - Press Button1, select `LOAD PROJECT`: project-status screen opens immediately showing slot + LOAD action; status updates live and remains visible until REnc click dismisses it.
+  - Reboot regression fix: save after loading a WAV into ENGINE layer A, reboot, then load the project; the saved WAV returns to layer A instead of landing in layer B.
+  - Loading an unused slot fails safely with visible `PNN EMPTY`.
   - TBD: Preset save/load beyond project file (SavePreset is stub; no file I/O).
 
 ### 4.4 — Project Save/Load
 - Status: PARTIAL
 - Proof (code)
-  - ui_requests.h: `SaveProject` / `LoadProject` request types reachable from HUD menu.
-  - ui_worker.cpp: `SaveProject`/`LoadProject` serialize `ProjectManifest` to `PROJECT1.AKPRJ`.
+  - ui_requests.h: `SaveProject` / `LoadProject` request types reachable from Settings.
+  - ui_worker.cpp: `SaveProject`/`LoadProject` serialize `ProjectManifest` to fixed numbered slot files and preserve the temp-file rename safety pattern; `LoadProject` no longer routes the saved WAV through the generic inactive-slot path.
   - project_manifest.h: fields persisted (wav path, edit, seq/plock flags, BPM, LFO wave, macro state, mod routes).
-  - app_state.h + ui_screens.cpp: `project_status` displayed; `project_edit_pending` used to apply edit after load.
+  - app_state.h + ui_screens.cpp: `current_project_slot` persists the selected slot; `project_action` + `project_action_slot` + `project_status` drive the temporary project-status screen; `project_edit_pending` is still used to apply edit after load.
 - Proof (runtime)
-  - Save Project → change state → Load Project restores WAV path + edit + macros/mod routes.
+  - Press Button1 → choose `PROJECT SLOT` and set slot 1 → trigger Save Project; temporary project-status screen appears immediately, shows slot/action/status, and stays up until REnc click.
+  - Change state; use Settings to select slot 2 → Save Project; load each slot from Settings and confirm WAV path + edit + macros/mod routes restore deterministically for that slot.
+  - Layer-A restore regression: boot device, load a WAV into ENGINE layer A, save project, power cycle, load project, and confirm the WAV comes back in layer A / slot 0 rather than layer B / slot 1.
+  - Select an unused slot and confirm load fails safely with visible `PNN EMPTY` and no partial state application.
   - TBD: restore of all performance params (FX/LPF/etc.) not currently in manifest.

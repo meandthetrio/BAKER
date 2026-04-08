@@ -123,7 +123,8 @@
 - ui_screens.cpp / ui_screens.h
   - Purpose: Screen router + page stack; screen event handlers + rendering.
   - Thread: [MAIN/UI]
-  - Key symbols: `UiNav_Push`, `UiRouter_DispatchEvent`, `Hud_Render`, `SdBrowse_OnEvent`, `SampleEdit_OnEvent`
+  - Key symbols: `UiNav_Push`, `UiRouter_DispatchEvent`, `Hud_Render`, `ProjectStatus_Render`, `SdBrowse_OnEvent`, `SampleEdit_OnEvent`
+  - Notes: Project save/load now lives in the Button1 Settings screen; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
   - Milestones: TBD
 
 - ui_render.cpp / ui_render.h
@@ -173,6 +174,7 @@
   - Purpose: Background worker (SD scan/load/save WAV, normalize, loop find, project save/load).
   - Thread: [BG]
   - Key symbols: `UiWorker_Tick`, `StartLoad`, `SaveStep`, `SaveProject`, `LoadProject`
+  - Notes: Project save/load stays worker-owned and writes fixed numbered manifests `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` using temp-file rename (`PROJECTNN.TMP` -> `PROJECTNN.AKPRJ`); project recall restores `manifest.wav_path` into explicit slot 0 / layer A rather than the normal inactive-slot loader path.
   - Milestones: TBD
 
 - sd_browser_state.cpp / sd_browser_state.h
@@ -199,6 +201,7 @@
   - Purpose: Project save/load binary manifest definition.
   - Thread: [MAIN/UI]
   - Key symbols: `ProjectManifest`, `kProjectManifestVersion`
+  - Notes: Manifest still stores metadata only (sample path/edit/seq/macros/mod routes), not WAV PCM.
   - Milestones: TBD
 
 ### Diagnostics / counters
@@ -239,6 +242,15 @@
 - SD browser: `ui_screens.cpp` (SdBrowse), `sd_browser_state.cpp`
 - Background load handoff: `ui_worker.cpp`, `sd_sample_pool.cpp`, `main.cpp`
 - Presets/project save/load: `ui_worker.cpp`, `project_manifest.h`
+
+## Project slots
+- Slot ownership: `app_state.h` holds `current_project_slot` (0-based internally, 1-based in UI).
+- Slot selection UI: `ui_screens.cpp` Button1 Settings screen owns `PROJECT SLOT`.
+- Operation UI: Button1 Settings screen owns `SAVE PROJECT` / `LOAD PROJECT`; triggering either pushes a temporary project-status screen that shows slot, action, and live status until REnc click dismisses it.
+- Slot filenames: `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` at SD root.
+- Save/load flow: Settings enqueues `UiReqType::{SaveProject,LoadProject}`; `ui_worker.cpp` performs all file I/O off the audio thread.
+- Recall target: current single-sample project recall restores the saved WAV back into slot 0 / layer A deterministically.
+- Empty slot behavior: loading a missing slot fails safely with visible `PNN EMPTY` status.
 
 ## Notes
 - Embedded sample banks live in `embedded_sample.h` / `embedded_long_sample.h` and are separate from SD-loaded samples.

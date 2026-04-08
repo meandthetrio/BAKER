@@ -25,6 +25,7 @@ This repo is a hardware sampler/performer. The main loop owns UI, controls, SD/f
 - Nav state lives in `app_state.h` (`ui_nav`, `ui_active_screen`) and types in `ui_screens.h`.
 - Event path: `ui_logic.cpp` UI tick → `UiRouter_DispatchEvent` → active screen `*_OnEvent`.
 - Render path: `ui_render.cpp` → `UiRouter_Render` → active screen `*_Render`.
+- Temporary views reuse the same stack: project save/load pushes a `ProjectStatus` screen and REnc click pops back to the prior screen.
 - Overlay: `ui_overlay.cpp` draws on top after screen render; does not poll hardware.
 - Where to look: `ui_screens.h/.cpp` (`UiNav_*`, `UiRouter_*`, `GetScreen`), `ui_logic.cpp`, `ui_render.cpp`.
 
@@ -248,19 +249,21 @@ This repo is a hardware sampler/performer. The main loop owns UI, controls, SD/f
 
 ## 4.3 Presets / Programs
 - Preset/Program = saved performance state that can be recalled (params + mappings), not raw audio data.
-- Implemented today: Project save/load (`PROJECT1.AKPRJ`) includes last WAV path, current SampleEdit, seq/plock flags, BPM, LFO wave, macro state, and mod routes.
+- Implemented today: Project save/load uses fixed numbered slot files (`PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ`) and includes last WAV path, current SampleEdit, seq/plock flags, BPM, LFO wave, macro state, and mod routes.
 - Excludes: raw WAV audio data, UI navigation, transient counters (CPU/LATE/etc.).
-- Save/load flow: UI triggers `SaveProject`/`LoadProject` request; worker does SD I/O; UI shows `project_status` (PRJ SAVING/LOADED/ERR); audio never blocks.
+- Save/load flow: Button1 Settings owns `PROJECT SLOT`, `SAVE PROJECT`, and `LOAD PROJECT`; triggering save/load pushes a temporary `ProjectStatus` screen immediately; UI triggers `SaveProject`/`LoadProject` request; worker does SD I/O; UI shows slot-tagged `project_status` (`P01 SAVING` / `P01 LOADED` / `P01 EMPTY` / `P01 ERR`); audio never blocks.
+- Current single-sample recall rule: `LoadProject` restores the saved WAV into explicit slot 0 / layer A instead of the normal inactive-slot path, so post-reboot project recall lands back on layer A deterministically.
+- ProjectStatus screen: shows project slot, action (`SAVE`/`LOAD`), and live status/result until REnc click dismisses it.
 - Note: `SavePreset` request exists but is a stub (fake work, no file I/O yet).
-- Where to look: `ui_requests.h` (`SaveProject`, `LoadProject`, `SavePreset`), `ui_worker.cpp` (`SaveProject`, `LoadProject`, project_status), `project_manifest.h` (serialized fields), `macros.*` / `mod_matrix.*` / `plocks.*` (included state), `ui_screens.cpp` (HUD status), `app_state.h` (`project_status`, `macro_ui`, `mod_routes_ui`).
+- Where to look: `ui_requests.h` (`SaveProject`, `LoadProject`, `SavePreset`), `ui_worker.cpp` (`SaveProject`, `LoadProject`, project_status), `project_manifest.h` (serialized fields), `macros.*` / `mod_matrix.*` / `plocks.*` (included state), `ui_screens.cpp` (Settings + ProjectStatus), `app_state.h` (`project_status`, `macro_ui`, `mod_routes_ui`).
 
 ## 4.4 Project Save/Load
 - Project = full snapshot of musical state you want to return to later (loaded WAV path + edit + routing/macro state).
 - Included today (per `ProjectManifest`): WAV path, `SampleEdit`, seq/plock flags, BPM, LFO wave, macro state/selection, mod routes/selection.
 - Excludes: raw WAV PCM data (stored separately on SD), transient counters, UI navigation/scroll state, and most performance params (FX mix/LPF/etc. are TBD).
-- Flow: UI triggers `SaveProject`/`LoadProject`; worker writes/reads `PROJECT1.AKPRJ`; `project_status` reports PRJ SAVING/LOADED/ERR.
+- Flow: user presses Button1 to open Settings, adjusts `PROJECT SLOT`, then triggers `SAVE PROJECT`/`LOAD PROJECT`; worker writes/reads the selected slot file (`PROJECTNN.AKPRJ`) via temp-file rename (`PROJECTNN.TMP` -> `PROJECTNN.AKPRJ`); project recall restores the saved WAV into slot 0 / layer A; `project_status` reports slot-tagged save/load/empty/error state; the temporary `ProjectStatus` screen stays visible until REnc click.
 - Apply strategy: Load sets pending edit + starts WAV load; macro/mod state published immediately; audio applies via existing handoff once ready.
-- Where to look: `ui_requests.h` (SaveProject/LoadProject), `ui_worker.cpp` (`SaveProject`, `LoadProject`), `project_manifest.h` (fields), `app_state.h` (`project_status`, `project_edit_pending`), `ui_screens.cpp` (HUD menu + status), `ui_overlay.cpp` (SAVE line for WAV renders, not project).
+- Where to look: `ui_requests.h` (SaveProject/LoadProject), `ui_worker.cpp` (`SaveProject`, `LoadProject`, explicit-slot restore path), `project_manifest.h` (fields), `app_state.h` (`project_status`, `project_edit_pending`, `project_action_slot`), `ui_screens.cpp` (Settings + ProjectStatus), `ui_overlay.cpp` (SAVE line for WAV renders, not project).
 
 ## Repo hygiene
 - Do not commit build/ or binaries.

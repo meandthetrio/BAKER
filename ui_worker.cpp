@@ -196,6 +196,47 @@ static void SetProjectStatus(AppState& app, const char* msg)
     std::snprintf(app.project_status, sizeof(app.project_status), "%s", msg);
 }
 
+static uint8_t ClampProjectSlotIndex(uint8_t slot)
+{
+    return (slot < kProjectSlotCount) ? slot : 0u;
+}
+
+static uint8_t RequestedProjectSlot(const AppState& app)
+{
+    return ClampProjectSlotIndex(static_cast<uint8_t>(app.ui_req_arg0));
+}
+
+static bool MakeProjectSlotFilename(char* out, size_t n, uint8_t slot, const char* ext)
+{
+    if(!out || n == 0 || !ext)
+        return false;
+
+    const uint8_t slot_num = static_cast<uint8_t>(ClampProjectSlotIndex(slot) + 1u);
+    const int r = std::snprintf(out, n, "PROJECT%02u.%s", slot_num, ext);
+    if(r < 0 || r >= static_cast<int>(n))
+    {
+        out[n - 1] = '\0';
+        return false;
+    }
+    return true;
+}
+
+static bool MakeProjectSlotPath(char* out, size_t n, const char* base, uint8_t slot, const char* ext)
+{
+    char name[20];
+    if(!MakeProjectSlotFilename(name, sizeof(name), slot, ext))
+        return false;
+    return MakePath(out, n, base, name);
+}
+
+static void SetProjectSlotStatus(AppState& app, uint8_t slot, const char* msg)
+{
+    char status[sizeof(app.project_status)];
+    const uint8_t slot_num = static_cast<uint8_t>(ClampProjectSlotIndex(slot) + 1u);
+    std::snprintf(status, sizeof(status), "P%02u %s", slot_num, msg ? msg : "");
+    SetProjectStatus(app, status);
+}
+
 static bool ProjectManifestValid(const ProjectManifest& m)
 {
     return std::memcmp(m.magic, "AKPJ", 4) == 0
@@ -484,7 +525,7 @@ static bool StartLoad(AppState& app, uint16_t index)
     return true;
 }
 
-static bool StartLoadPath(AppState& app, const char* path)
+static bool StartLoadPath(AppState& app, const char* path, uint8_t target_slot)
 {
     SdBrowserState& sd = app.sd;
     s_sd.state = LoaderState::Idle;
@@ -543,9 +584,7 @@ static bool StartLoadPath(AppState& app, const char* path)
 
     std::snprintf(sd.last_loaded_path, sizeof(sd.last_loaded_path), "%s", path);
 
-    const uint8_t current_slot = app.sd_current_slot.load(std::memory_order_acquire);
-    const uint8_t next_slot = current_slot ^ 1u;
-    s_sd.loading_slot = next_slot;
+    s_sd.loading_slot = target_slot & 1u;
     s_sd.state = LoaderState::Load;
     s_sd.file_open = true;
     s_sd.data_size = info.data_size;
@@ -1023,17 +1062,18 @@ static bool SaveStep(AppState& app, uint16_t budget_us)
 static bool SaveProject(AppState& app)
 {
     SdBrowserState& sd = app.sd;
-    SetProjectStatus(app, "PRJ SAVING");
+    const uint8_t project_slot = RequestedProjectSlot(app);
+    SetProjectSlotStatus(app, project_slot, "SAVING");
 
     if(!EnsureSdMounted(app))
     {
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
     if(sd.last_loaded_path[0] == '\0')
     {
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
@@ -1044,7 +1084,7 @@ static bool SaveProject(AppState& app)
     const Sample& sample = app.sd_slots[slot];
     if(sample.pcm == nullptr || sample.length == 0)
     {
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
     SampleEdit edit = app.sd_edit_slots[slot];
@@ -1065,12 +1105,16 @@ static bool SaveProject(AppState& app)
     char tmp_path[kProjectPathMax];
     char prj_path[kProjectPathMax];
     const char* base = s_sd.fsi.GetSDPath();
-    std::snprintf(tmp_path, sizeof(tmp_path), "%sPROJECT1.TMP", base);
-    std::snprintf(prj_path, sizeof(prj_path), "%sPROJECT1.AKPRJ", base);
+    if(!MakeProjectSlotPath(tmp_path, sizeof(tmp_path), base, project_slot, "TMP")
+       || !MakeProjectSlotPath(prj_path, sizeof(prj_path), base, project_slot, "AKPRJ"))
+    {
+        SetProjectSlotStatus(app, project_slot, "ERR");
+        return false;
+    }
 
     if(f_open(&s_sd.file, tmp_path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
     {
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
@@ -1080,7 +1124,7 @@ static bool SaveProject(AppState& app)
     if(wr != FR_OK || bw != sizeof(manifest))
     {
         f_unlink(tmp_path);
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
@@ -1088,11 +1132,11 @@ static bool SaveProject(AppState& app)
     if(f_rename(tmp_path, prj_path) != FR_OK)
     {
         f_unlink(tmp_path);
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
-    SetProjectStatus(app, "PRJ SAVED");
+    SetProjectSlotStatus(app, project_slot, "SAVED");
     return true;
 }
 
@@ -1128,21 +1172,30 @@ static bool DeleteWavAtIndex(AppState& app, uint16_t idx)
 static bool LoadProject(AppState& app)
 {
     SdBrowserState& sd = app.sd;
-    SetProjectStatus(app, "PRJ LOADING");
+    const uint8_t project_slot = RequestedProjectSlot(app);
+    SetProjectSlotStatus(app, project_slot, "LOADING");
 
     if(!EnsureSdMounted(app))
     {
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
     char prj_path[kProjectPathMax];
     const char* base = s_sd.fsi.GetSDPath();
-    std::snprintf(prj_path, sizeof(prj_path), "%sPROJECT1.AKPRJ", base);
-
-    if(f_open(&s_sd.file, prj_path, FA_READ) != FR_OK)
+    if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, project_slot, "AKPRJ"))
     {
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
+        return false;
+    }
+
+    const FRESULT open_res = f_open(&s_sd.file, prj_path, FA_READ);
+    if(open_res != FR_OK)
+    {
+        if(open_res == FR_NO_FILE || open_res == FR_NO_PATH)
+            SetProjectSlotStatus(app, project_slot, "EMPTY");
+        else
+            SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
@@ -1154,7 +1207,7 @@ static bool LoadProject(AppState& app)
 
     if(rd != FR_OK || br != sizeof(manifest) || !ProjectManifestValid(manifest))
     {
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
@@ -1175,11 +1228,12 @@ static bool LoadProject(AppState& app)
     std::snprintf(sd.last_loaded_path, sizeof(sd.last_loaded_path), "%s", manifest.wav_path);
     app.project_pending_edit = manifest.edit;
     app.project_edit_pending = true;
+    app.perform_layer = 0u;
 
-    if(!StartLoadPath(app, manifest.wav_path))
+    if(!StartLoadPath(app, manifest.wav_path, 0u))
     {
         app.project_edit_pending = false;
-        SetProjectStatus(app, "PRJ ERR");
+        SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
 
@@ -1383,10 +1437,11 @@ void UiWorker_Tick(AppState& app, uint32_t now_ms, uint16_t budget_us)
             app.ui_req_progress = app.sd.load_progress;
             if(done)
             {
+                const uint8_t project_slot = RequestedProjectSlot(app);
                 if(app.ui_req_result < 0)
-                    SetProjectStatus(app, "PRJ ERR");
+                    SetProjectSlotStatus(app, project_slot, "ERR");
                 else
-                    SetProjectStatus(app, "PRJ LOADED");
+                    SetProjectSlotStatus(app, project_slot, "LOADED");
                 FinishRequest(app);
             }
             break;

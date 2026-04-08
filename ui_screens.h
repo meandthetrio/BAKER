@@ -27,6 +27,7 @@ enum class UiScreenId : uint8_t
     PerformAdsr,
     PerformEmphasis,
     PerformProcess,
+    ProjectStatus,
     COUNT
 };
 

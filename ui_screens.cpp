@@ -98,6 +98,39 @@ static char DstChar(uint8_t dst)
     return (dst == static_cast<uint8_t>(ModDest::FilterCutoff)) ? 'C' : 'P';
 }
 
+static void DrawScaledText6x8(OledPager& d, const char* text, int x, int y, int scale)
+{
+    if(!text || scale <= 0)
+        return;
+
+    for(int i = 0; text[i] != '\0'; ++i)
+    {
+        const char ch = text[i];
+        if(ch < 32 || ch > 126)
+            continue;
+
+        const uint32_t base = static_cast<uint32_t>(ch - 32) * Font_6x8.FontHeight;
+        for(uint32_t row = 0; row < Font_6x8.FontHeight; ++row)
+        {
+            const uint32_t bits = Font_6x8.data[base + row];
+            for(uint32_t col = 0; col < Font_6x8.FontWidth; ++col)
+            {
+                if(((bits << col) & 0x8000u) == 0u)
+                    continue;
+
+                const int px = x + i * static_cast<int>(Font_6x8.FontWidth * scale)
+                               + static_cast<int>(col * scale);
+                const int py = y + static_cast<int>(row * scale);
+                for(int dy = 0; dy < scale; ++dy)
+                {
+                    for(int dx = 0; dx < scale; ++dx)
+                        d.DrawPixel(px + dx, py + dy, true);
+                }
+            }
+        }
+    }
+}
+
 struct Font5x7
 {
     static constexpr int W = 5;
@@ -2503,32 +2536,6 @@ static void Record_Render(UiScreenCtx& ctx)
             const int outer_r = 30;
             const int inner_r = 22;
 
-            auto draw_scaled_char = [&](char ch, int x, int y, int scale)
-            {
-                if(ch < 32 || ch > 126 || scale <= 0)
-                    return;
-                const uint32_t base = static_cast<uint32_t>(ch - 32) * Font_6x8.FontHeight;
-                for(uint32_t row = 0; row < Font_6x8.FontHeight; ++row)
-                {
-                    const uint32_t bits = Font_6x8.data[base + row];
-                    for(uint32_t col = 0; col < Font_6x8.FontWidth; ++col)
-                    {
-                        const bool pixel_on = ((bits << col) & 0x8000u) != 0u;
-                        if(!pixel_on)
-                            continue;
-                        const int px = x + static_cast<int>(col * scale);
-                        const int py = y + static_cast<int>(row * scale);
-                        for(int dy = 0; dy < scale; ++dy)
-                        {
-                            for(int dx = 0; dx < scale; ++dx)
-                            {
-                                d.DrawPixel(px + dx, py + dy, true);
-                            }
-                        }
-                    }
-                }
-            };
-
             DrawCirclePixels(d, cx, cy, outer_r, true);
             DrawCirclePixels(d, cx, cy, inner_r, true);
             d.DrawLine(cx, 0, cx, 63, true);
@@ -2548,8 +2555,7 @@ static void Record_Render(UiScreenCtx& ctx)
             const int text_h = Font_6x8.FontHeight * scale;
             const int text_x = (128 - text_w) / 2;
             const int text_y = (64 - text_h) / 2;
-            for(int i = 0; big[i] != '\0'; ++i)
-                draw_scaled_char(big[i], text_x + i * Font_6x8.FontWidth * scale, text_y, scale);
+            DrawScaledText6x8(d, big, text_x, text_y, scale);
         }
         break;
 
@@ -6051,8 +6057,6 @@ bool UiNav_Pop(UiNav& nav)
 static const UiMenuItem kHudMenuItems[] = {
     {"SD BROWSE", UiScreenId::SdBrowse, UiReqType::None},
     {"SAMPLE EDIT", UiScreenId::SampleEdit, UiReqType::None},
-    {"SAVE PROJECT", UiScreenId::COUNT, UiReqType::SaveProject},
-    {"LOAD PROJECT", UiScreenId::COUNT, UiReqType::LoadProject},
     {"FX", UiScreenId::Fx, UiReqType::None},
     {"MOD", UiScreenId::Mod, UiReqType::None},
     {"MACRO", UiScreenId::Macro, UiReqType::None},
@@ -6060,6 +6064,77 @@ static const UiMenuItem kHudMenuItems[] = {
     {"LOAD", UiScreenId::COUNT, UiReqType::LoadSample},
     {"SAVE", UiScreenId::COUNT, UiReqType::SavePreset},
 };
+
+static const char* ProjectActionLabel(ProjectAction action)
+{
+    switch(action)
+    {
+        case ProjectAction::Save: return "SAVE";
+        case ProjectAction::Load: return "LOAD";
+        default: return "NONE";
+    }
+}
+
+static void SetProjectStatusImmediate(AppState& app, uint8_t slot, const char* msg)
+{
+    std::snprintf(app.project_status,
+                  sizeof(app.project_status),
+                  "P%02u %s",
+                  static_cast<unsigned>(slot + 1u),
+                  msg ? msg : "");
+}
+
+static void ProjectStatusDisplayText(const AppState& app, char* out, size_t n)
+{
+    if(!out || n == 0)
+        return;
+
+    const char* msg = app.project_status;
+    if(msg[0] == '\0')
+    {
+        std::snprintf(out, n, "%s", "WAITING");
+        return;
+    }
+
+    const char* token = std::strchr(msg, ' ');
+    token = (token && token[1] != '\0') ? (token + 1) : msg;
+    if(std::strcmp(token, "ERR") == 0)
+        std::snprintf(out, n, "%s", "ERROR");
+    else
+        std::snprintf(out, n, "%.*s", static_cast<int>(n - 1), token);
+}
+
+static bool OpenProjectStatusScreen(AppState& app, ProjectAction action, uint8_t slot, const char* status)
+{
+    app.project_action = action;
+    app.project_action_slot = slot;
+    SetProjectStatusImmediate(app, slot, status);
+    if(UiNav_Active(app.ui_nav) == UiScreenId::ProjectStatus)
+        return true;
+    return UiNav_Push(app.ui_nav, UiScreenId::ProjectStatus);
+}
+
+static uint8_t WrapProjectSlot(int slot)
+{
+    while(slot < 0)
+        slot += kProjectSlotCount;
+    while(slot >= static_cast<int>(kProjectSlotCount))
+        slot -= kProjectSlotCount;
+    return static_cast<uint8_t>(slot);
+}
+
+static bool TriggerProjectRequest(AppState& app, UiReqType req_type, uint8_t slot)
+{
+    const ProjectAction action = (req_type == UiReqType::SaveProject) ? ProjectAction::Save
+                                                                      : ProjectAction::Load;
+    OpenProjectStatusScreen(app, action, slot, (action == ProjectAction::Save) ? "SAVING"
+                                                                                : "LOADING");
+    const UiReq req{req_type, slot, 0};
+    if(!UiReq_Push(app, req))
+        SetProjectStatusImmediate(app, slot, "ERR");
+    app.ui_dirty = true;
+    return true;
+}
 
 static void EnsureHudMenu(AppState& app)
 {
@@ -6172,10 +6247,60 @@ static void Hud_Render(UiScreenCtx& ctx)
                       layout.y_body + layout.line_h * 3,
                       layout.line_h);
 
-    const char* footer = (app.project_status[0] != '\0')
-                             ? app.project_status
-                             : "EXT:SEL EXT:ENT P2:BACK";
-    UiDraw_Footer(d, layout, footer);
+    UiDraw_Footer(d, layout, "EXT:SEL EXT:ENT P2:BACK");
+}
+
+static bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        if(UiNav_Pop(ctx.app->ui_nav))
+            ctx.app->ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+static void ProjectStatus_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    const AppState& app = *ctx.app;
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status_text[12];
+    ProjectStatusDisplayText(app, status_text, sizeof(status_text));
+    UiDraw_Header(d, layout, "PROJECT", status_text);
+
+    char buf[24];
+    d.SetCursor(layout.x, layout.y_body);
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "PROJECT SLOT %02u",
+                  static_cast<unsigned>(app.project_action_slot + 1u));
+    d.WriteString(buf, Font_6x8, true);
+
+    d.SetCursor(layout.x, layout.y_body + layout.line_h);
+    std::snprintf(buf, sizeof(buf), "ACTION: %s", ProjectActionLabel(app.project_action));
+    d.WriteString(buf, Font_6x8, true);
+
+    d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);
+    d.WriteString("STATUS:", Font_6x8, true);
+
+    const int scale = 2;
+    const int text_w = static_cast<int>(std::strlen(status_text)) * Font_6x8.FontWidth * scale;
+    const int text_x = (128 - text_w) / 2;
+    const int text_y = layout.y_body + layout.line_h * 3 + 2;
+    DrawScaledText6x8(d, status_text, text_x, text_y, scale);
+
+    UiDraw_Footer(d, layout, "RENC:EXIT");
 }
 
 static bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -6745,6 +6870,16 @@ static void SdBrowse_Render(UiScreenCtx& ctx)
 // SHIFT MENU (POD BUTTON1)
 // -------------------------
 
+enum ShiftMenuItem : uint8_t
+{
+    ShiftDelete = 0,
+    ShiftVolume,
+    ShiftProjectSlot,
+    ShiftSaveProject,
+    ShiftLoadProject,
+    ShiftCount
+};
+
 static void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
@@ -6801,14 +6936,25 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
-        // L encoder turn scrolls between DELETE/VOLUME when not editing.
+        if(!app.shift_menu_edit_volume
+           && e.id == kUiEncExt
+           && app.shift_menu_cursor == ShiftProjectSlot
+           && e.value != 0)
+        {
+            const int next = static_cast<int>(app.current_project_slot) + e.value;
+            app.current_project_slot = WrapProjectSlot(next);
+            app.ui_dirty = true;
+            return true;
+        }
+
+        // L encoder turn scrolls between settings rows when not editing.
         if(!app.shift_menu_edit_volume && e.id == kUiEncPod)
         {
             uint8_t cur = app.shift_menu_cursor;
             if(e.value > 0)
-                cur = (cur < 1) ? (uint8_t)(cur + 1) : cur;
+                cur = (cur + 1u < ShiftCount) ? static_cast<uint8_t>(cur + 1u) : cur;
             else if(e.value < 0)
-                cur = (cur > 0) ? (uint8_t)(cur - 1) : cur;
+                cur = (cur > 0u) ? static_cast<uint8_t>(cur - 1u) : cur;
 
             if(cur != app.shift_menu_cursor)
             {
@@ -6821,7 +6967,7 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // EXT encoder click = select.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(app.shift_menu_cursor == 0)
+        if(app.shift_menu_cursor == ShiftDelete)
         {
             // DELETE: enter SD browser in delete mode.
             app.sd_delete_mode = true;
@@ -6831,7 +6977,7 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             app.ui_dirty = true;
             return true;
         }
-        else
+        if(app.shift_menu_cursor == ShiftVolume)
         {
             if(app.shift_menu_edit_volume && ctx.params)
             {
@@ -6846,6 +6992,11 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             app.ui_dirty = true;
             return true;
         }
+        if(app.shift_menu_cursor == ShiftSaveProject)
+            return TriggerProjectRequest(app, UiReqType::SaveProject, app.current_project_slot);
+        if(app.shift_menu_cursor == ShiftLoadProject)
+            return TriggerProjectRequest(app, UiReqType::LoadProject, app.current_project_slot);
+        return true;
     }
 
     // L encoder click backs out one level when editing volume.
@@ -6903,11 +7054,11 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
             vol_pct = 200u;
     }
 
-    // Two rows: DELETE and VOLUME.
+    // Settings rows: DELETE / OUTPUT VOL / PROJECT SLOT / SAVE PROJECT / LOAD PROJECT.
     const int row_y0 = layout.y_body;
     const int row_h = layout.line_h;
 
-    for(int i = 0; i < 2; ++i)
+    for(int i = 0; i < ShiftCount; ++i)
     {
         const bool sel = (app.shift_menu_cursor == (uint8_t)i);
         const int y = row_y0 + i * row_h;
@@ -6920,11 +7071,11 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
             d.DrawRect(x0, y, label_x1, y1, true, true);
 
         d.SetCursor(x0 + 1, y + 1);
-        if(i == 0)
+        if(i == ShiftDelete)
         {
             d.WriteString("DELETE", Font_6x8, !sel);
         }
-        else
+        else if(i == ShiftVolume)
         {
             const char* label = app.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
             d.WriteString(label, Font_6x8, !sel);
@@ -6952,9 +7103,29 @@ static void ShiftMenu_Render(UiScreenCtx& ctx)
             d.SetCursor(screen_w - val_w - 1, y + 1);
             d.WriteString(buf, Font_6x8, true);
         }
+        else if(i == ShiftProjectSlot)
+        {
+            d.WriteString("PROJECT SLOT", Font_6x8, !sel);
+
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "%02u", static_cast<unsigned>(app.current_project_slot + 1u));
+            d.SetCursor(screen_w - 12 - 1, y + 1);
+            d.WriteString(buf, Font_6x8, true);
+        }
+        else if(i == ShiftSaveProject)
+        {
+            d.WriteString("SAVE PROJECT", Font_6x8, !sel);
+        }
+        else if(i == ShiftLoadProject)
+        {
+            d.WriteString("LOAD PROJECT", Font_6x8, !sel);
+        }
     }
 
-    //UiDraw_Footer(d, layout, "R:SEL  L:BACK");
+    const char* hint = app.shift_menu_edit_volume ? "L:NAV R:CHG P2:BACK"
+                        : (app.shift_menu_cursor == ShiftProjectSlot) ? "L:NAV R:CHG/CLK"
+                                                                     : "L:NAV R:SEL";
+    UiDraw_Footer(d, layout, hint);
 }
 
 // -------------------------
@@ -7391,6 +7562,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                            PerformEmphasis_OnEvent,
                                            PerformEmphasis_Render};
     static const UiScreen perform_process{UiScreenId::PerformProcess, nullptr, nullptr, PerformProcess_OnEvent, PerformProcess_Render};
+    static const UiScreen project_status{UiScreenId::ProjectStatus,
+                                         nullptr,
+                                         nullptr,
+                                         ProjectStatus_OnEvent,
+                                         ProjectStatus_Render};
     static const UiScreen hud{UiScreenId::Hud, nullptr, nullptr, Hud_OnEvent, Hud_Render};
     static const UiScreen fx{UiScreenId::Fx, nullptr, nullptr, Fx_OnEvent, Fx_Render};
     static const UiScreen mod{UiScreenId::Mod, nullptr, nullptr, Mod_OnEvent, Mod_Render};
@@ -7431,6 +7607,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return perform_emphasis;
         case UiScreenId::PerformProcess:
             return perform_process;
+        case UiScreenId::ProjectStatus:
+            return project_status;
         case UiScreenId::Hud:
             return hud;
         case UiScreenId::Fx:
@@ -7543,4 +7721,3 @@ void UiRouter_Render(UiScreenCtx& ctx)
     if(active.Render)
         active.Render(ctx);
 }
-

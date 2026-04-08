@@ -257,8 +257,8 @@ struct AppState
     ProjectAction project_action = ProjectAction::None;
     uint8_t project_action_slot = 0;
     char project_status[16] = {};
-    bool project_edit_pending = false;
-    SampleEdit project_pending_edit{};
+    uint8_t project_edit_pending_mask = 0;
+    SampleEdit project_pending_edit[kSdSampleSlots]{};
 };
 
 static inline const char* WaveChar(uint8_t w)

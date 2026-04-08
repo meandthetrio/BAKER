@@ -184,6 +184,23 @@ static bool MakePath(char* out, size_t n, const char* base, const char* name)
     return true;
 }
 
+static void ExtractBaseName(const char* path, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+    out[0] = '\0';
+    if(!path || path[0] == '\0')
+        return;
+
+    const char* name = path;
+    for(const char* p = path; *p; ++p)
+    {
+        if(*p == '/' || *p == '\\')
+            name = p + 1;
+    }
+    std::snprintf(out, out_n, "%s", name);
+}
+
 static constexpr uint32_t kSaveChunkFrames = 2048;
 
 static void SetProjectStatus(AppState& app, const char* msg)
@@ -243,6 +260,36 @@ static bool ProjectManifestValid(const ProjectManifest& m)
            && m.version == kProjectManifestVersion;
 }
 
+static bool ProjectManifestValid(const ProjectManifestV1& m)
+{
+    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 1u;
+}
+
+static void ProjectManifestUpgrade(ProjectManifest& dst, const ProjectManifestV1& src)
+{
+    dst = ProjectManifest{};
+    std::snprintf(dst.wav_path[0], sizeof(dst.wav_path[0]), "%s", src.wav_path);
+    dst.edit[0] = src.edit;
+    dst.sample_present_mask = (src.wav_path[0] != '\0') ? 0x01u : 0u;
+    dst.seq_running = src.seq_running;
+    dst.plock_apply_enabled = src.plock_apply_enabled;
+    dst.lfo_wave = src.lfo_wave;
+    dst.macro_sel = src.macro_sel;
+    dst.seq_bpm = src.seq_bpm;
+    dst.macro_ui = src.macro_ui;
+    for(size_t i = 0; i < kMaxModRoutes; ++i)
+        dst.mod_routes[i] = src.mod_routes[i];
+    dst.mod_route_selected = src.mod_route_selected;
+}
+
+static bool ProjectManifestHasLayer(const ProjectManifest& m, uint8_t layer)
+{
+    if(layer >= kProjectSampleLayerCount)
+        return false;
+    const uint8_t bit = static_cast<uint8_t>(1u << layer);
+    return (m.sample_present_mask & bit) != 0u && m.wav_path[layer][0] != '\0';
+}
+
 struct SdWorkerState
 {
     SdmmcHandler sdmmc;
@@ -276,9 +323,14 @@ struct SdWorkerState
     char save_dir[kSdPathMax] = {};
     char save_path[kSdPathMax] = {};
     char save_name[kSdNameMax] = {};
+    uint8_t project_restore_pending_mask = 0;
+    char project_restore_path[kSdSampleSlots][kProjectPathMax] = {};
 };
 
 static SdWorkerState s_sd;
+static bool StartLoadPath(AppState& app, const char* path, uint8_t target_slot);
+static void ClearProjectRestoreState(AppState& app);
+static bool StartNextProjectRestoreLoad(AppState& app);
 
 static bool EnsureSdMounted(AppState& app)
 {
@@ -330,6 +382,7 @@ static void CancelLoad(AppState& app)
     s_sd.state = LoaderState::Idle;
     sd.load_in_progress = false;
     sd.load_progress = 0;
+    ClearProjectRestoreState(app);
 }
 
 static void FinishRequest(AppState& app)
@@ -339,6 +392,39 @@ static void FinishRequest(AppState& app)
     app.ui_req_progress = 100;
     app.ui_req_done_count++;
     s_sd.state = LoaderState::Idle;
+    ClearProjectRestoreState(app);
+}
+
+static void ClearProjectRestoreState(AppState& app)
+{
+    s_sd.project_restore_pending_mask = 0;
+    app.project_edit_pending_mask = 0;
+    for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
+        s_sd.project_restore_path[slot][0] = '\0';
+}
+
+static bool StartNextProjectRestoreLoad(AppState& app)
+{
+    for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
+    {
+        const uint8_t bit = static_cast<uint8_t>(1u << slot);
+        if((s_sd.project_restore_pending_mask & bit) == 0u)
+            continue;
+        if(s_sd.project_restore_path[slot][0] == '\0')
+        {
+            s_sd.project_restore_pending_mask &= static_cast<uint8_t>(~bit);
+            app.project_edit_pending_mask &= static_cast<uint8_t>(~bit);
+            continue;
+        }
+
+        app.perform_layer = slot;
+        if(!StartLoadPath(app, s_sd.project_restore_path[slot], slot))
+            return false;
+
+        s_sd.project_restore_pending_mask &= static_cast<uint8_t>(~bit);
+        return true;
+    }
+    return false;
 }
 
 static bool StartScan(AppState& app)
@@ -629,6 +715,7 @@ static bool LoadStep(AppState& app, uint16_t budget)
         sd.load_in_progress = false;
         SdBrowser_SetStatus(sd, "READ ERR");
         sd.wav_err_count++;
+        ClearProjectRestoreState(app);
         app.ui_req_result = -1;
         return true;
     }
@@ -654,11 +741,12 @@ static bool LoadStep(AppState& app, uint16_t budget)
         samp.loop_enabled = false;
 
         SampleEdit edit = SampleEdit_Default(s_sd.sample_frames);
-        if(app.project_edit_pending)
+        const uint8_t edit_bit = static_cast<uint8_t>(1u << (s_sd.loading_slot & 1u));
+        if((app.project_edit_pending_mask & edit_bit) != 0u)
         {
-            edit = app.project_pending_edit;
+            edit = app.project_pending_edit[s_sd.loading_slot & 1u];
             SampleEdit_Clamp(edit, s_sd.sample_frames);
-            app.project_edit_pending = false;
+            app.project_edit_pending_mask &= static_cast<uint8_t>(~edit_bit);
         }
         app.sd_edit_slots[s_sd.loading_slot] = edit;
         app.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
@@ -678,6 +766,15 @@ static bool LoadStep(AppState& app, uint16_t budget)
         sd.load_progress = 100;
         sd.last_loaded_index = s_sd.load_index;
         SdBrowser_SetStatus(sd, "LOADED");
+        if(app.ui_req_busy && app.ui_req_active == UiReqType::LoadProject
+           && s_sd.project_restore_pending_mask != 0u)
+        {
+            if(StartNextProjectRestoreLoad(app))
+                return false;
+            ClearProjectRestoreState(app);
+            app.ui_req_result = -1;
+            return true;
+        }
         return true;
     }
 
@@ -1061,7 +1158,6 @@ static bool SaveStep(AppState& app, uint16_t budget_us)
 
 static bool SaveProject(AppState& app)
 {
-    SdBrowserState& sd = app.sd;
     const uint8_t project_slot = RequestedProjectSlot(app);
     SetProjectSlotStatus(app, project_slot, "SAVING");
 
@@ -1071,26 +1167,28 @@ static bool SaveProject(AppState& app)
         return false;
     }
 
-    if(sd.last_loaded_path[0] == '\0')
-    {
-        SetProjectSlotStatus(app, project_slot, "ERR");
-        return false;
-    }
-
     ProjectManifest manifest{};
-    std::snprintf(manifest.wav_path, sizeof(manifest.wav_path), "%s", sd.last_loaded_path);
+    for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
+    {
+        const Sample& sample = app.sd_slots[slot];
+        const char* path = app.engine_sample_path[slot];
+        if(sample.pcm == nullptr || sample.length == 0 || !path || path[0] == '\0')
+            continue;
 
-    const uint8_t slot = app.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const Sample& sample = app.sd_slots[slot];
-    if(sample.pcm == nullptr || sample.length == 0)
+        const uint8_t bit = static_cast<uint8_t>(1u << slot);
+        manifest.sample_present_mask |= bit;
+        std::snprintf(manifest.wav_path[slot], sizeof(manifest.wav_path[slot]), "%s", path);
+
+        SampleEdit edit = app.sd_edit_slots[slot];
+        SampleEdit_Clamp(edit, sample.length);
+        manifest.edit[slot] = edit;
+    }
+
+    if(manifest.sample_present_mask == 0u)
     {
         SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }
-    SampleEdit edit = app.sd_edit_slots[slot];
-    const uint32_t frames = sample.length;
-    SampleEdit_Clamp(edit, frames);
-    manifest.edit = edit;
 
     manifest.seq_running = app.seq_running ? 1 : 0;
     manifest.plock_apply_enabled = app.plock_apply_enabled ? 1 : 0;
@@ -1200,12 +1298,32 @@ static bool LoadProject(AppState& app)
     }
 
     ProjectManifest manifest{};
+    const FSIZE_t manifest_size = f_size(&s_sd.file);
     UINT br = 0;
-    const FRESULT rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    FRESULT rd = FR_INT_ERR;
+    if(manifest_size == sizeof(ProjectManifest))
+    {
+        rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifestV1))
+    {
+        ProjectManifestV1 legacy{};
+        rd = f_read(&s_sd.file, &legacy, sizeof(legacy), &br);
+        if(rd == FR_OK && br == sizeof(legacy) && ProjectManifestValid(legacy))
+            ProjectManifestUpgrade(manifest, legacy);
+        else
+            rd = FR_INVALID_OBJECT;
+    }
     f_close(&s_sd.file);
-    manifest.wav_path[sizeof(manifest.wav_path) - 1] = '\0';
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+        manifest.wav_path[slot][sizeof(manifest.wav_path[slot]) - 1] = '\0';
 
-    if(rd != FR_OK || br != sizeof(manifest) || !ProjectManifestValid(manifest))
+    const bool manifest_ok
+        = (manifest_size == sizeof(ProjectManifest) && rd == FR_OK && br == sizeof(manifest)
+           && ProjectManifestValid(manifest))
+          || (manifest_size == sizeof(ProjectManifestV1) && rd == FR_OK
+              && ProjectManifestValid(manifest));
+    if(!manifest_ok)
     {
         SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
@@ -1225,14 +1343,38 @@ static bool LoadProject(AppState& app)
     app.mod_route_selected = manifest.mod_route_selected;
     ModMatrix_Publish(app.mod_matrix, app.mod_routes_ui);
 
-    std::snprintf(sd.last_loaded_path, sizeof(sd.last_loaded_path), "%s", manifest.wav_path);
-    app.project_pending_edit = manifest.edit;
-    app.project_edit_pending = true;
-    app.perform_layer = 0u;
-
-    if(!StartLoadPath(app, manifest.wav_path, 0u))
+    ClearProjectRestoreState(app);
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
     {
-        app.project_edit_pending = false;
+        if(!ProjectManifestHasLayer(manifest, slot))
+            continue;
+
+        const uint8_t bit = static_cast<uint8_t>(1u << slot);
+        app.project_pending_edit[slot] = manifest.edit[slot];
+        app.project_edit_pending_mask |= bit;
+        s_sd.project_restore_pending_mask |= bit;
+        std::snprintf(s_sd.project_restore_path[slot],
+                      sizeof(s_sd.project_restore_path[slot]),
+                      "%s",
+                      manifest.wav_path[slot]);
+        std::snprintf(app.engine_sample_path[slot],
+                      sizeof(app.engine_sample_path[slot]),
+                      "%s",
+                      manifest.wav_path[slot]);
+        ExtractBaseName(manifest.wav_path[slot],
+                        app.engine_sample_name[slot],
+                        sizeof(app.engine_sample_name[slot]));
+    }
+
+    if(s_sd.project_restore_pending_mask == 0u)
+    {
+        sd.last_loaded_path[0] = '\0';
+        return true;
+    }
+
+    if(!StartNextProjectRestoreLoad(app))
+    {
+        ClearProjectRestoreState(app);
         SetProjectSlotStatus(app, project_slot, "ERR");
         return false;
     }

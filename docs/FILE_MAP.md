@@ -174,7 +174,7 @@
   - Purpose: Background worker (SD scan/load/save WAV, normalize, loop find, project save/load).
   - Thread: [BG]
   - Key symbols: `UiWorker_Tick`, `StartLoad`, `SaveStep`, `SaveProject`, `LoadProject`
-  - Notes: Project save/load stays worker-owned and writes fixed numbered manifests `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` using temp-file rename (`PROJECTNN.TMP` -> `PROJECTNN.AKPRJ`); project recall restores `manifest.wav_path` into explicit slot 0 / layer A rather than the normal inactive-slot loader path.
+  - Notes: Project save/load stays worker-owned and writes fixed numbered manifests `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` using temp-file rename (`PROJECTNN.TMP` -> `PROJECTNN.AKPRJ`); project manifests now store per-layer sample paths/edits, and project recall restores each saved layer into its explicit slot (`A->0`, `B->1`) instead of the normal inactive-slot loader path.
   - Milestones: TBD
 
 - sd_browser_state.cpp / sd_browser_state.h
@@ -249,7 +249,7 @@
 - Operation UI: Button1 Settings screen owns `SAVE PROJECT` / `LOAD PROJECT`; triggering either pushes a temporary project-status screen that shows slot, action, and live status until REnc click dismisses it.
 - Slot filenames: `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` at SD root.
 - Save/load flow: Settings enqueues `UiReqType::{SaveProject,LoadProject}`; `ui_worker.cpp` performs all file I/O off the audio thread.
-- Recall target: current single-sample project recall restores the saved WAV back into slot 0 / layer A deterministically.
+- Recall target: project recall stores explicit layer assignments and restores saved WAVs back into their original slots/layers deterministically (`A->0`, `B->1`).
 - Empty slot behavior: loading a missing slot fails safely with visible `PNN EMPTY` status.
 
 ## Notes

@@ -553,23 +553,60 @@
 - Fail conditions
   - UI freeze, stuck busy, corrupted saves, load restores only some fields, empty-slot load partially applies state, project-status screen is missing/stale, HUD still exposes project save/load, audio glitches.
 
-## 4.5 Project recall restores layer A after reboot
+## 4.5 Project recall restores A+B after reboot
 - Setup
   - Boot device fresh.
-  - Ensure ENGINE layer A is selected and layer B is empty or obviously different.
-  - Load a known WAV into ENGINE layer A.
+  - Load known WAV A into ENGINE layer A.
+  - Load different WAV B into ENGINE layer B.
 - Actions
   - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
   - Power cycle the device.
   - Press Button1, select the same project slot, and trigger `LOAD PROJECT`.
   - Enter ENGINE and inspect layer A and layer B.
 - Expected results
-  - The saved WAV returns in ENGINE layer A / slot 0.
-  - Layer B does not receive that restored WAV unless it was loaded separately on purpose.
+  - WAV A returns in ENGINE layer A / slot 0.
+  - WAV B returns in ENGINE layer B / slot 1.
   - Project load still uses the worker path and does not introduce audible glitches or multi-second UI stalls.
 - Fail conditions
-  - Restored WAV lands in layer B / slot 1 after reboot.
+  - WAV A and WAV B collapse onto the same restored layer.
+  - Layer A or layer B restores the wrong saved sample.
+  - Either saved layer remains empty after project recall.
+  - Normal non-project sample load behavior changes unexpectedly.
+
+## 4.6 Project recall restores A-only after reboot
+- Setup
+  - Boot device fresh.
+  - Load known WAV A into ENGINE layer A.
+  - Leave layer B empty.
+- Actions
+  - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
+  - Power cycle the device.
+  - Press Button1, select the same project slot, and trigger `LOAD PROJECT`.
+  - Enter ENGINE and inspect layer A and layer B.
+- Expected results
+  - WAV A returns in ENGINE layer A / slot 0.
+  - Layer B stays empty unless it was loaded separately on purpose.
+- Fail conditions
+  - WAV A lands in layer B / slot 1 after reboot.
   - Layer A remains empty after project recall.
+  - Normal non-project sample load behavior changes unexpectedly.
+
+## 4.7 Project recall restores B-only after reboot
+- Setup
+  - Boot device fresh.
+  - Load known WAV B into ENGINE layer B.
+  - Leave layer A empty.
+- Actions
+  - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
+  - Power cycle the device.
+  - Press Button1, select the same project slot, and trigger `LOAD PROJECT`.
+  - Enter ENGINE and inspect layer A and layer B.
+- Expected results
+  - WAV B returns in ENGINE layer B / slot 1.
+  - Layer A stays empty unless it was loaded separately on purpose.
+- Fail conditions
+  - WAV B lands in layer A / slot 0 after reboot.
+  - Layer B remains empty after project recall.
   - Normal non-project sample load behavior changes unexpectedly.
 
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot

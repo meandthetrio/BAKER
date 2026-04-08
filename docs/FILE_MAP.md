@@ -174,7 +174,7 @@
   - Purpose: Background worker (SD scan/load/save WAV, normalize, loop find, project save/load).
   - Thread: [BG]
   - Key symbols: `UiWorker_Tick`, `StartLoad`, `SaveStep`, `SaveProject`, `LoadProject`
-  - Notes: Project save/load stays worker-owned and writes fixed numbered manifests `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` using temp-file rename (`PROJECTNN.TMP` -> `PROJECTNN.AKPRJ`); project manifests now store per-layer sample paths/edits plus per-layer ENGINE tune, per-layer KEYZONE note bounds, and per-layer ADSR submenu state (row/playback mode, loop A/D/S/R, loop crossfade/shape, ADSR graph points), and project recall restores each saved layer into its explicit slot (`A->0`, `B->1`) instead of the normal inactive-slot loader path.
+  - Notes: Project save/load stays worker-owned and writes fixed numbered manifests `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` using temp-file rename (`PROJECTNN.TMP` -> `PROJECTNN.AKPRJ`); project manifests now store per-layer sample paths/edits plus per-layer ENGINE tune, per-layer KEYZONE note bounds, per-layer ADSR submenu state (row/playback mode, loop A/D/S/R, loop crossfade/shape, ADSR graph points), and per-layer EMPHASIS state (drive amount/mode, filter cutoff, resonance), and project recall restores each saved layer into its explicit slot (`A->0`, `B->1`) instead of the normal inactive-slot loader path.
   - Milestones: TBD
 
 - sd_browser_state.cpp / sd_browser_state.h
@@ -253,6 +253,7 @@
 - ENGINE tune: project manifests also persist `app.engine_tune_semitones[0/1]` and `ui_worker.cpp` republishes them through `Params` on load so restored tune is both visible and audible.
 - KEYZONE: project manifests also persist `perform_keyzone_lo_note[0/1]` + `perform_keyzone_hi_note[0/1]` and `ui_worker.cpp` republishes them through `Params` on load so restored note gating matches the KEYZONE screen.
 - ADSR: project manifests also persist `perform_adsr_row[0/1]`, `engine_play_mode[0/1]`, per-layer loop A/D/S/R, per-layer loop crossfade/shape, and per-layer ADSR graph/control points; `ui_worker.cpp` republishes the loop/playback subset through `Params` on load, skips the normal manual-load crossfade default reset when a layer load is part of project recall, and `ui_screens.cpp` preserves the restored ADSR row on screen entry instead of overwriting it from `engine_play_mode`.
+- EMPHASIS: project manifests also persist `engine_gain_db[0/1]`, `engine_drive_mode[0/1]`, and per-layer filter cutoff/resonance; `ui_worker.cpp` captures cutoff/resonance from `Params::TargetsForUI()` on save and republishes all per-layer EMPHASIS values through `Params` on load so the EMPHASIS screen and audible drive/filter state match after recall.
 - Empty slot behavior: loading a missing slot fails safely with visible `PNN EMPTY` status.
 
 ## Notes

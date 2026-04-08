@@ -576,8 +576,11 @@
   - Layer B KEYZONE screen shows its saved low/high notes.
   - Layer A ADSR screen shows its saved row and its saved loop/graph values.
   - Layer B ADSR screen shows its saved row and its saved loop/graph values.
+  - Layer A EMPHASIS screen shows its saved drive/filter values.
+  - Layer B EMPHASIS screen shows its saved drive/filter values.
   - Actual note gating/playback matches the restored KEYZONE ranges.
   - Actual playback mode/loop behavior matches the restored ADSR state.
+  - Actual drive/filter behavior matches the restored EMPHASIS state.
   - Project load still uses the worker path and does not introduce audible glitches or multi-second UI stalls.
 - Fail conditions
   - WAV A and WAV B collapse onto the same restored layer.
@@ -585,6 +588,7 @@
   - Tune values swap between layers or reset to default.
   - KEYZONE ranges swap between layers or reset to default.
   - ADSR row, loop values, crossfade settings, or graph values swap between layers or reset to default.
+  - EMPHASIS drive amount, drive mode, cutoff, or resonance swap between layers or reset to default.
   - Either saved layer remains empty after project recall.
   - Normal non-project sample load behavior changes unexpectedly.
 
@@ -605,8 +609,10 @@
   - Layer A `TUNE` shows and sounds like its saved value.
   - Layer A KEYZONE screen shows its saved low/high notes.
   - Layer A ADSR screen shows its saved row and its saved loop/graph values.
+  - Layer A EMPHASIS screen shows its saved drive/filter values.
   - Actual note gating/playback matches the restored KEYZONE range.
   - Actual playback mode/loop behavior matches the restored ADSR state.
+  - Actual drive/filter behavior matches the restored EMPHASIS state.
   - Layer B stays empty unless it was loaded separately on purpose.
 - Fail conditions
   - WAV A lands in layer B / slot 1 after reboot.
@@ -614,6 +620,7 @@
   - Layer A `TUNE` resets or restores to the wrong value.
   - Layer A KEYZONE bounds reset or restore to the wrong values.
   - Layer A ADSR state resets or restores to the wrong values.
+  - Layer A EMPHASIS state resets or restores to the wrong values.
   - Normal non-project sample load behavior changes unexpectedly.
 
 ## 4.7 Project recall restores B-only after reboot
@@ -623,6 +630,7 @@
   - Set ENGINE layer B `TUNE` to an obvious non-default value.
   - In KEYZONE, set a clearly identifiable low/high note range for layer B.
   - In ADSR, set layer B to a clearly identifiable row/mode and distinct loop/graph values.
+  - In EMPHASIS, set layer B to a clearly identifiable drive/filter state.
   - Leave layer A empty.
 - Actions
   - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
@@ -634,8 +642,10 @@
   - Layer B `TUNE` shows and sounds like its saved value.
   - Layer B KEYZONE screen shows its saved low/high notes.
   - Layer B ADSR screen shows its saved row and its saved loop/graph values.
+  - Layer B EMPHASIS screen shows its saved drive/filter values.
   - Actual note gating/playback matches the restored KEYZONE range.
   - Actual playback mode/loop behavior matches the restored ADSR state.
+  - Actual drive/filter behavior matches the restored EMPHASIS state.
   - Layer A stays empty unless it was loaded separately on purpose.
 - Fail conditions
   - WAV B lands in layer A / slot 0 after reboot.
@@ -643,6 +653,7 @@
   - Layer B `TUNE` resets or restores to the wrong value.
   - Layer B KEYZONE bounds reset or restore to the wrong values.
   - Layer B ADSR state resets or restores to the wrong values.
+  - Layer B EMPHASIS state resets or restores to the wrong values.
   - Normal non-project sample load behavior changes unexpectedly.
 
 ## 4.8 Project recall restores per-layer ADSR submenu state
@@ -689,6 +700,33 @@
 - Fail conditions
   - Either layer restores the correct sample but its LOOP crossfade controls revert to defaults after load completion.
   - Layer A and layer B crossfade amount/shape values swap.
+
+## 4.10 Project recall restores per-layer EMPHASIS state
+- Setup
+  - Boot device fresh.
+  - Load known WAV A into ENGINE layer A.
+  - Load different WAV B into ENGINE layer B.
+- Actions
+  - In EMPHASIS, set layer A to odd drive mode with a distinct drive amount, cutoff, and resonance.
+  - Set layer B to even drive mode with different drive amount, cutoff, and resonance.
+  - Save Project 1, power cycle, and load Project 1.
+  - Repeat with layer A even / layer B odd.
+  - Repeat with both layers using different drive amounts.
+  - Repeat with both layers using different cutoff values.
+  - Repeat with both layers using different resonance values.
+- Expected results
+  - Layer A drive amount restores to the saved value.
+  - Layer A drive mode restores to the saved value.
+  - Layer A cutoff restores to the saved value.
+  - Layer A resonance restores to the saved value.
+  - Layer B drive amount restores to the saved value.
+  - Layer B drive mode restores to the saved value.
+  - Layer B cutoff restores to the saved value.
+  - Layer B resonance restores to the saved value.
+  - No saved EMPHASIS value swaps between layers after reboot and reload.
+- Fail conditions
+  - Drive amount, drive mode, cutoff, or resonance restores to the wrong layer.
+  - Restored EMPHASIS values reset to defaults after reboot/reload.
 
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup

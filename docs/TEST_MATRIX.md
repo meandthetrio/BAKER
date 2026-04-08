@@ -807,6 +807,34 @@
   - PROCESS cursor/detail/helper state is unexpectedly restored.
   - Project load introduces audio-thread/file-I/O regressions.
 
+## 4.14 Project recall restores PROCESS EQ state only through canonical params
+- Setup
+  - Boot device fresh.
+  - Load WAV A into ENGINE layer A.
+  - Load WAV B into ENGINE layer B.
+- Actions
+  - In PROCESS -> EQ, set a clearly identifiable non-default EQ configuration.
+  - Save Project 1, power cycle, and load Project 1.
+  - Confirm the PROCESS EQ screen shows the saved values and audition the result.
+  - Repeat with EQ off vs on.
+  - Repeat with obvious non-default mix, center, positive tilt, negative tilt, and non-default Q values.
+  - After each repeat, save Project 1, power cycle, load Project 1, and confirm the restored values and audible result.
+- Expected results
+  - EQ on/off restores correctly.
+  - EQ mix restores correctly.
+  - EQ center restores correctly.
+  - EQ tilt restores correctly.
+  - EQ Q restores correctly.
+  - The PROCESS EQ screen shows the restored values after load.
+  - Audible behavior reflects the restored EQ state after load.
+  - Project load remains worker-owned with no added SD/file work in the audio callback.
+  - No unrelated PROCESS cursor/graph/detail/helper state is restored as part of this regression.
+- Fail conditions
+  - EQ on/off, mix, center, tilt, or Q resets after reboot/reload.
+  - The UI shows restored EQ values but the audible result does not match.
+  - PROCESS cursor/graph/detail/helper state is unexpectedly restored.
+  - Project load introduces audio-thread/file-I/O regressions.
+
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup
   - Navigate `START -> PERFORM -> ENGINE` and select target layer (`A`/`B`) with POD1.

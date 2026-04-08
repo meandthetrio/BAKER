@@ -755,6 +755,29 @@
   - The UI shows the saved values but the audible balance does not change after load.
   - Project load touches unrelated PROCESS helper/detail state or introduces audio-thread/file-I/O regressions.
 
+## 4.12 Project recall restores PROCESS FX order only through canonical params
+- Setup
+  - Boot device fresh.
+  - Load WAV A into ENGINE layer A.
+  - Load WAV B into ENGINE layer B.
+- Actions
+  - In PROCESS, reorder the four FX lanes into a clearly identifiable non-default order.
+  - Press Button1, select `PROJECT SLOT`, choose Project 1, and trigger `SAVE PROJECT`.
+  - Power cycle the device.
+  - Press Button1, select Project 1, and trigger `LOAD PROJECT`.
+  - Enter PROCESS and inspect the lane order.
+  - Audition material that makes the restored order easy to hear.
+- Expected results
+  - PROCESS shows the saved FX lane order after load.
+  - Audible behavior reflects the restored order after load.
+  - Project load remains worker-owned with no added SD/file work in the audio callback.
+  - No unrelated PROCESS cursor/detail/helper state is restored as part of this regression.
+- Fail conditions
+  - FX order resets to the default order after reboot/reload.
+  - The PROCESS screen shows one order while the audible routing behaves like another.
+  - Cursor/detail/helper state is unexpectedly restored.
+  - Project load introduces audio-thread/file-I/O regressions.
+
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup
   - Navigate `START -> PERFORM -> ENGINE` and select target layer (`A`/`B`) with POD1.

@@ -456,6 +456,7 @@
 - Result:
   - Publishes FX values/order.
 - Notes:
+  - Project recall persists only canonical `fx_order[4]`; `perform_process_fx_order` is a mirrored UI copy re-derived from the restored canonical order, and `perform_process_fx_cursor`, `perform_process_main_cursor`, `perform_process_detail_active`, `perform_process_eq_graph_active`, and `perform_process_detail_param` are not serialized.
   - `perform_process_fx_cursor` tracks selected lane when main cursor is on FX.
   - Reorder is adjacent-swap and clamps at edges (no wrap).
 

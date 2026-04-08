@@ -728,6 +728,33 @@
   - Drive amount, drive mode, cutoff, or resonance restores to the wrong layer.
   - Restored EMPHASIS values reset to defaults after reboot/reload.
 
+## 4.11 Project recall restores PROCESS layer master levels only through canonical params
+- Setup
+  - Boot device fresh.
+  - Load WAV A into ENGINE layer A.
+  - Load WAV B into ENGINE layer B.
+- Actions
+  - In PROCESS, set layer A master level to a clearly identifiable non-default value.
+  - Set layer B master level to a different clearly identifiable non-default value.
+  - Press Button1, select `PROJECT SLOT`, choose Project 1, and trigger `SAVE PROJECT`.
+  - Power cycle the device.
+  - Press Button1, select Project 1, and trigger `LOAD PROJECT`.
+  - Enter PROCESS and inspect layer A and layer B.
+  - Audition both layers together to confirm the restored balance is audible, not just visible.
+- Expected results
+  - WAV A returns in layer A and WAV B returns in layer B.
+  - Layer A PROCESS master level shows its saved value.
+  - Layer B PROCESS master level shows its saved value.
+  - Layer A and layer B master levels do not swap.
+  - Audible layer balance matches the restored saved values after load.
+  - Project load remains worker-owned with no added SD/file work in the audio callback.
+  - No unrelated PROCESS state is restored as part of this regression.
+- Fail conditions
+  - Either layer master level resets to unity or another default.
+  - Layer A and layer B master levels swap.
+  - The UI shows the saved values but the audible balance does not change after load.
+  - Project load touches unrelated PROCESS helper/detail state or introduces audio-thread/file-I/O regressions.
+
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup
   - Navigate `START -> PERFORM -> ENGINE` and select target layer (`A`/`B`) with POD1.

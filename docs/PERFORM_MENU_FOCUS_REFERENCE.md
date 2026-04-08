@@ -439,6 +439,7 @@
 - Result:
   - Updates `engine_layer_master_level[layer]` and local mute/unmuted bookkeeping.
 - Notes:
+  - Project recall persists only canonical `engine_layer_master_level[0/1]`; `perform_process_vol_muted`, `perform_process_vol_unmuted_level`, and `perform_process_vol_pct` are runtime helper/display state, are not serialized, and are re-derived from the restored canonical levels on load.
   - Encoder motion while muted is consumed but does not unmute.
   - Main-screen render is now simulator-style:
     - stacked left-side `A` / `B` knobs instead of placeholder blocks

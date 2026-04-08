@@ -252,7 +252,7 @@
 - Recall target: project recall stores explicit layer assignments and restores saved WAVs back into their original slots/layers deterministically (`A->0`, `B->1`).
 - ENGINE tune: project manifests also persist `app.engine_tune_semitones[0/1]` and `ui_worker.cpp` republishes them through `Params` on load so restored tune is both visible and audible.
 - KEYZONE: project manifests also persist `perform_keyzone_lo_note[0/1]` + `perform_keyzone_hi_note[0/1]` and `ui_worker.cpp` republishes them through `Params` on load so restored note gating matches the KEYZONE screen.
-- ADSR: project manifests also persist `perform_adsr_row[0/1]`, `engine_play_mode[0/1]`, per-layer loop A/D/S/R, per-layer loop crossfade/shape, and per-layer ADSR graph/control points; `ui_worker.cpp` republishes the loop/playback subset through `Params` on load, and `ui_screens.cpp` preserves the restored ADSR row on screen entry instead of overwriting it from `engine_play_mode`.
+- ADSR: project manifests also persist `perform_adsr_row[0/1]`, `engine_play_mode[0/1]`, per-layer loop A/D/S/R, per-layer loop crossfade/shape, and per-layer ADSR graph/control points; `ui_worker.cpp` republishes the loop/playback subset through `Params` on load, skips the normal manual-load crossfade default reset when a layer load is part of project recall, and `ui_screens.cpp` preserves the restored ADSR row on screen entry instead of overwriting it from `engine_play_mode`.
 - Empty slot behavior: loading a missing slot fails safely with visible `PNN EMPTY` status.
 
 ## Notes

@@ -668,6 +668,28 @@
   - LOOP values, crossfade settings, or graph values restore to the wrong layer.
   - Restored ADSR values reset to defaults after reboot/reload.
 
+## 4.9 Project recall preserves LOOP crossfade after sample restore
+- Setup
+  - Boot device fresh.
+  - Load known WAV A into ENGINE layer A.
+  - Load known WAV B into ENGINE layer B.
+  - In ADSR LOOP mode, set layer A crossfade amount and shape to obvious non-default values.
+  - Set layer B crossfade amount and shape to different obvious non-default values.
+- Actions
+  - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
+  - Power cycle the device.
+  - Press Button1, select the same project slot, and trigger `LOAD PROJECT`.
+  - Wait for both layer sample restores to complete, then enter ADSR for layer A and layer B.
+- Expected results
+  - Layer A LOOP crossfade amount restores to its saved value.
+  - Layer A LOOP crossfade shape restores to its saved value.
+  - Layer B LOOP crossfade amount restores to its saved value.
+  - Layer B LOOP crossfade shape restores to its saved value.
+  - The restored values remain intact after sample-load completion and do not snap back to `0.0625` / `0.0`.
+- Fail conditions
+  - Either layer restores the correct sample but its LOOP crossfade controls revert to defaults after load completion.
+  - Layer A and layer B crossfade amount/shape values swap.
+
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup
   - Navigate `START -> PERFORM -> ENGINE` and select target layer (`A`/`B`) with POD1.

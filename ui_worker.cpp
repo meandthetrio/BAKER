@@ -930,15 +930,19 @@ static bool LoadStep(AppState& app, uint16_t budget)
 
         SampleEdit edit = SampleEdit_Default(s_sd.sample_frames);
         const uint8_t edit_bit = static_cast<uint8_t>(1u << (s_sd.loading_slot & 1u));
-        if((app.project_edit_pending_mask & edit_bit) != 0u)
+        const bool is_project_restore_load = (app.project_edit_pending_mask & edit_bit) != 0u;
+        if(is_project_restore_load)
         {
             edit = app.project_pending_edit[s_sd.loading_slot & 1u];
             SampleEdit_Clamp(edit, s_sd.sample_frames);
             app.project_edit_pending_mask &= static_cast<uint8_t>(~edit_bit);
         }
         app.sd_edit_slots[s_sd.loading_slot] = edit;
-        app.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
-        app.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
+        if(!is_project_restore_load)
+        {
+            app.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
+            app.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
+        }
         app.sd_edit_pending = edit;
         app.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);
         app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);

@@ -262,6 +262,11 @@ static bool ProjectManifestValid(const ProjectManifest& m)
 
 static bool ProjectManifestValid(const ProjectManifestV3& m)
 {
+    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 3u;
+}
+
+static bool ProjectManifestValid(const ProjectManifestV4& m)
+{
     return std::memcmp(m.magic, "AKPJ", 4) == 0
            && m.version == kProjectManifestVersion;
 }
@@ -309,7 +314,30 @@ static void ProjectManifestUpgrade(ProjectManifestV3& dst, const ProjectManifest
     dst.mod_route_selected = src.mod_route_selected;
 }
 
-static bool ProjectManifestHasLayer(const ProjectManifestV3& m, uint8_t layer)
+static void ProjectManifestUpgrade(ProjectManifestV4& dst, const ProjectManifestV3& src)
+{
+    dst = ProjectManifestV4{};
+    dst.sample_present_mask = src.sample_present_mask;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = 48u;
+        dst.perform_keyzone_hi_note[slot] = 60u;
+    }
+    dst.seq_running = src.seq_running;
+    dst.plock_apply_enabled = src.plock_apply_enabled;
+    dst.lfo_wave = src.lfo_wave;
+    dst.macro_sel = src.macro_sel;
+    dst.seq_bpm = src.seq_bpm;
+    dst.macro_ui = src.macro_ui;
+    for(size_t i = 0; i < kMaxModRoutes; ++i)
+        dst.mod_routes[i] = src.mod_routes[i];
+    dst.mod_route_selected = src.mod_route_selected;
+}
+
+static bool ProjectManifestHasLayer(const ProjectManifestV4& m, uint8_t layer)
 {
     if(layer >= kProjectSampleLayerCount)
         return false;
@@ -326,11 +354,32 @@ static int8_t ClampProjectTune(int value)
     return static_cast<int8_t>(value);
 }
 
-static void PublishProjectEngineTune(Params& params, const AppState& app)
+static uint8_t ClampProjectMidiNote(int value)
+{
+    if(value < 0)
+        value = 0;
+    if(value > 127)
+        value = 127;
+    return static_cast<uint8_t>(value);
+}
+
+static void ClampProjectKeyzoneRange(uint8_t& lo, uint8_t& hi)
+{
+    lo = ClampProjectMidiNote(lo);
+    hi = ClampProjectMidiNote(hi);
+    if(lo > hi)
+        hi = lo;
+}
+
+static void PublishProjectPerformParams(Params& params, const AppState& app)
 {
     PerformParamsTargets& t = params.EditTargets();
     for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
+    {
         t.engine_tune_semitones[layer] = static_cast<float>(app.engine_tune_semitones[layer]);
+        t.perform_keyzone_lo_note[layer] = app.perform_keyzone_lo_note[layer];
+        t.perform_keyzone_hi_note[layer] = app.perform_keyzone_hi_note[layer];
+    }
     params.PublishTargets();
 }
 
@@ -1211,7 +1260,7 @@ static bool SaveProject(AppState& app)
         return false;
     }
 
-    ProjectManifestV3 manifest{};
+    ProjectManifestV4 manifest{};
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
         const Sample& sample = app.sd_slots[slot];
@@ -1227,12 +1276,18 @@ static bool SaveProject(AppState& app)
         SampleEdit_Clamp(edit, sample.length);
         manifest.edit[slot] = edit;
         manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine_tune_semitones[slot]);
+        manifest.perform_keyzone_lo_note[slot] = app.perform_keyzone_lo_note[slot];
+        manifest.perform_keyzone_hi_note[slot] = app.perform_keyzone_hi_note[slot];
     }
 
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
         if((manifest.sample_present_mask & static_cast<uint8_t>(1u << slot)) == 0u)
             manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine_tune_semitones[slot]);
+        manifest.perform_keyzone_lo_note[slot] = app.perform_keyzone_lo_note[slot];
+        manifest.perform_keyzone_hi_note[slot] = app.perform_keyzone_hi_note[slot];
+        ClampProjectKeyzoneRange(manifest.perform_keyzone_lo_note[slot],
+                                 manifest.perform_keyzone_hi_note[slot]);
     }
 
     if(manifest.sample_present_mask == 0u)
@@ -1348,20 +1403,33 @@ static bool LoadProject(AppState& app, Params& params)
         return false;
     }
 
-    ProjectManifestV3 manifest{};
+    ProjectManifestV4 manifest{};
     const FSIZE_t manifest_size = f_size(&s_sd.file);
     UINT br = 0;
     FRESULT rd = FR_INT_ERR;
-    if(manifest_size == sizeof(ProjectManifestV3))
+    if(manifest_size == sizeof(ProjectManifestV4))
     {
         rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifestV3))
+    {
+        ProjectManifestV3 legacy_v3{};
+        rd = f_read(&s_sd.file, &legacy_v3, sizeof(legacy_v3), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v3) && ProjectManifestValid(legacy_v3))
+            ProjectManifestUpgrade(manifest, legacy_v3);
+        else
+            rd = FR_INVALID_OBJECT;
     }
     else if(manifest_size == sizeof(ProjectManifest))
     {
         ProjectManifest legacy_v2{};
         rd = f_read(&s_sd.file, &legacy_v2, sizeof(legacy_v2), &br);
         if(rd == FR_OK && br == sizeof(legacy_v2) && ProjectManifestValid(legacy_v2))
-            ProjectManifestUpgrade(manifest, legacy_v2);
+        {
+            ProjectManifestV3 legacy_v3{};
+            ProjectManifestUpgrade(legacy_v3, legacy_v2);
+            ProjectManifestUpgrade(manifest, legacy_v3);
+        }
         else
             rd = FR_INVALID_OBJECT;
     }
@@ -1373,7 +1441,9 @@ static bool LoadProject(AppState& app, Params& params)
         {
             ProjectManifest legacy_v2{};
             ProjectManifestUpgrade(legacy_v2, legacy);
-            ProjectManifestUpgrade(manifest, legacy_v2);
+            ProjectManifestV3 legacy_v3{};
+            ProjectManifestUpgrade(legacy_v3, legacy_v2);
+            ProjectManifestUpgrade(manifest, legacy_v3);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1383,8 +1453,10 @@ static bool LoadProject(AppState& app, Params& params)
         manifest.wav_path[slot][sizeof(manifest.wav_path[slot]) - 1] = '\0';
 
     const bool manifest_ok
-        = (manifest_size == sizeof(ProjectManifestV3) && rd == FR_OK && br == sizeof(manifest)
+        = (manifest_size == sizeof(ProjectManifestV4) && rd == FR_OK && br == sizeof(manifest)
            && ProjectManifestValid(manifest))
+          || (manifest_size == sizeof(ProjectManifestV3) && rd == FR_OK
+              && br == sizeof(ProjectManifestV3))
           || (manifest_size == sizeof(ProjectManifest) && rd == FR_OK
               && br == sizeof(ProjectManifest))
           || (manifest_size == sizeof(ProjectManifestV1) && rd == FR_OK
@@ -1410,8 +1482,14 @@ static bool LoadProject(AppState& app, Params& params)
     ModMatrix_Publish(app.mod_matrix, app.mod_routes_ui);
 
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
         app.engine_tune_semitones[slot] = ClampProjectTune(manifest.engine_tune_semitones[slot]);
-    PublishProjectEngineTune(params, app);
+        app.perform_keyzone_lo_note[slot] = manifest.perform_keyzone_lo_note[slot];
+        app.perform_keyzone_hi_note[slot] = manifest.perform_keyzone_hi_note[slot];
+        ClampProjectKeyzoneRange(app.perform_keyzone_lo_note[slot],
+                                 app.perform_keyzone_hi_note[slot]);
+    }
+    PublishProjectPerformParams(params, app);
 
     ClearProjectRestoreState(app);
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)

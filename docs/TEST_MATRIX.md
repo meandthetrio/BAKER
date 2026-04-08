@@ -560,6 +560,8 @@
   - Set ENGINE layer A `TUNE` to an obvious non-default value.
   - Load different WAV B into ENGINE layer B.
   - Set ENGINE layer B `TUNE` to a different obvious non-default value.
+  - In KEYZONE, set a clearly identifiable low/high note range for layer A.
+  - In KEYZONE, set a different clearly identifiable low/high note range for layer B.
 - Actions
   - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
   - Power cycle the device.
@@ -570,11 +572,15 @@
   - WAV B returns in ENGINE layer B / slot 1.
   - Layer A `TUNE` shows and sounds like its saved value.
   - Layer B `TUNE` shows and sounds like its saved value.
+  - Layer A KEYZONE screen shows its saved low/high notes.
+  - Layer B KEYZONE screen shows its saved low/high notes.
+  - Actual note gating/playback matches the restored KEYZONE ranges.
   - Project load still uses the worker path and does not introduce audible glitches or multi-second UI stalls.
 - Fail conditions
   - WAV A and WAV B collapse onto the same restored layer.
   - Layer A or layer B restores the wrong saved sample.
   - Tune values swap between layers or reset to default.
+  - KEYZONE ranges swap between layers or reset to default.
   - Either saved layer remains empty after project recall.
   - Normal non-project sample load behavior changes unexpectedly.
 
@@ -583,6 +589,7 @@
   - Boot device fresh.
   - Load known WAV A into ENGINE layer A.
   - Set ENGINE layer A `TUNE` to an obvious non-default value.
+  - In KEYZONE, set a clearly identifiable low/high note range for layer A.
   - Leave layer B empty.
 - Actions
   - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
@@ -592,11 +599,14 @@
 - Expected results
   - WAV A returns in ENGINE layer A / slot 0.
   - Layer A `TUNE` shows and sounds like its saved value.
+  - Layer A KEYZONE screen shows its saved low/high notes.
+  - Actual note gating/playback matches the restored KEYZONE range.
   - Layer B stays empty unless it was loaded separately on purpose.
 - Fail conditions
   - WAV A lands in layer B / slot 1 after reboot.
   - Layer A remains empty after project recall.
   - Layer A `TUNE` resets or restores to the wrong value.
+  - Layer A KEYZONE bounds reset or restore to the wrong values.
   - Normal non-project sample load behavior changes unexpectedly.
 
 ## 4.7 Project recall restores B-only after reboot
@@ -604,6 +614,7 @@
   - Boot device fresh.
   - Load known WAV B into ENGINE layer B.
   - Set ENGINE layer B `TUNE` to an obvious non-default value.
+  - In KEYZONE, set a clearly identifiable low/high note range for layer B.
   - Leave layer A empty.
 - Actions
   - Press Button1, choose the desired project slot, and trigger `SAVE PROJECT`.
@@ -613,11 +624,14 @@
 - Expected results
   - WAV B returns in ENGINE layer B / slot 1.
   - Layer B `TUNE` shows and sounds like its saved value.
+  - Layer B KEYZONE screen shows its saved low/high notes.
+  - Actual note gating/playback matches the restored KEYZONE range.
   - Layer A stays empty unless it was loaded separately on purpose.
 - Fail conditions
   - WAV B lands in layer A / slot 0 after reboot.
   - Layer B remains empty after project recall.
   - Layer B `TUNE` resets or restores to the wrong value.
+  - Layer B KEYZONE bounds reset or restore to the wrong values.
   - Normal non-project sample load behavior changes unexpectedly.
 
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot

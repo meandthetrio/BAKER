@@ -778,6 +778,35 @@
   - Cursor/detail/helper state is unexpectedly restored.
   - Project load introduces audio-thread/file-I/O regressions.
 
+## 4.13 Project recall restores PROCESS SAT state only through canonical params
+- Setup
+  - Boot device fresh.
+  - Load WAV A into ENGINE layer A.
+  - Load WAV B into ENGINE layer B.
+- Actions
+  - In PROCESS -> SAT, set a clearly identifiable SAT configuration in tape-like mode with obvious drive, bump, and mix.
+  - Save Project 1, power cycle, and load Project 1.
+  - Confirm the PROCESS SAT screen shows the saved tape-like values and audition the result.
+  - Repeat with SAT off vs on.
+  - Repeat with bit mode using obvious bit_reso, bit_smpl, and mix values.
+  - After each repeat, save Project 1, power cycle, load Project 1, and confirm the restored values and audible result.
+- Expected results
+  - SAT on/off restores correctly.
+  - SAT mode restores correctly.
+  - SAT mix restores correctly.
+  - Tape-mode drive and bump restore correctly.
+  - Bit-mode bit_reso and bit_smpl restore correctly.
+  - The PROCESS SAT screen shows the restored values after load.
+  - Audible behavior reflects the restored SAT state after load.
+  - Project load remains worker-owned with no added SD/file work in the audio callback.
+  - No unrelated PROCESS cursor/detail/helper state is restored as part of this regression.
+- Fail conditions
+  - SAT on/off, mode, or mix resets after reboot/reload.
+  - Tape-mode drive/bump or bit-mode bit_reso/bit_smpl restores incorrectly.
+  - The UI shows restored SAT values but the audible result does not match.
+  - PROCESS cursor/detail/helper state is unexpectedly restored.
+  - Project load introduces audio-thread/file-I/O regressions.
+
 ## ENGINE_0.1 — Load/Tune/Gain/OneShot
 - Setup
   - Navigate `START -> PERFORM -> ENGINE` and select target layer (`A`/`B`) with POD1.

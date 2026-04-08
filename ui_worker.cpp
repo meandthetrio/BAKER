@@ -291,6 +291,12 @@ static bool ProjectManifestValid(const ProjectManifestV7& m)
 static bool ProjectManifestValid(const ProjectManifestV8& m)
 {
     return std::memcmp(m.magic, "AKPJ", 4) == 0
+           && m.version == 8u;
+}
+
+static bool ProjectManifestValid(const ProjectManifestV9& m)
+{
+    return std::memcmp(m.magic, "AKPJ", 4) == 0
            && m.version == kProjectManifestVersion;
 }
 
@@ -516,7 +522,49 @@ static void ProjectManifestUpgrade(ProjectManifestV8& dst, const ProjectManifest
     dst.mod_route_selected = src.mod_route_selected;
 }
 
-static bool ProjectManifestHasLayer(const ProjectManifestV8& m, uint8_t layer)
+static void ProjectManifestUpgrade(ProjectManifestV9& dst, const ProjectManifestV8& src)
+{
+    dst = ProjectManifestV9{};
+    dst.sample_present_mask = src.sample_present_mask;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
+        dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
+        dst.perform_adsr_row[slot] = src.perform_adsr_row[slot];
+        dst.engine_play_mode[slot] = src.engine_play_mode[slot];
+        dst.perform_adsr_loop_attack[slot] = src.perform_adsr_loop_attack[slot];
+        dst.perform_adsr_loop_decay[slot] = src.perform_adsr_loop_decay[slot];
+        dst.perform_adsr_loop_sustain[slot] = src.perform_adsr_loop_sustain[slot];
+        dst.perform_adsr_loop_release[slot] = src.perform_adsr_loop_release[slot];
+        dst.perform_adsr_loop_crossfade[slot] = src.perform_adsr_loop_crossfade[slot];
+        dst.perform_adsr_loop_crossfade_shape[slot] = src.perform_adsr_loop_crossfade_shape[slot];
+        dst.perform_adsr_env_a_x[slot] = src.perform_adsr_env_a_x[slot];
+        dst.perform_adsr_env_d_x[slot] = src.perform_adsr_env_d_x[slot];
+        dst.perform_adsr_env_r_x[slot] = src.perform_adsr_env_r_x[slot];
+        dst.perform_adsr_env_s_level[slot] = src.perform_adsr_env_s_level[slot];
+        dst.engine_gain_db[slot] = src.engine_gain_db[slot];
+        dst.engine_drive_mode[slot] = src.engine_drive_mode[slot];
+        dst.engine_filter_cutoff_hz[slot] = src.engine_filter_cutoff_hz[slot];
+        dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
+        dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
+    }
+    for(size_t i = 0; i < 4; ++i)
+        dst.fx_order[i] = src.fx_order[i];
+    dst.seq_running = src.seq_running;
+    dst.plock_apply_enabled = src.plock_apply_enabled;
+    dst.lfo_wave = src.lfo_wave;
+    dst.macro_sel = src.macro_sel;
+    dst.seq_bpm = src.seq_bpm;
+    dst.macro_ui = src.macro_ui;
+    for(size_t i = 0; i < kMaxModRoutes; ++i)
+        dst.mod_routes[i] = src.mod_routes[i];
+    dst.mod_route_selected = src.mod_route_selected;
+}
+
+static bool ProjectManifestHasLayer(const ProjectManifestV9& m, uint8_t layer)
 {
     if(layer >= kProjectSampleLayerCount)
         return false;
@@ -578,6 +626,11 @@ static uint8_t ClampProjectDriveMode(int value)
     return (value != 0) ? 1u : 0u;
 }
 
+static uint8_t ClampProjectSatMode(int value)
+{
+    return (value != 0) ? 1u : 0u;
+}
+
 static float ClampProjectFilterCutoffHz(float value)
 {
     if(value < 20.0f)
@@ -585,6 +638,26 @@ static float ClampProjectFilterCutoffHz(float value)
     if(value > 20000.0f)
         value = 20000.0f;
     return value;
+}
+
+static void ClampProjectSatState(ProjectSatState& sat)
+{
+    auto clamp01 = [](float value) -> float
+    {
+        if(value < 0.0f)
+            value = 0.0f;
+        if(value > 1.0f)
+            value = 1.0f;
+        return value;
+    };
+
+    sat.sat_on = (sat.sat_on != 0u) ? 1u : 0u;
+    sat.sat_mode = ClampProjectSatMode(sat.sat_mode);
+    sat.sat_mix = clamp01(sat.sat_mix);
+    sat.sat_drive = clamp01(sat.sat_drive);
+    sat.sat_bump = clamp01(sat.sat_bump);
+    sat.sat_bit_reso = clamp01(sat.sat_bit_reso);
+    sat.sat_bit_smpl = clamp01(sat.sat_bit_smpl);
 }
 
 static float ClampProjectFloat(float value, float lo, float hi)
@@ -648,6 +721,7 @@ static void PublishProjectPerformParams(Params& params,
                                         const AppState& app,
                                         const float* process_layer_master_level = nullptr,
                                         const uint8_t* process_fx_order = nullptr,
+                                        const ProjectSatState* process_sat_state = nullptr,
                                         const float* emphasis_cutoff_hz = nullptr,
                                         const float* emphasis_resonance = nullptr)
 {
@@ -657,6 +731,16 @@ static void PublishProjectPerformParams(Params& params,
         for(uint8_t i = 0; i < 4; ++i)
             t.fx_order[i] = process_fx_order[i];
         SanitizeProjectFxOrder(t.fx_order);
+    }
+    if(process_sat_state)
+    {
+        t.sat_on = (process_sat_state->sat_on != 0u);
+        t.sat_mode = ClampProjectSatMode(process_sat_state->sat_mode);
+        t.sat_mix = ClampProjectFloat(process_sat_state->sat_mix, 0.0f, 1.0f);
+        t.sat_drive = ClampProjectFloat(process_sat_state->sat_drive, 0.0f, 1.0f);
+        t.sat_bump = ClampProjectFloat(process_sat_state->sat_bump, 0.0f, 1.0f);
+        t.sat_bit_reso = ClampProjectFloat(process_sat_state->sat_bit_reso, 0.0f, 1.0f);
+        t.sat_bit_smpl = ClampProjectFloat(process_sat_state->sat_bit_smpl, 0.0f, 1.0f);
     }
     for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
     {
@@ -1591,7 +1675,7 @@ static bool SaveProject(AppState& app, const Params& params)
         return false;
     }
 
-    ProjectManifestV8 manifest{};
+    ProjectManifestV9 manifest{};
     const PerformParamsTargets& targets = params.TargetsForUI();
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
@@ -1672,6 +1756,14 @@ static bool SaveProject(AppState& app, const Params& params)
     for(uint8_t i = 0; i < 4; ++i)
         manifest.fx_order[i] = targets.fx_order[i];
     SanitizeProjectFxOrder(manifest.fx_order);
+    manifest.sat.sat_on = targets.sat_on ? 1u : 0u;
+    manifest.sat.sat_mode = targets.sat_mode;
+    manifest.sat.sat_mix = targets.sat_mix;
+    manifest.sat.sat_drive = targets.sat_drive;
+    manifest.sat.sat_bump = targets.sat_bump;
+    manifest.sat.sat_bit_reso = targets.sat_bit_reso;
+    manifest.sat.sat_bit_smpl = targets.sat_bit_smpl;
+    ClampProjectSatState(manifest.sat);
 
     if(manifest.sample_present_mask == 0u)
     {
@@ -1786,20 +1878,33 @@ static bool LoadProject(AppState& app, Params& params)
         return false;
     }
 
-    ProjectManifestV8 manifest{};
+    ProjectManifestV9 manifest{};
     const FSIZE_t manifest_size = f_size(&s_sd.file);
     UINT br = 0;
     FRESULT rd = FR_INT_ERR;
-    if(manifest_size == sizeof(ProjectManifestV8))
+    if(manifest_size == sizeof(ProjectManifestV9))
     {
         rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifestV8))
+    {
+        ProjectManifestV8 legacy_v8{};
+        rd = f_read(&s_sd.file, &legacy_v8, sizeof(legacy_v8), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v8) && ProjectManifestValid(legacy_v8))
+            ProjectManifestUpgrade(manifest, legacy_v8);
+        else
+            rd = FR_INVALID_OBJECT;
     }
     else if(manifest_size == sizeof(ProjectManifestV7))
     {
         ProjectManifestV7 legacy_v7{};
         rd = f_read(&s_sd.file, &legacy_v7, sizeof(legacy_v7), &br);
         if(rd == FR_OK && br == sizeof(legacy_v7) && ProjectManifestValid(legacy_v7))
-            ProjectManifestUpgrade(manifest, legacy_v7);
+        {
+            ProjectManifestV8 legacy_v8{};
+            ProjectManifestUpgrade(legacy_v8, legacy_v7);
+            ProjectManifestUpgrade(manifest, legacy_v8);
+        }
         else
             rd = FR_INVALID_OBJECT;
     }
@@ -1811,7 +1916,9 @@ static bool LoadProject(AppState& app, Params& params)
         {
             ProjectManifestV7 legacy_v7{};
             ProjectManifestUpgrade(legacy_v7, legacy_v6);
-            ProjectManifestUpgrade(manifest, legacy_v7);
+            ProjectManifestV8 legacy_v8{};
+            ProjectManifestUpgrade(legacy_v8, legacy_v7);
+            ProjectManifestUpgrade(manifest, legacy_v8);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1826,7 +1933,9 @@ static bool LoadProject(AppState& app, Params& params)
             ProjectManifestUpgrade(legacy_v6, legacy_v5);
             ProjectManifestV7 legacy_v7{};
             ProjectManifestUpgrade(legacy_v7, legacy_v6);
-            ProjectManifestUpgrade(manifest, legacy_v7);
+            ProjectManifestV8 legacy_v8{};
+            ProjectManifestUpgrade(legacy_v8, legacy_v7);
+            ProjectManifestUpgrade(manifest, legacy_v8);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1843,7 +1952,9 @@ static bool LoadProject(AppState& app, Params& params)
             ProjectManifestUpgrade(legacy_v6, legacy_v5);
             ProjectManifestV7 legacy_v7{};
             ProjectManifestUpgrade(legacy_v7, legacy_v6);
-            ProjectManifestUpgrade(manifest, legacy_v7);
+            ProjectManifestV8 legacy_v8{};
+            ProjectManifestUpgrade(legacy_v8, legacy_v7);
+            ProjectManifestUpgrade(manifest, legacy_v8);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1862,7 +1973,9 @@ static bool LoadProject(AppState& app, Params& params)
             ProjectManifestUpgrade(legacy_v6, legacy_v5);
             ProjectManifestV7 legacy_v7{};
             ProjectManifestUpgrade(legacy_v7, legacy_v6);
-            ProjectManifestUpgrade(manifest, legacy_v7);
+            ProjectManifestV8 legacy_v8{};
+            ProjectManifestUpgrade(legacy_v8, legacy_v7);
+            ProjectManifestUpgrade(manifest, legacy_v8);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1883,7 +1996,9 @@ static bool LoadProject(AppState& app, Params& params)
             ProjectManifestUpgrade(legacy_v6, legacy_v5);
             ProjectManifestV7 legacy_v7{};
             ProjectManifestUpgrade(legacy_v7, legacy_v6);
-            ProjectManifestUpgrade(manifest, legacy_v7);
+            ProjectManifestV8 legacy_v8{};
+            ProjectManifestUpgrade(legacy_v8, legacy_v7);
+            ProjectManifestUpgrade(manifest, legacy_v8);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1906,7 +2021,9 @@ static bool LoadProject(AppState& app, Params& params)
             ProjectManifestUpgrade(legacy_v6, legacy_v5);
             ProjectManifestV7 legacy_v7{};
             ProjectManifestUpgrade(legacy_v7, legacy_v6);
-            ProjectManifestUpgrade(manifest, legacy_v7);
+            ProjectManifestV8 legacy_v8{};
+            ProjectManifestUpgrade(legacy_v8, legacy_v7);
+            ProjectManifestUpgrade(manifest, legacy_v8);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -1916,8 +2033,10 @@ static bool LoadProject(AppState& app, Params& params)
         manifest.wav_path[slot][sizeof(manifest.wav_path[slot]) - 1] = '\0';
 
     const bool manifest_ok
-        = (manifest_size == sizeof(ProjectManifestV8) && rd == FR_OK && br == sizeof(manifest)
+        = (manifest_size == sizeof(ProjectManifestV9) && rd == FR_OK && br == sizeof(manifest)
            && ProjectManifestValid(manifest))
+          || (manifest_size == sizeof(ProjectManifestV8) && rd == FR_OK
+              && br == sizeof(ProjectManifestV8))
           || (manifest_size == sizeof(ProjectManifestV7) && rd == FR_OK
               && br == sizeof(ProjectManifestV7))
           || (manifest_size == sizeof(ProjectManifestV6) && rd == FR_OK
@@ -1939,6 +2058,7 @@ static bool LoadProject(AppState& app, Params& params)
     }
 
     SanitizeProjectFxOrder(manifest.fx_order);
+    ClampProjectSatState(manifest.sat);
 
     app.seq_running = (manifest.seq_running != 0);
     app.plock_apply_enabled = (manifest.plock_apply_enabled != 0);
@@ -2000,6 +2120,7 @@ static bool LoadProject(AppState& app, Params& params)
                                 app,
                                 manifest.engine_layer_master_level,
                                 manifest.fx_order,
+                                &manifest.sat,
                                 manifest.engine_filter_cutoff_hz,
                                 manifest.engine_filter_resonance);
     SyncProjectProcessVolumeUiState(app, manifest.engine_layer_master_level);

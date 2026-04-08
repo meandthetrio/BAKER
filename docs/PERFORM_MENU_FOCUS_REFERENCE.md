@@ -457,6 +457,7 @@
   - Publishes FX values/order.
 - Notes:
   - Project recall persists only canonical `fx_order[4]`; `perform_process_fx_order` is a mirrored UI copy re-derived from the restored canonical order, and `perform_process_fx_cursor`, `perform_process_main_cursor`, `perform_process_detail_active`, `perform_process_eq_graph_active`, and `perform_process_detail_param` are not serialized.
+  - SAT recall likewise persists only canonical `sat_on`, `sat_mode`, `sat_mix`, `sat_drive`, `sat_bump`, `sat_bit_reso`, and `sat_bit_smpl` from the published params block; PROCESS detail cursor/helper state is not serialized.
   - `perform_process_fx_cursor` tracks selected lane when main cursor is on FX.
   - Reorder is adjacent-swap and clamps at edges (no wrap).
 

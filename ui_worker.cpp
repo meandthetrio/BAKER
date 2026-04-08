@@ -6,6 +6,7 @@
 #include "ui_requests.h"
 #include "sample_edit.h"
 #include "project_manifest.h"
+#include "params.h"
 #include "macros.h"
 #include "mod_matrix.h"
 
@@ -256,6 +257,11 @@ static void SetProjectSlotStatus(AppState& app, uint8_t slot, const char* msg)
 
 static bool ProjectManifestValid(const ProjectManifest& m)
 {
+    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 2u;
+}
+
+static bool ProjectManifestValid(const ProjectManifestV3& m)
+{
     return std::memcmp(m.magic, "AKPJ", 4) == 0
            && m.version == kProjectManifestVersion;
 }
@@ -282,12 +288,50 @@ static void ProjectManifestUpgrade(ProjectManifest& dst, const ProjectManifestV1
     dst.mod_route_selected = src.mod_route_selected;
 }
 
-static bool ProjectManifestHasLayer(const ProjectManifest& m, uint8_t layer)
+static void ProjectManifestUpgrade(ProjectManifestV3& dst, const ProjectManifest& src)
+{
+    dst = ProjectManifestV3{};
+    dst.sample_present_mask = src.sample_present_mask;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = 0;
+    }
+    dst.seq_running = src.seq_running;
+    dst.plock_apply_enabled = src.plock_apply_enabled;
+    dst.lfo_wave = src.lfo_wave;
+    dst.macro_sel = src.macro_sel;
+    dst.seq_bpm = src.seq_bpm;
+    dst.macro_ui = src.macro_ui;
+    for(size_t i = 0; i < kMaxModRoutes; ++i)
+        dst.mod_routes[i] = src.mod_routes[i];
+    dst.mod_route_selected = src.mod_route_selected;
+}
+
+static bool ProjectManifestHasLayer(const ProjectManifestV3& m, uint8_t layer)
 {
     if(layer >= kProjectSampleLayerCount)
         return false;
     const uint8_t bit = static_cast<uint8_t>(1u << layer);
     return (m.sample_present_mask & bit) != 0u && m.wav_path[layer][0] != '\0';
+}
+
+static int8_t ClampProjectTune(int value)
+{
+    if(value < -24)
+        value = -24;
+    if(value > 24)
+        value = 24;
+    return static_cast<int8_t>(value);
+}
+
+static void PublishProjectEngineTune(Params& params, const AppState& app)
+{
+    PerformParamsTargets& t = params.EditTargets();
+    for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
+        t.engine_tune_semitones[layer] = static_cast<float>(app.engine_tune_semitones[layer]);
+    params.PublishTargets();
 }
 
 struct SdWorkerState
@@ -1167,7 +1211,7 @@ static bool SaveProject(AppState& app)
         return false;
     }
 
-    ProjectManifest manifest{};
+    ProjectManifestV3 manifest{};
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
         const Sample& sample = app.sd_slots[slot];
@@ -1182,6 +1226,13 @@ static bool SaveProject(AppState& app)
         SampleEdit edit = app.sd_edit_slots[slot];
         SampleEdit_Clamp(edit, sample.length);
         manifest.edit[slot] = edit;
+        manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine_tune_semitones[slot]);
+    }
+
+    for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
+    {
+        if((manifest.sample_present_mask & static_cast<uint8_t>(1u << slot)) == 0u)
+            manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine_tune_semitones[slot]);
     }
 
     if(manifest.sample_present_mask == 0u)
@@ -1267,7 +1318,7 @@ static bool DeleteWavAtIndex(AppState& app, uint16_t idx)
     return false;
 }
 
-static bool LoadProject(AppState& app)
+static bool LoadProject(AppState& app, Params& params)
 {
     SdBrowserState& sd = app.sd;
     const uint8_t project_slot = RequestedProjectSlot(app);
@@ -1297,20 +1348,33 @@ static bool LoadProject(AppState& app)
         return false;
     }
 
-    ProjectManifest manifest{};
+    ProjectManifestV3 manifest{};
     const FSIZE_t manifest_size = f_size(&s_sd.file);
     UINT br = 0;
     FRESULT rd = FR_INT_ERR;
-    if(manifest_size == sizeof(ProjectManifest))
+    if(manifest_size == sizeof(ProjectManifestV3))
     {
         rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifest))
+    {
+        ProjectManifest legacy_v2{};
+        rd = f_read(&s_sd.file, &legacy_v2, sizeof(legacy_v2), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v2) && ProjectManifestValid(legacy_v2))
+            ProjectManifestUpgrade(manifest, legacy_v2);
+        else
+            rd = FR_INVALID_OBJECT;
     }
     else if(manifest_size == sizeof(ProjectManifestV1))
     {
         ProjectManifestV1 legacy{};
         rd = f_read(&s_sd.file, &legacy, sizeof(legacy), &br);
         if(rd == FR_OK && br == sizeof(legacy) && ProjectManifestValid(legacy))
-            ProjectManifestUpgrade(manifest, legacy);
+        {
+            ProjectManifest legacy_v2{};
+            ProjectManifestUpgrade(legacy_v2, legacy);
+            ProjectManifestUpgrade(manifest, legacy_v2);
+        }
         else
             rd = FR_INVALID_OBJECT;
     }
@@ -1319,10 +1383,12 @@ static bool LoadProject(AppState& app)
         manifest.wav_path[slot][sizeof(manifest.wav_path[slot]) - 1] = '\0';
 
     const bool manifest_ok
-        = (manifest_size == sizeof(ProjectManifest) && rd == FR_OK && br == sizeof(manifest)
+        = (manifest_size == sizeof(ProjectManifestV3) && rd == FR_OK && br == sizeof(manifest)
            && ProjectManifestValid(manifest))
+          || (manifest_size == sizeof(ProjectManifest) && rd == FR_OK
+              && br == sizeof(ProjectManifest))
           || (manifest_size == sizeof(ProjectManifestV1) && rd == FR_OK
-              && ProjectManifestValid(manifest));
+              && br == sizeof(ProjectManifestV1));
     if(!manifest_ok)
     {
         SetProjectSlotStatus(app, project_slot, "ERR");
@@ -1342,6 +1408,10 @@ static bool LoadProject(AppState& app)
         app.mod_routes_ui[i] = manifest.mod_routes[i];
     app.mod_route_selected = manifest.mod_route_selected;
     ModMatrix_Publish(app.mod_matrix, app.mod_routes_ui);
+
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+        app.engine_tune_semitones[slot] = ClampProjectTune(manifest.engine_tune_semitones[slot]);
+    PublishProjectEngineTune(params, app);
 
     ClearProjectRestoreState(app);
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
@@ -1406,7 +1476,7 @@ static void StepFakeWork(AppState& app, uint16_t budget_us)
     app.ui_req_progress = static_cast<uint8_t>(pct);
 }
 
-void UiWorker_Tick(AppState& app, uint32_t now_ms, uint16_t budget_us)
+void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budget_us)
 {
     (void)now_ms;
     const uint8_t prev_progress = app.ui_req_progress;
@@ -1514,7 +1584,7 @@ void UiWorker_Tick(AppState& app, uint32_t now_ms, uint16_t budget_us)
                 FinishRequest(app);
                 break;
             case UiReqType::LoadProject:
-                if(!LoadProject(app))
+                if(!LoadProject(app, params))
                 {
                     app.ui_req_result = -1;
                     FinishRequest(app);

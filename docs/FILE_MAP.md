@@ -122,10 +122,22 @@
   - Milestones: TBD
 
 - ui_screens.cpp / ui_screens.h
-  - Purpose: Screen router + page stack plus shared/main-menu, record, perform, HUD, FX/MOD/MACRO, and settings-screen logic.
+  - Purpose: Page stack active lookup plus shared/main-menu, record, perform, HUD, FX/MOD/MACRO, and settings-screen logic.
   - Thread: [MAIN/UI]
-  - Key symbols: `UiNav_Push`, `UiRouter_DispatchEvent`, `Hud_Render`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
+  - Key symbols: `UiNav_Active`, `Hud_Render`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
   - Notes: Project save/load UI still lives in the Button1 Settings screen, but request/status workflow triggering now routes through `src/ui/project_actions.cpp`; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
+  - Milestones: TBD
+
+- src/ui/ui_router.cpp
+  - Purpose: Extracted navigation/router glue from `ui_screens.cpp`, currently `UiNav_Push`, `UiNav_Pop`, `UiRouter_DispatchEvent`, and `UiRouter_Render`.
+  - Thread: [MAIN/UI]
+  - Key symbols: `UiNav_Push`, `UiNav_Pop`, `UiRouter_DispatchEvent`, `UiRouter_Render`
+  - Milestones: TBD
+
+- src/ui/ui_screen_registry.cpp
+  - Purpose: Extracted screen registry from `ui_screens.cpp`, currently `GetScreen(...)` and its local static `UiScreen` descriptors.
+  - Thread: [MAIN/UI]
+  - Key symbols: `GetScreen`
   - Milestones: TBD
 
 - src/ui/project_actions.cpp / src/ui/project_actions.h

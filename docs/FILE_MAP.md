@@ -122,9 +122,9 @@
   - Milestones: TBD
 
 - ui_screens.cpp / ui_screens.h
-  - Purpose: Page stack active lookup plus shared/main-menu, record, perform, HUD, FX/MOD/MACRO, and settings-screen logic.
+  - Purpose: Page stack active lookup plus shared, record, perform, and settings-screen logic.
   - Thread: [MAIN/UI]
-  - Key symbols: `UiNav_Active`, `Hud_Render`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
+  - Key symbols: `UiNav_Active`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
   - Notes: Project save/load UI still lives in the Button1 Settings screen, but request/status workflow triggering now routes through `src/ui/project_actions.cpp`; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
   - Milestones: TBD
 
@@ -174,6 +174,36 @@
   - Purpose: Extracted browse/edit-domain screens from `ui_screens.cpp`, currently `SdBrowse`, `SdDeleteConfirm`, and `SampleEdit`.
   - Thread: [MAIN/UI]
   - Key symbols: `SdBrowse_OnEvent`, `SdDeleteConfirm_OnEnter`, `SampleEdit_OnEvent`
+  - Milestones: TBD
+
+- src/ui/ui_screen_main.cpp
+  - Purpose: Extracted top-level Main Menu and Presets screens from `ui_screens.cpp`, including their main-menu-only icon rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `MainMenu_OnEvent`, `MainMenu_OnEnter`, `MainMenu_Render`, `Presets_Render`
+  - Milestones: TBD
+
+- src/ui/ui_screen_hud.cpp
+  - Purpose: Extracted HUD screen from `ui_screens.cpp`, including HUD menu initialization and HUD-only diagnostics/menu rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `EnsureHudMenu`, `Hud_OnEvent`, `Hud_Render`
+  - Milestones: TBD
+
+- src/ui/ui_screen_fx.cpp
+  - Purpose: Extracted standalone FX screen from `ui_screens.cpp`, including FX value-edit event handling and FX summary rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `Fx_OnEvent`, `Fx_Render`
+  - Milestones: TBD
+
+- src/ui/ui_screen_mod.cpp
+  - Purpose: Extracted standalone MOD screen from `ui_screens.cpp`, including MOD-only route editing and MOD summary rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `Mod_OnEvent`, `Mod_Render`
+  - Milestones: TBD
+
+- src/ui/ui_screen_macro.cpp
+  - Purpose: Extracted standalone MACRO screen from `ui_screens.cpp`, including MACRO value editing and MACRO summary rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `Macro_OnEvent`, `Macro_Render`
   - Milestones: TBD
 
 - src/ui/ui_screens_internal.h

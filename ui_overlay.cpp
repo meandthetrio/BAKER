@@ -30,6 +30,7 @@ void UiOverlay_Render(const AppState& app,
     uint32_t cpu_pct = 0;
     if(budget_cycles > 0)
         cpu_pct = (peak_cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
+    // Cap the display value so the compact fixed-width overlay format stays stable.
     if(cpu_pct > 999u)
         cpu_pct = 999u;
 
@@ -44,6 +45,7 @@ void UiOverlay_Render(const AppState& app,
     const char* mode_a = p.engine_loop_mode[0] ? "LOOP" : "1SHOT";
     const char* mode_b = p.engine_loop_mode[1] ? "LOOP" : "1SHOT";
 
+    // Mirror worker activity into compact overlay labels so diagnostics fit on one OLED row.
     const char* worker = "IDLE";
     if(app.ui_req_busy)
     {

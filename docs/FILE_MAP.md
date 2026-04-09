@@ -8,10 +8,11 @@
 
 ## Repo map (top-level)
 - /docs — project docs (this file)
+- /src/ui — extracted UI leaf modules and thin UI workflow helpers
 - /tools — helper scripts/tools (non-firmware)
 - /build — build artifacts (generated)
 - / — firmware source (all *.cpp/*.h in repo root)
-- Flat layout: most firmware sources live in repo root (no /src folder).
+- Mixed layout: most firmware sources still live in repo root, with extracted UI leaf modules now under `/src/ui`.
 
 ## Anchor entry points
 ### App / scheduling
@@ -124,28 +125,28 @@
   - Purpose: Screen router + page stack plus shared/main-menu, record, perform, HUD, FX/MOD/MACRO, and settings-screen logic.
   - Thread: [MAIN/UI]
   - Key symbols: `UiNav_Push`, `UiRouter_DispatchEvent`, `Hud_Render`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
-  - Notes: Project save/load UI still lives in the Button1 Settings screen, but request/status workflow triggering now routes through `project_actions.cpp`; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
+  - Notes: Project save/load UI still lives in the Button1 Settings screen, but request/status workflow triggering now routes through `src/ui/project_actions.cpp`; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
   - Milestones: TBD
 
-- project_actions.cpp / project_actions.h
+- src/ui/project_actions.cpp / src/ui/project_actions.h
   - Purpose: Thin project workflow helpers used by UI screens for project slot wrap and save/load request triggering.
   - Thread: [MAIN/UI]
   - Key symbols: `ProjectActions_WrapSlot`, `ProjectActions_TriggerRequest`
   - Milestones: TBD
 
-- ui_screen_status.cpp
+- src/ui/ui_screen_status.cpp
   - Purpose: Extracted status-domain screens from `ui_screens.cpp`, currently `ProjectStatus`.
   - Thread: [MAIN/UI]
   - Key symbols: `ProjectStatus_OnEvent`, `ProjectStatus_Render`
   - Milestones: TBD
 
-- ui_screen_browser.cpp
+- src/ui/ui_screen_browser.cpp
   - Purpose: Extracted browse/edit-domain screens from `ui_screens.cpp`, currently `SdBrowse`, `SdDeleteConfirm`, and `SampleEdit`.
   - Thread: [MAIN/UI]
   - Key symbols: `SdBrowse_OnEvent`, `SdDeleteConfirm_OnEnter`, `SampleEdit_OnEvent`
   - Milestones: TBD
 
-- ui_screens_internal.h
+- src/ui/ui_screens_internal.h
   - Purpose: Internal declarations/helpers shared across the split UI screen translation units.
   - Thread: [MAIN/UI]
   - Key symbols: `DrawScaledText6x8`, `DrawTinyString`, `TinyStringWidth`, `ExtractBaseName`
@@ -262,7 +263,7 @@
 
 ## “Where is X?” quick index
 - Control tick / hardware scanning: `controls.cpp`, `ui_logic.cpp`
-- UI tick / drawing: `ui_logic.cpp`, `ui_render.cpp`, `ui_screens.cpp`, `ui_screen_status.cpp`, `ui_screen_browser.cpp`
+- UI tick / drawing: `ui_logic.cpp`, `ui_render.cpp`, `ui_screens.cpp`, `src/ui/ui_screen_status.cpp`, `src/ui/ui_screen_browser.cpp`
 - Voice/MIDI event queue: `event_queue.h` (produced in `main.cpp`, consumed in `voice_engine.cpp`)
 - UI input event queue: `ui_input.*` (produced in `controls.cpp`, consumed in `ui_logic.cpp`)
 - Parameter lane / smoothing: `params.cpp`
@@ -275,14 +276,14 @@
 - Mixer/headroom/clip counter: `audio_engine.cpp`, `app_state.h`
 - Parameter locks: `plocks.cpp`
 - Keygroups/zones: `keygroups.cpp`, `main.cpp`, `velocity_layers.cpp`
-- SD browser: `ui_screen_browser.cpp` (SdBrowse), `sd_browser_state.cpp`
+- SD browser: `src/ui/ui_screen_browser.cpp` (SdBrowse), `sd_browser_state.cpp`
 - Background load handoff: `ui_worker.cpp`, `sd_sample_pool.cpp`, `main.cpp`
 - Presets/project save/load: `ui_worker_project.cpp`, `project_manifest.h`
 
 ## Project slots
 - Slot ownership: `app_state.h` holds `current_project_slot` (0-based internally, 1-based in UI).
 - Slot selection UI: `ui_screens.cpp` Button1 Settings screen owns `PROJECT SLOT`.
-- Operation UI: Button1 Settings screen owns `SAVE PROJECT` / `LOAD PROJECT`; `project_actions.cpp` performs slot wrapping and request/status triggering, and the resulting temporary project-status screen shows slot, action, and live status until REnc click dismisses it.
+- Operation UI: Button1 Settings screen owns `SAVE PROJECT` / `LOAD PROJECT`; `src/ui/project_actions.cpp` performs slot wrapping and request/status triggering, and the resulting temporary project-status screen shows slot, action, and live status until REnc click dismisses it.
 - Slot filenames: `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` at SD root.
 - Save/load flow: Settings enqueues `UiReqType::{SaveProject,LoadProject}`; `ui_worker.cpp` dispatches the requests and `ui_worker_project.cpp` performs the project file I/O off the audio thread.
 - Recall target: project recall stores explicit layer assignments and restores saved WAVs back into their original slots/layers deterministically (`A->0`, `B->1`).

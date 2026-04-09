@@ -3,6 +3,9 @@ TARGET = ADSR_V2
 APP_TYPE = BOOT_QSPI
 USE_FATFS = 1
 
+C_INCLUDES += -I.
+C_INCLUDES += -I./src/ui
+
 # Sources
 CPP_SOURCES = main.cpp
 CPP_SOURCES += params.cpp
@@ -13,14 +16,14 @@ CPP_SOURCES += ui_render.cpp
 CPP_SOURCES += ui_input.cpp
 CPP_SOURCES += controls.cpp
 CPP_SOURCES += ui_screens.cpp
-CPP_SOURCES += ui_screen_status.cpp
-CPP_SOURCES += ui_screen_browser.cpp
+CPP_SOURCES += src/ui/ui_screen_status.cpp
+CPP_SOURCES += src/ui/ui_screen_browser.cpp
 CPP_SOURCES += ui_list_menu.cpp
 CPP_SOURCES += ui_value_edit.cpp
 CPP_SOURCES += ui_layout.cpp
 CPP_SOURCES += ui_overlay.cpp
 CPP_SOURCES += ui_requests.cpp
-CPP_SOURCES += project_actions.cpp
+CPP_SOURCES += src/ui/project_actions.cpp
 CPP_SOURCES += ui_worker.cpp
 CPP_SOURCES += ui_worker_project.cpp
 CPP_SOURCES += sd_browser_state.cpp

@@ -189,10 +189,22 @@
   - Milestones: TBD
 
 - ui_worker.cpp / ui_worker.h
-  - Purpose: Background worker (SD scan/load/save WAV, normalize, loop find, project save/load).
+  - Purpose: Background worker loop, request dispatch, SD scan/load/save WAV, normalize, and loop find.
   - Thread: [BG]
-  - Key symbols: `UiWorker_Tick`, `StartLoad`, `SaveStep`, `SaveProject`, `LoadProject`
+  - Key symbols: `UiWorker_Tick`, `StartLoad`, `SaveStep`
+  - Milestones: TBD
+
+- ui_worker_project.cpp
+  - Purpose: Worker-owned project save/load operations and project-restore sample handoff helpers.
+  - Thread: [BG]
+  - Key symbols: `SaveProject`, `LoadProject`, `RequestedProjectSlot`, `SetProjectSlotStatus`
   - Notes: Project save/load stays worker-owned and writes fixed numbered manifests `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` using temp-file rename (`PROJECTNN.TMP` -> `PROJECTNN.AKPRJ`); project manifests now store per-layer sample paths/edits plus per-layer ENGINE tune, per-layer KEYZONE note bounds, per-layer ADSR submenu state (row/playback mode, loop A/D/S/R, loop crossfade/shape, ADSR graph points), per-layer EMPHASIS state (drive amount/mode, filter cutoff, resonance), per-layer PROCESS layer master levels, PROCESS FX lane order, PROCESS SAT state, and PROCESS EQ state, and project recall restores each saved layer into its explicit slot (`A->0`, `B->1`) instead of the normal inactive-slot loader path.
+  - Milestones: TBD
+
+- ui_worker_internal.h
+  - Purpose: Internal shared worker declarations/state for the split worker translation units.
+  - Thread: [BG]
+  - Key symbols: `SdWorkerState`, `LoaderState`, `s_sd`
   - Milestones: TBD
 
 - sd_browser_state.cpp / sd_browser_state.h
@@ -259,23 +271,23 @@
 - Keygroups/zones: `keygroups.cpp`, `main.cpp`, `velocity_layers.cpp`
 - SD browser: `ui_screen_browser.cpp` (SdBrowse), `sd_browser_state.cpp`
 - Background load handoff: `ui_worker.cpp`, `sd_sample_pool.cpp`, `main.cpp`
-- Presets/project save/load: `ui_worker.cpp`, `project_manifest.h`
+- Presets/project save/load: `ui_worker_project.cpp`, `project_manifest.h`
 
 ## Project slots
 - Slot ownership: `app_state.h` holds `current_project_slot` (0-based internally, 1-based in UI).
 - Slot selection UI: `ui_screens.cpp` Button1 Settings screen owns `PROJECT SLOT`.
 - Operation UI: Button1 Settings screen owns `SAVE PROJECT` / `LOAD PROJECT`; triggering either pushes a temporary project-status screen that shows slot, action, and live status until REnc click dismisses it.
 - Slot filenames: `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` at SD root.
-- Save/load flow: Settings enqueues `UiReqType::{SaveProject,LoadProject}`; `ui_worker.cpp` performs all file I/O off the audio thread.
+- Save/load flow: Settings enqueues `UiReqType::{SaveProject,LoadProject}`; `ui_worker.cpp` dispatches the requests and `ui_worker_project.cpp` performs the project file I/O off the audio thread.
 - Recall target: project recall stores explicit layer assignments and restores saved WAVs back into their original slots/layers deterministically (`A->0`, `B->1`).
-- ENGINE tune: project manifests also persist `app.engine_tune_semitones[0/1]` and `ui_worker.cpp` republishes them through `Params` on load so restored tune is both visible and audible.
-- KEYZONE: project manifests also persist `perform_keyzone_lo_note[0/1]` + `perform_keyzone_hi_note[0/1]` and `ui_worker.cpp` republishes them through `Params` on load so restored note gating matches the KEYZONE screen.
-- ADSR: project manifests also persist `perform_adsr_row[0/1]`, `engine_play_mode[0/1]`, per-layer loop A/D/S/R, per-layer loop crossfade/shape, and per-layer ADSR graph/control points; `ui_worker.cpp` republishes the loop/playback subset through `Params` on load, skips the normal manual-load crossfade default reset when a layer load is part of project recall, and `ui_screens.cpp` preserves the restored ADSR row on screen entry instead of overwriting it from `engine_play_mode`.
-- EMPHASIS: project manifests also persist `engine_gain_db[0/1]`, `engine_drive_mode[0/1]`, and per-layer filter cutoff/resonance; `ui_worker.cpp` captures cutoff/resonance from `Params::TargetsForUI()` on save and republishes all per-layer EMPHASIS values through `Params` on load so the EMPHASIS screen and audible drive/filter state match after recall.
-- PROCESS layer master level: project manifests also persist canonical `engine_layer_master_level[0/1]` from `Params::TargetsForUI()` and `ui_worker.cpp` republishes those values through `Params` on load so restored layer balance is audible; `perform_process_vol_muted`, `perform_process_vol_unmuted_level`, and `perform_process_vol_pct` remain runtime UI helpers, are not serialized, and are re-derived from the restored canonical levels on load.
-- PROCESS FX order: project manifests also persist canonical `fx_order[4]` from `Params::TargetsForUI()` and `ui_worker.cpp` republishes that order through `Params` on load so restored insert routing is audible; `perform_process_fx_order` is only the PROCESS screen’s mirrored UI copy, and cursor/detail fields such as `perform_process_fx_cursor`, `perform_process_main_cursor`, `perform_process_detail_active`, `perform_process_eq_graph_active`, and `perform_process_detail_param` are not serialized.
-- PROCESS SAT: project manifests also persist canonical `sat_on`, `sat_mode`, `sat_mix`, `sat_drive`, `sat_bump`, `sat_bit_reso`, and `sat_bit_smpl` from `Params::TargetsForUI()` and `ui_worker.cpp` republishes that SAT block through `Params` on load so restored saturation mode/tone is audible; PROCESS cursor/detail helper state is not serialized.
-- PROCESS EQ: project manifests also persist canonical `eq_on`, `eq_mix`, `eq_center_norm`, `eq_tilt_db`, and `eq_q` from `Params::TargetsForUI()` and `ui_worker.cpp` republishes that EQ block through `Params` on load so restored EQ tone is audible; PROCESS graph/detail helper state is not serialized.
+- ENGINE tune: project manifests also persist `app.engine_tune_semitones[0/1]` and `ui_worker_project.cpp` republishes them through `Params` on load so restored tune is both visible and audible.
+- KEYZONE: project manifests also persist `perform_keyzone_lo_note[0/1]` + `perform_keyzone_hi_note[0/1]` and `ui_worker_project.cpp` republishes them through `Params` on load so restored note gating matches the KEYZONE screen.
+- ADSR: project manifests also persist `perform_adsr_row[0/1]`, `engine_play_mode[0/1]`, per-layer loop A/D/S/R, per-layer loop crossfade/shape, and per-layer ADSR graph/control points; `ui_worker_project.cpp` republishes the loop/playback subset through `Params` on load, skips the normal manual-load crossfade default reset when a layer load is part of project recall, and `ui_screens.cpp` preserves the restored ADSR row on screen entry instead of overwriting it from `engine_play_mode`.
+- EMPHASIS: project manifests also persist `engine_gain_db[0/1]`, `engine_drive_mode[0/1]`, and per-layer filter cutoff/resonance; `ui_worker_project.cpp` captures cutoff/resonance from `Params::TargetsForUI()` on save and republishes all per-layer EMPHASIS values through `Params` on load so the EMPHASIS screen and audible drive/filter state match after recall.
+- PROCESS layer master level: project manifests also persist canonical `engine_layer_master_level[0/1]` from `Params::TargetsForUI()` and `ui_worker_project.cpp` republishes those values through `Params` on load so restored layer balance is audible; `perform_process_vol_muted`, `perform_process_vol_unmuted_level`, and `perform_process_vol_pct` remain runtime UI helpers, are not serialized, and are re-derived from the restored canonical levels on load.
+- PROCESS FX order: project manifests also persist canonical `fx_order[4]` from `Params::TargetsForUI()` and `ui_worker_project.cpp` republishes that order through `Params` on load so restored insert routing is audible; `perform_process_fx_order` is only the PROCESS screen’s mirrored UI copy, and cursor/detail fields such as `perform_process_fx_cursor`, `perform_process_main_cursor`, `perform_process_detail_active`, `perform_process_eq_graph_active`, and `perform_process_detail_param` are not serialized.
+- PROCESS SAT: project manifests also persist canonical `sat_on`, `sat_mode`, `sat_mix`, `sat_drive`, `sat_bump`, `sat_bit_reso`, and `sat_bit_smpl` from `Params::TargetsForUI()` and `ui_worker_project.cpp` republishes that SAT block through `Params` on load so restored saturation mode/tone is audible; PROCESS cursor/detail helper state is not serialized.
+- PROCESS EQ: project manifests also persist canonical `eq_on`, `eq_mix`, `eq_center_norm`, `eq_tilt_db`, and `eq_q` from `Params::TargetsForUI()` and `ui_worker_project.cpp` republishes that EQ block through `Params` on load so restored EQ tone is audible; PROCESS graph/detail helper state is not serialized.
 - Empty slot behavior: loading a missing slot fails safely with visible `PNN EMPTY` status.
 
 ## Notes

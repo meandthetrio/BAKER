@@ -21,6 +21,7 @@ CPP_SOURCES += ui_layout.cpp
 CPP_SOURCES += ui_overlay.cpp
 CPP_SOURCES += ui_requests.cpp
 CPP_SOURCES += ui_worker.cpp
+CPP_SOURCES += ui_worker_project.cpp
 CPP_SOURCES += sd_browser_state.cpp
 CPP_SOURCES += sd_sample_pool.cpp
 CPP_SOURCES += oled_pager.cpp

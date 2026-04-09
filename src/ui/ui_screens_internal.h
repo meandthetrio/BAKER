@@ -1,20 +1,19 @@
 #pragma once
 
 #include "ui_screens.h"
+#include "ui_draw_controls.h"
+#include "ui_draw_shapes.h"
+#include "ui_draw_text.h"
 
 #include <cstddef>
 
-class OledPager;
 struct UiInputEvent;
 
 // Internal contract for screen implementation units and the central registry.
 // Keep this limited to cross-file screen entry points and the small shared
 // helpers already consumed by extracted screen files.
 
-// Shared helpers used across extracted screen files.
-void DrawScaledText6x8(OledPager& d, const char* text, int x, int y, int scale);
-void DrawTinyString(OledPager& d, const char* str, int x, int y, bool on);
-int TinyStringWidth(const char* str);
+// Shared non-text helpers used across extracted screen files.
 void ExtractBaseName(const char* path, char* out, size_t out_n);
 
 // Already-extracted screens.

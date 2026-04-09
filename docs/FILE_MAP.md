@@ -140,6 +140,24 @@
   - Key symbols: `GetScreen`
   - Milestones: TBD
 
+- src/ui/ui_draw_text.cpp / src/ui/ui_draw_text.h
+  - Purpose: Extracted generic text/font presentation helpers from `ui_screens.cpp`, including shared tiny/micro/mini text drawing, width helpers, and reusable font metrics.
+  - Thread: [MAIN/UI]
+  - Key symbols: `DrawScaledText6x8`, `DrawTinyString`, `DrawMicroString`, `MiniString3x5Width`, `Font5x7`
+  - Milestones: TBD
+
+- src/ui/ui_draw_shapes.cpp / src/ui/ui_draw_shapes.h
+  - Purpose: Extracted generic shape/widget drawing primitives from `ui_screens.cpp`, currently dotted-rect, marching dotted-rect, circle-pixel, and bitmap blit helpers.
+  - Thread: [MAIN/UI]
+  - Key symbols: `DrawDottedRect`, `DrawClockwiseMarchingDottedRect`, `DrawCirclePixels`, `DrawBitmap1bpp`
+  - Milestones: TBD
+
+- src/ui/ui_draw_controls.cpp / src/ui/ui_draw_controls.h
+  - Purpose: Extracted reusable control-visual drawing helpers from `ui_screens.cpp`, currently shared vertical fader rendering and delay-detail fader rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `DrawVerticalFadersInRect`, `DrawDelayDetailFaders`
+  - Milestones: TBD
+
 - src/ui/project_actions.cpp / src/ui/project_actions.h
   - Purpose: Thin project workflow helpers used by UI screens for project slot wrap and save/load request triggering.
   - Thread: [MAIN/UI]
@@ -161,7 +179,7 @@
 - src/ui/ui_screens_internal.h
   - Purpose: Internal declarations/helpers shared across the split UI screen translation units.
   - Thread: [MAIN/UI]
-  - Key symbols: `DrawScaledText6x8`, `DrawTinyString`, `TinyStringWidth`, `ExtractBaseName`
+  - Key symbols: `ExtractBaseName`, `MainMenu_OnEvent`, `PerformProcess_Render`, `ShiftMenu_OnEvent`
   - Milestones: TBD
 
 - ui_render.cpp / ui_render.h

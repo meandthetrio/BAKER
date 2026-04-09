@@ -50,6 +50,22 @@ enum class ProjectAction : uint8_t
 
 static constexpr uint8_t kProjectSlotCount = 8;
 
+struct WorkerState
+{
+    UiReqQueue ui_req_q{};
+    uint32_t ui_req_ovf = 0;
+    uint32_t ui_req_push = 0;
+    uint32_t ui_req_pop = 0;
+    bool     ui_req_busy = false;
+    UiReqType ui_req_active = UiReqType::None;
+    uint8_t  ui_req_progress = 0;
+    int8_t   ui_req_result = 0;
+    uint16_t ui_req_arg0 = 0;
+    uint32_t ui_req_done_count = 0;
+    uint32_t ui_req_work_units_done = 0;
+    uint32_t ui_req_work_units_total = 0;
+};
+
 struct AppState
 {
     PerformPage page = PerformPage::Main;
@@ -122,18 +138,7 @@ struct AppState
     uint32_t ui_in_pop     = 0;
     uint32_t ui_in_ovf     = 0;
     uint32_t ui_in_hi      = 0;
-    UiReqQueue ui_req_q{};
-    uint32_t ui_req_ovf = 0;
-    uint32_t ui_req_push = 0;
-    uint32_t ui_req_pop = 0;
-    bool     ui_req_busy = false;
-    UiReqType ui_req_active = UiReqType::None;
-    uint8_t  ui_req_progress = 0;
-    int8_t   ui_req_result = 0;
-    uint16_t ui_req_arg0 = 0;
-    uint32_t ui_req_done_count = 0;
-    uint32_t ui_req_work_units_done = 0;
-    uint32_t ui_req_work_units_total = 0;
+    WorkerState worker{};
     UiNav    ui_nav{};
     UiScreenId ui_active_screen = UiScreenId::Hud;
     UiListMenu hud_menu{};

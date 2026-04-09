@@ -587,10 +587,10 @@ void SampleEdit_Render(UiScreenCtx& ctx)
     }
 
     const bool busy = app.sd.save_in_progress
-                      || (app.ui_req_busy
-                          && (app.ui_req_active == UiReqType::NormalizeCurrent
-                              || app.ui_req_active == UiReqType::LoopFindCurrent
-                              || app.ui_req_active == UiReqType::SaveRenderedWavCurrent));
+                      || (app.worker.ui_req_busy
+                          && (app.worker.ui_req_active == UiReqType::NormalizeCurrent
+                              || app.worker.ui_req_active == UiReqType::LoopFindCurrent
+                              || app.worker.ui_req_active == UiReqType::SaveRenderedWavCurrent));
     const char* hint = busy ? "BUSY"
                             : (app.value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
                                                      : "A=SEL  B=BACK");

@@ -26,7 +26,7 @@ static uint8_t ClampProjectSlotIndex(uint8_t slot)
 
 uint8_t RequestedProjectSlot(const AppState& app)
 {
-    return ClampProjectSlotIndex(static_cast<uint8_t>(app.ui_req_arg0));
+    return ClampProjectSlotIndex(static_cast<uint8_t>(app.worker.ui_req_arg0));
 }
 
 static bool MakeProjectSlotFilename(char* out, size_t n, uint8_t slot, const char* ext)

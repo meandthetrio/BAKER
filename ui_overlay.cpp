@@ -47,9 +47,9 @@ void UiOverlay_Render(const AppState& app,
 
     // Mirror worker activity into compact overlay labels so diagnostics fit on one OLED row.
     const char* worker = "IDLE";
-    if(app.ui_req_busy)
+    if(app.worker.ui_req_busy)
     {
-        switch(app.ui_req_active)
+        switch(app.worker.ui_req_active)
         {
             case UiReqType::ScanSdWavs: worker = "SCAN"; break;
             case UiReqType::LoadWavIndex: worker = "LOAD"; break;
@@ -62,11 +62,11 @@ void UiOverlay_Render(const AppState& app,
             default: worker = "WORK"; break;
         }
     }
-    else if(app.ui_req_result < 0)
+    else if(app.worker.ui_req_result < 0)
     {
         worker = "ERR";
     }
-    const uint32_t worker_pct = app.ui_req_busy ? app.ui_req_progress : 0u;
+    const uint32_t worker_pct = app.worker.ui_req_busy ? app.worker.ui_req_progress : 0u;
 
     char buf[32];
     const int x = layout.x;

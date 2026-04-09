@@ -1,5 +1,6 @@
 #include "ui_screens.h"
 #include "ui_screens_internal.h"
+#include "project_actions.h"
 
 #include "app_state.h"
 #include "keygroups.h"
@@ -2482,7 +2483,7 @@ static void Record_Render(UiScreenCtx& ctx)
 
     if(app.record_state == RecordUiState::SaveWait)
     {
-        if(!app.sd.save_in_progress && !app.ui_req_busy)
+        if(!app.sd.save_in_progress && !app.worker.ui_req_busy)
         {
             const bool save_ok = (std::strncmp(app.sd.save_status, "SAVED", 5) == 0);
             if(save_ok)
@@ -6068,47 +6069,6 @@ static const UiMenuItem kHudMenuItems[] = {
     {"SAVE", UiScreenId::COUNT, UiReqType::SavePreset},
 };
 
-static void SetProjectStatusImmediate(AppState& app, uint8_t slot, const char* msg)
-{
-    std::snprintf(app.project_status,
-                  sizeof(app.project_status),
-                  "P%02u %s",
-                  static_cast<unsigned>(slot + 1u),
-                  msg ? msg : "");
-}
-
-static bool OpenProjectStatusScreen(AppState& app, ProjectAction action, uint8_t slot, const char* status)
-{
-    app.project_action = action;
-    app.project_action_slot = slot;
-    SetProjectStatusImmediate(app, slot, status);
-    if(UiNav_Active(app.ui_nav) == UiScreenId::ProjectStatus)
-        return true;
-    return UiNav_Push(app.ui_nav, UiScreenId::ProjectStatus);
-}
-
-static uint8_t WrapProjectSlot(int slot)
-{
-    while(slot < 0)
-        slot += kProjectSlotCount;
-    while(slot >= static_cast<int>(kProjectSlotCount))
-        slot -= kProjectSlotCount;
-    return static_cast<uint8_t>(slot);
-}
-
-static bool TriggerProjectRequest(AppState& app, UiReqType req_type, uint8_t slot)
-{
-    const ProjectAction action = (req_type == UiReqType::SaveProject) ? ProjectAction::Save
-                                                                      : ProjectAction::Load;
-    OpenProjectStatusScreen(app, action, slot, (action == ProjectAction::Save) ? "SAVING"
-                                                                                : "LOADING");
-    const UiReq req{req_type, slot, 0};
-    if(!UiReq_Push(app, req))
-        SetProjectStatusImmediate(app, slot, "ERR");
-    app.ui_dirty = true;
-    return true;
-}
-
 static void EnsureHudMenu(AppState& app)
 {
     if(app.hud_menu_inited)
@@ -6667,7 +6627,7 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
            && e.value != 0)
         {
             const int next = static_cast<int>(app.current_project_slot) + e.value;
-            app.current_project_slot = WrapProjectSlot(next);
+            app.current_project_slot = ProjectActions_WrapSlot(next);
             app.ui_dirty = true;
             return true;
         }
@@ -6718,9 +6678,13 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
         if(app.shift_menu_cursor == ShiftSaveProject)
-            return TriggerProjectRequest(app, UiReqType::SaveProject, app.current_project_slot);
+            return ProjectActions_TriggerRequest(app,
+                                                 UiReqType::SaveProject,
+                                                 app.current_project_slot);
         if(app.shift_menu_cursor == ShiftLoadProject)
-            return TriggerProjectRequest(app, UiReqType::LoadProject, app.current_project_slot);
+            return ProjectActions_TriggerRequest(app,
+                                                 UiReqType::LoadProject,
+                                                 app.current_project_slot);
         return true;
     }
 

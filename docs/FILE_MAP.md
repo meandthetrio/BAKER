@@ -24,8 +24,8 @@
 - app_state.h
   - Purpose: Single shared state container (UI flags, counters, SD state, sample/edit handoffs).
   - Thread: [SHARED]
-  - Key symbols: `AppState`, `sd_published_*`, `sd_edit_*`, `ui_req_*`, `voices_active`
-  - Notes: shared PERFORM ADSR UI state now also owns LOOP wave-preview focus plus per-layer seam-crossfade amount and shape; shared PERFORM engine state also owns the per-layer EMPHASIS drive mode selector (`odd`/`even`)
+  - Key symbols: `AppState`, `WorkerState`, `worker.ui_req_*`, `sd_published_*`, `sd_edit_*`, `voices_active`
+  - Notes: worker request queue/progress fields now live under `AppState::worker`; shared PERFORM ADSR UI state now also owns LOOP wave-preview focus plus per-layer seam-crossfade amount and shape; shared PERFORM engine state also owns the per-layer EMPHASIS drive mode selector (`odd`/`even`)
   - Milestones: TBD
 
 ### Audio engine (callback → voices → mix)
@@ -124,7 +124,13 @@
   - Purpose: Screen router + page stack plus shared/main-menu, record, perform, HUD, FX/MOD/MACRO, and settings-screen logic.
   - Thread: [MAIN/UI]
   - Key symbols: `UiNav_Push`, `UiRouter_DispatchEvent`, `Hud_Render`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
-  - Notes: Project save/load now lives in the Button1 Settings screen; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
+  - Notes: Project save/load UI still lives in the Button1 Settings screen, but request/status workflow triggering now routes through `project_actions.cpp`; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
+  - Milestones: TBD
+
+- project_actions.cpp / project_actions.h
+  - Purpose: Thin project workflow helpers used by UI screens for project slot wrap and save/load request triggering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `ProjectActions_WrapSlot`, `ProjectActions_TriggerRequest`
   - Milestones: TBD
 
 - ui_screen_status.cpp
@@ -276,7 +282,7 @@
 ## Project slots
 - Slot ownership: `app_state.h` holds `current_project_slot` (0-based internally, 1-based in UI).
 - Slot selection UI: `ui_screens.cpp` Button1 Settings screen owns `PROJECT SLOT`.
-- Operation UI: Button1 Settings screen owns `SAVE PROJECT` / `LOAD PROJECT`; triggering either pushes a temporary project-status screen that shows slot, action, and live status until REnc click dismisses it.
+- Operation UI: Button1 Settings screen owns `SAVE PROJECT` / `LOAD PROJECT`; `project_actions.cpp` performs slot wrapping and request/status triggering, and the resulting temporary project-status screen shows slot, action, and live status until REnc click dismisses it.
 - Slot filenames: `PROJECT01.AKPRJ` ... `PROJECT08.AKPRJ` at SD root.
 - Save/load flow: Settings enqueues `UiReqType::{SaveProject,LoadProject}`; `ui_worker.cpp` dispatches the requests and `ui_worker_project.cpp` performs the project file I/O off the audio thread.
 - Recall target: project recall stores explicit layer assignments and restores saved WAVs back into their original slots/layers deterministically (`A->0`, `B->1`).

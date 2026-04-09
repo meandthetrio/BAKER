@@ -315,6 +315,100 @@ static void InitOled()
     display.Update();
 }
 
+static inline void PushAudioEventFromMain(const Event& evt)
+{
+    if(g_evtq.Push(evt))
+        g_app.events_pushed.fetch_add(1, std::memory_order_relaxed);
+    else
+    {
+        g_app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+        g_app.ui_dirty = true;
+    }
+}
+
+static void HandleMidiNoteOn(const NoteOnEvent& note_on)
+{
+    if(note_on.velocity == 0)
+    {
+        PushAudioEventFromMain(Event::NoteOffEvent(note_on.note));
+        return;
+    }
+
+    const uint8_t vel_layer = Velocity_SelectLayer(note_on.velocity);
+    g_app.last_vel_layer.store(vel_layer, std::memory_order_relaxed);
+    g_app.last_velocity.store(note_on.velocity, std::memory_order_relaxed);
+
+    for(uint8_t layer = 0; layer < 2; ++layer)
+    {
+        const Sample& s = g_app.sd_slots[layer];
+        if(s.pcm == nullptr || s.length == 0)
+            continue;
+        if(!LayerEligibleForNote(layer, note_on.note, note_on.velocity))
+            continue;
+
+        Event evt = Event::NoteOnEvent(note_on.note, note_on.velocity);
+        evt.value = static_cast<uint32_t>(layer)
+                    | (static_cast<uint32_t>(vel_layer) << 8);
+        g_app.last_sample_index.store(layer, std::memory_order_relaxed);
+        g_app.ui_dirty = true;
+        PushAudioEventFromMain(evt);
+    }
+}
+
+static void HandleMidiNoteOff(const NoteOffEvent& note_off)
+{
+    PushAudioEventFromMain(Event::NoteOffEvent(note_off.note));
+}
+
+static bool DrainMidiInput(uint32_t now_ms)
+{
+    bool midi_activity = false;
+    hw.midi.Listen();
+    while(hw.midi.HasEvents())
+    {
+        MidiEvent msg = hw.midi.PopEvent();
+        g_app.midi_rx_count.fetch_add(1, std::memory_order_relaxed);
+        midi_activity = true;
+
+        if(msg.type == MidiMessageType::NoteOn)
+            HandleMidiNoteOn(msg.AsNoteOn());
+        else if(msg.type == MidiMessageType::NoteOff)
+            HandleMidiNoteOff(msg.AsNoteOff());
+    }
+    if(midi_activity)
+        g_app.last_input_ms = now_ms;
+    return midi_activity;
+}
+
+static void RunControlTicks(uint32_t now_ms)
+{
+    const int kMaxCtrlTicksPerLoop = 3;
+    int ticks_to_run = ctrl_accum_ms;
+    if(ticks_to_run > kMaxCtrlTicksPerLoop)
+        ticks_to_run = kMaxCtrlTicksPerLoop;
+
+    // Control tick owns hardware input scanning.
+    for(int i = 0; i < ticks_to_run; ++i)
+    {
+        // Predictable scan cadence so edges can't be "missed" between reads.
+        g_ui.ControlTick(hw, g_app, g_params, g_evtq);
+
+        ctrl_ticks_accum++;
+        if(ctrl_window_start_ms == 0)
+            ctrl_window_start_ms = now_ms;
+
+        if((now_ms - ctrl_window_start_ms) >= 1000)
+        {
+            g_app.ctrl_hz = ctrl_ticks_accum;
+            ctrl_ticks_accum = 0;
+            ctrl_window_start_ms = now_ms;
+            g_app.ui_dirty = true;
+        }
+
+        ctrl_accum_ms -= 1;
+    }
+}
+
 int main(void)
 {
     hw.Init();
@@ -430,100 +524,10 @@ int main(void)
         if(ctrl_accum_ms > 20)
             ctrl_accum_ms = 20;
 
-        bool midi_activity = false;
-        hw.midi.Listen();
-        while(hw.midi.HasEvents())
-        {
-            auto msg = hw.midi.PopEvent();
-            g_app.midi_rx_count.fetch_add(1, std::memory_order_relaxed);
-            midi_activity = true;
-
-            if(msg.type == MidiMessageType::NoteOn)
-            {
-                const auto note_on = msg.AsNoteOn();
-                if(note_on.velocity == 0)
-                {
-                    const Event evt = Event::NoteOffEvent(note_on.note);
-                    if(g_evtq.Push(evt))
-                        g_app.events_pushed.fetch_add(1, std::memory_order_relaxed);
-                    else
-                    {
-                        g_app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-                        g_app.ui_dirty = true;
-                    }
-                }
-                else
-                {
-                    const uint8_t vel_layer = Velocity_SelectLayer(note_on.velocity);
-                    g_app.last_vel_layer.store(vel_layer, std::memory_order_relaxed);
-                    g_app.last_velocity.store(note_on.velocity, std::memory_order_relaxed);
-
-                    for(uint8_t layer = 0; layer < 2; ++layer)
-                    {
-                        const Sample& s = g_app.sd_slots[layer];
-                        if(s.pcm == nullptr || s.length == 0)
-                            continue;
-                        if(!LayerEligibleForNote(layer, note_on.note, note_on.velocity))
-                            continue;
-
-                        Event evt = Event::NoteOnEvent(note_on.note, note_on.velocity);
-                        evt.value = static_cast<uint32_t>(layer)
-                                    | (static_cast<uint32_t>(vel_layer) << 8);
-                        g_app.last_sample_index.store(layer, std::memory_order_relaxed);
-                        g_app.ui_dirty = true;
-                        if(g_evtq.Push(evt))
-                            g_app.events_pushed.fetch_add(1, std::memory_order_relaxed);
-                        else
-                        {
-                            g_app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-                            g_app.ui_dirty = true;
-                        }
-                    }
-                }
-            }
-            else if(msg.type == MidiMessageType::NoteOff)
-            {
-                const auto note_off = msg.AsNoteOff();
-                const Event evt     = Event::NoteOffEvent(note_off.note);
-                if(g_evtq.Push(evt))
-                    g_app.events_pushed.fetch_add(1, std::memory_order_relaxed);
-                else
-                {
-                    g_app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-                    g_app.ui_dirty = true;
-                }
-            }
-        }
-        if(midi_activity)
-            g_app.last_input_ms = now_ms;
+        const bool midi_activity = DrainMidiInput(now_ms);
 
         const bool midi_busy = midi_activity || hw.midi.HasEvents();
-
-        const int kMaxCtrlTicksPerLoop = 3;
-        int ticks_to_run = ctrl_accum_ms;
-        if(ticks_to_run > kMaxCtrlTicksPerLoop)
-            ticks_to_run = kMaxCtrlTicksPerLoop;
-
-        // Control tick owns hardware input scanning.
-        for(int i = 0; i < ticks_to_run; ++i)
-        {
-            // Predictable scan cadence so edges can't be "missed" between reads.
-            g_ui.ControlTick(hw, g_app, g_params, g_evtq);
-
-            ctrl_ticks_accum++;
-            if(ctrl_window_start_ms == 0)
-                ctrl_window_start_ms = now_ms;
-
-            if((now_ms - ctrl_window_start_ms) >= 1000)
-            {
-                g_app.ctrl_hz = ctrl_ticks_accum;
-                ctrl_ticks_accum = 0;
-                ctrl_window_start_ms = now_ms;
-                g_app.ui_dirty = true;
-            }
-
-            ctrl_accum_ms -= 1;
-        }
+        RunControlTicks(now_ms);
 
         const uint32_t loop_mode = g_app.loop_mode.load(std::memory_order_relaxed);
         g_voice.SetLoopMode(loop_mode == 0 ? LoopMode::Forward : LoopMode::PingPong);

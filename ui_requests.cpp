@@ -11,47 +11,47 @@ bool UiReq_Push(AppState& app, const UiReq& r)
     {
         app.sd.load_pending = true;
         app.sd.load_pending_index = r.a;
-        app.ui_req_push++;
+        app.worker.ui_req_push++;
         return true;
     }
 
-    UiReqQueue& q = app.ui_req_q;
+    UiReqQueue& q = app.worker.ui_req_q;
     const uint32_t head = q.head;
     const uint32_t tail = q.tail;
     if((head - tail) >= UiReqQueue::kCapacity)
     {
         q.overflows++;
-        app.ui_req_ovf = q.overflows;
+        app.worker.ui_req_ovf = q.overflows;
         return false;
     }
 
     q.buffer[head & (UiReqQueue::kCapacity - 1)] = r;
     q.head = head + 1;
-    app.ui_req_push++;
+    app.worker.ui_req_push++;
     return true;
 }
 
 bool UiReq_Pop(AppState& app, UiReq& out)
 {
-    UiReqQueue& q = app.ui_req_q;
+    UiReqQueue& q = app.worker.ui_req_q;
     const uint32_t tail = q.tail;
     if(tail == q.head)
         return false;
 
     out = q.buffer[tail & (UiReqQueue::kCapacity - 1)];
     q.tail = tail + 1;
-    app.ui_req_pop++;
+    app.worker.ui_req_pop++;
     return true;
 }
 
 uint32_t UiReq_Dropped(const AppState& app)
 {
-    return app.ui_req_q.overflows;
+    return app.worker.ui_req_q.overflows;
 }
 
 uint32_t UiReq_Fill(const AppState& app)
 {
-    const UiReqQueue& q = app.ui_req_q;
+    const UiReqQueue& q = app.worker.ui_req_q;
     uint32_t fill = q.head - q.tail;
     if(fill > UiReqQueue::kCapacity)
         fill = UiReqQueue::kCapacity;

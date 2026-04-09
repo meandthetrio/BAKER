@@ -20,6 +20,7 @@ CPP_SOURCES += ui_value_edit.cpp
 CPP_SOURCES += ui_layout.cpp
 CPP_SOURCES += ui_overlay.cpp
 CPP_SOURCES += ui_requests.cpp
+CPP_SOURCES += project_actions.cpp
 CPP_SOURCES += ui_worker.cpp
 CPP_SOURCES += ui_worker_project.cpp
 CPP_SOURCES += sd_browser_state.cpp

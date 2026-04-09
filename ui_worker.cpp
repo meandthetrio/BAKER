@@ -256,10 +256,10 @@ static void CancelLoad(AppState& app)
 
 static void FinishRequest(AppState& app)
 {
-    app.ui_req_busy = false;
-    app.ui_req_active = UiReqType::None;
-    app.ui_req_progress = 100;
-    app.ui_req_done_count++;
+    app.worker.ui_req_busy = false;
+    app.worker.ui_req_active = UiReqType::None;
+    app.worker.ui_req_progress = 100;
+    app.worker.ui_req_done_count++;
     s_sd.state = LoaderState::Idle;
     ClearProjectRestoreState(app);
 }
@@ -585,7 +585,7 @@ static bool LoadStep(AppState& app, uint16_t budget)
         SdBrowser_SetStatus(sd, "READ ERR");
         sd.wav_err_count++;
         ClearProjectRestoreState(app);
-        app.ui_req_result = -1;
+        app.worker.ui_req_result = -1;
         return true;
     }
 
@@ -639,13 +639,13 @@ static bool LoadStep(AppState& app, uint16_t budget)
         sd.load_progress = 100;
         sd.last_loaded_index = s_sd.load_index;
         SdBrowser_SetStatus(sd, "LOADED");
-        if(app.ui_req_busy && app.ui_req_active == UiReqType::LoadProject
+        if(app.worker.ui_req_busy && app.worker.ui_req_active == UiReqType::LoadProject
            && s_sd.project_restore_pending_mask != 0u)
         {
             if(StartNextProjectRestoreLoad(app))
                 return false;
             ClearProjectRestoreState(app);
-            app.ui_req_result = -1;
+            app.worker.ui_req_result = -1;
             return true;
         }
         return true;
@@ -944,7 +944,7 @@ static bool SaveStep(AppState& app, uint16_t budget_us)
         sd.save_in_progress = false;
         sd.save_progress = 0;
         SdBrowser_SetSaveStatus(sd, "SAVE ERR");
-        app.ui_req_result = -1;
+        app.worker.ui_req_result = -1;
         return true;
     }
 
@@ -1003,7 +1003,7 @@ static bool SaveStep(AppState& app, uint16_t budget_us)
         sd.save_in_progress = false;
         sd.save_progress = 0;
         SdBrowser_SetSaveStatus(sd, "SAVE ERR");
-        app.ui_req_result = -1;
+        app.worker.ui_req_result = -1;
         return true;
     }
 
@@ -1060,8 +1060,8 @@ static bool DeleteWavAtIndex(AppState& app, uint16_t idx)
 
 static void StepFakeWork(AppState& app, uint16_t budget_us)
 {
-    const uint32_t total = app.ui_req_work_units_total;
-    uint32_t done = app.ui_req_work_units_done;
+    const uint32_t total = app.worker.ui_req_work_units_total;
+    uint32_t done = app.worker.ui_req_work_units_done;
     if(done >= total)
         return;
 
@@ -1075,37 +1075,37 @@ static void StepFakeWork(AppState& app, uint16_t budget_us)
         s_work_sink += (i + done);
 
     done += units_to_do;
-    app.ui_req_work_units_done = done;
+    app.worker.ui_req_work_units_done = done;
     uint32_t pct = (done * 100u) / total;
     if(pct > 100u)
         pct = 100u;
-    app.ui_req_progress = static_cast<uint8_t>(pct);
+    app.worker.ui_req_progress = static_cast<uint8_t>(pct);
 }
 
 void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budget_us)
 {
     (void)now_ms;
-    const uint8_t prev_progress = app.ui_req_progress;
-    const bool prev_busy = app.ui_req_busy;
-    const UiReqType prev_active = app.ui_req_active;
+    const uint8_t prev_progress = app.worker.ui_req_progress;
+    const bool prev_busy = app.worker.ui_req_busy;
+    const UiReqType prev_active = app.worker.ui_req_active;
 
     if(app.sd.load_pending)
     {
-        const bool block_pending = app.ui_req_busy
-                                   && (app.ui_req_active == UiReqType::SaveRenderedWavCurrent
-                                       || app.ui_req_active == UiReqType::LoadProject);
+        const bool block_pending = app.worker.ui_req_busy
+                                   && (app.worker.ui_req_active == UiReqType::SaveRenderedWavCurrent
+                                       || app.worker.ui_req_active == UiReqType::LoadProject);
         if(!block_pending)
         {
             const uint16_t idx = app.sd.load_pending_index;
             app.sd.load_pending = false;
 
-            if(app.ui_req_busy)
+            if(app.worker.ui_req_busy)
             {
-                if(app.ui_req_active == UiReqType::ScanSdWavs)
+                if(app.worker.ui_req_active == UiReqType::ScanSdWavs)
                     CancelScan(app);
-                if(app.ui_req_active == UiReqType::LoadWavIndex)
+                if(app.worker.ui_req_active == UiReqType::LoadWavIndex)
                     CancelLoad(app);
-                if(app.ui_req_active == UiReqType::NormalizeCurrent)
+                if(app.worker.ui_req_active == UiReqType::NormalizeCurrent)
                 {
                     s_sd.norm_active = false;
                     app.sd.load_in_progress = false;
@@ -1113,41 +1113,41 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
                 }
             }
 
-            app.ui_req_busy = true;
-            app.ui_req_active = UiReqType::LoadWavIndex;
-            app.ui_req_progress = 0;
-            app.ui_req_result = 0;
-            app.ui_req_arg0 = idx;
-            app.ui_req_work_units_done = 0;
-            app.ui_req_work_units_total = 0;
+            app.worker.ui_req_busy = true;
+            app.worker.ui_req_active = UiReqType::LoadWavIndex;
+            app.worker.ui_req_progress = 0;
+            app.worker.ui_req_result = 0;
+            app.worker.ui_req_arg0 = idx;
+            app.worker.ui_req_work_units_done = 0;
+            app.worker.ui_req_work_units_total = 0;
             if(!StartLoad(app, idx))
             {
-                app.ui_req_result = -1;
+                app.worker.ui_req_result = -1;
                 FinishRequest(app);
             }
         }
     }
 
-    if(!app.ui_req_busy)
+    if(!app.worker.ui_req_busy)
     {
         UiReq r{};
         if(!UiReq_Pop(app, r))
             return;
 
-        app.ui_req_busy = true;
-        app.ui_req_active = r.type;
-        app.ui_req_progress = 0;
-        app.ui_req_result = 0;
-        app.ui_req_arg0 = r.a;
-        app.ui_req_work_units_done = 0;
-        app.ui_req_work_units_total = 0;
+        app.worker.ui_req_busy = true;
+        app.worker.ui_req_active = r.type;
+        app.worker.ui_req_progress = 0;
+        app.worker.ui_req_result = 0;
+        app.worker.ui_req_arg0 = r.a;
+        app.worker.ui_req_work_units_done = 0;
+        app.worker.ui_req_work_units_total = 0;
 
         switch(r.type)
         {
             case UiReqType::ScanSdWavs:
                 if(!StartScan(app))
                 {
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                     FinishRequest(app);
                 }
                 break;
@@ -1156,19 +1156,19 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
                 {
                     app.sd.load_in_progress = false;
                     app.sd.load_progress = 0;
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                     FinishRequest(app);
                 }
                 break;
             case UiReqType::DeleteWavIndex:
                 if(!DeleteWavAtIndex(app, r.a))
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                 FinishRequest(app);
                 break;
             case UiReqType::NormalizeCurrent:
                 if(!StartNormalize(app))
                 {
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                     FinishRequest(app);
                 }
                 else
@@ -1180,35 +1180,35 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
             case UiReqType::LoopFindCurrent:
                 if(!LoopFindCurrent(app))
                 {
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                 }
                 FinishRequest(app);
                 break;
             case UiReqType::SaveProject:
                 if(!SaveProject(app, params))
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                 FinishRequest(app);
                 break;
             case UiReqType::LoadProject:
                 if(!LoadProject(app, params))
                 {
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                     FinishRequest(app);
                 }
                 break;
             case UiReqType::SaveRenderedWavCurrent:
                 if(!StartSave(app))
                 {
-                    app.ui_req_result = -1;
+                    app.worker.ui_req_result = -1;
                     FinishRequest(app);
                 }
                 break;
             case UiReqType::RebuildCache:
             case UiReqType::LoadSample:
             case UiReqType::SavePreset:
-                app.ui_req_work_units_total = (r.type == UiReqType::RebuildCache) ? 2000u
-                                             : (r.type == UiReqType::LoadSample)   ? 800u
-                                             : 200u;
+                app.worker.ui_req_work_units_total = (r.type == UiReqType::RebuildCache) ? 2000u
+                                                    : (r.type == UiReqType::LoadSample)   ? 800u
+                                                    : 200u;
                 break;
             case UiReqType::None:
             default:
@@ -1217,29 +1217,29 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
         }
     }
 
-    if(!app.ui_req_busy)
+    if(!app.worker.ui_req_busy)
         return;
 
     bool done = false;
-    switch(app.ui_req_active)
+    switch(app.worker.ui_req_active)
     {
         case UiReqType::ScanSdWavs:
             done = ScanStep(app);
             if(done)
             {
-                app.ui_req_progress = 100;
+                app.worker.ui_req_progress = 100;
                 FinishRequest(app);
             }
             break;
         case UiReqType::LoadWavIndex:
             done = LoadStep(app, budget_us * 2u);
-            app.ui_req_progress = app.sd.load_progress;
+            app.worker.ui_req_progress = app.sd.load_progress;
             if(done)
                 FinishRequest(app);
             break;
         case UiReqType::NormalizeCurrent:
             done = NormalizeStep(app, budget_us);
-            app.ui_req_progress = app.sd.load_progress;
+            app.worker.ui_req_progress = app.sd.load_progress;
             if(done)
             {
                 app.sd.load_in_progress = false;
@@ -1252,11 +1252,11 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
             break;
         case UiReqType::LoadProject:
             done = LoadStep(app, budget_us * 2u);
-            app.ui_req_progress = app.sd.load_progress;
+            app.worker.ui_req_progress = app.sd.load_progress;
             if(done)
             {
                 const uint8_t project_slot = RequestedProjectSlot(app);
-                if(app.ui_req_result < 0)
+                if(app.worker.ui_req_result < 0)
                     SetProjectSlotStatus(app, project_slot, "ERR");
                 else
                     SetProjectSlotStatus(app, project_slot, "LOADED");
@@ -1265,7 +1265,7 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
             break;
         case UiReqType::SaveRenderedWavCurrent:
             done = SaveStep(app, budget_us);
-            app.ui_req_progress = app.sd.save_progress;
+            app.worker.ui_req_progress = app.sd.save_progress;
             if(done)
                 FinishRequest(app);
             break;
@@ -1273,7 +1273,7 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
         case UiReqType::LoadSample:
         case UiReqType::SavePreset:
             StepFakeWork(app, budget_us);
-            if(app.ui_req_work_units_done >= app.ui_req_work_units_total)
+            if(app.worker.ui_req_work_units_done >= app.worker.ui_req_work_units_total)
                 FinishRequest(app);
             break;
         default:
@@ -1281,7 +1281,7 @@ void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budg
             break;
     }
 
-    if(app.ui_req_progress != prev_progress || app.ui_req_busy != prev_busy
-       || app.ui_req_active != prev_active)
+    if(app.worker.ui_req_progress != prev_progress || app.worker.ui_req_busy != prev_busy
+       || app.worker.ui_req_active != prev_active)
         app.ui_dirty = true;
 }

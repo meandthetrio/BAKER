@@ -508,7 +508,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     }
 
     uint16_t worker_budget_us = 1500;
-    if(app.ui_req_busy && app.ui_req_active == UiReqType::SaveRenderedWavCurrent)
+    if(app.worker.ui_req_busy
+       && app.worker.ui_req_active == UiReqType::SaveRenderedWavCurrent)
         worker_budget_us = 6000;
     UiWorker_Tick(app, params, now_ms, worker_budget_us);
 }

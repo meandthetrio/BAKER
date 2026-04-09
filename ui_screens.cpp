@@ -1878,7 +1878,7 @@ static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
     }
 }
 
-static bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -1896,7 +1896,7 @@ static bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static bool MainMenu_OnEnter(UiScreenCtx& ctx)
+bool MainMenu_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return false;
@@ -1914,7 +1914,7 @@ static bool MainMenu_OnEnter(UiScreenCtx& ctx)
     }
 }
 
-static void MainMenu_Render(UiScreenCtx& ctx)
+void MainMenu_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -1926,7 +1926,7 @@ static void MainMenu_Render(UiScreenCtx& ctx)
 
 
 // HOME -> PRESETS (blank placeholder screen for now)
-static bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     (void)ctx;
     (void)e;
@@ -1934,7 +1934,7 @@ static bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void Presets_Render(UiScreenCtx& ctx)
+void Presets_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -2289,7 +2289,7 @@ static void Record_RenderReadyCuzStyle(UiScreenCtx& ctx)
     }
 }
 
-static bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -2456,7 +2456,7 @@ static bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void Record_Render(UiScreenCtx& ctx)
+void Record_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -2715,7 +2715,7 @@ static void Record_Render(UiScreenCtx& ctx)
     (void)rec_len;
 }
 
-static void Record_OnEnter(UiScreenCtx& ctx)
+void Record_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
@@ -2733,7 +2733,7 @@ static void Record_OnEnter(UiScreenCtx& ctx)
     app.ui_dirty = true;
 }
 
-static void Record_OnExit(UiScreenCtx& ctx)
+void Record_OnExit(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
@@ -2744,7 +2744,7 @@ static void Record_OnExit(UiScreenCtx& ctx)
     app.rec_stop_req.store(1, std::memory_order_release);
 }
 
-static bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -2762,7 +2762,7 @@ static bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static bool PerformMenu_OnEnter(UiScreenCtx& ctx)
+bool PerformMenu_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return false;
@@ -2784,7 +2784,7 @@ static bool PerformMenu_OnEnter(UiScreenCtx& ctx)
     }
 }
 
-static void PerformMenu_Render(UiScreenCtx& ctx)
+void PerformMenu_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -3313,7 +3313,7 @@ static void DrawPerformLoopCrossfadeCurve(OledPager& d,
     }
 }
 
-static void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
+void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
@@ -3332,7 +3332,7 @@ static void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
     ctx.app->ui_dirty = true;
 }
 
-static bool PerformEngine_OnEnter(UiScreenCtx& ctx)
+bool PerformEngine_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return false;
@@ -3348,7 +3348,7 @@ static bool PerformEngine_OnEnter(UiScreenCtx& ctx)
     return UiNav_Push(ctx.app->ui_nav, UiScreenId::SdBrowse);
 }
 
-static bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -3410,7 +3410,7 @@ static bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void PerformEngine_Render(UiScreenCtx& ctx)
+void PerformEngine_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -3551,7 +3551,7 @@ static void PerformEngine_Render(UiScreenCtx& ctx)
     }
 }
 
-static void PerformWaveEdit_Render(UiScreenCtx& ctx)
+void PerformWaveEdit_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -3717,7 +3717,7 @@ static void PerformWaveEdit_Render(UiScreenCtx& ctx)
 
 }
 
-static void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
+void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
@@ -3729,7 +3729,7 @@ static void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
     app.ui_dirty = true;
 }
 
-static bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
+bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return false;
@@ -3750,7 +3750,7 @@ static bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
     return true;
 }
 
-static bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -3856,7 +3856,7 @@ static bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -3957,7 +3957,7 @@ static bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -4137,7 +4137,7 @@ static bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
+void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
@@ -4153,7 +4153,7 @@ static void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
     app.ui_dirty = true;
 }
 
-static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app || !ctx.params)
         return false;
@@ -4244,7 +4244,7 @@ static bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
+void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
@@ -4462,7 +4462,7 @@ static void DrawKeyzoneUiRangeTemplate(
 
 }
 
-static void PerformKeyzone_Render(UiScreenCtx& ctx)
+void PerformKeyzone_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -4562,7 +4562,7 @@ static void PerformKeyzone_Render(UiScreenCtx& ctx)
     DrawKeyzoneUiRangeTemplate(d, app, layer, ctx.rshift, 0, kSectionH);
 }
 
-static void PerformAdsr_Render(UiScreenCtx& ctx)
+void PerformAdsr_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -4893,7 +4893,7 @@ static void PerformAdsr_Render(UiScreenCtx& ctx)
     }
 }
 
-static void PerformEmphasis_Render(UiScreenCtx& ctx)
+void PerformEmphasis_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display || !ctx.params)
         return;
@@ -5035,7 +5035,7 @@ static void PerformEmphasis_Render(UiScreenCtx& ctx)
               app.perform_emphasis_row == 2 ? 2 : 0);
 }
 
-static bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app || !ctx.params)
         return false;
@@ -5739,7 +5739,7 @@ static void DrawEqGraphScreen(OledPager& d, const PerformParamsTargets& t, uint3
     draw_hz_label("10k", 10000.f);
 }
 
-static void PerformProcess_Render(UiScreenCtx& ctx)
+void PerformProcess_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display || !ctx.params)
         return;
@@ -6080,7 +6080,7 @@ static void EnsureHudMenu(AppState& app)
     app.hud_menu_inited = true;
 }
 
-static bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -6115,7 +6115,7 @@ static bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void Hud_Render(UiScreenCtx& ctx)
+void Hud_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -6183,7 +6183,7 @@ static void Hud_Render(UiScreenCtx& ctx)
     UiDraw_Footer(d, layout, "EXT:SEL EXT:ENT P2:BACK");
 }
 
-static bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app || !ctx.params)
         return false;
@@ -6288,7 +6288,7 @@ static bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void Fx_Render(UiScreenCtx& ctx)
+void Fx_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.params || !ctx.display)
         return;
@@ -6339,7 +6339,7 @@ static void Fx_Render(UiScreenCtx& ctx)
     UiDraw_Footer(d, layout, hint);
 }
 
-static bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -6444,7 +6444,7 @@ static bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void Mod_Render(UiScreenCtx& ctx)
+void Mod_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -6496,7 +6496,7 @@ static void Mod_Render(UiScreenCtx& ctx)
     UiDraw_Footer(d, layout, hint);
 }
 
-static bool Macro_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool Macro_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -6521,7 +6521,7 @@ static bool Macro_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void Macro_Render(UiScreenCtx& ctx)
+void Macro_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;
@@ -6565,7 +6565,7 @@ enum ShiftMenuItem : uint8_t
     ShiftCount
 };
 
-static void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
+void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
 {
     if(!ctx.app)
         return;
@@ -6574,7 +6574,7 @@ static void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
     ctx.app->shift_menu_edit_volume = false;
 }
 
-static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.app)
         return false;
@@ -6713,7 +6713,7 @@ static bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
-static void ShiftMenu_Render(UiScreenCtx& ctx)
+void ShiftMenu_Render(UiScreenCtx& ctx)
 {
     if(!ctx.app || !ctx.display)
         return;

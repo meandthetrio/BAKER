@@ -121,10 +121,28 @@
   - Milestones: TBD
 
 - ui_screens.cpp / ui_screens.h
-  - Purpose: Screen router + page stack; screen event handlers + rendering.
+  - Purpose: Screen router + page stack plus shared/main-menu, record, perform, HUD, FX/MOD/MACRO, and settings-screen logic.
   - Thread: [MAIN/UI]
-  - Key symbols: `UiNav_Push`, `UiRouter_DispatchEvent`, `Hud_Render`, `ProjectStatus_Render`, `SdBrowse_OnEvent`, `SampleEdit_OnEvent`
+  - Key symbols: `UiNav_Push`, `UiRouter_DispatchEvent`, `Hud_Render`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
   - Notes: Project save/load now lives in the Button1 Settings screen; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
+  - Milestones: TBD
+
+- ui_screen_status.cpp
+  - Purpose: Extracted status-domain screens from `ui_screens.cpp`, currently `ProjectStatus`.
+  - Thread: [MAIN/UI]
+  - Key symbols: `ProjectStatus_OnEvent`, `ProjectStatus_Render`
+  - Milestones: TBD
+
+- ui_screen_browser.cpp
+  - Purpose: Extracted browse/edit-domain screens from `ui_screens.cpp`, currently `SdBrowse`, `SdDeleteConfirm`, and `SampleEdit`.
+  - Thread: [MAIN/UI]
+  - Key symbols: `SdBrowse_OnEvent`, `SdDeleteConfirm_OnEnter`, `SampleEdit_OnEvent`
+  - Milestones: TBD
+
+- ui_screens_internal.h
+  - Purpose: Internal declarations/helpers shared across the split UI screen translation units.
+  - Thread: [MAIN/UI]
+  - Key symbols: `DrawScaledText6x8`, `DrawTinyString`, `TinyStringWidth`, `ExtractBaseName`
   - Milestones: TBD
 
 - ui_render.cpp / ui_render.h
@@ -226,7 +244,7 @@
 
 ## “Where is X?” quick index
 - Control tick / hardware scanning: `controls.cpp`, `ui_logic.cpp`
-- UI tick / drawing: `ui_logic.cpp`, `ui_render.cpp`, `ui_screens.cpp`
+- UI tick / drawing: `ui_logic.cpp`, `ui_render.cpp`, `ui_screens.cpp`, `ui_screen_status.cpp`, `ui_screen_browser.cpp`
 - Voice/MIDI event queue: `event_queue.h` (produced in `main.cpp`, consumed in `voice_engine.cpp`)
 - UI input event queue: `ui_input.*` (produced in `controls.cpp`, consumed in `ui_logic.cpp`)
 - Parameter lane / smoothing: `params.cpp`
@@ -239,7 +257,7 @@
 - Mixer/headroom/clip counter: `audio_engine.cpp`, `app_state.h`
 - Parameter locks: `plocks.cpp`
 - Keygroups/zones: `keygroups.cpp`, `main.cpp`, `velocity_layers.cpp`
-- SD browser: `ui_screens.cpp` (SdBrowse), `sd_browser_state.cpp`
+- SD browser: `ui_screen_browser.cpp` (SdBrowse), `sd_browser_state.cpp`
 - Background load handoff: `ui_worker.cpp`, `sd_sample_pool.cpp`, `main.cpp`
 - Presets/project save/load: `ui_worker.cpp`, `project_manifest.h`
 

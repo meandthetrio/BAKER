@@ -122,10 +122,9 @@
   - Milestones: TBD
 
 - ui_screens.cpp / ui_screens.h
-  - Purpose: Page stack active lookup plus shared, record, perform, and settings-screen logic.
+  - Purpose: Page stack active lookup plus shared helpers after the extracted screen split.
   - Thread: [MAIN/UI]
-  - Key symbols: `UiNav_Active`, `ShiftMenu_OnEvent`, `PerformProcess_Render`
-  - Notes: Project save/load UI still lives in the Button1 Settings screen, but request/status workflow triggering now routes through `src/ui/project_actions.cpp`; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
+  - Key symbols: `UiNav_Active`, `DrawWaveformPreview`, `PublishEngineLayerParams`
   - Milestones: TBD
 
 - src/ui/ui_router.cpp
@@ -206,8 +205,69 @@
   - Key symbols: `Macro_OnEvent`, `Macro_Render`
   - Milestones: TBD
 
+- src/ui/ui_screen_shift.cpp
+  - Purpose: Extracted SHIFT/settings screen from `ui_screens.cpp`, including delete-mode entry, output-volume editing, and project save/load slot actions.
+  - Thread: [MAIN/UI]
+  - Key symbols: `ShiftMenu_OnScreenEnter`, `ShiftMenu_OnEvent`, `ShiftMenu_Render`
+  - Notes: Project save/load UI still lives in the Button1 Settings screen, but request/status workflow triggering routes through `src/ui/project_actions.cpp`; triggering save/load pushes a temporary `ProjectStatus` screen and REnc click pops it back to Settings.
+  - Milestones: TBD
+
+- src/ui/ui_screen_record.cpp
+  - Purpose: Extracted Record screen domain from `ui_screens.cpp`, including record lifecycle helpers, animated ready/countdown/recording rendering, review flow, and save/redo transitions.
+  - Thread: [MAIN/UI]
+  - Key symbols: `Record_OnEnter`, `Record_OnExit`, `Record_OnEvent`, `Record_Render`
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_menu.cpp
+  - Purpose: Extracted shallow Perform Menu shell from `ui_screens.cpp`, including Perform-menu-only index/bitmap helpers and entry routing into the deeper Perform subpages.
+  - Thread: [MAIN/UI]
+  - Key symbols: `PerformMenu_OnEvent`, `PerformMenu_OnEnter`, `PerformMenu_Render`
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_engine.cpp
+  - Purpose: Extracted Perform Engine screen from `ui_screens.cpp`, including Engine-only row navigation, load/tune entry rendering, and Engine-local wordmark/text helpers.
+  - Thread: [MAIN/UI]
+  - Key symbols: `PerformEngine_OnScreenEnter`, `PerformEngine_OnEnter`, `PerformEngine_OnEvent`, `PerformEngine_Render`
+  - Notes: Shared Perform metadata/publish helpers still remain in `ui_screens.cpp` and are exposed through `src/ui/ui_screens_internal.h` for other Perform subpages.
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_wave_edit.cpp
+  - Purpose: Extracted Perform Wave Edit screen from `ui_screens.cpp`, including trim-preview rendering, entry snapshot/restore flow, and trim encoder handling.
+  - Thread: [MAIN/UI]
+  - Key symbols: `PerformWaveEdit_OnScreenEnter`, `PerformWaveEdit_OnEnter`, `PerformWaveEdit_OnEvent`, `PerformWaveEdit_Render`
+  - Notes: Shared waveform preview and engine metadata-refresh helpers still remain outside this file because they are also used by other screens.
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_keyzone.cpp
+  - Purpose: Extracted Perform Keyzone screen from `ui_screens.cpp`, including Keyzone-only note-window mapping, keyboard-range rendering, and low/high note editing.
+  - Thread: [MAIN/UI]
+  - Key symbols: `PerformKeyzone_OnEvent`, `PerformKeyzone_Render`
+  - Notes: Shared Perform metadata/publish helpers still remain outside this file because they are also used by other Perform subpages.
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_adsr.cpp
+  - Purpose: Extracted Perform ADSR screen from `ui_screens.cpp`, including ADSR focus/edit helpers, playback-type and stage editing, and loop crossfade rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `PerformAdsr_OnScreenEnter`, `PerformAdsr_OnEvent`, `PerformAdsr_Render`
+  - Notes: Shared waveform preview and engine publish/metadata helpers still remain outside this file because they are also used by other Perform subpages.
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_emphasis.cpp
+  - Purpose: Extracted Perform Emphasis screen from `ui_screens.cpp`, including drive/cutoff/resonance editing, emphasis-only value formatting, and knob rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `PerformEmphasis_OnScreenEnter`, `PerformEmphasis_OnEvent`, `PerformEmphasis_Render`
+  - Notes: Shared engine publish/metadata helpers still remain outside this file because they are also used by other Perform subpages.
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_process.cpp
+  - Purpose: Extracted Perform Process screen from `ui_screens.cpp`, including process lane/fx event handling, process-only volume formatting, FX detail subviews, and EQ graph rendering.
+  - Thread: [MAIN/UI]
+  - Key symbols: `PerformProcess_OnEvent`, `PerformProcess_Render`, `DrawFxDetailScreen`, `DrawEqGraphScreen`
+  - Notes: Shared engine publish/metadata helpers and generic draw primitives remain outside this file for the final leftover-helper pass.
+  - Milestones: TBD
+
 - src/ui/ui_screens_internal.h
-  - Purpose: Internal declarations/helpers shared across the split UI screen translation units.
+  - Purpose: Internal declarations/helpers shared across the split UI screen translation units, including shared waveform preview access for extracted screen files.
   - Thread: [MAIN/UI]
   - Key symbols: `ExtractBaseName`, `MainMenu_OnEvent`, `PerformProcess_Render`, `ShiftMenu_OnEvent`
   - Milestones: TBD

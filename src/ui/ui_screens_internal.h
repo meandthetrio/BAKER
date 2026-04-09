@@ -8,6 +8,9 @@
 #include <cstddef>
 
 struct UiInputEvent;
+struct AppState;
+struct Sample;
+struct SampleEdit;
 
 // Internal contract for screen implementation units and the central registry.
 // Keep this limited to cross-file screen entry points and the small shared
@@ -15,6 +18,18 @@ struct UiInputEvent;
 
 // Shared non-text helpers used across extracted screen files.
 void ExtractBaseName(const char* path, char* out, size_t out_n);
+void DrawWaveformPreview(OledPager& d,
+                         const Sample& sample,
+                         const SampleEdit* edit,
+                         int x,
+                         int y,
+                         int w,
+                         int h,
+                         bool on = true,
+                         bool outline_only = false,
+                         bool dotted_border = false);
+void PublishEngineLayerParams(UiScreenCtx& ctx);
+void EngineRefreshLoadedMetadata(AppState& app);
 
 // Already-extracted screens.
 bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

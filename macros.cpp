@@ -1,4 +1,5 @@
 #include "macros.h"
+#include "app_state_shared.h"
 #include "app_state.h"
 
 static float Clamp01(float x)
@@ -51,13 +52,18 @@ const MacroDef& Macros_GetDef(uint8_t idx)
     return kMacroDefs[idx];
 }
 
+void Macros_Publish(AppSharedState& shared, const MacroState& state)
+{
+    const uint8_t sel = shared.performance.macro_sel.load(std::memory_order_relaxed) & 1u;
+    MacroState* dst = (sel == 0) ? &shared.performance.macro_b : &shared.performance.macro_a;
+    *dst = state;
+    shared.performance.macro_sel.store(sel ^ 1u, std::memory_order_release);
+    shared.performance.macro_gen.fetch_add(1u, std::memory_order_release);
+}
+
 void Macros_Publish(AppState& app, const MacroState& state)
 {
-    const uint8_t sel = app.shared.macro_sel.load(std::memory_order_relaxed) & 1u;
-    MacroState* dst = (sel == 0) ? &app.shared.macro_b : &app.shared.macro_a;
-    *dst = state;
-    app.shared.macro_sel.store(sel ^ 1u, std::memory_order_release);
-    app.shared.macro_gen.fetch_add(1u, std::memory_order_release);
+    Macros_Publish(app.shared, state);
 }
 
 void Macros_Smooth(MacroState& current, const MacroState& target, float coeff)

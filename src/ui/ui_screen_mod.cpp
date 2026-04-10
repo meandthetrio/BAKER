@@ -2,7 +2,13 @@
 
 #include <cstdio>
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "oled_pager.h"
 #include "ui_input.h"
 #include "ui_layout.h"
@@ -22,33 +28,33 @@ static char DstChar(uint8_t dst)
 
 bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
 
     static constexpr uint8_t kModFieldCount = 4;
     static const char* kRouteLabels[kMaxModRoutes] = {"R0", "R1", "R2", "R3"};
     static const char* kDstLabels[2] = {"CUT", "PIT"};
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && !ctx.app->ui.value_edit.active)
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && !ctx.ui->value_edit.active)
     {
-        int next = static_cast<int>(ctx.app->engine.mod_field_cursor) + e.value;
+        int next = static_cast<int>(ctx.engine->mod_field_cursor) + e.value;
         while(next < 0) next += kModFieldCount;
         while(next >= kModFieldCount) next -= kModFieldCount;
-        ctx.app->engine.mod_field_cursor = static_cast<uint8_t>(next);
-        ctx.app->ui.ui_dirty = true;
+        ctx.engine->mod_field_cursor = static_cast<uint8_t>(next);
+        ctx.ui->ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(!ctx.app->ui.value_edit.active)
+        if(!ctx.ui->value_edit.active)
         {
-            const uint8_t r_idx = ctx.app->shared.mod_route_selected % kMaxModRoutes;
-            const ModRoute& r = ctx.app->shared.mod_routes_ui[r_idx];
+            const uint8_t r_idx = ctx.shared->mod_route_selected % kMaxModRoutes;
+            const ModRoute& r = ctx.shared->mod_routes_ui[r_idx];
             int16_t start_i = 0;
             UiValueSpec spec{};
             const char* label = "";
-            switch(ctx.app->engine.mod_field_cursor)
+            switch(ctx.engine->mod_field_cursor)
             {
                 case 0: // Route Select
                     label = "ROUTE";
@@ -73,20 +79,20 @@ bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                     start_i = (int16_t)(r.dst ? 1 : 0);
                     break;
             }
-            UiValueEdit_Begin(ctx.app->ui.value_edit, label, spec, start_i);
-            ctx.app->ui.ui_dirty = true;
+            UiValueEdit_Begin(ctx.ui->value_edit, label, spec, start_i);
+            ctx.ui->ui_dirty = true;
         }
         else
         {
-            const int16_t v = ctx.app->ui.value_edit.value_i;
-            uint8_t r_idx = ctx.app->shared.mod_route_selected % kMaxModRoutes;
-            ModRoute& r = ctx.app->shared.mod_routes_ui[r_idx];
+            const int16_t v = ctx.ui->value_edit.value_i;
+            uint8_t r_idx = ctx.shared->mod_route_selected % kMaxModRoutes;
+            ModRoute& r = ctx.shared->mod_routes_ui[r_idx];
             bool publish = false;
 
-            switch(ctx.app->engine.mod_field_cursor)
+            switch(ctx.engine->mod_field_cursor)
             {
                 case 0:
-                    ctx.app->shared.mod_route_selected = (uint8_t)v % kMaxModRoutes;
+                    ctx.shared->mod_route_selected = (uint8_t)v % kMaxModRoutes;
                     break;
                 case 1:
                     r.enabled = (v != 0) ? 1 : 0;
@@ -105,21 +111,21 @@ bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             }
 
             if(publish)
-                ModMatrix_Publish(ctx.app->shared.mod_matrix, ctx.app->shared.mod_routes_ui);
-            UiValueEdit_Commit(ctx.app->ui.value_edit);
-            ctx.app->ui.ui_dirty = true;
+                ModMatrix_Publish(ctx.shared->mod_matrix, ctx.shared->mod_routes_ui);
+            UiValueEdit_Commit(ctx.ui->value_edit);
+            ctx.ui->ui_dirty = true;
         }
         return true;
     }
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && ctx.app->ui.value_edit.active)
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && ctx.ui->value_edit.active)
     {
-        if(UiValueEdit_OnEnc(ctx.app->ui.value_edit, e.value))
-            ctx.app->ui.ui_dirty = true;
+        if(UiValueEdit_OnEnc(ctx.ui->value_edit, e.value))
+            ctx.ui->ui_dirty = true;
         return true;
     }
 
-    if(ctx.app->ui.value_edit.active)
+    if(ctx.ui->value_edit.active)
         return true;
 
     return false;
@@ -127,11 +133,11 @@ bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void Mod_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    const uint8_t r_idx = ctx.app->shared.mod_route_selected % kMaxModRoutes;
-    const ModRoute& r = ctx.app->shared.mod_routes_ui[r_idx];
+    const uint8_t r_idx = ctx.shared->mod_route_selected % kMaxModRoutes;
+    const ModRoute& r = ctx.shared->mod_routes_ui[r_idx];
     int amt = (int)(r.amount * 100.0f);
     if(amt > 99) amt = 99;
     if(amt < -99) amt = -99;
@@ -141,11 +147,11 @@ void Mod_Render(UiScreenCtx& ctx)
 
     const UiLayout layout = UiLayout_Default();
     char status[16];
-    BuildStatus(*ctx.app, status, sizeof(status));
+    BuildStatus(*ctx.shared, status, sizeof(status));
     UiDraw_Header(d, layout, "MOD", status);
 
     char buf[32];
-    const uint8_t cursor = ctx.app->engine.mod_field_cursor;
+    const uint8_t cursor = ctx.engine->mod_field_cursor;
     d.SetCursor(layout.x, layout.y_body);
     std::snprintf(buf, sizeof(buf), "%c R:%u",
                   (cursor == 0) ? '>' : ' ',
@@ -170,9 +176,9 @@ void Mod_Render(UiScreenCtx& ctx)
                   DstChar(r.dst));
     d.WriteString(buf, Font_6x8, true);
 
-    UiValueEdit_Render(ctx.app->ui.value_edit, d, layout.x, layout.y_body + layout.line_h * 4);
+    UiValueEdit_Render(ctx.ui->value_edit, d, layout.x, layout.y_body + layout.line_h * 4);
 
-    const char* hint = ctx.app->ui.value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
+    const char* hint = ctx.ui->value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
                                                    : "EXT:MOVE EXT:EDIT P2:BACK";
     UiDraw_Footer(d, layout, hint);
 }

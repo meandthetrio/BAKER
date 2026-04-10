@@ -29,7 +29,7 @@ void DrawWaveformPreview(OledPager& d,
                          bool outline_only = false,
                          bool dotted_border = false);
 void PublishEngineLayerParams(UiScreenCtx& ctx);
-void EngineRefreshLoadedMetadata(AppState& app);
+void EngineRefreshLoadedMetadata(AppUiState& ui, AppEngineState& engine, AppSharedState& shared);
 
 // Already-extracted screens.
 bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

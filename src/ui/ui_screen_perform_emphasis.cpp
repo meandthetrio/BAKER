@@ -3,7 +3,13 @@
 #include <cmath>
 #include <cstdio>
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "oled_pager.h"
 #include "params.h"
 #include "ui_input.h"
@@ -82,89 +88,95 @@ static const char* DriveModeLabel(uint8_t mode)
 
 bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app || !ctx.params)
+    if(!ctx.ui || !ctx.params)
         return false;
     if(ctx.shift)
         return false;
 
-    AppState& app = *ctx.app;
-    const uint8_t layer = app.engine.perform_layer & 1u;
+    AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
+    const uint8_t layer = engine.perform_layer & 1u;
 
     static uint32_t s_last_ext_t_ms = 0u;
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        int row = static_cast<int>(app.engine.perform_emphasis_row) + e.value;
+        int row = static_cast<int>(engine.perform_emphasis_row) + e.value;
         while(row < 0) row += 3;
         while(row >= 3) row -= 3;
-        app.engine.perform_emphasis_row = static_cast<uint8_t>(row);
-        app.ui.ui_dirty = true;
+        engine.perform_emphasis_row = static_cast<uint8_t>(row);
+        ui.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
         const float delta_norm = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
-        if(app.engine.perform_emphasis_row == 0)
+        if(engine.perform_emphasis_row == 0)
         {
             if(ctx.rshift)
             {
-                int mode = static_cast<int>(app.engine.engine_drive_mode[layer]) + e.value;
+                int mode = static_cast<int>(engine.engine_drive_mode[layer]) + e.value;
                 while(mode < 0)
                     mode += 2;
                 while(mode >= 2)
                     mode -= 2;
                 const uint8_t next_mode = ClampDriveModeLocal(mode);
-                if(next_mode != app.engine.engine_drive_mode[layer])
+                if(next_mode != engine.engine_drive_mode[layer])
                 {
-                    app.engine.engine_drive_mode[layer] = next_mode;
+                    engine.engine_drive_mode[layer] = next_mode;
                     PublishEngineLayerParams(ctx);
-                    app.ui.ui_dirty = true;
+                    ui.ui_dirty = true;
                 }
                 return true;
             }
 
             // DRIVE row: 0.0 dB at 7 o'clock through +6.0 dB at 5 o'clock in 0.1 dB steps.
-            int v = static_cast<int>(app.engine.engine_gain_db[layer]) + e.value;
+            int v = static_cast<int>(engine.engine_gain_db[layer]) + e.value;
             v = ClampInt(v, 0, 60);
             const int16_t vv = static_cast<int16_t>(v);
-            if(vv != app.engine.engine_gain_db[layer])
+            if(vv != engine.engine_gain_db[layer])
             {
-                app.engine.engine_gain_db[layer] = vv;
+                engine.engine_gain_db[layer] = vv;
                 PublishEngineLayerParams(ctx);
-                app.ui.ui_dirty = true;
+                ui.ui_dirty = true;
             }
             return true;
         }
 
         PerformParamsTargets& t = ctx.params->EditTargets();
-        if(app.engine.perform_emphasis_row == 1)
+        if(engine.perform_emphasis_row == 1)
         {
             // Keep fast fader motion; map fader space to cutoff using ADSR-style curve.
             float fader = AdsrFltFaderFromCutoffHz(t.engine_filter_cutoff_hz[layer]);
             fader = Clamp01(fader + delta_norm);
             t.engine_filter_cutoff_hz[layer] = AdsrFltCutoffHzFromFader(fader);
             ctx.params->PublishTargets();
-            app.ui.ui_dirty = true;
+            ui.ui_dirty = true;
             return true;
         }
 
         // RESONANCE
         t.engine_filter_resonance[layer] = Clamp01(t.engine_filter_resonance[layer] + delta_norm);
         ctx.params->PublishTargets();
-        app.ui.ui_dirty = true;
+        ui.ui_dirty = true;
         return true;
     }
 
     // POD2 toggles layer (same behavior as ENGINE).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        app.engine.perform_layer ^= 1u;
-        const uint8_t layer = app.engine.perform_layer & 1u;
-        app.shared.sd_current_slot.store(layer, std::memory_order_release);
-        app.engine.engine_header_invert_until_ms = e.t_ms + 250u;
+        engine.perform_layer ^= 1u;
+        const uint8_t layer = engine.perform_layer & 1u;
+        shared.sample.sd_current_slot.store(layer, std::memory_order_release);
+        engine.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
-        app.ui.ui_dirty = true;
+        ui.ui_dirty = true;
         return true;
     }
 
@@ -173,23 +185,29 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return;
-    ctx.app->ui.ui_dirty = true;
+    ctx.ui->ui_dirty = true;
 }
 
 void PerformEmphasis_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display || !ctx.params)
+    if(!ctx.ui || !ctx.display || !ctx.params)
         return;
 
-    AppState& app = *ctx.app;
-    EngineRefreshLoadedMetadata(app);
+    AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
+    EngineRefreshLoadedMetadata(ui, engine, shared);
 
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const uint8_t layer = app.engine.perform_layer & 1u;
+    const uint8_t layer = engine.perform_layer & 1u;
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
     const float cutoff_hz = t.engine_filter_cutoff_hz[layer];
     const float resonance = Clamp01(t.engine_filter_resonance[layer]);
@@ -202,7 +220,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     if(box_x < 0)
         box_x = 0;
     const bool header_invert_flash
-        = static_cast<int32_t>(app.engine.engine_header_invert_until_ms - ctx.now_ms) > 0;
+        = static_cast<int32_t>(engine.engine_header_invert_until_ms - ctx.now_ms) > 0;
     if(header_invert_flash)
     {
         d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, false, true);
@@ -262,9 +280,9 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     };
 
     char gain_buf[12];
-    FormatDbTenths(app.engine.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
-    const bool drive_mode_focus = (app.engine.perform_emphasis_row == 0u) && ctx.rshift;
-    const char* drive_label = drive_mode_focus ? DriveModeLabel(app.engine.engine_drive_mode[layer]) : "drive";
+    FormatDbTenths(engine.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
+    const bool drive_mode_focus = (engine.perform_emphasis_row == 0u) && ctx.rshift;
+    const char* drive_label = drive_mode_focus ? DriveModeLabel(engine.engine_drive_mode[layer]) : "drive";
     const char* drive_value = drive_mode_focus ? "" : gain_buf;
 
     float cutoff = cutoff_hz;
@@ -286,7 +304,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     else
         std::snprintf(cutoff_buf, sizeof(cutoff_buf), "%lu", (unsigned long)lpf_hz);
 
-    const int gain_tenths = static_cast<int>(app.engine.engine_gain_db[layer]);
+    const int gain_tenths = static_cast<int>(engine.engine_gain_db[layer]);
     const float gain_norm = clamp01f(static_cast<float>(gain_tenths) / 60.0f);
     const float gain_angle = 2.0943951f + (gain_norm * 5.2359878f);
 
@@ -303,19 +321,19 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
               drive_label,
               drive_value,
               gain_angle,
-              app.engine.perform_emphasis_row == 0 ? (drive_mode_focus ? 2 : 1) : 0);
+              engine.perform_emphasis_row == 0 ? (drive_mode_focus ? 2 : 1) : 0);
     draw_knob(kKnobCx[1],
               kKnobCy,
               kKnobRadius,
               "cutoff",
               cutoff_buf,
               cutoff_angle,
-              app.engine.perform_emphasis_row == 1 ? 2 : 0);
+              engine.perform_emphasis_row == 1 ? 2 : 0);
     draw_knob(kKnobCx[2],
               kKnobCy,
               kKnobRadius,
               "reso",
               "",
               reso_angle,
-              app.engine.perform_emphasis_row == 2 ? 2 : 0);
+              engine.perform_emphasis_row == 2 ? 2 : 0);
 }

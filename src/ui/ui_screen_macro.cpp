@@ -2,7 +2,13 @@
 
 #include <cstdio>
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "macros.h"
 #include "oled_pager.h"
 #include "ui_input.h"
@@ -17,23 +23,23 @@ static float Clamp01(float x)
 
 bool Macro_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
 
     bool changed = false;
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
     {
-        const uint8_t sel = ctx.app->shared.macro_ui.selected % kNumMacros;
-        float v = ctx.app->shared.macro_ui.value[sel];
+        const uint8_t sel = ctx.shared->macro_ui.selected % kNumMacros;
+        float v = ctx.shared->macro_ui.value[sel];
         v = Clamp01(v + (float)e.value * 0.02f);
-        ctx.app->shared.macro_ui.value[sel] = v;
-        Macros_Publish(*ctx.app, ctx.app->shared.macro_ui);
+        ctx.shared->macro_ui.value[sel] = v;
+        Macros_Publish(*ctx.shared, ctx.shared->macro_ui);
         changed = true;
     }
 
     if(changed)
     {
-        ctx.app->ui.ui_dirty = true;
+        ctx.ui->ui_dirty = true;
         return true;
     }
 
@@ -42,11 +48,11 @@ bool Macro_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void Macro_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    const uint8_t sel = ctx.app->shared.macro_ui.selected % kNumMacros;
-    uint32_t mac_val = (uint32_t)(ctx.app->shared.macro_ui.value[sel] * 100.0f + 0.5f);
+    const uint8_t sel = ctx.shared->macro_ui.selected % kNumMacros;
+    uint32_t mac_val = (uint32_t)(ctx.shared->macro_ui.value[sel] * 100.0f + 0.5f);
     if(mac_val > 100)
         mac_val = 100;
 
@@ -57,7 +63,7 @@ void Macro_Render(UiScreenCtx& ctx)
 
     const UiLayout layout = UiLayout_Default();
     char status[16];
-    BuildStatus(*ctx.app, status, sizeof(status));
+    BuildStatus(*ctx.shared, status, sizeof(status));
     UiDraw_Header(d, layout, "MAC", status);
 
     char buf[32];

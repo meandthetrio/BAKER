@@ -11,14 +11,14 @@
 #include <cstring>
 
 // Project slot / path helpers
-static void SetProjectStatus(AppState& app, const char* msg)
+static void SetProjectStatus(AppProjectState& project, const char* msg)
 {
     if(!msg)
     {
-        app.project.project_status[0] = '\0';
+        project.project_status[0] = '\0';
         return;
     }
-    std::snprintf(app.project.project_status, sizeof(app.project.project_status), "%s", msg);
+    std::snprintf(project.project_status, sizeof(project.project_status), "%s", msg);
 }
 
 static uint8_t ClampProjectSlotIndex(uint8_t slot)
@@ -54,12 +54,17 @@ static bool MakeProjectSlotPath(char* out, size_t n, const char* base, uint8_t s
     return MakePath(out, n, base, name);
 }
 
-void SetProjectSlotStatus(AppState& app, uint8_t slot, const char* msg)
+static void SetProjectSlotStatus(AppProjectState& project, uint8_t slot, const char* msg)
 {
-    char status[sizeof(app.project.project_status)];
+    char status[sizeof(project.project_status)];
     const uint8_t slot_num = static_cast<uint8_t>(ClampProjectSlotIndex(slot) + 1u);
     std::snprintf(status, sizeof(status), "P%02u %s", slot_num, msg ? msg : "");
-    SetProjectStatus(app, status);
+    SetProjectStatus(project, status);
+}
+
+void SetProjectSlotStatus(AppState& app, uint8_t slot, const char* msg)
+{
+    SetProjectSlotStatus(app.project, slot, msg);
 }
 
 static bool ProjectManifestHasLayer(const ProjectManifestV10& m, uint8_t layer)
@@ -354,7 +359,7 @@ static void CollectProjectLayerState(ProjectManifestV10& manifest,
 {
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
-        const Sample& sample = app.shared.sd_slots[slot];
+        const Sample& sample = app.shared.sample.sd_slots[slot];
         const char* path = app.engine.engine_sample_path[slot];
         if(sample.pcm == nullptr || sample.length == 0 || !path || path[0] == '\0')
             continue;
@@ -363,7 +368,7 @@ static void CollectProjectLayerState(ProjectManifestV10& manifest,
         manifest.sample_present_mask |= bit;
         std::snprintf(manifest.wav_path[slot], sizeof(manifest.wav_path[slot]), "%s", path);
 
-        SampleEdit edit = app.shared.sd_edit_slots[slot];
+        SampleEdit edit = app.shared.sample.sd_edit_slots[slot];
         SampleEdit_Clamp(edit, sample.length);
         manifest.edit[slot] = edit;
         manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine.engine_tune_semitones[slot]);
@@ -452,15 +457,15 @@ static void CollectProjectGlobalState(ProjectManifestV10& manifest,
     manifest.eq.eq_q = targets.eq_q;
     ClampProjectEqState(manifest.eq);
 
-    manifest.seq_running = app.shared.seq_running ? 1 : 0;
-    manifest.plock_apply_enabled = app.shared.plock_apply_enabled ? 1 : 0;
-    manifest.lfo_wave = app.shared.lfo_wave.load(std::memory_order_relaxed);
-    manifest.seq_bpm = app.shared.seq_bpm;
-    manifest.macro_ui = app.shared.macro_ui;
-    manifest.macro_sel = app.shared.macro_sel.load(std::memory_order_relaxed) & 1u;
+    manifest.seq_running = app.shared.performance.seq_running ? 1 : 0;
+    manifest.plock_apply_enabled = app.shared.performance.plock_apply_enabled ? 1 : 0;
+    manifest.lfo_wave = app.shared.performance.lfo_wave.load(std::memory_order_relaxed);
+    manifest.seq_bpm = app.shared.performance.seq_bpm;
+    manifest.macro_ui = app.shared.performance.macro_ui;
+    manifest.macro_sel = app.shared.performance.macro_sel.load(std::memory_order_relaxed) & 1u;
     for(size_t i = 0; i < kMaxModRoutes; ++i)
-        manifest.mod_routes[i] = app.shared.mod_routes_ui[i];
-    manifest.mod_route_selected = app.shared.mod_route_selected;
+        manifest.mod_routes[i] = app.shared.performance.mod_routes_ui[i];
+    manifest.mod_route_selected = app.shared.performance.mod_route_selected;
 }
 
 static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifestV10& manifest)
@@ -530,19 +535,19 @@ bool SaveProject(AppState& app, const Params& params)
 
 static void ApplyProjectManifestGlobalState(AppState& app, const ProjectManifestV10& manifest)
 {
-    app.shared.seq_running = (manifest.seq_running != 0);
-    app.shared.plock_apply_enabled = (manifest.plock_apply_enabled != 0);
-    app.shared.lfo_wave.store(manifest.lfo_wave, std::memory_order_release);
-    app.shared.seq_bpm = manifest.seq_bpm;
+    app.shared.performance.seq_running = (manifest.seq_running != 0);
+    app.shared.performance.plock_apply_enabled = (manifest.plock_apply_enabled != 0);
+    app.shared.performance.lfo_wave.store(manifest.lfo_wave, std::memory_order_release);
+    app.shared.performance.seq_bpm = manifest.seq_bpm;
 
-    app.shared.macro_ui = manifest.macro_ui;
-    app.shared.macro_ui.selected = manifest.macro_ui.selected;
-    Macros_Publish(app, app.shared.macro_ui);
+    app.shared.performance.macro_ui = manifest.macro_ui;
+    app.shared.performance.macro_ui.selected = manifest.macro_ui.selected;
+    Macros_Publish(app, app.shared.performance.macro_ui);
 
     for(size_t i = 0; i < kMaxModRoutes; ++i)
-        app.shared.mod_routes_ui[i] = manifest.mod_routes[i];
-    app.shared.mod_route_selected = manifest.mod_route_selected;
-    ModMatrix_Publish(app.shared.mod_matrix, app.shared.mod_routes_ui);
+        app.shared.performance.mod_routes_ui[i] = manifest.mod_routes[i];
+    app.shared.performance.mod_route_selected = manifest.mod_route_selected;
+    ModMatrix_Publish(app.shared.performance.mod_matrix, app.shared.performance.mod_routes_ui);
 }
 
 static void ApplyProjectManifestLayerState(AppState& app, const ProjectManifestV10& manifest)
@@ -600,8 +605,8 @@ static void SetupProjectRestoreState(AppState& app, const ProjectManifestV10& ma
             continue;
 
         const uint8_t bit = static_cast<uint8_t>(1u << slot);
-        app.project.project_pending_edit[slot] = manifest.edit[slot];
-        app.project.project_edit_pending_mask |= bit;
+        app.worker.project_restore.project_pending_edit[slot] = manifest.edit[slot];
+        app.worker.project_restore.project_edit_pending_mask |= bit;
         s_sd.project_restore_pending_mask |= bit;
         std::snprintf(s_sd.project_restore_path[slot],
                       sizeof(s_sd.project_restore_path[slot]),

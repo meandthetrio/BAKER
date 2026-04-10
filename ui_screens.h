@@ -5,6 +5,13 @@
 // `ui_screens.cpp` is the intentionally small shared UI facade:
 // active-screen helpers plus cross-screen support that does not belong to one screen owner.
 struct AppState;
+struct AppUiState;
+struct AppEngineState;
+struct AppRecordingState;
+struct AppProjectState;
+struct AppDiagnosticsState;
+struct AppSharedState;
+struct AppWorkerState;
 class Params;
 class OledPager;
 struct UiInputEvent;
@@ -33,16 +40,57 @@ enum class UiScreenId : uint8_t
     COUNT
 };
 
+struct UiAppAccess
+{
+    AppState* root = nullptr;
+    AppUiState& ui;
+    AppEngineState& engine;
+    AppRecordingState& recording;
+    AppProjectState& project;
+    AppDiagnosticsState& diag;
+    AppSharedState& shared;
+    AppWorkerState& worker;
+    Params& params;
+
+    operator AppState&() const { return *root; }
+    AppState* operator->() const { return root; }
+};
+
+struct UiSessionState
+{
+    AppUiState* ui = nullptr;
+    AppEngineState* engine = nullptr;
+    AppRecordingState* recording = nullptr;
+    AppProjectState* project = nullptr;
+};
+
 struct UiScreenCtx
 {
-    AppState*  app = nullptr;
-    Params*    params = nullptr;
+    UiAppAccess* app = nullptr;
+    UiSessionState* session = nullptr;
+    AppUiState* ui = nullptr;
+    AppEngineState* engine = nullptr;
+    AppRecordingState* recording = nullptr;
+    AppProjectState* project = nullptr;
+    AppDiagnosticsState* diag = nullptr;
+    AppSharedState* shared = nullptr;
+    AppWorkerState* worker = nullptr;
+    Params* params = nullptr;
     OledPager* display = nullptr;
-    uint32_t   now_ms = 0;
-    bool       shift = false;
-    bool       lshift = false;
-    bool       rshift = false;
+    uint32_t now_ms = 0;
+    bool shift = false;
+    bool lshift = false;
+    bool rshift = false;
 };
+
+inline void UiScreenCtx_BindSession(UiScreenCtx& ctx, UiSessionState& session)
+{
+    ctx.session = &session;
+    ctx.ui = session.ui;
+    ctx.engine = session.engine;
+    ctx.recording = session.recording;
+    ctx.project = session.project;
+}
 
 struct UiScreen
 {

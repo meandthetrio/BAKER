@@ -13,6 +13,14 @@
 - `[BG]` SD/filesystem work, WAV/project load/save, normalize, loop-find.
 - `[SHARED]` state and handoff structures touched across domains at explicit boundaries.
 
+## AppState Policy
+- `AppState` is the composition root for cross-subsystem wiring.
+- Top-level orchestration files may still use `AppState` directly.
+- Leaf subsystem files should prefer specific `app_state_*` bucket headers or narrow context structs.
+- `app_state.h` should gradually disappear from UI, worker, and other leaf modules as dependency narrowing progresses.
+- Stable whole-app boundaries in the current repo are `main.cpp`, `src/ui/ui_logic.cpp`, `src/ui/ui_render.cpp`, `src/worker/ui_worker.cpp`, and `src/worker/ui_worker_project.cpp`.
+- Smaller wrappers that still take `AppState&` outside those orchestration boundaries should be treated as temporary compatibility seams, not as approved long-term patterns.
+
 ## Repo Layout
 - `/` main firmware source tree; entry points, shared state, controls, and engine/shared support still live at repo root.
 - `/src/ui` UI framework helpers, screen owners, router/registry glue, draw helpers, and thin project UI helpers.
@@ -24,7 +32,7 @@
 
 ## Entry Points
 - `main.cpp` `[MAIN]` app entry, hardware init, `AudioCallback`, main-loop scheduling, MIDI to event mapping.
-- `app_state.h` `[SHARED]` central runtime state, UI state, worker state, SD publish/edit handoffs, counters.
+- `app_state.h` `[SHARED]` composition root for runtime state and cross-subsystem wiring; prefer narrower `app_state_*` headers away from orchestration boundaries.
 
 ## Module Map
 

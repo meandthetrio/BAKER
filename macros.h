@@ -33,10 +33,12 @@ struct MacroState
     uint8_t selected = 0;
 };
 
+struct AppSharedState;
 struct AppState;
 
 void Macros_InitState(MacroState& state);
 const MacroDef& Macros_GetDef(uint8_t idx);
+void Macros_Publish(AppSharedState& shared, const MacroState& state);
 void Macros_Publish(AppState& app, const MacroState& state);
 void Macros_Smooth(MacroState& current, const MacroState& target, float coeff);
 void Macros_Apply(const MacroState& state,

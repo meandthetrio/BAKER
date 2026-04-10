@@ -3,6 +3,7 @@
 #include <cstddef>
 
 class OledPager;
+struct AppSharedState;
 struct AppState;
 
 struct UiLayout
@@ -18,4 +19,5 @@ struct UiLayout
 UiLayout UiLayout_Default();
 void UiDraw_Header(OledPager& oled, const UiLayout& l, const char* title, const char* status);
 void UiDraw_Footer(OledPager& oled, const UiLayout& l, const char* hint);
+void BuildStatus(const AppSharedState& shared, char* out, size_t n);
 void BuildStatus(const AppState& app, char* out, size_t n);

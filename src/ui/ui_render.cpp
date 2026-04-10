@@ -46,22 +46,43 @@ void UIRender::Init(PodDisplay* display, DaisyPod& hw)
 
 void UIRender::Render(const AppState& app, const Params& params)
 {
+    const AppUiState& ui = app.ui;
+    const AppDiagnosticsState& diag = app.diag;
     UiScreenCtx ctx{};
-    ctx.app = const_cast<AppState*>(&app);
-    ctx.params = const_cast<Params*>(&params);
+    AppState& mutable_app = const_cast<AppState&>(app);
+    Params& mutable_params = const_cast<Params&>(params);
+    UiAppAccess ctx_app{&mutable_app,
+                        mutable_app.ui,
+                        mutable_app.engine,
+                        mutable_app.recording,
+                        mutable_app.project,
+                        mutable_app.diag,
+                        mutable_app.shared,
+                        mutable_app.worker,
+                        mutable_params};
+    UiSessionState ctx_session{&mutable_app.ui,
+                               &mutable_app.engine,
+                               &mutable_app.recording,
+                               &mutable_app.project};
+    ctx.app = &ctx_app;
+    UiScreenCtx_BindSession(ctx, ctx_session);
+    ctx.diag = &mutable_app.diag;
+    ctx.shared = &mutable_app.shared;
+    ctx.worker = &mutable_app.worker;
+    ctx.params = &mutable_params;
     ctx.display = &oled_pager_;
     ctx.now_ms = System::GetNow();
-    const bool shift_held = app.ui.ui_lshift_held || app.ui.ui_rshift_held;
+    const bool shift_held = ui.ui_lshift_held || ui.ui_rshift_held;
     ctx.shift = shift_held;
-    ctx.lshift = app.ui.ui_lshift_held;
-    ctx.rshift = app.ui.ui_rshift_held;
+    ctx.lshift = ui.ui_lshift_held;
+    ctx.rshift = ui.ui_rshift_held;
     UiRouter_Render(ctx);
 
-    if(app.diag.overlay.visible)
+    if(diag.overlay.visible)
     {
         const UiLayout layout = UiLayout_Default();
         UiOverlay_Render(app, params, layout, oled_pager_);
-        const char* hint = app.ui.value_edit.active ? "SHIFT:OVER P2:CANC"
+        const char* hint = ui.value_edit.active ? "SHIFT:OVER P2:CANC"
                                                   : "SHIFT:OVER P2:BACK";
         UiDraw_Footer(oled_pager_, layout, hint);
     }
@@ -74,6 +95,8 @@ void UIRender::TickOledTransfer(uint32_t now_ms, bool midi_busy)
 
 void UIRender::Tick(AppState& app, const Params& params)
 {
+    AppUiState& ui = app.ui;
+    AppDiagnosticsState& diag = app.diag;
     if(!oled_pager_.IsReady())
         return;
 
@@ -89,21 +112,21 @@ void UIRender::Tick(AppState& app, const Params& params)
     ui_ticks_accum_++;
     if((now_ms - ui_window_start_ms_) >= 1000)
     {
-        app.ui.ui_hz = ui_ticks_accum_;
+        ui.ui_hz = ui_ticks_accum_;
         ui_ticks_accum_ = 0;
         ui_window_start_ms_ = now_ms;
-        app.ui.ui_dirty = true;
+        ui.ui_dirty = true;
     }
 
-    if(UiNav_Active(app.ui.ui_nav) == UiScreenId::PerformWaveEdit)
+    if(UiNav_Active(ui.ui_nav) == UiScreenId::PerformWaveEdit)
     {
         for(uint8_t layer = 0; layer < 2; ++layer)
         {
-            const uint32_t frame = app.diag.playhead_frame[layer].load(std::memory_order_relaxed);
-            const uint32_t active = app.diag.playhead_active[layer].load(std::memory_order_relaxed);
+            const uint32_t frame = diag.playhead_frame[layer].load(std::memory_order_relaxed);
+            const uint32_t active = diag.playhead_active[layer].load(std::memory_order_relaxed);
             if(frame != last_playhead_frame_[layer] || active != last_playhead_active_[layer])
             {
-                app.ui.ui_dirty = true;
+                ui.ui_dirty = true;
                 last_playhead_frame_[layer] = frame;
                 last_playhead_active_[layer] = active;
             }
@@ -131,35 +154,35 @@ void UIRender::Tick(AppState& app, const Params& params)
     const bool stats_due = (now_ms - last_stats_ms_) >= 100;
     if(stats_due)
     {
-        pushed = app.diag.events_pushed.load(std::memory_order_relaxed);
-        popped = app.diag.events_popped.load(std::memory_order_relaxed);
-        ovf    = app.diag.queue_overflows.load(std::memory_order_relaxed);
-        const uint32_t rx = app.diag.midi_rx_count.load(std::memory_order_relaxed);
+        pushed = diag.events_pushed.load(std::memory_order_relaxed);
+        popped = diag.events_popped.load(std::memory_order_relaxed);
+        ovf    = diag.queue_overflows.load(std::memory_order_relaxed);
+        const uint32_t rx = diag.midi_rx_count.load(std::memory_order_relaxed);
         rx_mod = rx % 1000;
-        lsv    = app.diag.last_stolen_voice_index.load(std::memory_order_relaxed);
-        old_id = app.diag.last_stolen_start_id.load(std::memory_order_relaxed);
-        new_id = app.diag.last_new_start_id.load(std::memory_order_relaxed);
-        const uint32_t peak_cycles = app.diag.audio_cycles_peak.load(std::memory_order_relaxed);
-        const uint32_t budget_cycles = app.diag.audio_budget_cycles.load(std::memory_order_relaxed);
+        lsv    = diag.last_stolen_voice_index.load(std::memory_order_relaxed);
+        old_id = diag.last_stolen_start_id.load(std::memory_order_relaxed);
+        new_id = diag.last_new_start_id.load(std::memory_order_relaxed);
+        const uint32_t peak_cycles = diag.audio_cycles_peak.load(std::memory_order_relaxed);
+        const uint32_t budget_cycles = diag.audio_budget_cycles.load(std::memory_order_relaxed);
         cpu_pct = 0;
         if(budget_cycles > 0)
             cpu_pct = (peak_cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
         if(cpu_pct > 999u)
             cpu_pct = 999u;
-        late_cnt = app.diag.audio_late_count.load(std::memory_order_relaxed);
-        loop_mode = app.diag.loop_mode.load(std::memory_order_relaxed);
-        clip_cnt = app.diag.clip_count.load(std::memory_order_relaxed);
-        vact   = app.diag.voices_active.load(std::memory_order_relaxed);
-        const uint32_t vpk1s = app.diag.voices_peak_1s.load(std::memory_order_relaxed);
-        vstl   = app.diag.voice_steals.load(std::memory_order_relaxed);
-        vpack  = app.diag.last_voice_packed.load(std::memory_order_relaxed);
-        kg_idx = app.diag.last_sample_index.load(std::memory_order_relaxed);
-        fadeouts = app.diag.fadeouts_started.load(std::memory_order_relaxed);
-        vel_layer = app.diag.last_vel_layer.load(std::memory_order_relaxed);
-        lfo_val = app.diag.last_lfo.load(std::memory_order_relaxed);
-        env_val = app.diag.last_env.load(std::memory_order_relaxed);
-        lfo_rate_dbg = app.diag.lfo_rate_dbg.load(std::memory_order_relaxed);
-        lfo_depth_dbg = app.diag.lfo_depth_dbg.load(std::memory_order_relaxed);
+        late_cnt = diag.audio_late_count.load(std::memory_order_relaxed);
+        loop_mode = diag.loop_mode.load(std::memory_order_relaxed);
+        clip_cnt = diag.clip_count.load(std::memory_order_relaxed);
+        vact   = diag.voices_active.load(std::memory_order_relaxed);
+        const uint32_t vpk1s = diag.voices_peak_1s.load(std::memory_order_relaxed);
+        vstl   = diag.voice_steals.load(std::memory_order_relaxed);
+        vpack  = diag.last_voice_packed.load(std::memory_order_relaxed);
+        kg_idx = diag.last_sample_index.load(std::memory_order_relaxed);
+        fadeouts = diag.fadeouts_started.load(std::memory_order_relaxed);
+        vel_layer = diag.last_vel_layer.load(std::memory_order_relaxed);
+        lfo_val = diag.last_lfo.load(std::memory_order_relaxed);
+        env_val = diag.last_env.load(std::memory_order_relaxed);
+        lfo_rate_dbg = diag.lfo_rate_dbg.load(std::memory_order_relaxed);
+        lfo_depth_dbg = diag.lfo_depth_dbg.load(std::memory_order_relaxed);
         stats_loaded = true;
 
         if((pushed != last_events_pushed_) || (popped != last_events_popped_)
@@ -181,7 +204,7 @@ void UIRender::Tick(AppState& app, const Params& params)
            || (env_val != last_env_)
            || (lfo_rate_dbg != last_lfo_rate_dbg_)
            || (lfo_depth_dbg != last_lfo_depth_dbg_))
-            app.ui.ui_dirty = true;
+            ui.ui_dirty = true;
 
         // Decimate stats-driven dirty marking to 10Hz max.
         last_stats_ms_ = now_ms;
@@ -192,13 +215,13 @@ void UIRender::Tick(AppState& app, const Params& params)
     if(oled_pager_.IsTransferring())
         return;
 
-    if(now_ms < app.diag.render_cooldown_until_ms)
+    if(now_ms < diag.render_cooldown_until_ms)
     {
-        app.diag.render_skips++;
+        diag.render_skips++;
         return;
     }
 
-    if(!app.ui.ui_dirty && !app.diag.overlay.visible)
+    if(!ui.ui_dirty && !diag.overlay.visible)
         return;
 
     const uint32_t start_ms = System::GetNow();
@@ -209,47 +232,47 @@ void UIRender::Tick(AppState& app, const Params& params)
     if(dt32 > 0xFFFFu)
         dt32 = 0xFFFFu;
     const uint16_t dt = static_cast<uint16_t>(dt32);
-    app.diag.render_ms = dt;
-    if(dt > app.diag.render_hi_ms)
-        app.diag.render_hi_ms = dt;
-    app.diag.render_frames++;
+    diag.render_ms = dt;
+    if(dt > diag.render_hi_ms)
+        diag.render_hi_ms = dt;
+    diag.render_frames++;
     if(dt > kRenderBudgetMs)
-        app.diag.render_cooldown_until_ms = end_ms + kCooldownMs;
+        diag.render_cooldown_until_ms = end_ms + kCooldownMs;
 
-    app.ui.ui_dirty = false;
+    ui.ui_dirty = false;
 
     // Update cached stats after any render (even if render was triggered by controls).
     if(!stats_loaded)
     {
-        pushed = app.diag.events_pushed.load(std::memory_order_relaxed);
-        popped = app.diag.events_popped.load(std::memory_order_relaxed);
-        ovf    = app.diag.queue_overflows.load(std::memory_order_relaxed);
-        const uint32_t rx = app.diag.midi_rx_count.load(std::memory_order_relaxed);
+        pushed = diag.events_pushed.load(std::memory_order_relaxed);
+        popped = diag.events_popped.load(std::memory_order_relaxed);
+        ovf    = diag.queue_overflows.load(std::memory_order_relaxed);
+        const uint32_t rx = diag.midi_rx_count.load(std::memory_order_relaxed);
         rx_mod = rx % 1000;
-        lsv    = app.diag.last_stolen_voice_index.load(std::memory_order_relaxed);
-        old_id = app.diag.last_stolen_start_id.load(std::memory_order_relaxed);
-        new_id = app.diag.last_new_start_id.load(std::memory_order_relaxed);
-        const uint32_t peak_cycles = app.diag.audio_cycles_peak.load(std::memory_order_relaxed);
-        const uint32_t budget_cycles = app.diag.audio_budget_cycles.load(std::memory_order_relaxed);
+        lsv    = diag.last_stolen_voice_index.load(std::memory_order_relaxed);
+        old_id = diag.last_stolen_start_id.load(std::memory_order_relaxed);
+        new_id = diag.last_new_start_id.load(std::memory_order_relaxed);
+        const uint32_t peak_cycles = diag.audio_cycles_peak.load(std::memory_order_relaxed);
+        const uint32_t budget_cycles = diag.audio_budget_cycles.load(std::memory_order_relaxed);
         cpu_pct = 0;
         if(budget_cycles > 0)
             cpu_pct = (peak_cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
         if(cpu_pct > 999u)
             cpu_pct = 999u;
-        late_cnt = app.diag.audio_late_count.load(std::memory_order_relaxed);
-        loop_mode = app.diag.loop_mode.load(std::memory_order_relaxed);
-        clip_cnt = app.diag.clip_count.load(std::memory_order_relaxed);
-        vact   = app.diag.voices_active.load(std::memory_order_relaxed);
-        last_voices_peak_1s_ = app.diag.voices_peak_1s.load(std::memory_order_relaxed);
-        vstl   = app.diag.voice_steals.load(std::memory_order_relaxed);
-        vpack  = app.diag.last_voice_packed.load(std::memory_order_relaxed);
-        kg_idx = app.diag.last_sample_index.load(std::memory_order_relaxed);
-        fadeouts = app.diag.fadeouts_started.load(std::memory_order_relaxed);
-        vel_layer = app.diag.last_vel_layer.load(std::memory_order_relaxed);
-        lfo_val = app.diag.last_lfo.load(std::memory_order_relaxed);
-        env_val = app.diag.last_env.load(std::memory_order_relaxed);
-        lfo_rate_dbg = app.diag.lfo_rate_dbg.load(std::memory_order_relaxed);
-        lfo_depth_dbg = app.diag.lfo_depth_dbg.load(std::memory_order_relaxed);
+        late_cnt = diag.audio_late_count.load(std::memory_order_relaxed);
+        loop_mode = diag.loop_mode.load(std::memory_order_relaxed);
+        clip_cnt = diag.clip_count.load(std::memory_order_relaxed);
+        vact   = diag.voices_active.load(std::memory_order_relaxed);
+        last_voices_peak_1s_ = diag.voices_peak_1s.load(std::memory_order_relaxed);
+        vstl   = diag.voice_steals.load(std::memory_order_relaxed);
+        vpack  = diag.last_voice_packed.load(std::memory_order_relaxed);
+        kg_idx = diag.last_sample_index.load(std::memory_order_relaxed);
+        fadeouts = diag.fadeouts_started.load(std::memory_order_relaxed);
+        vel_layer = diag.last_vel_layer.load(std::memory_order_relaxed);
+        lfo_val = diag.last_lfo.load(std::memory_order_relaxed);
+        env_val = diag.last_env.load(std::memory_order_relaxed);
+        lfo_rate_dbg = diag.lfo_rate_dbg.load(std::memory_order_relaxed);
+        lfo_depth_dbg = diag.lfo_depth_dbg.load(std::memory_order_relaxed);
     }
 
     last_events_pushed_   = pushed;

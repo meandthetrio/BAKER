@@ -2,7 +2,13 @@
 
 #include <cstdio>
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "oled_pager.h"
 #include "ui_input.h"
 #include "ui_layout.h"
@@ -19,46 +25,46 @@ static const UiMenuItem kHudMenuItems[] = {
     {"SAVE", UiScreenId::COUNT, UiReqType::SavePreset},
 };
 
-static void EnsureHudMenu(AppState& app)
+static void EnsureHudMenu(AppUiState& ui)
 {
-    if(app.ui.hud_menu_inited)
+    if(ui.hud_menu_inited)
         return;
-    UiListMenu_Init(app.ui.hud_menu,
+    UiListMenu_Init(ui.hud_menu,
                     kHudMenuItems,
                     static_cast<uint8_t>(sizeof(kHudMenuItems) / sizeof(kHudMenuItems[0])),
                     3);
-    app.ui.hud_menu_inited = true;
+    ui.hud_menu_inited = true;
 }
 
 bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
-    EnsureHudMenu(*ctx.app);
+    EnsureHudMenu(*ctx.ui);
     if(ctx.shift)
         return false;
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
     {
-        if(UiListMenu_OnEnc(ctx.app->ui.hud_menu, e.value))
+        if(UiListMenu_OnEnc(ctx.ui->hud_menu, e.value))
         {
-            ctx.app->ui.ui_dirty = true;
+            ctx.ui->ui_dirty = true;
             return true;
         }
         return false;
     }
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        const UiMenuItem& item = ctx.app->ui.hud_menu.items[ctx.app->ui.hud_menu.cursor];
+        const UiMenuItem& item = ctx.ui->hud_menu.items[ctx.ui->hud_menu.cursor];
         if(item.req != UiReqType::None)
         {
             UiReq req{item.req, 0, 0};
-            UiReq_Push(*ctx.app, req);
-            ctx.app->ui.ui_dirty = true;
+            UiReq_Push(*ctx.ui, *ctx.worker, req);
+            ctx.ui->ui_dirty = true;
             return true;
         }
-        if(item.screen != UiScreenId::COUNT && UiNav_Push(ctx.app->ui.ui_nav, item.screen))
-            ctx.app->ui.ui_dirty = true;
+        if(item.screen != UiScreenId::COUNT && UiNav_Push(ctx.ui->ui_nav, item.screen))
+            ctx.ui->ui_dirty = true;
         return true;
     }
 
@@ -67,37 +73,43 @@ bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void Hud_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    const AppState& app = *ctx.app;
-    EnsureHudMenu(*ctx.app);
+    const AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
+    EnsureHudMenu(*ctx.ui);
 
-    const uint32_t peak_cycles   = app.diag.audio_cycles_peak.load(std::memory_order_relaxed);
-    const uint32_t budget_cycles = app.diag.audio_budget_cycles.load(std::memory_order_relaxed);
+    const uint32_t peak_cycles   = diag.audio_cycles_peak.load(std::memory_order_relaxed);
+    const uint32_t budget_cycles = diag.audio_budget_cycles.load(std::memory_order_relaxed);
     uint32_t cpu_pct = 0;
     if(budget_cycles > 0)
         cpu_pct = (peak_cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
     if(cpu_pct > 999u)
         cpu_pct = 999u;
-    const uint32_t late_cnt = app.diag.audio_late_count.load(std::memory_order_relaxed);
+    const uint32_t late_cnt = diag.audio_late_count.load(std::memory_order_relaxed);
 
-    const uint32_t ovf_mod = app.ui.ui_in_ovf % 1000;
-    uint32_t hi = app.ui.ui_in_hi;
+    const uint32_t ovf_mod = ui.ui_in_ovf % 1000;
+    uint32_t hi = ui.ui_in_hi;
     if(hi > 99u)
         hi = 99u;
-    const char* sd_ok = app.ui.sd.sd_ok ? "OK" : "ER";
-    uint32_t wavs = app.ui.sd.wav_count;
+    const char* sd_ok = ui.sd.sd_ok ? "OK" : "ER";
+    uint32_t wavs = ui.sd.wav_count;
     if(wavs > 99u)
         wavs = 99u;
-    const uint32_t ld = app.ui.sd.load_in_progress ? app.ui.sd.load_progress : 0;
+    const uint32_t ld = ui.sd.load_in_progress ? ui.sd.load_progress : 0;
 
     OledPager& d = *ctx.display;
     d.Fill(false);
 
     const UiLayout layout = UiLayout_Default();
     char status[16];
-    BuildStatus(app, status, sizeof(status));
+    BuildStatus(shared, status, sizeof(status));
     UiDraw_Header(d, layout, "HUD", status);
 
     char buf[32];
@@ -105,8 +117,8 @@ void Hud_Render(UiScreenCtx& ctx)
     std::snprintf(buf,
                   sizeof(buf),
                   "U:%02lu C:%04lu CPU:%03lu",
-                  (unsigned long)app.ui.ui_hz,
-                  (unsigned long)app.ui.ctrl_hz,
+                  (unsigned long)ui.ui_hz,
+                  (unsigned long)ui.ctrl_hz,
                   (unsigned long)cpu_pct);
     d.WriteString(buf, Font_6x8, true);
 
@@ -124,7 +136,7 @@ void Hud_Render(UiScreenCtx& ctx)
                   (unsigned long)ld);
     d.WriteString(buf, Font_6x8, true);
 
-    UiListMenu_Render(ctx.app->ui.hud_menu,
+    UiListMenu_Render(ctx.ui->hud_menu,
                       d,
                       layout.x,
                       layout.y_body + layout.line_h * 3,

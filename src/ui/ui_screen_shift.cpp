@@ -2,7 +2,13 @@
 
 #include <cstdio>
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "oled_pager.h"
 #include "params.h"
 #include "project_actions.h"
@@ -23,26 +29,32 @@ enum ShiftMenuItem : uint8_t
 
 void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return;
     // Returning to SHIFT should cancel any SD delete mode.
-    ctx.app->ui.sd_delete_mode = false;
-    ctx.app->ui.shift_menu_edit_volume = false;
+    ctx.ui->sd_delete_mode = false;
+    ctx.ui->shift_menu_edit_volume = false;
 }
 
 bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
     if(ctx.shift)
         return false;
 
-    AppState& app = *ctx.app;
+    AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
 
     if(e.type == UiInputType::EncDelta)
     {
         // R encoder turn adjusts value when editing VOLUME.
-        if(app.ui.shift_menu_edit_volume && e.id == kUiEncExt)
+        if(ui.shift_menu_edit_volume && e.id == kUiEncExt)
         {
             if(!ctx.params)
                 return true;
@@ -73,34 +85,34 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
             t.master_level = next;
             ctx.params->PublishTargets();
-            app.ui.ui_dirty = true;
+            ui.ui_dirty = true;
             return true;
         }
 
-        if(!app.ui.shift_menu_edit_volume
+        if(!ui.shift_menu_edit_volume
            && e.id == kUiEncExt
-           && app.ui.shift_menu_cursor == ShiftProjectSlot
+           && ui.shift_menu_cursor == ShiftProjectSlot
            && e.value != 0)
         {
-            const int next = static_cast<int>(app.project.current_project_slot) + e.value;
-            app.project.current_project_slot = ProjectActions_WrapSlot(next);
-            app.ui.ui_dirty = true;
+            const int next = static_cast<int>(project.current_project_slot) + e.value;
+            project.current_project_slot = ProjectActions_WrapSlot(next);
+            ui.ui_dirty = true;
             return true;
         }
 
         // L encoder turn scrolls between settings rows when not editing.
-        if(!app.ui.shift_menu_edit_volume && e.id == kUiEncPod)
+        if(!ui.shift_menu_edit_volume && e.id == kUiEncPod)
         {
-            uint8_t cur = app.ui.shift_menu_cursor;
+            uint8_t cur = ui.shift_menu_cursor;
             if(e.value > 0)
                 cur = (cur + 1u < ShiftCount) ? static_cast<uint8_t>(cur + 1u) : cur;
             else if(e.value < 0)
                 cur = (cur > 0u) ? static_cast<uint8_t>(cur - 1u) : cur;
 
-            if(cur != app.ui.shift_menu_cursor)
+            if(cur != ui.shift_menu_cursor)
             {
-                app.ui.shift_menu_cursor = cur;
-                app.ui.ui_dirty = true;
+                ui.shift_menu_cursor = cur;
+                ui.ui_dirty = true;
             }
             return true;
         }
@@ -108,49 +120,53 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // EXT encoder click = select.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(app.ui.shift_menu_cursor == ShiftDelete)
+        if(ui.shift_menu_cursor == ShiftDelete)
         {
             // DELETE: enter SD browser in delete mode.
-            app.ui.sd_delete_mode = true;
-            app.ui.shift_menu_edit_volume = false;
-            SdBrowser_SetStatus(app.ui.sd, "DEL:SELECT");
-            UiNav_Push(app.ui.ui_nav, UiScreenId::SdBrowse);
-            app.ui.ui_dirty = true;
+            ui.sd_delete_mode = true;
+            ui.shift_menu_edit_volume = false;
+            SdBrowser_SetStatus(ui.sd, "DEL:SELECT");
+            UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse);
+            ui.ui_dirty = true;
             return true;
         }
-        if(app.ui.shift_menu_cursor == ShiftVolume)
+        if(ui.shift_menu_cursor == ShiftVolume)
         {
-            if(app.ui.shift_menu_edit_volume && ctx.params)
+            if(ui.shift_menu_edit_volume && ctx.params)
             {
                 auto& t = ctx.params->EditTargets();
                 t.master_level = 1.0f; // UNITY
                 ctx.params->PublishTargets();
-                app.ui.ui_dirty = true;
+                ui.ui_dirty = true;
                 return true;
             }
             // VOLUME: toggle edit mode.
-            app.ui.shift_menu_edit_volume = !app.ui.shift_menu_edit_volume;
-            app.ui.ui_dirty = true;
+            ui.shift_menu_edit_volume = !ui.shift_menu_edit_volume;
+            ui.ui_dirty = true;
             return true;
         }
-        if(app.ui.shift_menu_cursor == ShiftSaveProject)
-            return ProjectActions_TriggerRequest(app,
+        if(ui.shift_menu_cursor == ShiftSaveProject)
+            return ProjectActions_TriggerRequest(ui,
+                                                 project,
+                                                 worker,
                                                  UiReqType::SaveProject,
-                                                 app.project.current_project_slot);
-        if(app.ui.shift_menu_cursor == ShiftLoadProject)
-            return ProjectActions_TriggerRequest(app,
+                                                 project.current_project_slot);
+        if(ui.shift_menu_cursor == ShiftLoadProject)
+            return ProjectActions_TriggerRequest(ui,
+                                                 project,
+                                                 worker,
                                                  UiReqType::LoadProject,
-                                                 app.project.current_project_slot);
+                                                 project.current_project_slot);
         return true;
     }
 
     // L encoder click backs out one level when editing volume.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
-        if(app.ui.shift_menu_edit_volume)
+        if(ui.shift_menu_edit_volume)
         {
-            app.ui.shift_menu_edit_volume = false;
-            app.ui.ui_dirty = true;
+            ui.shift_menu_edit_volume = false;
+            ui.ui_dirty = true;
             return true; // consume so router doesn't pop screen
         }
     }
@@ -158,10 +174,10 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // POD2 also cancels volume edit (optional)
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(app.ui.shift_menu_edit_volume)
+        if(ui.shift_menu_edit_volume)
         {
-            app.ui.shift_menu_edit_volume = false;
-            app.ui.ui_dirty = true;
+            ui.shift_menu_edit_volume = false;
+            ui.ui_dirty = true;
             return true;
         }
     }
@@ -171,17 +187,23 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void ShiftMenu_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    AppState& app = *ctx.app;
+    AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;
     d.Fill(false);
 
     const UiLayout layout = UiLayout_Default();
     const int screen_w = (int)d.Width();
     char status[16];
-    BuildStatus(app, status, sizeof(status));
+    BuildStatus(shared, status, sizeof(status));
     UiDraw_Header(d, layout, "SETTINGS", status);
 
     // Compute volume percent for display (0..200 with boost).
@@ -205,7 +227,7 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
 
     for(int i = 0; i < ShiftCount; ++i)
     {
-        const bool sel = (app.ui.shift_menu_cursor == (uint8_t)i);
+        const bool sel = (ui.shift_menu_cursor == (uint8_t)i);
         const int y = row_y0 + i * row_h;
         const int x0 = layout.x;
         const int y1 = y + row_h - 1;
@@ -222,7 +244,7 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else if(i == ShiftVolume)
         {
-            const char* label = app.ui.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
+            const char* label = ui.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
             d.WriteString(label, Font_6x8, !sel);
 
             // Right-aligned value.
@@ -256,7 +278,7 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
             std::snprintf(buf,
                           sizeof(buf),
                           "%02u",
-                          static_cast<unsigned>(app.project.current_project_slot + 1u));
+                          static_cast<unsigned>(project.current_project_slot + 1u));
             d.SetCursor(screen_w - 12 - 1, y + 1);
             d.WriteString(buf, Font_6x8, true);
         }
@@ -270,8 +292,8 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         }
     }
 
-    const char* hint = app.ui.shift_menu_edit_volume ? "L:NAV R:CHG P2:BACK"
-                        : (app.ui.shift_menu_cursor == ShiftProjectSlot) ? "L:NAV R:CHG/CLK"
+    const char* hint = ui.shift_menu_edit_volume ? "L:NAV R:CHG P2:BACK"
+                        : (ui.shift_menu_cursor == ShiftProjectSlot) ? "L:NAV R:CHG/CLK"
                         : "L:NAV R:SEL";
     UiDraw_Footer(d, layout, hint);
 }

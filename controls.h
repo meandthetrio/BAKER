@@ -3,8 +3,9 @@
 #include <cstdint>
 
 #include "daisy_pod.h"
-#include "app_state.h"
 #include "ui_input.h"
+
+struct AppUiState;
 
 struct ControlsState
 {
@@ -15,4 +16,4 @@ struct ControlsState
 };
 
 void Controls_Init(ControlsState& cs);
-void Controls_Tick(ControlsState& cs, AppState& app, uint32_t now_ms);
+void Controls_Tick(ControlsState& cs, AppUiState& ui, uint32_t now_ms);

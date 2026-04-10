@@ -1,6 +1,12 @@
 #include "ui_screens_internal.h"
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "oled_pager.h"
 #include "ui_input.h"
 #include "ui_layout.h"
@@ -215,16 +221,16 @@ static void DrawMainMenuFriendStyle(OledPager& d, int selected)
 
 bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
     if(ctx.shift)
         return false;
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const int32_t next = NextMenuIndex(static_cast<int32_t>(ctx.app->ui.main_menu_index), e.value);
-        ctx.app->ui.main_menu_index = static_cast<uint8_t>(next);
-        ctx.app->ui.ui_dirty = true;
+        const int32_t next = NextMenuIndex(static_cast<int32_t>(ctx.ui->main_menu_index), e.value);
+        ctx.ui->main_menu_index = static_cast<uint8_t>(next);
+        ctx.ui->ui_dirty = true;
         return true;
     }
 
@@ -233,28 +239,28 @@ bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 bool MainMenu_OnEnter(UiScreenCtx& ctx)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
 
-    const uint8_t selected = static_cast<uint8_t>(ctx.app->ui.main_menu_index % kMainMenuCount);
+    const uint8_t selected = static_cast<uint8_t>(ctx.ui->main_menu_index % kMainMenuCount);
     switch(selected)
     {
         case 0:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::Presets);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Presets);
         case 1:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::Record);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Record);
         case 2:
         default:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformMenu);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformMenu);
     }
 }
 
 void MainMenu_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    const int selected = static_cast<int>(ctx.app->ui.main_menu_index % kMainMenuCount);
+    const int selected = static_cast<int>(ctx.ui->main_menu_index % kMainMenuCount);
     DrawMainMenuFriendStyle(*ctx.display, selected);
 }
 
@@ -268,16 +274,22 @@ bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void Presets_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    AppState& app = *ctx.app;
+    AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;
     d.Fill(false);
 
     const UiLayout layout = UiLayout_Default();
     char status[16];
-    BuildStatus(app, status, sizeof(status));
+    BuildStatus(shared, status, sizeof(status));
     UiDraw_Header(d, layout, "PRESETS", status);
 
     // Blank body for now (future: list of saved presets).

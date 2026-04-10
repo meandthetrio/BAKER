@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+struct AppUiState;
+struct AppWorkerState;
 struct AppState;
 
 enum class UiReqType : uint8_t
@@ -40,6 +42,7 @@ struct UiReqQueue
     uint32_t overflows = 0;
 };
 
+bool UiReq_Push(AppUiState& ui, AppWorkerState& worker, const UiReq& r);
 bool UiReq_Push(AppState& app, const UiReq& r);
 bool UiReq_Pop(AppState& app, UiReq& out);
 uint32_t UiReq_Dropped(const AppState& app);

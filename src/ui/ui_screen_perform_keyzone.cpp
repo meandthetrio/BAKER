@@ -2,7 +2,13 @@
 
 #include <cstdio>
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "oled_pager.h"
 #include "ui_input.h"
 
@@ -38,8 +44,12 @@ static int KeyzonePageFromNote(uint8_t note)
     return ClampInt(octave, 0, 8);
 }
 
-static void DrawKeyzoneUiRangeTemplate(
-    OledPager& d, AppState& app, uint8_t layer, bool highlight_both, int x0, int y0)
+static void DrawKeyzoneUiRangeTemplate(OledPager& d,
+                                       AppEngineState& engine,
+                                       uint8_t layer,
+                                       bool highlight_both,
+                                       int x0,
+                                       int y0)
 {
     constexpr int kAreaW = 128;
     constexpr int kVisibleOctaves = 3;
@@ -83,11 +93,11 @@ static void DrawKeyzoneUiRangeTemplate(
         }
     }
 
-    const uint8_t lo_note = app.engine.perform_keyzone_lo_note[layer & 1u];
-    const uint8_t hi_note = app.engine.perform_keyzone_hi_note[layer & 1u];
-    const uint8_t focused_marker = app.engine.perform_keyzone_marker_focus & 1u; // 0=LO, 1=HI
+    const uint8_t lo_note = engine.perform_keyzone_lo_note[layer & 1u];
+    const uint8_t hi_note = engine.perform_keyzone_hi_note[layer & 1u];
+    const uint8_t focused_marker = engine.perform_keyzone_marker_focus & 1u; // 0=LO, 1=HI
     const uint8_t focus_note = (focused_marker == 0u) ? lo_note : hi_note;
-    int window_octave = static_cast<int>(app.engine.perform_keyzone_window_octave[layer & 1u]);
+    int window_octave = static_cast<int>(engine.perform_keyzone_window_octave[layer & 1u]);
     window_octave = ClampInt(window_octave, 0, kPageCount - kVisibleOctaves);
     int page_start = 12 * (window_octave + 1); // Cn MIDI note
     int page_end = page_start + (12 * kVisibleOctaves) - 1;
@@ -106,7 +116,7 @@ static void DrawKeyzoneUiRangeTemplate(
         page_start = 12 * (window_octave + 1);
         page_end = page_start + (12 * kVisibleOctaves) - 1;
     }
-    app.engine.perform_keyzone_window_octave[layer & 1u] = static_cast<uint8_t>(window_octave);
+    engine.perform_keyzone_window_octave[layer & 1u] = static_cast<uint8_t>(window_octave);
     auto white_idx_from_semitone_in_oct = [](int semi_in_oct) -> int
     {
         switch(semi_in_oct)
@@ -243,99 +253,105 @@ static void DrawKeyzoneUiRangeTemplate(
 
 bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
     if(ctx.lshift)
         return false;
 
-    AppState& app = *ctx.app;
+    AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
 
     // POD2 toggles layer and keeps focus on the BACK (start) marker.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        app.engine.perform_layer ^= 1u;
-        const uint8_t layer = app.engine.perform_layer & 1u;
-        app.engine.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u);
-        app.shared.sd_current_slot.store(layer, std::memory_order_release);
-        app.engine.engine_header_invert_until_ms = e.t_ms + 250u;
+        engine.perform_layer ^= 1u;
+        const uint8_t layer = engine.perform_layer & 1u;
+        engine.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u);
+        shared.sample.sd_current_slot.store(layer, std::memory_order_release);
+        engine.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
-        app.ui.ui_dirty = true;
+        ui.ui_dirty = true;
         return true;
     }
 
     if(ctx.rshift && e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        const bool full_a = app.engine.perform_keyzone_lo_note[0] == kPerformKeyzoneMinNote
-                            && app.engine.perform_keyzone_hi_note[0] == kPerformKeyzoneMaxNote;
-        const bool full_b = app.engine.perform_keyzone_lo_note[1] == kPerformKeyzoneMinNote
-                            && app.engine.perform_keyzone_hi_note[1] == kPerformKeyzoneMaxNote;
+        const bool full_a = engine.perform_keyzone_lo_note[0] == kPerformKeyzoneMinNote
+                            && engine.perform_keyzone_hi_note[0] == kPerformKeyzoneMaxNote;
+        const bool full_b = engine.perform_keyzone_lo_note[1] == kPerformKeyzoneMinNote
+                            && engine.perform_keyzone_hi_note[1] == kPerformKeyzoneMaxNote;
         if(full_a && full_b)
         {
-            app.engine.perform_keyzone_lo_note[0] = kPerformKeyzoneMinNote;
-            app.engine.perform_keyzone_hi_note[0] = kPerformKeyzoneDefaultSplitAHi;
-            app.engine.perform_keyzone_lo_note[1] = kPerformKeyzoneDefaultSplitBLo;
-            app.engine.perform_keyzone_hi_note[1] = kPerformKeyzoneMaxNote;
+            engine.perform_keyzone_lo_note[0] = kPerformKeyzoneMinNote;
+            engine.perform_keyzone_hi_note[0] = kPerformKeyzoneDefaultSplitAHi;
+            engine.perform_keyzone_lo_note[1] = kPerformKeyzoneDefaultSplitBLo;
+            engine.perform_keyzone_hi_note[1] = kPerformKeyzoneMaxNote;
         }
         else
         {
             for(uint8_t i = 0; i < kPerformLayerCount; ++i)
             {
-                app.engine.perform_keyzone_lo_note[i] = kPerformKeyzoneMinNote;
-                app.engine.perform_keyzone_hi_note[i] = kPerformKeyzoneMaxNote;
+                engine.perform_keyzone_lo_note[i] = kPerformKeyzoneMinNote;
+                engine.perform_keyzone_hi_note[i] = kPerformKeyzoneMaxNote;
             }
         }
         PublishEngineLayerParams(ctx);
-        app.ui.ui_dirty = true;
+        ui.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::EncDelta && e.value != 0)
     {
-        const uint8_t layer = app.engine.perform_layer & 1u;
+        const uint8_t layer = engine.perform_layer & 1u;
         if(ctx.rshift)
         {
             if(e.id != kUiEncPod && e.id != kUiEncExt)
                 return false;
             const int dir = (e.value < 0) ? -1 : 1;
-            const int lo = static_cast<int>(app.engine.perform_keyzone_lo_note[layer]);
-            const int hi = static_cast<int>(app.engine.perform_keyzone_hi_note[layer]);
+            const int lo = static_cast<int>(engine.perform_keyzone_lo_note[layer]);
+            const int hi = static_cast<int>(engine.perform_keyzone_hi_note[layer]);
             const int delta_min = static_cast<int>(kPerformKeyzoneMinNote) - lo;
             const int delta_max = static_cast<int>(kPerformKeyzoneMaxNote) - hi;
             const int applied = ClampInt(dir, delta_min, delta_max);
             if(applied == 0)
                 return false;
-            app.engine.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(lo + applied);
-            app.engine.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(hi + applied);
+            engine.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(lo + applied);
+            engine.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(hi + applied);
             PublishEngineLayerParams(ctx);
-            app.ui.ui_dirty = true;
+            ui.ui_dirty = true;
             return true;
         }
 
         if(e.id == kUiEncPod)
         {
-            const int next_lo = ClampInt(static_cast<int>(app.engine.perform_keyzone_lo_note[layer]) + e.value,
+            const int next_lo = ClampInt(static_cast<int>(engine.perform_keyzone_lo_note[layer]) + e.value,
                                          static_cast<int>(kPerformKeyzoneMinNote),
-                                         static_cast<int>(app.engine.perform_keyzone_hi_note[layer]));
-            if(next_lo == static_cast<int>(app.engine.perform_keyzone_lo_note[layer]))
+                                         static_cast<int>(engine.perform_keyzone_hi_note[layer]));
+            if(next_lo == static_cast<int>(engine.perform_keyzone_lo_note[layer]))
                 return false;
-            app.engine.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(next_lo);
-            app.engine.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u); // back marker
-            app.ui.ui_dirty = true;
+            engine.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(next_lo);
+            engine.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u); // back marker
+            ui.ui_dirty = true;
             PublishEngineLayerParams(ctx);
             return true;
         }
 
         if(e.id == kUiEncExt)
         {
-            const int next_hi = ClampInt(static_cast<int>(app.engine.perform_keyzone_hi_note[layer]) + e.value,
-                                         static_cast<int>(app.engine.perform_keyzone_lo_note[layer]),
+            const int next_hi = ClampInt(static_cast<int>(engine.perform_keyzone_hi_note[layer]) + e.value,
+                                         static_cast<int>(engine.perform_keyzone_lo_note[layer]),
                                          static_cast<int>(kPerformKeyzoneMaxNote));
-            if(next_hi == static_cast<int>(app.engine.perform_keyzone_hi_note[layer]))
+            if(next_hi == static_cast<int>(engine.perform_keyzone_hi_note[layer]))
                 return false;
-            app.engine.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(next_hi);
-            app.engine.perform_keyzone_marker_focus = static_cast<uint8_t>((layer * 2u) + 1u); // forward marker
+            engine.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(next_hi);
+            engine.perform_keyzone_marker_focus = static_cast<uint8_t>((layer * 2u) + 1u); // forward marker
             PublishEngineLayerParams(ctx);
-            app.ui.ui_dirty = true;
+            ui.ui_dirty = true;
             return true;
         }
     }
@@ -345,16 +361,22 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void PerformKeyzone_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    AppState& app = *ctx.app;
-    EngineRefreshLoadedMetadata(app);
+    AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
+    EngineRefreshLoadedMetadata(ui, engine, shared);
 
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const uint8_t layer = app.engine.perform_layer & 1u;
+    const uint8_t layer = engine.perform_layer & 1u;
 
     char header_label[16] = {};
     std::snprintf(header_label, sizeof(header_label), "kyzn %c", layer == 0 ? 'a' : 'b');
@@ -365,7 +387,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     if(box_x < 0)
         box_x = 0;
     const bool header_invert_flash
-        = static_cast<int32_t>(app.engine.engine_header_invert_until_ms - ctx.now_ms) > 0;
+        = static_cast<int32_t>(engine.engine_header_invert_until_ms - ctx.now_ms) > 0;
     if(header_invert_flash)
     {
         d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, false, true);
@@ -383,8 +405,8 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     char hi_note[8] = {};
     char lo_text[16] = {};
     char hi_text[16] = {};
-    FormatMidiNoteName(app.engine.perform_keyzone_lo_note[layer], lo_note, sizeof(lo_note));
-    FormatMidiNoteName(app.engine.perform_keyzone_hi_note[layer], hi_note, sizeof(hi_note));
+    FormatMidiNoteName(engine.perform_keyzone_lo_note[layer], lo_note, sizeof(lo_note));
+    FormatMidiNoteName(engine.perform_keyzone_hi_note[layer], hi_note, sizeof(hi_note));
     std::snprintf(lo_text, sizeof(lo_text), "Lo:%s", lo_note);
     std::snprintf(hi_text, sizeof(hi_text), "Hi:%s", hi_note);
 
@@ -440,5 +462,5 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
         draw_animated_dotted_box(hi_box_x0, box_top, hi_box_x1, box_bottom);
     }
 
-    DrawKeyzoneUiRangeTemplate(d, app, layer, ctx.rshift, 0, kSectionH);
+    DrawKeyzoneUiRangeTemplate(d, engine, layer, ctx.rshift, 0, kSectionH);
 }

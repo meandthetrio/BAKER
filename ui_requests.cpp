@@ -1,34 +1,41 @@
 #include "ui_requests.h"
 
+#include "app_state_ui.h"
+#include "app_state_worker.h"
 #include "app_state.h"
 
 static_assert((UiReqQueue::kCapacity & (UiReqQueue::kCapacity - 1)) == 0,
               "kUiReqQueueSize must be power-of-two");
 
-bool UiReq_Push(AppState& app, const UiReq& r)
+bool UiReq_Push(AppUiState& ui, AppWorkerState& worker, const UiReq& r)
 {
     if(r.type == UiReqType::LoadWavIndex)
     {
-        app.ui.sd.load_pending = true;
-        app.ui.sd.load_pending_index = r.a;
-        app.worker.ui_req_push++;
+        ui.sd.load_pending = true;
+        ui.sd.load_pending_index = r.a;
+        worker.ui_req_push++;
         return true;
     }
 
-    UiReqQueue& q = app.worker.ui_req_q;
+    UiReqQueue& q = worker.ui_req_q;
     const uint32_t head = q.head;
     const uint32_t tail = q.tail;
     if((head - tail) >= UiReqQueue::kCapacity)
     {
         q.overflows++;
-        app.worker.ui_req_ovf = q.overflows;
+        worker.ui_req_ovf = q.overflows;
         return false;
     }
 
     q.buffer[head & (UiReqQueue::kCapacity - 1)] = r;
     q.head = head + 1;
-    app.worker.ui_req_push++;
+    worker.ui_req_push++;
     return true;
+}
+
+bool UiReq_Push(AppState& app, const UiReq& r)
+{
+    return UiReq_Push(app.ui, app.worker, r);
 }
 
 bool UiReq_Pop(AppState& app, UiReq& out)

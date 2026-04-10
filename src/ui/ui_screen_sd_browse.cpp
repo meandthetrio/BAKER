@@ -1,6 +1,12 @@
 #include "ui_screens_internal.h"
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "ui_input.h"
 #include "ui_list_menu.h"
 #include "ui_value_edit.h"
@@ -16,10 +22,10 @@
 using namespace daisy;
 void SdBrowse_OnEnter(UiScreenCtx& ctx)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return;
 
-    SdBrowserState& sd = ctx.app->ui.sd;
+    SdBrowserState& sd = ctx.ui->sd;
     const UiLayout layout = UiLayout_Default();
     const uint8_t rows = (layout.rows_body > 1) ? static_cast<uint8_t>(layout.rows_body - 1) : 1;
     if(!sd.menu_inited || sd.menu_rows != rows)
@@ -31,19 +37,19 @@ void SdBrowse_OnEnter(UiScreenCtx& ctx)
     if(!sd.scan_in_progress && !sd.scan_done)
     {
         UiReq req{UiReqType::ScanSdWavs, 0, 0};
-        UiReq_Push(*ctx.app, req);
+        UiReq_Push(*ctx.ui, *ctx.worker, req);
         sd.scan_in_progress = true;
         SdBrowser_SetStatus(sd, "SCANNING");
-        ctx.app->ui.ui_dirty = true;
+        ctx.ui->ui_dirty = true;
     }
 }
 
 bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
 
-    SdBrowserState& sd = ctx.app->ui.sd;
+    SdBrowserState& sd = ctx.ui->sd;
     if(ctx.shift)
         return false;
 
@@ -51,7 +57,7 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(UiListMenu_OnEnc(sd.menu, e.value))
         {
-            ctx.app->ui.ui_dirty = true;
+            ctx.ui->ui_dirty = true;
             return true;
         }
         return false;
@@ -63,39 +69,39 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             const uint16_t idx = sd.menu.cursor;
 
-            if(ctx.app->ui.sd_delete_mode)
+            if(ctx.ui->sd_delete_mode)
             {
-                ctx.app->ui.sd_delete_index = idx;
+                ctx.ui->sd_delete_index = idx;
                 ExtractBaseName(sd.paths[idx],
-                                ctx.app->ui.sd_delete_name,
-                                sizeof(ctx.app->ui.sd_delete_name));
-                UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::SdDeleteConfirm);
-                ctx.app->ui.ui_dirty = true;
+                                ctx.ui->sd_delete_name,
+                                sizeof(ctx.ui->sd_delete_name));
+                UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdDeleteConfirm);
+                ctx.ui->ui_dirty = true;
                 return true;
             }
 
             const uint8_t layer_count = static_cast<uint8_t>(
-                sizeof(ctx.app->engine.engine_sample_path) / sizeof(ctx.app->engine.engine_sample_path[0]));
-            if(ctx.app->engine.engine_load_target_layer < layer_count)
+                sizeof(ctx.engine->engine_sample_path) / sizeof(ctx.engine->engine_sample_path[0]));
+            if(ctx.engine->engine_load_target_layer < layer_count)
             {
-                const uint8_t target = ctx.app->engine.engine_load_target_layer & 1u;
-                ctx.app->shared.sd_current_slot.store(target ^ 1u, std::memory_order_release);
-                std::snprintf(ctx.app->engine.engine_sample_path[target],
-                              sizeof(ctx.app->engine.engine_sample_path[target]),
+                const uint8_t target = ctx.engine->engine_load_target_layer & 1u;
+                ctx.shared->sd_current_slot.store(target ^ 1u, std::memory_order_release);
+                std::snprintf(ctx.engine->engine_sample_path[target],
+                              sizeof(ctx.engine->engine_sample_path[target]),
                               "%s",
                               sd.paths[idx]);
                 ExtractBaseName(sd.paths[idx],
-                                ctx.app->engine.engine_sample_name[target],
-                                sizeof(ctx.app->engine.engine_sample_name[target]));
+                                ctx.engine->engine_sample_name[target],
+                                sizeof(ctx.engine->engine_sample_name[target]));
             }
             UiReq req{UiReqType::LoadWavIndex, idx, 0};
-            UiReq_Push(*ctx.app, req);
+            UiReq_Push(*ctx.ui, *ctx.worker, req);
             sd.load_in_progress = true;
             sd.load_progress = 0;
             SdBrowser_SetStatus(sd, "LOADING");
-            if(ctx.app->engine.engine_load_from_perform)
-                UiNav_Pop(ctx.app->ui.ui_nav);
-            ctx.app->ui.ui_dirty = true;
+            if(ctx.engine->engine_load_from_perform)
+                UiNav_Pop(ctx.ui->ui_nav);
+            ctx.ui->ui_dirty = true;
         }
         return true;
     }
@@ -105,10 +111,10 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void SdBrowse_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    SdBrowserState& sd = ctx.app->ui.sd;
+    SdBrowserState& sd = ctx.ui->sd;
     const UiLayout layout = UiLayout_Default();
     bool show_issue = false;
     char issue_buf[24];

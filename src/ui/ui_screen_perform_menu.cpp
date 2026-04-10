@@ -1,6 +1,12 @@
 #include "ui_screens_internal.h"
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "oled_pager.h"
 #include "ui_input.h"
 
@@ -292,16 +298,16 @@ static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
 
 bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
     if(ctx.shift)
         return false;
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const int32_t next = NextPerformMenuIndex(static_cast<int32_t>(ctx.app->engine.perform_menu_index), e.value);
-        ctx.app->engine.perform_menu_index = static_cast<uint8_t>(next);
-        ctx.app->ui.ui_dirty = true;
+        const int32_t next = NextPerformMenuIndex(static_cast<int32_t>(ctx.engine->perform_menu_index), e.value);
+        ctx.engine->perform_menu_index = static_cast<uint8_t>(next);
+        ctx.ui->ui_dirty = true;
         return true;
     }
 
@@ -310,31 +316,31 @@ bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 bool PerformMenu_OnEnter(UiScreenCtx& ctx)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
 
-    const uint8_t selected = static_cast<uint8_t>(ctx.app->engine.perform_menu_index % kPerformMenuCount);
+    const uint8_t selected = static_cast<uint8_t>(ctx.engine->perform_menu_index % kPerformMenuCount);
     switch(selected)
     {
         case 0:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformEngine);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformEngine);
         case 1:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformKeyzone);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformKeyzone);
         case 2:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformAdsr);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformAdsr);
         case 3:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformEmphasis);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformEmphasis);
         case 4:
         default:
-            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformProcess);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformProcess);
     }
 }
 
 void PerformMenu_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    const int selected = static_cast<int>(ctx.app->engine.perform_menu_index % kPerformMenuCount);
+    const int selected = static_cast<int>(ctx.engine->perform_menu_index % kPerformMenuCount);
     DrawPerformMenuFriendStyle(*ctx.display, selected);
 }

@@ -1,5 +1,5 @@
 #pragma once
 
-struct AppState;
+struct AppRecordingState;
 
-void Record_StopPreview(AppState& app);
+void Record_StopPreview(AppRecordingState& recording);

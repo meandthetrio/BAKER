@@ -1,4 +1,5 @@
 #include "controls.h"
+#include "app_state_ui.h"
 #include <cstdint>
 #include <limits>
 
@@ -24,15 +25,15 @@ static UiInputEvent MakeEncEvent(uint8_t id, int16_t delta, uint32_t now_ms)
     return e;
 }
 
-static void PushEvent(AppState& app, const UiInputEvent& e)
+static void PushEvent(AppUiState& ui, const UiInputEvent& e)
 {
-    if(UiInput_Push(app.ui.ui_in, e))
+    if(UiInput_Push(ui.ui_in, e))
     {
-        app.ui.ui_in_push++;
+        ui.ui_in_push++;
     }
     else
     {
-        app.ui.ui_in_ovf = UiInput_Dropped(app.ui.ui_in);
+        ui.ui_in_ovf = UiInput_Dropped(ui.ui_in);
     }
 }
 
@@ -62,7 +63,7 @@ void Controls_Init(ControlsState& cs)
                        Switch::Pull::PULL_UP);
 }
 
-void Controls_Tick(ControlsState& cs, AppState& app, uint32_t now_ms)
+void Controls_Tick(ControlsState& cs, AppUiState& ui, uint32_t now_ms)
 {
     if(!cs.hw)
         return;
@@ -78,31 +79,31 @@ void Controls_Tick(ControlsState& cs, AppState& app, uint32_t now_ms)
     const bool b2_fall = cs.hw->button2.FallingEdge();
 
     if(b1_rise)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnDown, kUiBtnPod1, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnPod1, now_ms));
     if(b1_fall)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnUp, kUiBtnPod1, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnUp, kUiBtnPod1, now_ms));
     if(b2_rise)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnDown, kUiBtnPod2, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnPod2, now_ms));
     if(b2_fall)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnUp, kUiBtnPod2, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnUp, kUiBtnPod2, now_ms));
 
     const bool rshift_rise = cs.rshift_btn.RisingEdge();
     const bool rshift_fall = cs.rshift_btn.FallingEdge();
     if(rshift_rise)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnDown, kUiBtnRShift, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnRShift, now_ms));
     if(rshift_fall)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnUp, kUiBtnRShift, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnUp, kUiBtnRShift, now_ms));
 
     const bool lshift_rise = cs.lshift_btn.RisingEdge();
     const bool lshift_fall = cs.lshift_btn.FallingEdge();
     if(lshift_rise)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnDown, kUiBtnLShift, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnLShift, now_ms));
     if(lshift_fall)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnUp, kUiBtnLShift, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnUp, kUiBtnLShift, now_ms));
 
     const bool enc_click = cs.hw->encoder.RisingEdge();
     if(enc_click)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnDown, kUiBtnPodEnc, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnPodEnc, now_ms));
 
     const int32_t pod_inc = cs.hw->encoder.Increment();
     if(pod_inc != 0)
@@ -112,12 +113,12 @@ void Controls_Tick(ControlsState& cs, AppState& app, uint32_t now_ms)
         const int16_t delta = (pod_inc > max_i16) ? static_cast<int16_t>(max_i16)
                            : (pod_inc < min_i16) ? static_cast<int16_t>(min_i16)
                                                  : static_cast<int16_t>(pod_inc);
-        PushEvent(app, MakeEncEvent(kUiEncPod, delta, now_ms));
+        PushEvent(ui, MakeEncEvent(kUiEncPod, delta, now_ms));
     }
 
     const bool ext_click = cs.ext_enc.RisingEdge();
     if(ext_click)
-        PushEvent(app, MakeButtonEvent(UiInputType::BtnDown, kUiBtnExtEnc, now_ms));
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnExtEnc, now_ms));
 
     const int32_t ext_inc = cs.ext_enc.Increment();
     if(ext_inc != 0)
@@ -127,8 +128,8 @@ void Controls_Tick(ControlsState& cs, AppState& app, uint32_t now_ms)
         const int16_t delta = (ext_inc > max_i16) ? static_cast<int16_t>(max_i16)
                            : (ext_inc < min_i16) ? static_cast<int16_t>(min_i16)
                                                  : static_cast<int16_t>(ext_inc);
-        PushEvent(app, MakeEncEvent(kUiEncExt, delta, now_ms));
+        PushEvent(ui, MakeEncEvent(kUiEncExt, delta, now_ms));
     }
 
-    app.ui.ui_in_ovf = UiInput_Dropped(app.ui.ui_in);
+    ui.ui_in_ovf = UiInput_Dropped(ui.ui_in);
 }

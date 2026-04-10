@@ -1,6 +1,12 @@
 #include "ui_screens_internal.h"
 
-#include "app_state.h"
+#include "app_state_ui.h"
+#include "app_state_engine.h"
+#include "app_state_recording.h"
+#include "app_state_project.h"
+#include "app_state_diagnostics.h"
+#include "app_state_shared.h"
+#include "app_state_worker.h"
 #include "ui_input.h"
 #include "ui_layout.h"
 #include "oled_pager.h"
@@ -20,12 +26,12 @@ static const char* ProjectActionLabel(ProjectAction action)
     }
 }
 
-static void ProjectStatusDisplayText(const AppState& app, char* out, size_t n)
+static void ProjectStatusDisplayText(const AppProjectState& project, char* out, size_t n)
 {
     if(!out || n == 0)
         return;
 
-    const char* msg = app.project.project_status;
+    const char* msg = project.project_status;
     if(msg[0] == '\0')
     {
         std::snprintf(out, n, "%s", "WAITING");
@@ -42,13 +48,13 @@ static void ProjectStatusDisplayText(const AppState& app, char* out, size_t n)
 
 bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.app)
+    if(!ctx.ui)
         return false;
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(UiNav_Pop(ctx.app->ui.ui_nav))
-            ctx.app->ui.ui_dirty = true;
+        if(UiNav_Pop(ctx.ui->ui_nav))
+            ctx.ui->ui_dirty = true;
         return true;
     }
 
@@ -57,16 +63,22 @@ bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void ProjectStatus_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.app || !ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
 
-    const AppState& app = *ctx.app;
+    const AppUiState& ui = *ctx.ui;
+    AppEngineState& engine = *ctx.engine;
+    AppRecordingState& recording = *ctx.recording;
+    AppProjectState& project = *ctx.project;
+    AppDiagnosticsState& diag = *ctx.diag;
+    AppSharedState& shared = *ctx.shared;
+    AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;
     d.Fill(false);
 
     const UiLayout layout = UiLayout_Default();
     char status_text[12];
-    ProjectStatusDisplayText(app, status_text, sizeof(status_text));
+    ProjectStatusDisplayText(project, status_text, sizeof(status_text));
     UiDraw_Header(d, layout, "PROJECT", status_text);
 
     char buf[24];
@@ -74,11 +86,11 @@ void ProjectStatus_Render(UiScreenCtx& ctx)
     std::snprintf(buf,
                   sizeof(buf),
                   "PROJECT SLOT %02u",
-                  static_cast<unsigned>(app.project.project_action_slot + 1u));
+                  static_cast<unsigned>(project.project_action_slot + 1u));
     d.WriteString(buf, Font_6x8, true);
 
     d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    std::snprintf(buf, sizeof(buf), "ACTION: %s", ProjectActionLabel(app.project.project_action));
+    std::snprintf(buf, sizeof(buf), "ACTION: %s", ProjectActionLabel(project.project_action));
     d.WriteString(buf, Font_6x8, true);
 
     d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);

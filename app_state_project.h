@@ -2,9 +2,6 @@
 
 #include <cstdint>
 
-#include "sample_edit.h"
-#include "storage_limits.h"
-
 enum class ProjectAction : uint8_t
 {
     None = 0,
@@ -21,6 +18,4 @@ struct AppProjectState
     ProjectAction project_action = ProjectAction::None;
     uint8_t project_action_slot = 0;
     char project_status[16] = {};
-    uint8_t project_edit_pending_mask = 0;
-    SampleEdit project_pending_edit[kSdSampleSlots]{};
 };

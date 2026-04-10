@@ -1,6 +1,7 @@
 #include "ui_layout.h"
 
 #include "oled_pager.h"
+#include "app_state_shared.h"
 #include "app_state.h"
 
 #include <cstdio>
@@ -40,9 +41,8 @@ void UiDraw_Footer(OledPager& oled, const UiLayout& l, const char* hint)
     oled.WriteString(hint, Font_6x8, true);
 }
 
-void BuildStatus(const AppState& app, char* out, size_t n)
+void BuildStatus(const AppSharedState& shared, char* out, size_t n)
 {
-    (void)app;
     if(!out || n == 0)
         return;
     if(!kShowGlobalStatus)
@@ -50,8 +50,13 @@ void BuildStatus(const AppState& app, char* out, size_t n)
         out[0] = '\0';
         return;
     }
-    const char seq = app.shared.seq_running ? '1' : '0';
-    const char plk = app.shared.plock_apply_enabled ? '1' : '0';
-    const char* lfo = WaveChar(app.shared.lfo_wave.load(std::memory_order_relaxed));
+    const char seq = shared.performance.seq_running ? '1' : '0';
+    const char plk = shared.performance.plock_apply_enabled ? '1' : '0';
+    const char* lfo = WaveChar(shared.performance.lfo_wave.load(std::memory_order_relaxed));
     std::snprintf(out, n, "S%c P%c L:%s", seq, plk, lfo);
+}
+
+void BuildStatus(const AppState& app, char* out, size_t n)
+{
+    BuildStatus(app.shared, out, n);
 }

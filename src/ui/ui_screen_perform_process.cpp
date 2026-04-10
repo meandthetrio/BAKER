@@ -97,6 +97,419 @@ static float ProcessLevelToKnobNorm(float level)
     return 0.5f + (db / max_db) * 0.5f;
 }
 
+struct ProcessLayerVolumeUiState
+{
+    char  value_text[2][12];
+    float angle_rad[2];
+};
+
+static int ProcessValueAdvance(char ch, char next_ch)
+{
+    if(ch == '.')
+        return 3;
+    if(next_ch == 'd')
+        return 6;
+    if(ch == 'd' && next_ch == 'b')
+        return 6;
+    if(next_ch == '.')
+        return 5;
+    return 5;
+}
+
+static int ProcessValueWidth(const char* s)
+{
+    if(s == nullptr || s[0] == '\0')
+        return 0;
+
+    int width = 0;
+    for(int i = 0; s[i] != '\0'; ++i)
+        width += ProcessValueAdvance(s[i], s[i + 1]);
+    return width;
+}
+
+static void DrawProcessValueText(OledPager& d, const char* s, int x, int y)
+{
+    if(s == nullptr)
+        return;
+
+    int pen_x = x;
+    for(int i = 0; s[i] != '\0'; ++i)
+    {
+        char ch = s[i];
+        if(ch >= 'A' && ch <= 'Z')
+            ch = static_cast<char>(ch - 'A' + 'a');
+
+        uint8_t rows[Font5x7::H] = {};
+        Font5x7::GetGlyphRows(ch, rows);
+        for(int yy = 0; yy < Font5x7::H; ++yy)
+        {
+            const uint8_t row = rows[yy];
+            for(int xx = 0; xx < Font5x7::W; ++xx)
+            {
+                if((row >> (Font5x7::W - 1 - xx)) & 1)
+                {
+                    const int px = pen_x + xx - ((ch == '.') ? 1 : 0);
+                    const int py = y + yy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                        d.DrawPixel(px, py, true);
+                }
+            }
+        }
+        pen_x += ProcessValueAdvance(ch, s[i + 1]);
+    }
+}
+
+static void DrawProcessPlusGlyph(OledPager& d, int x, int y)
+{
+    d.DrawLine(x + 2, y + 1, x + 2, y + 5, true);
+    d.DrawLine(x, y + 3, x + 4, y + 3, true);
+}
+
+static void DrawProcessLayerVolumeKnob(OledPager& d,
+                                       int cx,
+                                       int cy,
+                                       int radius,
+                                       char side_letter,
+                                       const char* value_text,
+                                       float angle_rad,
+                                       bool focused)
+{
+    DrawCirclePixels(d, cx, cy, radius, true);
+    d.DrawPixel(cx, cy, true);
+    const int hand_r = radius - 2;
+    const int hx = cx + static_cast<int>(std::cos(angle_rad) * static_cast<float>(hand_r));
+    const int hy = cy + static_cast<int>(std::sin(angle_rad) * static_cast<float>(hand_r));
+    d.DrawLine(cx, cy, hx, hy, true);
+
+    char side_text[2] = {side_letter, '\0'};
+    const int label_w = TinyStringWidth(side_text);
+    const int label_x = cx - radius - 9;
+    const int label_y = cy - (Font5x7::H / 2);
+    if(focused)
+    {
+        d.DrawRect(label_x - 3, label_y - 2, label_x + label_w + 2, label_y + Font5x7::H + 1, true, false);
+        DrawTinyString(d, side_text, label_x, label_y, true);
+    }
+    else
+    {
+        DrawTinyString(d, side_text, label_x, label_y, true);
+    }
+
+    if(value_text == nullptr || value_text[0] == '\0')
+        return;
+
+    if(value_text[0] == '+')
+    {
+        const char* rest = value_text + 1;
+        const int rest_w = ProcessValueWidth(rest);
+        const int value_w = 5 + 1 + rest_w;
+        const int value_x = cx - (value_w / 2);
+        const int value_y = cy - radius - 8;
+        DrawProcessPlusGlyph(d, value_x, value_y);
+        DrawProcessValueText(d, rest, value_x + 6, value_y);
+        return;
+    }
+
+    const int value_w = ProcessValueWidth(value_text);
+    DrawProcessValueText(d, value_text, cx - (value_w / 2), cy - radius - 8);
+}
+
+static void ProcessHandleLayerToggle(UiScreenCtx& ctx)
+{
+    AppState& app = *ctx.app;
+    app.perform_layer ^= 1u;
+    const uint8_t layer = app.perform_layer & 1u;
+    app.sd_current_slot.store(layer, std::memory_order_release);
+    PublishEngineLayerParams(ctx);
+    app.ui_dirty = true;
+}
+
+static void ProcessHandleLayerMuteToggle(UiScreenCtx& ctx, uint8_t layer)
+{
+    AppState& app = *ctx.app;
+    PerformParamsTargets& t = ctx.params->EditTargets();
+    if(ctx.rshift)
+    {
+        // RSHIFT + click => snap to UNITY.
+        t.engine_layer_master_level[layer] = 1.0f;
+        app.perform_process_vol_unmuted_level[layer] = 1.0f;
+        app.perform_process_vol_muted[layer] = false;
+        app.perform_process_vol_pct[layer] = 100u;
+    }
+    else
+    {
+        // Click => mute toggle for selected voice.
+        if(!app.perform_process_vol_muted[layer])
+        {
+            float saved = t.engine_layer_master_level[layer];
+            if(saved < 0.001f)
+                saved = 1.0f;
+            app.perform_process_vol_unmuted_level[layer] = saved;
+            app.perform_process_vol_muted[layer] = true;
+            t.engine_layer_master_level[layer] = 0.0f;
+            app.perform_process_vol_pct[layer] = 0u;
+        }
+        else
+        {
+            float restore = app.perform_process_vol_unmuted_level[layer];
+            if(restore < 0.0f)
+                restore = 0.0f;
+            if(restore > kProcessLayerLevelUiMax)
+                restore = kProcessLayerLevelUiMax;
+            app.perform_process_vol_muted[layer] = false;
+            t.engine_layer_master_level[layer] = restore;
+            app.perform_process_vol_pct[layer] = static_cast<uint16_t>(restore * 100.0f + 0.5f);
+        }
+    }
+    ctx.params->PublishTargets();
+    app.ui_dirty = true;
+}
+
+static void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e, uint8_t layer)
+{
+    AppState& app = *ctx.app;
+    if(app.perform_process_vol_muted[layer])
+    {
+        // Do not unmute on encoder turn; mute state toggles only on R-click.
+        app.ui_dirty = true;
+        return;
+    }
+
+    PerformParamsTargets& t = ctx.params->EditTargets();
+
+    // Match SETTINGS volume acceleration + range exactly.
+    static uint32_t s_last_t_ms = 0u;
+    const uint32_t now_ms = e.t_ms;
+    const uint32_t dt_ms = (s_last_t_ms == 0u) ? 999u : (now_ms - s_last_t_ms);
+    s_last_t_ms = now_ms;
+
+    float accel = 1.0f;
+    if(dt_ms <= 25u)
+        accel = 10.0f;
+    else if(dt_ms <= 50u)
+        accel = 6.0f;
+    else if(dt_ms <= 90u)
+        accel = 3.0f;
+    else if(dt_ms <= 140u)
+        accel = 2.0f;
+
+    const float base_step = 0.01f;
+    float next = t.engine_layer_master_level[layer] + static_cast<float>(e.value) * base_step * accel;
+    if(next < 0.0f)
+        next = 0.0f;
+    if(next > kProcessLayerLevelUiMax)
+        next = kProcessLayerLevelUiMax;
+    t.engine_layer_master_level[layer] = next;
+    app.perform_process_vol_unmuted_level[layer] = next;
+    app.perform_process_vol_pct[layer] = static_cast<uint16_t>(next * 100.0f + 0.5f);
+    ctx.params->PublishTargets();
+    app.ui_dirty = true;
+}
+
+static void ProcessEditEqGraph(UiScreenCtx& ctx, float delta)
+{
+    PerformParamsTargets& t = ctx.params->EditTargets();
+    if(ctx.rshift)
+    {
+        // RShift + Ext: Q for both bells (0.5 .. 1.7)
+        t.eq_q = ClampEqQ(t.eq_q + delta * (kTiltEqQMax - kTiltEqQMin) * 1.25f);
+    }
+    else
+    {
+        t.eq_tilt_db = ClampEqTiltDb(t.eq_tilt_db + delta * 18.0f);
+    }
+}
+
+static bool ProcessEditSatDetail(PerformParamsTargets& t,
+                                 const UiInputEvent& e,
+                                 uint8_t pidx,
+                                 float delta)
+{
+    if(pidx == 0)
+    {
+        if(t.sat_mode == 0)
+        {
+            t.sat_drive = Clamp01(t.sat_drive + delta);
+        }
+        else
+        {
+            // ADSR behavior: RESO is a discrete 3-state selector.
+            const int dir = (e.value > 0) ? 1 : -1;
+            int idx = 0;
+            if(t.sat_bit_reso >= 0.75f)
+                idx = 2;
+            else if(t.sat_bit_reso >= 0.25f)
+                idx = 1;
+            idx += dir;
+            if(idx < 0) idx = 0;
+            if(idx > 2) idx = 2;
+            if(idx == 0) t.sat_bit_reso = 0.0f;      // CRUSH
+            if(idx == 1) t.sat_bit_reso = 0.5f;      // STATIC
+            if(idx == 2) t.sat_bit_reso = 1.0f;      // HISS
+        }
+        return true;
+    }
+
+    if(pidx == 1)
+    {
+        if(t.sat_mode == 0)
+            t.sat_bump = Clamp01(t.sat_bump + delta);
+        else
+            t.sat_bit_smpl = Clamp01(t.sat_bit_smpl + delta);
+        return true;
+    }
+
+    if(pidx == 2)
+    {
+        t.sat_mix = Clamp01(t.sat_mix + delta);
+        t.sat_on = (t.sat_mix > 0.001f);
+        return true;
+    }
+
+    if(pidx == 3)
+    {
+        const int dir = (e.value > 0) ? 1 : -1;
+        int steps = (e.value > 0) ? e.value : -e.value;
+        while(steps-- > 0)
+            t.sat_mode = (dir > 0) ? ((t.sat_mode + 1u) & 1u) : ((t.sat_mode == 0) ? 1u : 0u);
+        return true;
+    }
+
+    return false;
+}
+
+static bool ProcessEditDelayDetail(UiScreenCtx& ctx, PerformParamsTargets& t, uint8_t pidx, float delta)
+{
+    if(pidx == 0)
+    {
+        if(ctx.rshift)
+        {
+            t.delay_time_l = Clamp01(t.delay_time_l + delta);
+            t.delay_time_r = Clamp01(t.delay_time_r + delta);
+        }
+        else
+        {
+            t.delay_time_l = Clamp01(t.delay_time_l + delta);
+        }
+        return true;
+    }
+
+    if(pidx == 1)
+    {
+        if(ctx.rshift)
+        {
+            t.delay_time_l = Clamp01(t.delay_time_l + delta);
+            t.delay_time_r = Clamp01(t.delay_time_r + delta);
+        }
+        else
+        {
+            t.delay_time_r = Clamp01(t.delay_time_r + delta);
+        }
+        return true;
+    }
+
+    if(pidx == 2)
+    {
+        t.delay_feedback = Clamp01(t.delay_feedback + delta);
+        return true;
+    }
+
+    if(pidx == 3)
+    {
+        t.delay_mix = Clamp01(t.delay_mix + delta);
+        t.delay_on = (t.delay_mix > 0.001f);
+        return true;
+    }
+
+    return false;
+}
+
+static bool ProcessEditReverbDetail(PerformParamsTargets& t, uint8_t pidx, float delta)
+{
+    if(pidx == 0)
+    {
+        t.reverb_pre = Clamp01(t.reverb_pre + delta);
+        return true;
+    }
+
+    if(pidx == 1)
+    {
+        t.reverb_damp = Clamp01(t.reverb_damp + delta);
+        return true;
+    }
+
+    if(pidx == 2)
+    {
+        t.reverb_decay = Clamp01(t.reverb_decay + delta);
+        return true;
+    }
+
+    if(pidx == 3)
+    {
+        t.reverb_mod = Clamp01(t.reverb_mod + delta);
+        return true;
+    }
+
+    if(pidx == 4)
+    {
+        t.reverb_mix = Clamp01(t.reverb_mix + delta);
+        t.reverb_on = (t.reverb_mix > 0.001f);
+        return true;
+    }
+
+    return false;
+}
+
+static bool ProcessEditFxDetail(UiScreenCtx& ctx,
+                                const UiInputEvent& e,
+                                uint8_t fx_id,
+                                uint8_t pidx,
+                                float delta)
+{
+    PerformParamsTargets& t = ctx.params->EditTargets();
+    switch(fx_id)
+    {
+        case 0: return ProcessEditSatDetail(t, e, pidx, delta);
+        case 2: return ProcessEditDelayDetail(ctx, t, pidx, delta);
+        case 3:
+        default: return ProcessEditReverbDetail(t, pidx, delta);
+    }
+}
+
+static ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(AppState& app,
+                                                               const PerformParamsTargets& t)
+{
+    ProcessLayerVolumeUiState ui = {};
+    for(int i = 0; i < 2; ++i)
+    {
+        app.perform_process_vol_pct[i]
+            = static_cast<uint16_t>(t.engine_layer_master_level[i] * 100.0f + 0.5f);
+        FormatProcessLevelDb(t.engine_layer_master_level[i], ui.value_text[i], sizeof(ui.value_text[i]));
+        const float norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[i]);
+        ui.angle_rad[i] = 2.0943951f + (norm * 5.2359878f);
+    }
+    return ui;
+}
+
+static void DrawProcessLayerVolumePane(OledPager& d,
+                                       const ProcessLayerVolumeUiState& ui,
+                                       uint8_t main_cursor,
+                                       int left_y,
+                                       int left_h)
+{
+    constexpr int kLeftX = 0;
+    constexpr int kLeftW = 60;
+    constexpr int kVolKnobRadius = 9;
+
+    const int knob_cx = kLeftX + (kLeftW / 2) - 1;
+    const int a_cy = left_y + 13;
+    const int b_cy = left_y + left_h - 13;
+    DrawProcessLayerVolumeKnob(
+        d, knob_cx, a_cy, kVolKnobRadius, 'a', ui.value_text[0], ui.angle_rad[0], main_cursor == 0u);
+    DrawProcessLayerVolumeKnob(
+        d, knob_cx, b_cy, kVolKnobRadius, 'b', ui.value_text[1], ui.angle_rad[1], main_cursor == 1u);
+}
+
 static void DrawFxDetailScreen(OledPager& d,
                                const PerformParamsTargets& t,
                                uint8_t fx_id,
@@ -477,11 +890,7 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // POD2 toggles layer (same behavior as other PERFORM pages).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        app.perform_layer ^= 1u;
-        const uint8_t layer = app.perform_layer & 1u;
-        app.sd_current_slot.store(layer, std::memory_order_release);
-        PublishEngineLayerParams(ctx);
-        app.ui_dirty = true;
+        ProcessHandleLayerToggle(ctx);
         return true;
     }
 
@@ -507,42 +916,7 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(!main_selects_fx)
             {
-                const uint8_t layer = main_cursor & 1u; // 0=VOL A, 1=VOL B
-                PerformParamsTargets& t = ctx.params->EditTargets();
-                if(ctx.rshift)
-                {
-                    // RSHIFT + click => snap to UNITY.
-                    t.engine_layer_master_level[layer] = 1.0f;
-                    app.perform_process_vol_unmuted_level[layer] = 1.0f;
-                    app.perform_process_vol_muted[layer] = false;
-                    app.perform_process_vol_pct[layer] = 100u;
-                }
-                else
-                {
-                    // Click => mute toggle for selected voice.
-                    if(!app.perform_process_vol_muted[layer])
-                    {
-                        float saved = t.engine_layer_master_level[layer];
-                        if(saved < 0.001f)
-                            saved = 1.0f;
-                        app.perform_process_vol_unmuted_level[layer] = saved;
-                        app.perform_process_vol_muted[layer] = true;
-                        t.engine_layer_master_level[layer] = 0.0f;
-                        app.perform_process_vol_pct[layer] = 0u;
-                    }
-                    else
-                    {
-                        float restore = app.perform_process_vol_unmuted_level[layer];
-                        if(restore < 0.0f) restore = 0.0f;
-                        if(restore > 2.0f) restore = 2.0f;
-                        app.perform_process_vol_muted[layer] = false;
-                        t.engine_layer_master_level[layer] = restore;
-                        app.perform_process_vol_pct[layer]
-                            = static_cast<uint16_t>(restore * 100.0f + 0.5f);
-                    }
-                }
-                ctx.params->PublishTargets();
-                app.ui_dirty = true;
+                ProcessHandleLayerMuteToggle(ctx, main_cursor & 1u); // 0=VOL A, 1=VOL B
                 return true;
             }
             {
@@ -609,141 +983,15 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         const float delta = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
         if(app.perform_process_eq_graph_active && fx_id == 1u)
         {
-            PerformParamsTargets& t = ctx.params->EditTargets();
-            if(ctx.rshift)
-            {
-                // RShift + Ext: Q for both bells (0.5 .. 1.7)
-                t.eq_q = ClampEqQ(t.eq_q + delta * (kTiltEqQMax - kTiltEqQMin) * 1.25f);
-            }
-            else
-            {
-                t.eq_tilt_db = ClampEqTiltDb(t.eq_tilt_db + delta * 18.0f);
-            }
+            ProcessEditEqGraph(ctx, delta);
             ctx.params->PublishTargets();
             app.ui_dirty = true;
             return true;
         }
         if(app.perform_process_detail_active)
         {
-            PerformParamsTargets& t = ctx.params->EditTargets();
             const uint8_t pidx = app.perform_process_detail_param[cursor];
-            bool changed = false;
-            switch(fx_id)
-            {
-                case 0: // SAT
-                    if(pidx == 0)
-                    {
-                        if(t.sat_mode == 0)
-                        {
-                            t.sat_drive = Clamp01(t.sat_drive + delta);
-                        }
-                        else
-                        {
-                            // ADSR behavior: RESO is a discrete 3-state selector.
-                            const int dir = (e.value > 0) ? 1 : -1;
-                            int idx = 0;
-                            if(t.sat_bit_reso >= 0.75f)
-                                idx = 2;
-                            else if(t.sat_bit_reso >= 0.25f)
-                                idx = 1;
-                            idx += dir;
-                            if(idx < 0) idx = 0;
-                            if(idx > 2) idx = 2;
-                            if(idx == 0) t.sat_bit_reso = 0.0f;      // CRUSH
-                            if(idx == 1) t.sat_bit_reso = 0.5f;      // STATIC
-                            if(idx == 2) t.sat_bit_reso = 1.0f;      // HISS
-                        }
-                        changed = true;
-                    }
-                    else if(pidx == 1)
-                    {
-                        if(t.sat_mode == 0)
-                            t.sat_bump = Clamp01(t.sat_bump + delta);
-                        else
-                            t.sat_bit_smpl = Clamp01(t.sat_bit_smpl + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 2)
-                    {
-                        t.sat_mix = Clamp01(t.sat_mix + delta);
-                        t.sat_on = (t.sat_mix > 0.001f);
-                        changed = true;
-                    }
-                    else if(pidx == 3)
-                    {
-                        const int dir = (e.value > 0) ? 1 : -1;
-                        int steps = (e.value > 0) ? e.value : -e.value;
-                        while(steps-- > 0)
-                            t.sat_mode = (dir > 0) ? ((t.sat_mode + 1u) & 1u)
-                                                   : ((t.sat_mode == 0) ? 1u : 0u);
-                        changed = true;
-                    }
-                    break;
-                case 2: // DELAY
-                    if(pidx == 0)
-                    {
-                        if(ctx.rshift)
-                        {
-                            t.delay_time_l = Clamp01(t.delay_time_l + delta);
-                            t.delay_time_r = Clamp01(t.delay_time_r + delta);
-                        }
-                        else
-                            t.delay_time_l = Clamp01(t.delay_time_l + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 1)
-                    {
-                        if(ctx.rshift)
-                        {
-                            t.delay_time_l = Clamp01(t.delay_time_l + delta);
-                            t.delay_time_r = Clamp01(t.delay_time_r + delta);
-                        }
-                        else
-                            t.delay_time_r = Clamp01(t.delay_time_r + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 2)
-                    {
-                        t.delay_feedback = Clamp01(t.delay_feedback + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 3)
-                    {
-                        t.delay_mix = Clamp01(t.delay_mix + delta);
-                        t.delay_on = (t.delay_mix > 0.001f);
-                        changed = true;
-                    }
-                    break;
-                case 3: // REVERB
-                default:
-                    if(pidx == 0)
-                    {
-                        t.reverb_pre = Clamp01(t.reverb_pre + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 1)
-                    {
-                        t.reverb_damp = Clamp01(t.reverb_damp + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 2)
-                    {
-                        t.reverb_decay = Clamp01(t.reverb_decay + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 3)
-                    {
-                        t.reverb_mod = Clamp01(t.reverb_mod + delta);
-                        changed = true;
-                    }
-                    else if(pidx == 4)
-                    {
-                        t.reverb_mix = Clamp01(t.reverb_mix + delta);
-                        t.reverb_on = (t.reverb_mix > 0.001f);
-                        changed = true;
-                    }
-                    break;
-            }
+            const bool changed = ProcessEditFxDetail(ctx, e, fx_id, pidx, delta);
             if(changed)
                 ctx.params->PublishTargets();
             app.ui_dirty = true;
@@ -782,36 +1030,7 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(!main_selects_fx)
         {
-            const uint8_t layer = main_cursor & 1u;
-            PerformParamsTargets& t = ctx.params->EditTargets();
-            if(app.perform_process_vol_muted[layer])
-            {
-                // Do not unmute on encoder turn; mute state toggles only on R-click.
-                app.ui_dirty = true;
-                return true;
-            }
-
-            // Match SETTINGS volume acceleration + range exactly.
-            static uint32_t s_last_t_ms = 0;
-            const uint32_t now_ms = e.t_ms;
-            const uint32_t dt_ms  = (s_last_t_ms == 0) ? 999u : (now_ms - s_last_t_ms);
-            s_last_t_ms = now_ms;
-
-            float accel = 1.0f;
-            if(dt_ms <= 25)       accel = 10.0f;
-            else if(dt_ms <= 50)  accel = 6.0f;
-            else if(dt_ms <= 90)  accel = 3.0f;
-            else if(dt_ms <= 140) accel = 2.0f;
-
-            const float base_step = 0.01f;
-            float next = t.engine_layer_master_level[layer] + static_cast<float>(e.value) * base_step * accel;
-            if(next < 0.0f) next = 0.0f;
-            if(next > 2.0f) next = 2.0f;
-            t.engine_layer_master_level[layer] = next;
-            app.perform_process_vol_unmuted_level[layer] = next;
-            app.perform_process_vol_pct[layer] = static_cast<uint16_t>(next * 100.0f + 0.5f);
-            ctx.params->PublishTargets();
-            app.ui_dirty = true;
+            ProcessHandleLayerVolumeEdit(ctx, e, main_cursor & 1u);
             return true;
         }
 
@@ -909,143 +1128,10 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     const int box_h = layout.y_footer - layout.y_body + layout.line_h;
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
 
-    auto draw_process_knob = [&](int cx,
-                                 int cy,
-                                 int radius,
-                                 char side_letter,
-                                 const char* value_text,
-                                 float angle_rad,
-                                 bool focused)
+    if(box_h > 24)
     {
-        DrawCirclePixels(d, cx, cy, radius, true);
-        d.DrawPixel(cx, cy, true);
-        const int hand_r = radius - 2;
-        const int hx = cx + static_cast<int>(std::cos(angle_rad) * static_cast<float>(hand_r));
-        const int hy = cy + static_cast<int>(std::sin(angle_rad) * static_cast<float>(hand_r));
-        d.DrawLine(cx, cy, hx, hy, true);
-
-        char side_text[2] = {side_letter, '\0'};
-        const int label_w = TinyStringWidth(side_text);
-        const int label_x = cx - radius - 9;
-        const int label_y = cy - (Font5x7::H / 2);
-        if(focused)
-        {
-            d.DrawRect(label_x - 3, label_y - 2, label_x + label_w + 2, label_y + Font5x7::H + 1, true, false);
-            DrawTinyString(d, side_text, label_x, label_y, true);
-        }
-        else
-        {
-            DrawTinyString(d, side_text, label_x, label_y, true);
-        }
-
-        if(value_text && value_text[0] != '\0')
-        {
-            auto process_value_advance = [](char ch, char next_ch) -> int
-            {
-                if(ch == '.')
-                    return 3;
-                if(next_ch == 'd')
-                    return 6;
-                if(ch == 'd' && next_ch == 'b')
-                    return 6;
-                if(next_ch == '.')
-                    return 5;
-                return 5;
-            };
-
-            auto process_value_width = [&](const char* s) -> int
-            {
-                if(s == nullptr || s[0] == '\0')
-                    return 0;
-                int width = 0;
-                for(int i = 0; s[i] != '\0'; ++i)
-                    width += process_value_advance(s[i], s[i + 1]);
-                return width;
-            };
-
-            auto draw_process_value = [&](const char* s, int x, int y)
-            {
-                int pen_x = x;
-                for(int i = 0; s[i] != '\0'; ++i)
-                {
-                    char ch = s[i];
-                    if(ch >= 'A' && ch <= 'Z')
-                        ch = static_cast<char>(ch - 'A' + 'a');
-
-                    uint8_t rows[Font5x7::H] = {};
-                    Font5x7::GetGlyphRows(ch, rows);
-                    for(int yy = 0; yy < Font5x7::H; ++yy)
-                    {
-                        const uint8_t row = rows[yy];
-                        for(int xx = 0; xx < Font5x7::W; ++xx)
-                        {
-                            if((row >> (Font5x7::W - 1 - xx)) & 1)
-                            {
-                                const int px = pen_x + xx - ((ch == '.') ? 1 : 0);
-                                const int py = y + yy;
-                                if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                                    d.DrawPixel(px, py, true);
-                            }
-                        }
-                    }
-                    pen_x += process_value_advance(ch, s[i + 1]);
-                }
-            };
-
-            auto draw_plus = [&](int x, int y)
-            {
-                d.DrawLine(x + 2, y + 1, x + 2, y + 5, true);
-                d.DrawLine(x, y + 3, x + 4, y + 3, true);
-            };
-
-            if(value_text[0] == '+')
-            {
-                const char* rest = value_text + 1;
-                const int rest_w = process_value_width(rest);
-                const int value_w = 5 + 1 + rest_w;
-                const int value_x = cx - (value_w / 2);
-                const int value_y = cy - radius - 8;
-                draw_plus(value_x, value_y);
-                draw_process_value(rest, value_x + 6, value_y);
-            }
-            else
-            {
-                const int value_w = process_value_width(value_text);
-                draw_process_value(value_text, cx - (value_w / 2), cy - radius - 8);
-            }
-        }
-    };
-
-    // Left pane: stacked layer volume knobs.
-    constexpr int kLeftX = 0;
-    constexpr int kLeftW = 60;
-    const int left_y = box_y;
-    const int left_h = box_h;
-    if(left_h > 24)
-    {
-        const bool sel_a = (main_cursor == 0u);
-        const bool sel_b = (main_cursor == 1u);
-
-        const uint32_t a_pct = static_cast<uint32_t>(t.engine_layer_master_level[0] * 100.0f + 0.5f);
-        const uint32_t b_pct = static_cast<uint32_t>(t.engine_layer_master_level[1] * 100.0f + 0.5f);
-        app.perform_process_vol_pct[0] = static_cast<uint16_t>(a_pct);
-        app.perform_process_vol_pct[1] = static_cast<uint16_t>(b_pct);
-
-        char a_buf[12];
-        char b_buf[12];
-        FormatProcessLevelDb(t.engine_layer_master_level[0], a_buf, sizeof(a_buf));
-        FormatProcessLevelDb(t.engine_layer_master_level[1], b_buf, sizeof(b_buf));
-        const float a_norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[0]);
-        const float b_norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[1]);
-        const float a_angle = 2.0943951f + (a_norm * 5.2359878f);
-        const float b_angle = 2.0943951f + (b_norm * 5.2359878f);
-
-        constexpr int kVolKnobRadius = 9;
-        const int knob_cx = kLeftX + (kLeftW / 2) - 1;
-        const int a_cy = left_y + 13;
-        const int b_cy = left_y + left_h - 13;
-        draw_process_knob(knob_cx, a_cy, kVolKnobRadius, 'a', a_buf, a_angle, sel_a);
-        draw_process_knob(knob_cx, b_cy, kVolKnobRadius, 'b', b_buf, b_angle, sel_b);
+        const ProcessLayerVolumeUiState layer_volume_ui = ProcessSyncLayerVolumeUiState(app, t);
+        DrawProcessLayerVolumePane(d, layer_volume_ui, main_cursor, box_y, box_h);
     }
 
     // Keep right half for FX faders.

@@ -1,0 +1,39 @@
+# Build artifacts
+build/
+out/
+dist/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.o
+*.d
+*.a
+*.elf
+*.map
+*.hex
+*.bin
+*.lst
+*.su
+
+# Logs
+*.log
+
+# Packaging / archive clutter
+.git/
+**/.git/
+__MACOSX/
+*.zip
+*.tar
+*.tgz
+
+# macOS / Finder junk
+.DS_Store
+**/.DS_Store
+._*
+
+# Windows junk
+Thumbs.db
+
+# Allow VSCode tasks only
+!.vscode/
+!.vscode/tasks.json

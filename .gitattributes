@@ -1,0 +1,14 @@
+build/ export-ignore
+out/ export-ignore
+dist/ export-ignore
+__MACOSX/ export-ignore
+.DS_Store export-ignore
+**/.DS_Store export-ignore
+._* export-ignore
+*.elf export-ignore
+*.map export-ignore
+*.hex export-ignore
+*.bin export-ignore
+*.lst export-ignore
+*.o export-ignore
+*.a export-ignore

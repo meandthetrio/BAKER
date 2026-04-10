@@ -1,0 +1,134 @@
+#include "ui_screens_internal.h"
+
+#include <cstdio>
+
+#include "app_state.h"
+#include "oled_pager.h"
+#include "ui_input.h"
+#include "ui_layout.h"
+#include "ui_list_menu.h"
+
+static const UiMenuItem kHudMenuItems[] = {
+    {"SD BROWSE", UiScreenId::SdBrowse, UiReqType::None},
+    {"SAMPLE EDIT", UiScreenId::SampleEdit, UiReqType::None},
+    {"FX", UiScreenId::Fx, UiReqType::None},
+    {"MOD", UiScreenId::Mod, UiReqType::None},
+    {"MACRO", UiScreenId::Macro, UiReqType::None},
+    {"REBUILD", UiScreenId::COUNT, UiReqType::RebuildCache},
+    {"LOAD", UiScreenId::COUNT, UiReqType::LoadSample},
+    {"SAVE", UiScreenId::COUNT, UiReqType::SavePreset},
+};
+
+static void EnsureHudMenu(AppState& app)
+{
+    if(app.hud_menu_inited)
+        return;
+    UiListMenu_Init(app.hud_menu,
+                    kHudMenuItems,
+                    static_cast<uint8_t>(sizeof(kHudMenuItems) / sizeof(kHudMenuItems[0])),
+                    3);
+    app.hud_menu_inited = true;
+}
+
+bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+    EnsureHudMenu(*ctx.app);
+    if(ctx.shift)
+        return false;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
+    {
+        if(UiListMenu_OnEnc(ctx.app->hud_menu, e.value))
+        {
+            ctx.app->ui_dirty = true;
+            return true;
+        }
+        return false;
+    }
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        const UiMenuItem& item = ctx.app->hud_menu.items[ctx.app->hud_menu.cursor];
+        if(item.req != UiReqType::None)
+        {
+            UiReq req{item.req, 0, 0};
+            UiReq_Push(*ctx.app, req);
+            ctx.app->ui_dirty = true;
+            return true;
+        }
+        if(item.screen != UiScreenId::COUNT && UiNav_Push(ctx.app->ui_nav, item.screen))
+            ctx.app->ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+void Hud_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    const AppState& app = *ctx.app;
+    EnsureHudMenu(*ctx.app);
+
+    const uint32_t peak_cycles   = app.audio_cycles_peak.load(std::memory_order_relaxed);
+    const uint32_t budget_cycles = app.audio_budget_cycles.load(std::memory_order_relaxed);
+    uint32_t cpu_pct = 0;
+    if(budget_cycles > 0)
+        cpu_pct = (peak_cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
+    if(cpu_pct > 999u)
+        cpu_pct = 999u;
+    const uint32_t late_cnt = app.audio_late_count.load(std::memory_order_relaxed);
+
+    const uint32_t ovf_mod = app.ui_in_ovf % 1000;
+    uint32_t hi = app.ui_in_hi;
+    if(hi > 99u)
+        hi = 99u;
+    const char* sd_ok = app.sd.sd_ok ? "OK" : "ER";
+    uint32_t wavs = app.sd.wav_count;
+    if(wavs > 99u)
+        wavs = 99u;
+    const uint32_t ld = app.sd.load_in_progress ? app.sd.load_progress : 0;
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const UiLayout layout = UiLayout_Default();
+    char status[16];
+    BuildStatus(app, status, sizeof(status));
+    UiDraw_Header(d, layout, "HUD", status);
+
+    char buf[32];
+    d.SetCursor(layout.x, layout.y_body);
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "U:%02lu C:%04lu CPU:%03lu",
+                  (unsigned long)app.ui_hz,
+                  (unsigned long)app.ctrl_hz,
+                  (unsigned long)cpu_pct);
+    d.WriteString(buf, Font_6x8, true);
+
+    d.SetCursor(layout.x, layout.y_body + layout.line_h);
+    std::snprintf(buf, sizeof(buf), "LATE:%lu UIQO:%03lu H:%02lu",
+                  (unsigned long)late_cnt,
+                  (unsigned long)ovf_mod,
+                  (unsigned long)hi);
+    d.WriteString(buf, Font_6x8, true);
+
+    d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);
+    std::snprintf(buf, sizeof(buf), "SD:%s W:%02lu L:%03lu",
+                  sd_ok,
+                  (unsigned long)wavs,
+                  (unsigned long)ld);
+    d.WriteString(buf, Font_6x8, true);
+
+    UiListMenu_Render(ctx.app->hud_menu,
+                      d,
+                      layout.x,
+                      layout.y_body + layout.line_h * 3,
+                      layout.line_h);
+
+    UiDraw_Footer(d, layout, "EXT:SEL EXT:ENT P2:BACK");
+}

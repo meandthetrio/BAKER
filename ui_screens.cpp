@@ -1,0 +1,217 @@
+#include "ui_screens.h"
+#include "ui_screens_internal.h"
+#include "app_state.h"
+#include "params.h"
+#include "oled_pager.h"
+#include "sample_edit.h"
+
+#include <cstdio>
+
+static constexpr uint8_t kPerformLayerCount = 2;
+static constexpr uint16_t kPerformAdsrAttackReleaseMinMs = 1u;
+static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 1000u;
+static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
+static constexpr uint16_t kPerformAdsrSustainMax = 100u;
+
+static int ClampInt(int v, int lo, int hi)
+{
+    if(v < lo)
+        return lo;
+    if(v > hi)
+        return hi;
+    return v;
+}
+
+void ExtractBaseName(const char* path, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+    out[0] = '\0';
+    if(!path || path[0] == '\0')
+        return;
+
+    const char* base = path;
+    for(const char* p = path; *p != '\0'; ++p)
+    {
+        if(*p == '/' || *p == '\\')
+            base = p + 1;
+    }
+    std::snprintf(out, out_n, "%s", base);
+}
+
+static uint8_t ClampDriveMode(int value)
+{
+    if(value <= 0)
+        return 0u;
+    return 1u;
+}
+
+void PublishEngineLayerParams(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.params)
+        return;
+
+    AppState& app = *ctx.app;
+    const uint8_t layer = app.perform_layer & 1u;
+    PerformParamsTargets& t = ctx.params->EditTargets();
+    t.engine_tune_semitones[layer] = static_cast<float>(app.engine_tune_semitones[layer]);
+    t.engine_gain_db[layer] = static_cast<float>(app.engine_gain_db[layer]);
+    t.engine_loop_mode[layer] = (app.engine_play_mode[layer] != 0);
+    for(uint8_t i = 0; i < kPerformLayerCount; ++i)
+    {
+        const uint16_t clamped_attack = static_cast<uint16_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_attack[i]),
+                     static_cast<int>(kPerformAdsrAttackReleaseMinMs),
+                     static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
+        const uint16_t clamped_release = static_cast<uint16_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_release[i]),
+                     static_cast<int>(kPerformAdsrAttackReleaseMinMs),
+                     static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
+        const uint8_t clamped_decay = static_cast<uint8_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_decay[i]), 1, static_cast<int>(kPerformAdsrDecayMaxMs)));
+        const uint8_t clamped_sustain = static_cast<uint8_t>(
+            ClampInt(static_cast<int>(app.perform_adsr_loop_sustain[i]), 0, static_cast<int>(kPerformAdsrSustainMax)));
+        app.perform_adsr_loop_attack[i] = clamped_attack;
+        app.perform_adsr_loop_decay[i] = clamped_decay;
+        app.perform_adsr_loop_sustain[i] = clamped_sustain;
+        app.perform_adsr_loop_release[i] = clamped_release;
+        t.engine_drive_mode[i] = ClampDriveMode(static_cast<int>(app.engine_drive_mode[i]));
+        t.perform_keyzone_lo_note[i] = app.perform_keyzone_lo_note[i];
+        t.perform_keyzone_hi_note[i] = app.perform_keyzone_hi_note[i];
+        t.engine_loop_attack_ms[i] = static_cast<float>(clamped_attack);
+        t.engine_loop_decay_ms[i] = static_cast<float>(clamped_decay);
+        t.engine_loop_sustain_level[i] = static_cast<float>(clamped_sustain) * 0.01f;
+        t.engine_loop_release_ms[i] = static_cast<float>(clamped_release);
+        t.engine_loop_crossfade_amount[i] = app.perform_adsr_loop_crossfade[i];
+        t.engine_loop_crossfade_shape[i] = app.perform_adsr_loop_crossfade_shape[i];
+    }
+    ctx.params->PublishTargets();
+}
+
+void EngineRefreshLoadedMetadata(AppState& app)
+{
+    const uint32_t applied_gen = app.sd_applied_gen.load(std::memory_order_relaxed);
+    if(applied_gen == app.engine_seen_applied_gen)
+        return;
+
+    app.engine_seen_applied_gen = applied_gen;
+    const uint8_t slot = app.sd_current_slot.load(std::memory_order_relaxed) & 1u;
+    const Sample& s = app.sd_slots[slot];
+    if(s.pcm != nullptr && s.length > 0)
+    {
+        std::snprintf(app.engine_sample_path[slot],
+                      sizeof(app.engine_sample_path[slot]),
+                      "%s",
+                      app.sd.last_loaded_path);
+        ExtractBaseName(app.sd.last_loaded_path,
+                        app.engine_sample_name[slot],
+                        sizeof(app.engine_sample_name[slot]));
+    }
+    app.engine_load_target_layer = 0xFFu;
+    app.engine_load_from_perform = false;
+    app.ui_dirty = true;
+}
+
+void DrawWaveformPreview(OledPager& d,
+                         const Sample& sample,
+                         const SampleEdit* edit,
+                         int x,
+                         int y,
+                         int w,
+                         int h,
+                         bool on,
+                         bool outline_only,
+                         bool dotted_border)
+{
+    if(w < 3 || h < 3)
+        return;
+
+    const int x0 = x;
+    const int y0 = y;
+    const int x1 = x + w - 1;
+    const int y1 = y + h - 1;
+    if(dotted_border)
+        DrawDottedRect(d, x0, y0, x1, y1, on);
+    else
+        d.DrawRect(x0, y0, x1, y1, on, false);
+
+    if(sample.pcm == nullptr || sample.length == 0)
+        return;
+
+    uint32_t start = 0;
+    uint32_t end = sample.length;
+    if(edit)
+    {
+        SampleEdit e = *edit;
+        SampleEdit_Clamp(e, sample.length);
+        start = e.start_frame;
+        end = e.end_frame;
+    }
+    if(end <= start + 1)
+        return;
+
+    const uint32_t frames = end - start;
+    const int draw_w = w - 2;
+    const int mid = y0 + h / 2;
+    const int amp_h = (h - 2) / 2;
+    bool have_prev = false;
+    int prev_x = 0;
+    int prev_top = 0;
+    int prev_bot = 0;
+    for(int px = 0; px < draw_w; ++px)
+    {
+        const uint32_t seg0 = start + (frames * static_cast<uint32_t>(px)) / draw_w;
+        uint32_t seg1 = start + (frames * static_cast<uint32_t>(px + 1)) / draw_w;
+        if(seg1 <= seg0)
+            seg1 = seg0 + 1;
+        if(seg1 > end)
+            seg1 = end;
+
+        int16_t mn = 32767;
+        int16_t mx = -32768;
+        for(uint32_t i = seg0; i < seg1; ++i)
+        {
+            const int16_t v = sample.pcm[i];
+            if(v < mn)
+                mn = v;
+            if(v > mx)
+                mx = v;
+        }
+        const int y_top = mid - (static_cast<int>(mx) * amp_h) / 32768;
+        const int y_bot = mid - (static_cast<int>(mn) * amp_h) / 32768;
+        const int xx = x0 + 1 + px;
+        int top = y_top;
+        int bot = y_bot;
+        if(top < y0 + 1) top = y0 + 1;
+        if(bot > y1 - 1) bot = y1 - 1;
+        if(bot < top)
+            bot = top;
+
+        if(outline_only)
+        {
+            if(have_prev)
+            {
+                d.DrawLine(prev_x, prev_top, xx, top, on);
+                d.DrawLine(prev_x, prev_bot, xx, bot, on);
+            }
+            else
+            {
+                d.DrawPixel(xx, top, on);
+                d.DrawPixel(xx, bot, on);
+            }
+            have_prev = true;
+            prev_x = xx;
+            prev_top = top;
+            prev_bot = bot;
+            continue;
+        }
+
+        for(int yy = top; yy <= bot; ++yy)
+            d.DrawPixel(xx, yy, on);
+    }
+}
+
+UiScreenId UiNav_Active(const UiNav& nav)
+{
+    return nav.stack[nav.top];
+}

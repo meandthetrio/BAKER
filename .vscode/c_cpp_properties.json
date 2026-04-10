@@ -1,0 +1,45 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "DaisyPod",
+            "intelliSenseMode": "gcc-arm",
+            "compilerPath": "arm-none-eabi-g++",
+            "cStandard": "c11",
+            "cppStandard": "gnu++14",
+            "defines": [
+                "USE_HAL_DRIVER",
+                "STM32H750xx",
+                "HSE_VALUE=16000000",
+                "CORE_CM7",
+                "STM32H750IB",
+                "ARM_MATH_CM7",
+                "USE_FULL_LL_DRIVER"
+            ],
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/../../libDaisy",
+                "${workspaceFolder}/../../libDaisy/src",
+                "${workspaceFolder}/../../libDaisy/src/sys",
+                "${workspaceFolder}/../../libDaisy/src/usbd",
+                "${workspaceFolder}/../../libDaisy/core",
+                "${workspaceFolder}/../../libDaisy/Drivers/CMSIS/Include",
+                "${workspaceFolder}/../../libDaisy/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceFolder}/../../libDaisy/Drivers/STM32H7xx_HAL_Driver/Inc",
+                "${workspaceFolder}/../../libDaisy/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/../../libDaisy/Middlewares/ST/STM32_USB_Device_Library/Core/Inc",
+                "${workspaceFolder}/../../libDaisy/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc",
+                "${workspaceFolder}/../../libDaisy/Middlewares/Third_Party/FatFs/src",
+                "${workspaceFolder}/../../DaisySP/Source"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "${workspaceFolder}/../../libDaisy",
+                    "${workspaceFolder}/../../DaisySP"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ]
+}

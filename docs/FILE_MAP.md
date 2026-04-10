@@ -42,10 +42,10 @@
   - Key symbols: `Sample`, `loop_start`, `loop_end`
   - Milestones: TBD
 
-- voice_engine.cpp / voice_engine.h
-  - Purpose: Voice pool, sample playback, looping, ADSR, voice stealing, sample/edit apply, and per-layer EMPHASIS bus DSP.
+- voice_engine.cpp / voice_engine_playback.cpp / voice_engine_emphasis.cpp / voice_engine_voice_lifecycle.cpp / voice_engine_events.cpp / voice_engine_render.cpp / voice_engine_internal.h / voice_engine.h
+  - Purpose: Voice pool and engine ownership split across focused extractions: `voice_engine_playback.cpp` owns the stateless playback / loop / envelope helpers, `voice_engine_emphasis.cpp` owns the per-layer emphasis bus/filter support, `voice_engine_voice_lifecycle.cpp` owns allocation / start / stop / note-off behavior, `voice_engine_events.cpp` owns event dispatch, `voice_engine_render.cpp` owns block rendering and per-voice render helpers, and `voice_engine.cpp` still owns init plus sample/edit apply setters.
   - Thread: [AUDIO]
-  - Key symbols: `VoiceEngine::ProcessEvents`, `RenderBlock`, `SetSample`, `SetSampleEdit`, `SetLoopEnvelopeParams`, `SetLoopCrossfadeAmount`, `SetLoopCrossfadeShape`, `SetEngineDriveMode`, `ProcessLayerBusSample_`
+  - Key symbols: `VoiceEngine::ProcessEvents`, `RenderBlock`, `SetSample`, `SetSampleEdit`, `SetLoopEnvelopeParams`, `SetLoopCrossfadeAmount`, `SetLoopCrossfadeShape`, `SetEngineDriveMode`, `ProcessLayerBusSample_`, `RecomputeLayerEmphasisCoeffs_`, `AllocateVoice_`, `StartVoice_`, `ComputeRatio`, `AdvancePos`
   - Notes: EMPHASIS cutoff/resonance now process each summed layer bus in `RenderBlock(...)` instead of the old per-voice filter stage
   - Milestones: TBD
 
@@ -391,15 +391,19 @@
 ## “Where is X?” quick index
 - Control tick / hardware scanning: `controls.cpp`, `ui_logic.cpp`
 - UI tick / drawing: `ui_logic.cpp`, `ui_render.cpp`, `ui_screens.cpp`, `src/ui/ui_screen_status.cpp`, `src/ui/ui_screen_browser.cpp`
-- Voice/MIDI event queue: `event_queue.h` (produced in `main.cpp`, consumed in `voice_engine.cpp`)
+- Voice/MIDI event queue: `event_queue.h` (produced in `main.cpp`, consumed in `voice_engine_events.cpp`)
 - UI input event queue: `ui_input.*` (produced in `controls.cpp`, consumed in `ui_logic.cpp`)
 - Parameter lane / smoothing: `params.cpp`
 - Voice pool: `voice_engine.cpp`
-- Voice stealing: `voice_engine.cpp` (`StealVoice_`)
-- Sample reader: `voice_engine.cpp`, `sampler_sample.h`
-- Looping: `voice_engine.cpp`, `sample_edit.h`
-- ADSR: `voice_engine.cpp`
-- Filter: `voice_engine.cpp`, `mod_sources.cpp`
+- Voice stealing: `voice_engine_voice_lifecycle.cpp`, `voice_engine_render.cpp`
+- Event dispatch: `voice_engine_events.cpp`
+- Sample reader: `voice_engine_render.cpp`, `voice_engine_playback.cpp`, `sampler_sample.h`
+- Looping: `voice_engine_render.cpp`, `voice_engine_playback.cpp`, `sample_edit.h`
+- ADSR: `voice_engine_render.cpp`, `voice_engine_playback.cpp`
+- Emphasis/filter bus DSP: `voice_engine_emphasis.cpp`
+- Voice lifecycle/allocation: `voice_engine_voice_lifecycle.cpp`
+- Render path: `voice_engine_render.cpp`
+- Filter: `voice_engine_render.cpp`, `mod_sources.cpp`
 - Mixer/headroom/clip counter: `audio_engine.cpp`, `app_state.h`
 - Parameter locks: `plocks.cpp`
 - Keygroups/zones: `keygroups.cpp`, `main.cpp`, `velocity_layers.cpp`

@@ -307,6 +307,38 @@ class VoiceEngine
     void AllNotesOff_();
     void RecomputeLayerEmphasisCoeffs_(uint8_t layer);
     float ProcessLayerBusSample_(uint8_t layer, float input);
+    struct RenderVoiceContext;
+    void SnapshotMacroState_();
+    void SnapshotPLockState_();
+    void SnapshotRenderEditState_(SampleEdit& edit, const Sample*& edit_sample) const;
+    const ModRoute* SnapshotModRoutes_(ModRoute (&routes_local)[kMaxModRoutes]) const;
+    void PrepareRenderScalars_(float (&engine_tune_scale)[kEngineLayerCount],
+                               float (&engine_voice_gain)[kEngineLayerCount],
+                               float& lfo_depth,
+                               float& env_amount) const;
+    void RefreshBlockState_(size_t size);
+    void WriteRenderDebug_(uint32_t clip_block,
+                           float rate_hz,
+                           float depth,
+                           float lfo_src,
+                           float max_env,
+                           uint32_t active,
+                           const uint32_t (&playhead_frame)[2],
+                           const uint32_t (&playhead_active)[2]);
+    void RenderStealXFadeVoice_(Voice& v,
+                                const RenderVoiceContext& ctx,
+                                float pitch_scale,
+                                bool& stop_fade_active,
+                                int32_t& stop_fade_remaining,
+                                float& stop_fade_level,
+                                float& stop_fade_step);
+    void RenderNormalVoice_(Voice& v,
+                            const RenderVoiceContext& ctx,
+                            float pitch_scale,
+                            bool& stop_fade_active,
+                            int32_t& stop_fade_remaining,
+                            float& stop_fade_level,
+                            float& stop_fade_step);
 
     static uint32_t PackVoiceDebug_(uint8_t idx, uint8_t note, uint8_t vel);
 };

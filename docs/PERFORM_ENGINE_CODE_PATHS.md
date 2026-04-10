@@ -34,6 +34,11 @@ Primary source of truth is code:
 - `params.cpp`
 - `voice_engine.h`
 - `voice_engine.cpp`
+- `voice_engine_playback.cpp`
+- `voice_engine_emphasis.cpp`
+- `voice_engine_voice_lifecycle.cpp`
+- `voice_engine_events.cpp`
+- `voice_engine_render.cpp`
 - `ui_requests.cpp`
 - `ui_worker.cpp`
 - `main.cpp`
@@ -628,10 +633,11 @@ This section documents the CURRENT IMPLEMENTED runtime path for playback type `L
 Relevant code:
 - `main.cpp`
   - `AudioCallback(...)`
-- `voice_engine.cpp`
+- `voice_engine_voice_lifecycle.cpp`
   - `StartVoice_(...)`
-  - `RenderBlock(...)`
   - `NoteOff_(...)`
+- `voice_engine_render.cpp`
+  - `RenderBlock(...)`
 
 Behavior:
 - UI publishes `engine_loop_mode[layer]` through `PublishEngineLayerParams(...)`
@@ -650,7 +656,7 @@ Relevant code:
   - `SampleEdit_Clamp(...)`
 - `main.cpp`
   - audio callback edit apply handoff via `SetSampleEdit(...)`
-- `voice_engine.cpp`
+- `voice_engine_render.cpp`
   - `RenderBlock(...)`
 
 Behavior:
@@ -678,9 +684,10 @@ Relevant code:
 - `main.cpp`
   - `AudioCallback(...)` -> `SetLoopCrossfadeAmount(...)`
   - `AudioCallback(...)` -> `SetLoopCrossfadeShape(...)`
-- `voice_engine.cpp`
+- `voice_engine_playback.cpp`
   - `ComputeLoopSeamCrossfadeFrames(...)`
   - `SampleAtLoopSeamCrossfade(...)`
+- `voice_engine_render.cpp`
   - `RenderBlock(...)`
 
 Behavior:
@@ -698,8 +705,9 @@ Relevant code:
 - `main.cpp`
   - `LayerEligibleForNote(...)`
   - MIDI `NoteOn` / `NoteOff` event push
-- `voice_engine.cpp`
+- `voice_engine_events.cpp`
   - `ProcessEvents(...)`
+- `voice_engine_voice_lifecycle.cpp`
   - `StartVoice_(...)`
   - `NoteOff_(...)`
 
@@ -715,9 +723,11 @@ Behavior:
 Relevant code:
 - `ui_worker.cpp`
   - loaded/recorded `Sample.root_key = 60`
-- `voice_engine.cpp`
+- `voice_engine_playback.cpp`
   - `ComputeRatio(...)`
+- `voice_engine_voice_lifecycle.cpp`
   - `StartVoice_(...)`
+- `voice_engine_events.cpp`
   - `ProcessEvents(...)` steal-xfade new-head setup
 
 Behavior:
@@ -736,11 +746,13 @@ Relevant code:
   - `AudioBlockTick(...)`
 - `main.cpp`
   - `AudioCallback(...)` -> `SetLoopEnvelopeParams(...)`
-- `voice_engine.cpp`
+- `voice_engine_playback.cpp`
   - `InitEnvelope(...)`
   - `SetEnvelopeRelease(...)`
+- `voice_engine_voice_lifecycle.cpp`
   - `StartVoice_(...)`
   - `NoteOff_(...)`
+- `voice_engine_events.cpp`
   - `ProcessEvents(...)` steal-xfade new-head setup
 
 Behavior:
@@ -755,11 +767,14 @@ Behavior:
 
 ### Fixed 1 ms edge fades
 Relevant code:
-- `voice_engine.cpp`
+- `voice_engine_playback.cpp`
   - `ComputeLoopBoundaryFade(...)`
-  - `RenderBlock(...)`
   - `ComputeFadeStepMs(...)`
+- `voice_engine_render.cpp`
+  - `RenderBlock(...)`
+- `voice_engine_voice_lifecycle.cpp`
   - `StartVoice_(...)`
+- `voice_engine_events.cpp`
   - `ProcessEvents(...)` steal-xfade new-head setup
 
 Behavior:
@@ -1016,7 +1031,9 @@ Relevant code:
   - `SetEngineDriveMode(...)`
   - `SetEngineFilterCutoffHz(...)`
   - `SetEngineFilterResonance(...)`
+- `voice_engine_emphasis.cpp`
   - `ProcessLayerBusSample_(...)`
+- `voice_engine_render.cpp`
   - `RenderBlock(...)`
 
 Behavior:
@@ -1086,7 +1103,7 @@ Important detail:
 
 ### Step 4: audio thread still receives the same per-layer event stream
 Relevant code:
-- `voice_engine.cpp`
+- `voice_engine_events.cpp`
   - `VoiceEngine::ProcessEvents(...)`
 
 Behavior:
@@ -1122,6 +1139,11 @@ Highest-priority files:
 Secondary related files, depending on the feature:
 - `voice_engine.h`
 - `voice_engine.cpp`
+- `voice_engine_playback.cpp`
+- `voice_engine_emphasis.cpp`
+- `voice_engine_voice_lifecycle.cpp`
+- `voice_engine_events.cpp`
+- `voice_engine_render.cpp`
 - `sample_edit.h`
 - `ui_layout.*`
 - `ui_render.*`

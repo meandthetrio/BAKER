@@ -109,7 +109,7 @@
   - event_queue.h: `Event`, `EventType`, `EventQueueSPSC` (`Push`, `Pop`, `Overflows`, `kCapacity`).
   - main.cpp: MIDI decode → `g_evtq.Push(...)` and `events_pushed` / `queue_overflows` increments.
   - main.cpp: `AudioCallback` calls `g_voice.ProcessEvents(g_evtq)` once per audio block.
-  - voice_engine.cpp: `VoiceEngine::ProcessEvents` drains via `q.Pop(e)` and increments `events_popped`.
+  - voice_engine_events.cpp: `VoiceEngine::ProcessEvents` drains via `q.Pop(e)` and increments `events_popped`.
   - app_state.h: `events_pushed`, `events_popped`, `queue_overflows` counters.
 - Proof (runtime)
   - Event queue is wired MAIN → AUDIO (main.cpp pushes; AudioCallback drains via voice_engine).
@@ -141,7 +141,8 @@
 - Proof (code)
   - main.cpp: MIDI decode → `g_evtq.Push(...)`; `AudioCallback` drains via `g_voice.ProcessEvents(g_evtq)`.
   - event_queue.h: `Event`, `EventType` for NoteOn/NoteOff payloads.
-  - voice_engine.cpp: `ProcessEvents`, `AllocateVoice_`, `NoteOff_`, `AllNotesOff_`.
+  - voice_engine_events.cpp: `ProcessEvents`.
+  - voice_engine_voice_lifecycle.cpp: `AllocateVoice_`, `NoteOff_`, `AllNotesOff_`.
   - main.cpp + ui_worker.*: sample load publish/apply path (`g_voice.SetSample` in AudioCallback).
 - Proof (runtime)
   - Load a sample (SD BROWSE → load), then send MIDI NoteOn/NoteOff (arp).
@@ -153,8 +154,9 @@
 - Proof (code)
   - voice_engine.h: `Voice` struct with `start_id` and `VoiceEngine::kMaxVoices = 10`.
   - voice_engine.cpp: static `g_voice_pool[VoiceEngine::kMaxVoices]` preallocates voices.
-  - voice_engine.cpp: `AllocateVoice_` prefers idle voice; otherwise steals Oldest Note (smallest `start_id`).
-  - voice_engine.cpp: `note_start_counter_` increments in `ProcessEvents`; `FinishStopFade_` returns voices to `Idle`.
+  - voice_engine_voice_lifecycle.cpp: `AllocateVoice_` prefers idle voice; otherwise steals Oldest Note (smallest `start_id`).
+  - voice_engine_events.cpp: `note_start_counter_` increments in `ProcessEvents`.
+  - voice_engine_voice_lifecycle.cpp: `FinishStopFade_` returns voices to `Idle`.
 - Proof (runtime)
   - Send > max voices simultaneously (12–16 note chord or sustain spam).
   - Audio continues with deterministic stealing (older notes cut/ducked); no crashes or stuck voices.
@@ -164,7 +166,7 @@
 - Status: DONE
 - Proof (code)
   - main.cpp: `AudioCallback` drains events each block (`g_voice.ProcessEvents`) and applies SD publish/edit handoffs (`sd_published_*`, `sd_edit_*`).
-  - voice_engine.cpp: `ProcessEvents` drains the SPSC queue once per block.
+  - voice_engine_events.cpp: `ProcessEvents` drains the SPSC queue once per block.
   - params.cpp: double-buffer publish (`PublishTargets` with IRQ guard, `published_idx_`) and per-block smoothing in `AudioBlockTick`.
   - app_state.h + ui_worker.cpp: ready/gen publish for SD sample + edit (`sd_published_*`, `sd_edit_*`).
 - Proof (runtime)
@@ -179,15 +181,16 @@
   - sampler_sample.h: `Sample` struct (metadata + PCM pointer).
   - embedded_sample.h / embedded_long_sample.h: embedded PCM arrays + `GetEmbeddedSample`/`GetEmbeddedLongSample`.
   - main.cpp: selects embedded samples (`g_voice.SetSampleBank`, `g_voice.SetSample`).
-  - voice_engine.cpp: `ProcessEvents` selects `current_sample_`/`sample_bank_`; `RenderBlock` reads `sample->pcm`.
+  - voice_engine_events.cpp: `ProcessEvents` selects `current_sample_`/`sample_bank_`.
+  - voice_engine_render.cpp: `RenderBlock` reads `sample->pcm`.
 - Proof (runtime)
   - TBD: NoteOn plays something that is clearly a recorded sample (current embedded samples are procedural stubs).
 
 ### 2.1 — Basic Sample Reader (linear interpolation)
 - Status: DONE
 - Proof (code)
-  - voice_engine.cpp: `SampleAtLinear` / `SampleAtLinearRegion` compute `a + frac * (b - a)`.
-  - voice_engine.cpp: `RenderBlock` reads PCM via the linear reader during playback.
+  - voice_engine_playback.cpp: `SampleAtLinear` / `SampleAtLinearRegion` compute `a + frac * (b - a)`.
+  - voice_engine_render.cpp: `RenderBlock` reads PCM via the linear reader during playback.
   - voice_engine.h: `Voice.pos` / `Voice.ratio` (fractional position + rate).
 - Proof (runtime)
   - Play the embedded sample at low and high pitches (wide MIDI interval).
@@ -196,8 +199,8 @@
 ### 2.2 — Click-Free Start/Stop (short fades)
 - Status: DONE
 - Proof (code)
-  - voice_engine.cpp: `ComputeFadeStep` uses `kFadeInMs` (~3 ms) to set per-voice `fade_in_step`.
-  - voice_engine.cpp: `StartStopFade_` applies stop fade; `FinishStopFade_` returns voice to idle.
+  - voice_engine_playback.cpp: `ComputeFadeStep` uses `kFadeInMs` (~3 ms) to set per-voice `fade_in_step`.
+  - voice_engine_voice_lifecycle.cpp: `StartStopFade_` applies stop fade; `FinishStopFade_` returns voice to idle.
   - voice_engine.cpp: `VoiceEngine::Init` computes `stop_fade_samples_` from `kStopFadeMs` (~3 ms), clamped by `kStopFadeMinMs`/`kStopFadeMaxMs` (1–5 ms).
   - voice_engine.h: `fade_in_step`, `stop_fade_samples_remaining` state on `Voice`.
 - Proof (runtime)
@@ -207,8 +210,9 @@
 ### 2.3 — Pitching (MIDI note → playback rate)
 - Status: DONE
 - Proof (code)
-  - voice_engine.cpp: `ComputeRatio` maps MIDI note + `Sample::root_key` to playback ratio.
-  - voice_engine.cpp: `StartVoice_` applies `ratio` to per-voice playback; `ProcessEvents` sets it on NoteOn.
+  - voice_engine_playback.cpp: `ComputeRatio` maps MIDI note + `Sample::root_key` to playback ratio.
+  - voice_engine_voice_lifecycle.cpp: `StartVoice_` applies `ratio` to per-voice playback.
+  - voice_engine_events.cpp: `ProcessEvents` sets it on NoteOn.
   - voice_engine.h: `Voice.ratio` (per-voice rate).
   - sampler_sample.h: `Sample::root_key` (pitch reference).
 - Proof (runtime)
@@ -220,9 +224,9 @@
 - Status: DONE
 - Proof (code)
   - voice_engine.h: per-voice ADSR state (`env_stage`, `env_level`, `env_a_step`, `env_d_step`, `env_r_step`, `env_sustain`).
-  - voice_engine.cpp: `InitEnvelope` (Attack/Decay/Sustain setup) and `SetEnvelopeRelease` on NoteOff.
-  - voice_engine.cpp: `StepEnvelope` ticks per-sample in `RenderBlock` and multiplies the sample (`s *= env_level`).
-  - voice_engine.cpp: ADSR time constants are fixed (`kEnvAttackSec`, `kEnvDecaySec`, `kEnvSustainLevel`, `kEnvReleaseSec`).
+  - voice_engine_playback.cpp: `InitEnvelope` (Attack/Decay/Sustain setup), `SetEnvelopeRelease`, and `StepEnvelope`.
+  - voice_engine_render.cpp: `StepEnvelope` is used per-sample in `RenderBlock` and multiplies the sample (`s *= env_level`).
+  - voice_engine_playback.cpp: ADSR time constants are fixed (`kEnvAttackSec`, `kEnvDecaySec`, `kEnvSustainLevel`, `kEnvReleaseSec`).
 - Proof (runtime)
   - Tap a note vs long hold: audible attack/decay and a release tail on NoteOff.
   - No stuck notes; voices return to idle after release.
@@ -232,8 +236,9 @@
 - Proof (code)
   - sampler_sample.h: `loop_start`, `loop_end`, `loop_enabled` fields in `Sample`.
   - sample_edit.h: `SampleEdit` loop fields + `SampleEdit_Clamp` bounds checks.
-  - voice_engine.cpp: `AdvancePos` wraps forward when loop enabled (`pos >= loop_end → pos = loop_start`).
-  - voice_engine.cpp: `RenderBlock`/`SampleAtLinearRegion` use loop points during playback.
+  - voice_engine_playback.cpp: `AdvancePos` wraps forward when loop enabled (`pos >= loop_end → pos = loop_start`).
+  - voice_engine_render.cpp: `RenderBlock` uses loop points during playback.
+  - voice_engine_playback.cpp: `SampleAtLinearRegion` reads the looped region.
 - Proof (runtime)
   - Sustained note continues beyond the original sample end when loop is enabled.
   - If sample edit UI exists, moving loop points changes the loop region audibly.
@@ -242,8 +247,8 @@
 - Status: DONE
 - Proof (code)
   - voice_engine.h: per-voice filter state `lpf_z`, global cutoff `lpf_cutoff_hz_`.
-  - voice_engine.cpp: cutoff → `lpf_g` computation + clamp (20–20k Hz; `lpf_g` 0.001–0.999).
-  - voice_engine.cpp: per-sample update `lpf_z += lpf_g * (s - lpf_z)` in `RenderBlock`.
+  - voice_engine_render.cpp: cutoff → `lpf_g` computation + clamp (20–20k Hz; `lpf_g` 0.001–0.999).
+  - voice_engine_render.cpp: per-sample update `lpf_z += lpf_g * (s - lpf_z)` in `RenderBlock`.
   - params.cpp: `AudioBlockTick` smooths `current.lpf_cutoff_hz`; `main.cpp` passes to `g_voice.SetLpfCutoff`.
 - Proof (runtime)
   - Sweeping cutoff audibly changes timbre smoothly.
@@ -252,8 +257,8 @@
 ### 2.7 — Mixer + Gain Staging (headroom rules)
 - Status: DONE
 - Proof (code)
-  - voice_engine.cpp: voice summing in `RenderBlock` with `mix_scale = 0.7f / kMaxVoices`.
-  - voice_engine.cpp: clip detection after scaling; increments `clip_count_` when mix exceeds ±1.0.
+  - voice_engine_render.cpp: voice summing in `RenderBlock` with `mix_scale = 0.7f / kMaxVoices`.
+  - voice_engine_render.cpp: clip detection after scaling; increments `clip_count_` when mix exceeds ±1.0.
   - audio_engine.cpp: master level applied per sample (`p.master_level`); SAT soft clip only in FX path.
   - app_state.h + ui_overlay.cpp: `clip_count` stored and shown as `CLP`.
 - Proof (runtime)
@@ -312,7 +317,7 @@
 - Proof (code)
   - keygroups.h/.cpp: `Keygroup` table and `Keygroups_SelectSampleIndex` note→sample mapping.
   - main.cpp: MIDI NoteOn uses `Keygroups_SelectSampleIndex` and packs `sample_index` into the event.
-  - voice_engine.cpp: `ProcessEvents` selects from `sample_bank_` using the event’s `sample_index`.
+  - voice_engine_events.cpp: `ProcessEvents` selects from `sample_bank_` using the event’s `sample_index`.
 - Proof (runtime)
   - With two embedded samples, notes below 60 trigger sample 0 and notes 60+ trigger sample 1.
   - TBD: UI editing/persistence of keygroup mappings.
@@ -322,7 +327,8 @@
 - Proof (code)
   - velocity_layers.h/.cpp: `Velocity_SelectLayer` maps `vel < 64` → layer 0, else layer 1.
   - main.cpp: NoteOn packs velocity + layer into the event payload.
-  - voice_engine.cpp: `vel_layer` drives `vel_brightness` (soft vs hard timbre); no per‑layer sample selection.
+  - voice_engine_events.cpp: `vel_layer` is read from the event payload.
+  - voice_engine_voice_lifecycle.cpp: `vel_brightness` drives the soft vs hard timbre setup; no per-layer sample selection.
 - Proof (runtime)
   - Soft vs hard velocity can change brightness (if audible with current sample).
   - TBD: different samples per velocity layer (not implemented).
@@ -332,7 +338,7 @@
 - Proof (code)
   - mod_sources.h/.cpp: `GlobalLFO` (sine/pulse) and `ModEnv` (attack/decay) with `TickBlock`.
   - mod_matrix.h/.cpp: routes use `ModSource::LFO` / `ModSource::ModEnv` to `FilterCutoff`/`Pitch`.
-  - voice_engine.cpp: LFO/ModEnv tick per block; values routed to cutoff/pitch via mod matrix.
+  - voice_engine_render.cpp: LFO/ModEnv tick per block; values routed to cutoff/pitch via mod matrix.
   - params.cpp: `lfo_rate_hz`, `lfo_depth`, `env_attack_ms`, `env_decay_ms`, `env_amount` smoothing.
 - Proof (runtime)
   - Enable an LFO→filter/pitch route and vary rate/depth: audible periodic modulation.
@@ -344,7 +350,7 @@
   - mod_matrix.h/.cpp: `ModRoute` (src/dst/amount/enabled), `kMaxModRoutes = 4`, `ModMatrix_Publish` double‑buffers routes.
   - app_state.h: `mod_matrix` + `mod_routes_ui` storage.
   - ui_screens.cpp: MOD screen edits enable/amount/dst and publishes via `ModMatrix_Publish`.
-  - voice_engine.cpp: reads active route buffer and applies modulation to filter cutoff/pitch.
+  - voice_engine_render.cpp: reads active route buffer and applies modulation to filter cutoff/pitch.
 - Proof (runtime)
   - From MOD screen, enable a route and set AMT: audible LFO→filter or LFO→pitch modulation.
   - Route changes take effect immediately without glitches.
@@ -354,7 +360,7 @@
 - Proof (code)
   - plocks.h/.cpp: `Pattern` (16 steps), `StepLock` (enabled + `cutoff_norm`), `PLocks_PublishCurrentStep`.
   - ui_logic.cpp: sequencer tick advances `step_index` by `seq_bpm` and publishes locks when `plock_apply_enabled`.
-  - voice_engine.cpp: applies `PLocksState` at block boundary (`lock_gen`), overrides cutoff normalization when enabled.
+  - voice_engine_render.cpp: applies `PLocksState` at block boundary (`lock_gen`), overrides cutoff normalization when enabled.
 - Proof (runtime)
   - With `seq_running` and `plock_apply_enabled`, sustained notes alternate brightness as steps advance (default pattern).
   - TBD: UI authoring/persistence of per‑step locks; only cutoff lock exists today.
@@ -364,7 +370,7 @@
 - Proof (code)
   - macros.h/.cpp: `MacroState` (A/B values), `MacroDef` mappings, `Macros_Publish` + `Macros_Smooth` + `Macros_Apply`.
   - ui_screens.cpp: Macro screen edits `macro_ui.value[]` and publishes.
-  - voice_engine.cpp: applies macros to cutoff/LFO depth/env amount/route0 amount each block.
+  - voice_engine_render.cpp: applies macros to cutoff/LFO depth/env amount/route0 amount each block.
   - main.cpp: applies macros to SAT drive in the audio callback.
 - Proof (runtime)
   - Sweep Macro A: filter cutoff + LFO depth (and drive if SAT enabled) change together with smooth response.

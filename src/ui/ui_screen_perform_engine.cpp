@@ -288,13 +288,13 @@ void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
     EngineRefreshLoadedMetadata(*ctx.app);
     const bool pending_engine_load = ctx.app->engine.engine_load_from_perform
                                      && (ctx.app->engine.engine_load_target_layer < kPerformLayerCount);
-    const uint8_t layer = ctx.app->perform.perform_layer & 1u;
+    const uint8_t layer = ctx.app->engine.perform_layer & 1u;
     if(!pending_engine_load)
-        ctx.app->sd_current_slot.store(layer, std::memory_order_release);
+        ctx.app->shared.sd_current_slot.store(layer, std::memory_order_release);
 
     ctx.app->engine.engine_load_from_perform = false;
     ctx.app->engine.engine_load_target_layer = 0xFFu;
-    ctx.app->perform.perform_engine_row = static_cast<uint8_t>(kEngineRowLoad);
+    ctx.app->engine.perform_engine_row = static_cast<uint8_t>(kEngineRowLoad);
     PublishEngineLayerParams(ctx);
     ctx.app->ui.ui_dirty = true;
 }
@@ -304,13 +304,13 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
     if(!ctx.app)
         return false;
 
-    const uint8_t row = ctx.app->perform.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+    const uint8_t row = ctx.app->engine.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
     if(row == kEngineRowWave)
         return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformWaveEdit);
     if(row != kEngineRowLoad)
         return false;
 
-    ctx.app->engine.engine_load_target_layer = ctx.app->perform.perform_layer & 1u;
+    ctx.app->engine.engine_load_target_layer = ctx.app->engine.perform_layer & 1u;
     ctx.app->engine.engine_load_from_perform = true;
     return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::SdBrowse);
 }
@@ -327,9 +327,9 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        app.perform.perform_layer ^= 1u;
-        const uint8_t layer = app.perform.perform_layer & 1u;
-        app.sd_current_slot.store(layer, std::memory_order_release);
+        app.engine.perform_layer ^= 1u;
+        const uint8_t layer = app.engine.perform_layer & 1u;
+        app.shared.sd_current_slot.store(layer, std::memory_order_release);
         app.engine.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
         app.ui.ui_dirty = true;
@@ -338,21 +338,21 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        int row = static_cast<int>(app.perform.perform_engine_row);
+        int row = static_cast<int>(app.engine.perform_engine_row);
         row += e.value;
         while(row < 0)
             row += kEngineRowCount;
         while(row >= kEngineRowCount)
             row -= kEngineRowCount;
-        app.perform.perform_engine_row = static_cast<uint8_t>(row);
+        app.engine.perform_engine_row = static_cast<uint8_t>(row);
         app.ui.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
-        const uint8_t layer = app.perform.perform_layer & 1u;
-        const uint8_t row = app.perform.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+        const uint8_t layer = app.engine.perform_layer & 1u;
+        const uint8_t row = app.engine.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
         bool changed = false;
         if(row == kEngineRowTune)
         {
@@ -388,10 +388,10 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const uint8_t layer = app.perform.perform_layer & 1u;
-    const Sample& sample = app.sd_slots[layer];
+    const uint8_t layer = app.engine.perform_layer & 1u;
+    const Sample& sample = app.shared.sd_slots[layer];
     const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
-    const SampleEdit* edit = sample_loaded ? &app.sd_edit_slots[layer] : nullptr;
+    const SampleEdit* edit = sample_loaded ? &app.shared.sd_edit_slots[layer] : nullptr;
 
     const UiLayout layout = UiLayout_Default();
     char header_label[16] = {};
@@ -464,7 +464,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
         kFooterY += (footer_region_h - Font5x7::H) / 2;
 
     DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true);
-    const uint8_t row = app.perform.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+    const uint8_t row = app.engine.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
     if(row == kEngineRowWave)
     {
         // Invert full waveform preview region to signal enterable deep menu.

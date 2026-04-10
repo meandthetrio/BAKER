@@ -41,14 +41,14 @@ bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& 
     if(app.ui.ui_parent_preview_mode == 2
        && UiNav_Active(app.ui.ui_nav) == UiScreenId::PerformProcess)
     {
-        const bool saved_detail = app.perform.perform_process_detail_active;
-        const bool saved_eqg    = app.perform.perform_process_eq_graph_active;
-        app.perform.perform_process_detail_active  = false;
-        app.perform.perform_process_eq_graph_active = false;
+        const bool saved_detail = app.engine.perform_process_detail_active;
+        const bool saved_eqg    = app.engine.perform_process_eq_graph_active;
+        app.engine.perform_process_detail_active  = false;
+        app.engine.perform_process_eq_graph_active = false;
         const UiScreen& process = GetScreen(UiScreenId::PerformProcess);
         const bool handled = process.OnEvent && process.OnEvent(parent_ctx, pe);
-        app.perform.perform_process_detail_active   = saved_detail;
-        app.perform.perform_process_eq_graph_active = saved_eqg;
+        app.engine.perform_process_detail_active   = saved_detail;
+        app.engine.perform_process_eq_graph_active = saved_eqg;
         if(handled)
         {
             app.ui.ui_dirty = true;
@@ -78,18 +78,18 @@ void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms
     if(app.ui.ui_parent_preview_mode == 2
        && UiNav_Active(app.ui.ui_nav) == UiScreenId::PerformProcess)
     {
-        const bool focus_has_submenu = (app.perform.perform_process_main_cursor >= 2u);
+        const bool focus_has_submenu = (app.engine.perform_process_main_cursor >= 2u);
         if(focus_has_submenu)
         {
-            app.perform.perform_process_detail_active   = app.ui.ui_parent_preview_origin_process_detail;
-            app.perform.perform_process_eq_graph_active = app.ui.ui_parent_preview_origin_process_eq_graph;
+            app.engine.perform_process_detail_active   = app.ui.ui_parent_preview_origin_process_detail;
+            app.engine.perform_process_eq_graph_active = app.ui.ui_parent_preview_origin_process_eq_graph;
         }
         else
         {
-            app.perform.perform_process_main_cursor = app.ui.ui_parent_preview_origin_main_cursor;
-            app.perform.perform_process_fx_cursor = app.ui.ui_parent_preview_origin_fx_cursor;
-            app.perform.perform_process_detail_active   = app.ui.ui_parent_preview_origin_process_detail;
-            app.perform.perform_process_eq_graph_active = app.ui.ui_parent_preview_origin_process_eq_graph;
+            app.engine.perform_process_main_cursor = app.ui.ui_parent_preview_origin_main_cursor;
+            app.engine.perform_process_fx_cursor = app.ui.ui_parent_preview_origin_fx_cursor;
+            app.engine.perform_process_detail_active   = app.ui.ui_parent_preview_origin_process_detail;
+            app.engine.perform_process_eq_graph_active = app.ui.ui_parent_preview_origin_process_eq_graph;
         }
     }
     else if(app.ui.ui_parent_preview_mode == 1
@@ -142,34 +142,34 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
     const uint32_t now_ms = System::GetNow();
     Controls_Tick(controls_, app, now_ms);
 
-    if(app.seq_last_ms == 0)
-        app.seq_last_ms = now_ms;
-    uint32_t seq_dt = now_ms - app.seq_last_ms;
-    app.seq_last_ms = now_ms;
-    if(app.seq_running)
+    if(app.shared.seq_last_ms == 0)
+        app.shared.seq_last_ms = now_ms;
+    uint32_t seq_dt = now_ms - app.shared.seq_last_ms;
+    app.shared.seq_last_ms = now_ms;
+    if(app.shared.seq_running)
     {
-        app.seq_accum_ms += seq_dt;
-        float step_ms_f = 15000.0f / (float)app.seq_bpm;
+        app.shared.seq_accum_ms += seq_dt;
+        float step_ms_f = 15000.0f / (float)app.shared.seq_bpm;
         if(step_ms_f < 1.0f)
             step_ms_f = 1.0f;
         const uint32_t step_ms = static_cast<uint32_t>(step_ms_f + 0.5f);
-        while(app.seq_accum_ms >= step_ms)
+        while(app.shared.seq_accum_ms >= step_ms)
         {
-            app.seq_accum_ms -= step_ms;
-            app.plock_pattern.step_index = (app.plock_pattern.step_index + 1) % kSteps;
-            if(app.plock_apply_enabled)
-                PLocks_PublishCurrentStep(app.plocks, app.plock_pattern);
+            app.shared.seq_accum_ms -= step_ms;
+            app.shared.plock_pattern.step_index = (app.shared.plock_pattern.step_index + 1) % kSteps;
+            if(app.shared.plock_apply_enabled)
+                PLocks_PublishCurrentStep(app.shared.plocks, app.shared.plock_pattern);
             app.ui.ui_dirty = true;
         }
     }
 
     // 1-second rolling peak of active voices (sampled at control rate).
-    const uint32_t active_now = app.voices_active.load(std::memory_order_relaxed);
+    const uint32_t active_now = app.diag.voices_active.load(std::memory_order_relaxed);
     if(peak_window_start_ms_ == 0)
     {
         peak_window_start_ms_ = now_ms;
         peak_active_          = active_now;
-        app.voices_peak_1s.store(peak_active_, std::memory_order_relaxed);
+        app.diag.voices_peak_1s.store(peak_active_, std::memory_order_relaxed);
     }
     else
     {
@@ -177,11 +177,11 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
             peak_active_ = active_now;
 
         // Keep OLED updated quickly for short bursts (e.g. stress test).
-        app.voices_peak_1s.store(peak_active_, std::memory_order_relaxed);
+        app.diag.voices_peak_1s.store(peak_active_, std::memory_order_relaxed);
 
         if((now_ms - peak_window_start_ms_) >= 1000)
         {
-            app.voices_peak_1s.store(peak_active_, std::memory_order_relaxed);
+            app.diag.voices_peak_1s.store(peak_active_, std::memory_order_relaxed);
             peak_window_start_ms_ = now_ms;
             peak_active_          = active_now;
         }
@@ -199,12 +199,12 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
         const Event evt = Event::NoteOffEvent(slot.note);
         if(evtq.Push(evt))
         {
-            app.events_pushed.fetch_add(1, std::memory_order_relaxed);
+            app.diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
             slot.active = false;
         }
         else
         {
-            app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+            app.diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
             app.ui.ui_dirty = true;
         }
     }
@@ -234,10 +234,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
     UiInputEvent e{};
     int processed = 0;
-    while(processed < kMaxUiEventsPerTick && UiInput_Pop(app.input.ui_in, e))
+    while(processed < kMaxUiEventsPerTick && UiInput_Pop(app.ui.ui_in, e))
     {
         processed++;
-        app.input.ui_in_pop++;
+        app.ui.ui_in_pop++;
         input_detected = true;
 
         if(e.type == UiInputType::BtnDown)
@@ -247,13 +247,13 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 app.ui.ui_lshift_held = true;
                 const UiScreenId active = UiNav_Active(app.ui.ui_nav);
                 if(active == UiScreenId::PerformProcess
-                   && (app.perform.perform_process_detail_active || app.perform.perform_process_eq_graph_active))
+                   && (app.engine.perform_process_detail_active || app.engine.perform_process_eq_graph_active))
                 {
                     app.ui.ui_parent_preview_origin_screen = active;
-                    app.ui.ui_parent_preview_origin_main_cursor = app.perform.perform_process_main_cursor;
-                    app.ui.ui_parent_preview_origin_fx_cursor = app.perform.perform_process_fx_cursor;
-                    app.ui.ui_parent_preview_origin_process_detail   = app.perform.perform_process_detail_active;
-                    app.ui.ui_parent_preview_origin_process_eq_graph = app.perform.perform_process_eq_graph_active;
+                    app.ui.ui_parent_preview_origin_main_cursor = app.engine.perform_process_main_cursor;
+                    app.ui.ui_parent_preview_origin_fx_cursor = app.engine.perform_process_fx_cursor;
+                    app.ui.ui_parent_preview_origin_process_detail   = app.engine.perform_process_detail_active;
+                    app.ui.ui_parent_preview_origin_process_eq_graph = app.engine.perform_process_eq_graph_active;
                     app.ui.ui_parent_preview_active = true;
                     app.ui.ui_parent_preview_mode = 2;
                     app.ui.ui_parent_preview_from_top = app.ui.ui_nav.top;
@@ -262,10 +262,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 else if(app.ui.ui_nav.top > 0)
                 {
                     app.ui.ui_parent_preview_origin_screen = active;
-                    app.ui.ui_parent_preview_origin_main_cursor = app.perform.perform_process_main_cursor;
-                    app.ui.ui_parent_preview_origin_fx_cursor = app.perform.perform_process_fx_cursor;
-                    app.ui.ui_parent_preview_origin_process_detail   = app.perform.perform_process_detail_active;
-                    app.ui.ui_parent_preview_origin_process_eq_graph = app.perform.perform_process_eq_graph_active;
+                    app.ui.ui_parent_preview_origin_main_cursor = app.engine.perform_process_main_cursor;
+                    app.ui.ui_parent_preview_origin_fx_cursor = app.engine.perform_process_fx_cursor;
+                    app.ui.ui_parent_preview_origin_process_detail   = app.engine.perform_process_detail_active;
+                    app.ui.ui_parent_preview_origin_process_eq_graph = app.engine.perform_process_eq_graph_active;
                     app.ui.ui_parent_preview_active = true;
                     app.ui.ui_parent_preview_mode = 1;
                     app.ui.ui_parent_preview_from_top = app.ui.ui_nav.top;
@@ -307,7 +307,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             // Toggle SHIFT menu.
             const UiScreenId active = UiNav_Active(app.ui.ui_nav);
             if(active == UiScreenId::PerformProcess
-               && (app.perform.perform_process_detail_active || app.perform.perform_process_eq_graph_active))
+               && (app.engine.perform_process_detail_active || app.engine.perform_process_eq_graph_active))
             {
                 // Let PROCESS detail / EQ graph consume POD1 as "back to PROCESS".
                 // Do not globally open SHIFT menu from inside FX detail.
@@ -321,10 +321,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             else
             {
                 // Reset SHIFT menu state on entry.
-                app.shift.shift_menu_cursor = 0;
-                app.shift.shift_menu_edit_volume = false;
+                app.ui.shift_menu_cursor = 0;
+                app.ui.shift_menu_edit_volume = false;
                 // Cancel any pending SD delete mode when opening SHIFT.
-                app.shift.sd_delete_mode = false;
+                app.ui.sd_delete_mode = false;
                 UiNav_Push(app.ui.ui_nav, UiScreenId::ShiftMenu);
             }
             app.ui.ui_dirty = true;
@@ -334,9 +334,9 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
         {
-            if(app.input.value_edit.active)
+            if(app.ui.value_edit.active)
             {
-                UiValueEdit_Cancel(app.input.value_edit);
+                UiValueEdit_Cancel(app.ui.value_edit);
                 app.ui.ui_dirty = true;
                 continue;
             }
@@ -346,21 +346,21 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         {
             if(e.id == kUiBtnPod1)
             {
-                app.seq_running = !app.seq_running;
+                app.shared.seq_running = !app.shared.seq_running;
                 app.ui.ui_dirty = true;
                 continue;
             }
             if(e.id == kUiBtnPodEnc)
             {
-                app.plock_apply_enabled = !app.plock_apply_enabled;
+                app.shared.plock_apply_enabled = !app.shared.plock_apply_enabled;
                 app.ui.ui_dirty = true;
                 continue;
             }
             if(e.id == kUiBtnExtEnc)
             {
-                const uint8_t cur = app.lfo_wave.load(std::memory_order_relaxed);
+                const uint8_t cur = app.shared.lfo_wave.load(std::memory_order_relaxed);
                 const uint8_t next = (cur == 0) ? 1u : 0u;
-                app.lfo_wave.store(next, std::memory_order_relaxed);
+                app.shared.lfo_wave.store(next, std::memory_order_relaxed);
                 app.ui.ui_dirty = true;
                 continue;
             }
@@ -368,10 +368,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             {
                 const Event evt = Event::AllNotesOffEvent();
                 if(evtq.Push(evt))
-                    app.events_pushed.fetch_add(1, std::memory_order_relaxed);
+                    app.diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
                 else
                 {
-                    app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+                    app.diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
                     app.ui.ui_dirty = true;
                 }
 
@@ -407,15 +407,15 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         app.ui.ui_dirty = true;
     }
 
-    if(app.record.record_state == RecordUiState::Recording
-       && app.rec_active.load(std::memory_order_acquire) == 0)
+    if(app.recording.record_state == RecordUiState::Recording
+       && app.shared.rec_active.load(std::memory_order_acquire) == 0)
     {
-        app.rec_monitor_enable.store(0, std::memory_order_release);
-        const uint32_t rec_len = app.rec_length.load(std::memory_order_acquire);
+        app.shared.rec_monitor_enable.store(0, std::memory_order_release);
+        const uint32_t rec_len = app.shared.rec_length.load(std::memory_order_acquire);
         if(rec_len > 0)
         {
-            uint8_t slot = app.rec_slot_pending.load(std::memory_order_acquire) & 1u;
-            Sample& s = app.sd_slots[slot];
+            uint8_t slot = app.shared.rec_slot_pending.load(std::memory_order_acquire) & 1u;
+            Sample& s = app.shared.sd_slots[slot];
             s.pcm = SdSampleBuffer(slot);
             s.length = rec_len;
             s.sample_rate = 48000;
@@ -425,30 +425,30 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             s.loop_enabled = false;
 
             SampleEdit edit = SampleEdit_Default(rec_len);
-            app.sd_edit_slots[slot] = edit;
-            app.sd_edit_pending = edit;
-            app.sd_edit_slot.store(slot, std::memory_order_release);
-            app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-            app.sd_edit_ready.store(1, std::memory_order_release);
+            app.shared.sd_edit_slots[slot] = edit;
+            app.shared.sd_edit_pending = edit;
+            app.shared.sd_edit_slot.store(slot, std::memory_order_release);
+            app.shared.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+            app.shared.sd_edit_ready.store(1, std::memory_order_release);
 
-            app.sd_current_slot.store(slot, std::memory_order_release);
-            app.record.record_slot = slot;
-            app.record.record_state = RecordUiState::Review;
+            app.shared.sd_current_slot.store(slot, std::memory_order_release);
+            app.recording.record_slot = slot;
+            app.recording.record_state = RecordUiState::Review;
             app.ui.ui_dirty = true;
         }
         else
         {
-            app.record.record_state = RecordUiState::SourceSelect;
+            app.recording.record_state = RecordUiState::SourceSelect;
             app.ui.ui_dirty = true;
         }
     }
 
     const bool record_review_active = (active_screen == UiScreenId::Record
-                                       && app.record.record_state == RecordUiState::Review);
-    if(record_review_active && app.record.record_preview_hold && !app.record.record_preview_gate)
+                                       && app.recording.record_state == RecordUiState::Review);
+    if(record_review_active && app.recording.record_preview_hold && !app.recording.record_preview_gate)
     {
-        const uint8_t slot = app.record.record_slot & 1u;
-        const Sample& s = app.sd_slots[slot];
+        const uint8_t slot = app.recording.record_slot & 1u;
+        const Sample& s = app.shared.sd_slots[slot];
         if(s.pcm != nullptr && s.length > 0)
         {
             const uint8_t velocity = 120;
@@ -457,31 +457,31 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             evt.value = static_cast<uint32_t>(slot) | (static_cast<uint32_t>(vel_layer) << 8);
             if(evtq.Push(evt))
             {
-                app.events_pushed.fetch_add(1, std::memory_order_relaxed);
-                app.record.record_preview_gate = true;
+                app.diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
+                app.recording.record_preview_gate = true;
             }
             else
             {
-                app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+                app.diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
                 app.ui.ui_dirty = true;
             }
         }
     }
-    if((!record_review_active || !app.record.record_preview_hold) && app.record.record_preview_gate)
+    if((!record_review_active || !app.recording.record_preview_hold) && app.recording.record_preview_gate)
     {
         const Event evt = Event::NoteOffEvent(60);
         if(evtq.Push(evt))
-            app.events_pushed.fetch_add(1, std::memory_order_relaxed);
+            app.diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
         else
-            app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-        app.record.record_preview_gate = false;
+            app.diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+        app.recording.record_preview_gate = false;
     }
 
     shift_held = app.ui.ui_lshift_held;
-    UiOverlay_Update(app.render.overlay, now_ms, false, app.input.value_edit.active);
+    UiOverlay_Update(app.diag.overlay, now_ms, false, app.ui.value_edit.active);
 
-    app.input.ui_in_ovf = UiInput_Dropped(app.input.ui_in);
-    app.input.ui_in_hi = UiInput_HighWater(app.input.ui_in);
+    app.ui.ui_in_ovf = UiInput_Dropped(app.ui.ui_in);
+    app.ui.ui_in_hi = UiInput_HighWater(app.ui.ui_in);
 
     if(app.engine.engine_header_invert_until_ms != 0u
        && static_cast<int32_t>(now_ms - app.engine.engine_header_invert_until_ms) >= 0)
@@ -494,14 +494,14 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         app.ui.ui_dirty = true;
 
     if(input_detected)
-        app.input.last_input_ms = now_ms;
+        app.ui.last_input_ms = now_ms;
 
     // Keep animated Record screens responsive at UI tick rate.
     if(active_screen == UiScreenId::Record)
     {
-        if(app.record.record_state == RecordUiState::Armed
-           || app.record.record_state == RecordUiState::Countdown
-           || app.record.record_state == RecordUiState::Recording)
+        if(app.recording.record_state == RecordUiState::Armed
+           || app.recording.record_state == RecordUiState::Countdown
+           || app.recording.record_state == RecordUiState::Recording)
         {
             app.ui.ui_dirty = true;
         }

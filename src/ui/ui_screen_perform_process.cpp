@@ -141,9 +141,9 @@ static uint8_t ProcessDetailParamCount(uint8_t fx_id)
 static void ProcessHandleLayerToggle(UiScreenCtx& ctx)
 {
     AppState& app = *ctx.app;
-    app.perform.perform_layer ^= 1u;
-    const uint8_t layer = app.perform.perform_layer & 1u;
-    app.sd_current_slot.store(layer, std::memory_order_release);
+    app.engine.perform_layer ^= 1u;
+    const uint8_t layer = app.engine.perform_layer & 1u;
+    app.shared.sd_current_slot.store(layer, std::memory_order_release);
     PublishEngineLayerParams(ctx);
     app.ui.ui_dirty = true;
 }
@@ -156,33 +156,33 @@ static void ProcessHandleLayerMuteToggle(UiScreenCtx& ctx, uint8_t layer)
     {
         // RSHIFT + click => snap to UNITY.
         t.engine_layer_master_level[layer] = 1.0f;
-        app.perform.perform_process_vol_unmuted_level[layer] = 1.0f;
-        app.perform.perform_process_vol_muted[layer] = false;
-        app.perform.perform_process_vol_pct[layer] = 100u;
+        app.engine.perform_process_vol_unmuted_level[layer] = 1.0f;
+        app.engine.perform_process_vol_muted[layer] = false;
+        app.engine.perform_process_vol_pct[layer] = 100u;
     }
     else
     {
         // Click => mute toggle for selected voice.
-        if(!app.perform.perform_process_vol_muted[layer])
+        if(!app.engine.perform_process_vol_muted[layer])
         {
             float saved = t.engine_layer_master_level[layer];
             if(saved < 0.001f)
                 saved = 1.0f;
-            app.perform.perform_process_vol_unmuted_level[layer] = saved;
-            app.perform.perform_process_vol_muted[layer] = true;
+            app.engine.perform_process_vol_unmuted_level[layer] = saved;
+            app.engine.perform_process_vol_muted[layer] = true;
             t.engine_layer_master_level[layer] = 0.0f;
-            app.perform.perform_process_vol_pct[layer] = 0u;
+            app.engine.perform_process_vol_pct[layer] = 0u;
         }
         else
         {
-            float restore = app.perform.perform_process_vol_unmuted_level[layer];
+            float restore = app.engine.perform_process_vol_unmuted_level[layer];
             if(restore < 0.0f)
                 restore = 0.0f;
             if(restore > kProcessLayerLevelUiMax)
                 restore = kProcessLayerLevelUiMax;
-            app.perform.perform_process_vol_muted[layer] = false;
+            app.engine.perform_process_vol_muted[layer] = false;
             t.engine_layer_master_level[layer] = restore;
-            app.perform.perform_process_vol_pct[layer] = static_cast<uint16_t>(restore * 100.0f + 0.5f);
+            app.engine.perform_process_vol_pct[layer] = static_cast<uint16_t>(restore * 100.0f + 0.5f);
         }
     }
     ctx.params->PublishTargets();
@@ -192,7 +192,7 @@ static void ProcessHandleLayerMuteToggle(UiScreenCtx& ctx, uint8_t layer)
 static void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e, uint8_t layer)
 {
     AppState& app = *ctx.app;
-    if(app.perform.perform_process_vol_muted[layer])
+    if(app.engine.perform_process_vol_muted[layer])
     {
         // Do not unmute on encoder turn; mute state toggles only on R-click.
         app.ui.ui_dirty = true;
@@ -224,8 +224,8 @@ static void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e
     if(next > kProcessLayerLevelUiMax)
         next = kProcessLayerLevelUiMax;
     t.engine_layer_master_level[layer] = next;
-    app.perform.perform_process_vol_unmuted_level[layer] = next;
-    app.perform.perform_process_vol_pct[layer] = static_cast<uint16_t>(next * 100.0f + 0.5f);
+    app.engine.perform_process_vol_unmuted_level[layer] = next;
+    app.engine.perform_process_vol_pct[layer] = static_cast<uint16_t>(next * 100.0f + 0.5f);
     ctx.params->PublishTargets();
     app.ui.ui_dirty = true;
 }
@@ -406,7 +406,7 @@ static ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(AppState& app,
     ProcessLayerVolumeUiState ui = {};
     for(int i = 0; i < 2; ++i)
     {
-        app.perform.perform_process_vol_pct[i]
+        app.engine.perform_process_vol_pct[i]
             = static_cast<uint16_t>(t.engine_layer_master_level[i] * 100.0f + 0.5f);
         FormatProcessLevelDb(t.engine_layer_master_level[i], ui.value_text[i], sizeof(ui.value_text[i]));
         const float norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[i]);
@@ -556,11 +556,11 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppState& app = *ctx.app;
-    const uint8_t main_cursor = static_cast<uint8_t>(app.perform.perform_process_main_cursor % 6u);
+    const uint8_t main_cursor = static_cast<uint8_t>(app.engine.perform_process_main_cursor % 6u);
     const bool main_selects_fx = (main_cursor >= 2u);
     const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 2u) & 0x03u)
-                                           : static_cast<uint8_t>(app.perform.perform_process_fx_cursor & 0x03u);
-    const uint8_t fx_id = app.perform.perform_process_fx_order[cursor];
+                                           : static_cast<uint8_t>(app.engine.perform_process_fx_cursor & 0x03u);
+    const uint8_t fx_id = app.engine.perform_process_fx_order[cursor];
 
     // POD2 toggles layer (same behavior as other PERFORM pages).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
@@ -571,23 +571,23 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown
        && (e.id == kUiBtnPod1 || e.id == kUiBtnPodEnc)
-       && (app.perform.perform_process_detail_active || app.perform.perform_process_eq_graph_active))
+       && (app.engine.perform_process_detail_active || app.engine.perform_process_eq_graph_active))
     {
-        app.perform.perform_process_detail_active   = false;
-        app.perform.perform_process_eq_graph_active = false;
+        app.engine.perform_process_detail_active   = false;
+        app.engine.perform_process_eq_graph_active = false;
         app.ui.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(app.perform.perform_process_eq_graph_active)
+        if(app.engine.perform_process_eq_graph_active)
         {
             app.ui.ui_dirty = true;
             return true;
         }
 
-        if(!app.perform.perform_process_detail_active)
+        if(!app.engine.perform_process_detail_active)
         {
             if(!main_selects_fx)
             {
@@ -595,17 +595,17 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 return true;
             }
             {
-                const uint8_t c = static_cast<uint8_t>((app.perform.perform_process_main_cursor - 2u) & 0x03u);
-                const uint8_t fid = app.perform.perform_process_fx_order[c];
+                const uint8_t c = static_cast<uint8_t>((app.engine.perform_process_main_cursor - 2u) & 0x03u);
+                const uint8_t fid = app.engine.perform_process_fx_order[c];
                 if(fid == 1u)
                 {
-                    app.perform.perform_process_eq_graph_active = true;
+                    app.engine.perform_process_eq_graph_active = true;
                 }
                 else
                 {
-                    app.perform.perform_process_detail_active = true;
-                    if(fid == 2u && app.perform.perform_process_detail_param[c] > 3u)
-                        app.perform.perform_process_detail_param[c] = 0u;
+                    app.engine.perform_process_detail_active = true;
+                    if(fid == 2u && app.engine.perform_process_detail_param[c] > 3u)
+                        app.engine.perform_process_detail_param[c] = 0u;
                 }
             }
             app.ui.ui_dirty = true;
@@ -619,7 +619,7 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        if(app.perform.perform_process_eq_graph_active && fx_id == 1u)
+        if(app.engine.perform_process_eq_graph_active && fx_id == 1u)
         {
             PerformParamsTargets& t = ctx.params->EditTargets();
             const float step = 0.018f * static_cast<float>(e.value);
@@ -628,15 +628,15 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.perform.perform_process_detail_active)
+        if(app.engine.perform_process_detail_active)
         {
-            int idx = static_cast<int>(app.perform.perform_process_detail_param[cursor]) + e.value;
+            int idx = static_cast<int>(app.engine.perform_process_detail_param[cursor]) + e.value;
             const int count = static_cast<int>(ProcessDetailParamCount(fx_id));
             while(idx < 0)
                 idx += count;
             while(idx >= count)
                 idx -= count;
-            app.perform.perform_process_detail_param[cursor] = static_cast<uint8_t>(idx);
+            app.engine.perform_process_detail_param[cursor] = static_cast<uint8_t>(idx);
             app.ui.ui_dirty = true;
             return true;
         }
@@ -645,9 +645,9 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             idx += 6;
         while(idx >= 6)
             idx -= 6;
-        app.perform.perform_process_main_cursor = static_cast<uint8_t>(idx);
-        if(app.perform.perform_process_main_cursor >= 2u)
-            app.perform.perform_process_fx_cursor = static_cast<uint8_t>((app.perform.perform_process_main_cursor - 2u) & 0x03u);
+        app.engine.perform_process_main_cursor = static_cast<uint8_t>(idx);
+        if(app.engine.perform_process_main_cursor >= 2u)
+            app.engine.perform_process_fx_cursor = static_cast<uint8_t>((app.engine.perform_process_main_cursor - 2u) & 0x03u);
         app.ui.ui_dirty = true;
         return true;
     }
@@ -656,16 +656,16 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         static uint32_t s_last_ext_t_ms = 0u;
         const float delta = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
-        if(app.perform.perform_process_eq_graph_active && fx_id == 1u)
+        if(app.engine.perform_process_eq_graph_active && fx_id == 1u)
         {
             ProcessEditEqGraph(ctx, delta);
             ctx.params->PublishTargets();
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.perform.perform_process_detail_active)
+        if(app.engine.perform_process_detail_active)
         {
-            const uint8_t pidx = app.perform.perform_process_detail_param[cursor];
+            const uint8_t pidx = app.engine.perform_process_detail_param[cursor];
             const bool changed = ProcessEditFxDetail(ctx, e, fx_id, pidx, delta);
             if(changed)
                 ctx.params->PublishTargets();
@@ -689,15 +689,15 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 app.ui.ui_dirty = true;
                 return true;
             }
-            const uint8_t tmp = app.perform.perform_process_fx_order[from];
-            app.perform.perform_process_fx_order[from] = app.perform.perform_process_fx_order[to];
-            app.perform.perform_process_fx_order[to] = tmp;
-            app.perform.perform_process_fx_cursor = static_cast<uint8_t>(to);
-            app.perform.perform_process_main_cursor = static_cast<uint8_t>(to + 2);
+            const uint8_t tmp = app.engine.perform_process_fx_order[from];
+            app.engine.perform_process_fx_order[from] = app.engine.perform_process_fx_order[to];
+            app.engine.perform_process_fx_order[to] = tmp;
+            app.engine.perform_process_fx_cursor = static_cast<uint8_t>(to);
+            app.engine.perform_process_main_cursor = static_cast<uint8_t>(to + 2);
 
             PerformParamsTargets& t = ctx.params->EditTargets();
             for(int i = 0; i < 4; ++i)
-                t.fx_order[i] = app.perform.perform_process_fx_order[i];
+                t.fx_order[i] = app.engine.perform_process_fx_order[i];
             ctx.params->PublishTargets();
             app.ui.ui_dirty = true;
             return true;
@@ -732,7 +732,7 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 break;
         }
         for(int i = 0; i < 4; ++i)
-            t.fx_order[i] = app.perform.perform_process_fx_order[i];
+            t.fx_order[i] = app.engine.perform_process_fx_order[i];
 
         ctx.params->PublishTargets();
         app.ui.ui_dirty = true;
@@ -753,24 +753,24 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    if(app.perform.perform_process_eq_graph_active)
+    if(app.engine.perform_process_eq_graph_active)
     {
-        const uint8_t cursor = app.perform.perform_process_fx_cursor & 0x03u;
-        const uint8_t g_fx = app.perform.perform_process_fx_order[cursor];
+        const uint8_t cursor = app.engine.perform_process_fx_cursor & 0x03u;
+        const uint8_t g_fx = app.engine.perform_process_fx_order[cursor];
         if(g_fx == 1u)
         {
             const PerformParamsTargets& tg = ctx.params->TargetsForUI();
             DrawEqGraphScreen(d, tg, ctx.now_ms);
             return;
         }
-        app.perform.perform_process_eq_graph_active = false;
+        app.engine.perform_process_eq_graph_active = false;
     }
 
-    if(app.perform.perform_process_detail_active)
+    if(app.engine.perform_process_detail_active)
     {
-        const uint8_t cursor = app.perform.perform_process_fx_cursor & 0x03u;
-        const uint8_t fx_id = app.perform.perform_process_fx_order[cursor];
-        const uint8_t pidx = app.perform.perform_process_detail_param[cursor];
+        const uint8_t cursor = app.engine.perform_process_fx_cursor & 0x03u;
+        const uint8_t fx_id = app.engine.perform_process_fx_order[cursor];
+        const uint8_t pidx = app.engine.perform_process_detail_param[cursor];
         const PerformParamsTargets& t = ctx.params->TargetsForUI();
         DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift);
         return;
@@ -798,7 +798,7 @@ void PerformProcess_Render(UiScreenCtx& ctx)
         DrawMicroString(d, header_label, box_x + 2, 2, false);
     }
 
-    const uint8_t main_cursor = static_cast<uint8_t>(app.perform.perform_process_main_cursor % 6u);
+    const uint8_t main_cursor = static_cast<uint8_t>(app.engine.perform_process_main_cursor % 6u);
     const int32_t selected_index = (main_cursor >= 2u) ? static_cast<int32_t>(main_cursor - 2u) : -1;
     const int box_y = layout.y_body;
     const int box_h = layout.y_footer - layout.y_body + layout.line_h;
@@ -817,7 +817,7 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     float values[4] = {};
     for(int i = 0; i < 4; ++i)
     {
-        const uint8_t fx_id = app.perform.perform_process_fx_order[i];
+        const uint8_t fx_id = app.engine.perform_process_fx_order[i];
         switch(fx_id)
         {
             case 0: labels[i] = "S"; values[i] = Clamp01(t.sat_drive); break;

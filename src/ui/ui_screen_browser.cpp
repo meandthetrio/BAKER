@@ -20,7 +20,7 @@ void SdBrowse_OnEnter(UiScreenCtx& ctx)
     if(!ctx.app)
         return;
 
-    SdBrowserState& sd = ctx.app->sd;
+    SdBrowserState& sd = ctx.app->ui.sd;
     const UiLayout layout = UiLayout_Default();
     const uint8_t rows = (layout.rows_body > 1) ? static_cast<uint8_t>(layout.rows_body - 1) : 1;
     if(!sd.menu_inited || sd.menu_rows != rows)
@@ -44,7 +44,7 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(!ctx.app)
         return false;
 
-    SdBrowserState& sd = ctx.app->sd;
+    SdBrowserState& sd = ctx.app->ui.sd;
     if(ctx.shift)
         return false;
 
@@ -64,12 +64,12 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             const uint16_t idx = sd.menu.cursor;
 
-            if(ctx.app->shift.sd_delete_mode)
+            if(ctx.app->ui.sd_delete_mode)
             {
-                ctx.app->shift.sd_delete_index = idx;
+                ctx.app->ui.sd_delete_index = idx;
                 ExtractBaseName(sd.paths[idx],
-                                ctx.app->shift.sd_delete_name,
-                                sizeof(ctx.app->shift.sd_delete_name));
+                                ctx.app->ui.sd_delete_name,
+                                sizeof(ctx.app->ui.sd_delete_name));
                 UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::SdDeleteConfirm);
                 ctx.app->ui.ui_dirty = true;
                 return true;
@@ -80,7 +80,7 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             if(ctx.app->engine.engine_load_target_layer < layer_count)
             {
                 const uint8_t target = ctx.app->engine.engine_load_target_layer & 1u;
-                ctx.app->sd_current_slot.store(target ^ 1u, std::memory_order_release);
+                ctx.app->shared.sd_current_slot.store(target ^ 1u, std::memory_order_release);
                 std::snprintf(ctx.app->engine.engine_sample_path[target],
                               sizeof(ctx.app->engine.engine_sample_path[target]),
                               "%s",
@@ -109,7 +109,7 @@ void SdBrowse_Render(UiScreenCtx& ctx)
     if(!ctx.app || !ctx.display)
         return;
 
-    SdBrowserState& sd = ctx.app->sd;
+    SdBrowserState& sd = ctx.app->ui.sd;
     const UiLayout layout = UiLayout_Default();
     bool show_issue = false;
     char issue_buf[24];
@@ -210,14 +210,14 @@ bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
         return false;
 
     AppState& app = *ctx.app;
-    SdBrowserState& sd = app.sd;
+    SdBrowserState& sd = app.ui.sd;
 
-    const uint16_t idx = app.shift.sd_delete_index;
-    if(!app.shift.sd_delete_mode || idx >= sd.wav_count || sd.scan_in_progress)
+    const uint16_t idx = app.ui.sd_delete_index;
+    if(!app.ui.sd_delete_mode || idx >= sd.wav_count || sd.scan_in_progress)
     {
         SdBrowser_SetStatus(sd, "DEL ERR");
         UiNav_Pop(app.ui.ui_nav);
-        app.shift.sd_delete_mode = false;
+        app.ui.sd_delete_mode = false;
         app.ui.ui_dirty = true;
         return true;
     }
@@ -231,7 +231,7 @@ bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
     sd.scan_done = false;
     SdBrowser_SetStatus(sd, "DELETING");
 
-    app.shift.sd_delete_mode = false;
+    app.ui.sd_delete_mode = false;
     UiNav_Pop(app.ui.ui_nav);
     app.ui.ui_dirty = true;
     return true;
@@ -253,8 +253,8 @@ void SdDeleteConfirm_Render(UiScreenCtx& ctx)
 
     d.SetCursor(layout.x, layout.y_body);
     char namebuf[32];
-    if(app.shift.sd_delete_name[0] != '\0')
-        std::snprintf(namebuf, sizeof(namebuf), "%s", app.shift.sd_delete_name);
+    if(app.ui.sd_delete_name[0] != '\0')
+        std::snprintf(namebuf, sizeof(namebuf), "%s", app.ui.sd_delete_name);
     else
         std::snprintf(namebuf, sizeof(namebuf), "(no file)");
     d.WriteString(namebuf, Font_6x8, true);
@@ -291,13 +291,13 @@ static void EnsureSampleEditMenu(AppState& app, uint8_t rows)
         {"SAVE WAV", UiScreenId::COUNT, UiReqType::None},
     };
 
-    if(app.sample_edit_menu_inited && app.sample_edit_menu.rows == rows)
+    if(app.ui.sample_edit_menu_inited && app.ui.sample_edit_menu.rows == rows)
         return;
-    UiListMenu_Init(app.sample_edit_menu,
+    UiListMenu_Init(app.ui.sample_edit_menu,
                     items,
                     static_cast<uint8_t>(sizeof(items) / sizeof(items[0])),
                     rows);
-    app.sample_edit_menu_inited = true;
+    app.ui.sample_edit_menu_inited = true;
 }
 
 static uint32_t FramesToMs(uint32_t frames)
@@ -319,10 +319,10 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(ctx.shift)
         return false;
 
-    const uint8_t slot = app.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    SampleEdit edit = app.sd_edit_slots[slot];
-    const uint32_t frames = (slot < kSdSampleSlots && app.sd_slots[slot].length > 0)
-                            ? app.sd_slots[slot].length
+    const uint8_t slot = app.shared.sd_current_slot.load(std::memory_order_relaxed) & 1u;
+    SampleEdit edit = app.shared.sd_edit_slots[slot];
+    const uint32_t frames = (slot < kSdSampleSlots && app.shared.sd_slots[slot].length > 0)
+                            ? app.shared.sd_slots[slot].length
                             : 0;
 
     const UiLayout layout = UiLayout_Default();
@@ -332,20 +332,20 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                              : 1;
     EnsureSampleEditMenu(app, rows);
 
-    if(app.input.value_edit.active)
+    if(app.ui.value_edit.active)
     {
         if(e.type == UiInputType::EncDelta && e.id == kUiEncExt)
         {
-            if(UiValueEdit_OnEnc(app.input.value_edit, e.value))
+            if(UiValueEdit_OnEnc(app.ui.value_edit, e.value))
                 app.ui.ui_dirty = true;
             return true;
         }
         if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
         {
-            const int16_t v = app.input.value_edit.value_i;
+            const int16_t v = app.ui.value_edit.value_i;
             const uint32_t v_ms = (v < 0) ? 0u : static_cast<uint32_t>(v);
             const uint32_t v_frames = MsToFrames(v_ms);
-            switch(app.sample_edit_menu.cursor)
+            switch(app.ui.sample_edit_menu.cursor)
             {
                 case SE_TrimStart:
                     edit.start_frame = v_frames;
@@ -366,12 +366,12 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                     break;
             }
             SampleEdit_Clamp(edit, frames);
-            app.sd_edit_slots[slot] = edit;
-            app.sd_edit_pending = edit;
-            app.sd_edit_slot.store(slot, std::memory_order_release);
-            app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-            app.sd_edit_ready.store(1, std::memory_order_release);
-            UiValueEdit_Commit(app.input.value_edit);
+            app.shared.sd_edit_slots[slot] = edit;
+            app.shared.sd_edit_pending = edit;
+            app.shared.sd_edit_slot.store(slot, std::memory_order_release);
+            app.shared.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+            app.shared.sd_edit_ready.store(1, std::memory_order_release);
+            UiValueEdit_Commit(app.ui.value_edit);
             app.ui.ui_dirty = true;
             return true;
         }
@@ -380,7 +380,7 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt)
     {
-        if(UiListMenu_OnEnc(app.sample_edit_menu, e.value))
+        if(UiListMenu_OnEnc(app.ui.sample_edit_menu, e.value))
         {
             app.ui.ui_dirty = true;
             return true;
@@ -390,12 +390,12 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        const uint8_t idx = app.sample_edit_menu.cursor;
+        const uint8_t idx = app.ui.sample_edit_menu.cursor;
         if(idx == SE_Normalize)
         {
             UiReq req{UiReqType::NormalizeCurrent, 0, 0};
             UiReq_Push(app, req);
-            SdBrowser_SetStatus(app.sd, "NORMALIZE");
+            SdBrowser_SetStatus(app.ui.sd, "NORMALIZE");
             app.ui.ui_dirty = true;
             return true;
         }
@@ -403,7 +403,7 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             UiReq req{UiReqType::LoopFindCurrent, 0, 0};
             UiReq_Push(app, req);
-            SdBrowser_SetStatus(app.sd, "LOOP FIND");
+            SdBrowser_SetStatus(app.ui.sd, "LOOP FIND");
             app.ui.ui_dirty = true;
             return true;
         }
@@ -412,13 +412,13 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             UiReq req{UiReqType::SaveRenderedWavCurrent, 0, 0};
             if(UiReq_Push(app, req))
             {
-                SdBrowser_SetSaveStatus(app.sd, "SAVING");
-                app.sd.save_progress = 0;
-                app.sd.save_in_progress = true;
+                SdBrowser_SetSaveStatus(app.ui.sd, "SAVING");
+                app.ui.sd.save_progress = 0;
+                app.ui.sd.save_in_progress = true;
             }
             else
             {
-                SdBrowser_SetSaveStatus(app.sd, "SAVE ERR");
+                SdBrowser_SetSaveStatus(app.ui.sd, "SAVE ERR");
             }
             app.ui.ui_dirty = true;
             return true;
@@ -457,7 +457,7 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             default:
                 return false;
         }
-        UiValueEdit_Begin(app.input.value_edit, label, spec, start_i);
+        UiValueEdit_Begin(app.ui.value_edit, label, spec, start_i);
         app.ui.ui_dirty = true;
         return true;
     }
@@ -471,8 +471,8 @@ void SampleEdit_Render(UiScreenCtx& ctx)
         return;
 
     AppState& app = *ctx.app;
-    const uint8_t slot = app.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const SampleEdit& edit = app.sd_edit_slots[slot];
+    const uint8_t slot = app.shared.sd_current_slot.load(std::memory_order_relaxed) & 1u;
+    const SampleEdit& edit = app.shared.sd_edit_slots[slot];
 
     OledPager& d = *ctx.display;
     d.Fill(false);
@@ -516,35 +516,35 @@ void SampleEdit_Render(UiScreenCtx& ctx)
     d.WriteString(info, Font_6x8, true);
 
     d.SetCursor(layout.x, layout.y_body + layout.line_h * 3);
-    if(app.sd.save_in_progress)
+    if(app.ui.sd.save_in_progress)
     {
         std::snprintf(info, sizeof(info), "SAVING %03u%%",
-                      static_cast<unsigned>(app.sd.save_progress));
+                      static_cast<unsigned>(app.ui.sd.save_progress));
         d.WriteString(info, Font_6x8, true);
     }
-    else if(app.sd.save_status[0] != '\0')
+    else if(app.ui.sd.save_status[0] != '\0')
     {
-        if(std::strncmp(app.sd.save_status, "SAVED", 5) == 0
-           && app.sd.save_name[0] != '\0')
+        if(std::strncmp(app.ui.sd.save_status, "SAVED", 5) == 0
+           && app.ui.sd.save_name[0] != '\0')
         {
-            std::snprintf(info, sizeof(info), "SAVED:%s", app.sd.save_name);
+            std::snprintf(info, sizeof(info), "SAVED:%s", app.ui.sd.save_name);
         }
         else
         {
-            std::snprintf(info, sizeof(info), "%s", app.sd.save_status);
+            std::snprintf(info, sizeof(info), "%s", app.ui.sd.save_status);
         }
         d.WriteString(info, Font_6x8, true);
     }
 
-    const uint8_t count = app.sample_edit_menu.count;
-    for(uint8_t row = 0; row < app.sample_edit_menu.rows; ++row)
+    const uint8_t count = app.ui.sample_edit_menu.count;
+    for(uint8_t row = 0; row < app.ui.sample_edit_menu.rows; ++row)
     {
-        const uint8_t idx = static_cast<uint8_t>(app.sample_edit_menu.scroll + row);
+        const uint8_t idx = static_cast<uint8_t>(app.ui.sample_edit_menu.scroll + row);
         if(idx >= count)
             break;
 
         char buf[32];
-        const char prefix = (idx == app.sample_edit_menu.cursor) ? '>' : ' ';
+        const char prefix = (idx == app.ui.sample_edit_menu.cursor) ? '>' : ' ';
         switch(idx)
         {
             case SE_TrimStart:
@@ -586,13 +586,13 @@ void SampleEdit_Render(UiScreenCtx& ctx)
         d.WriteString(buf, Font_6x8, true);
     }
 
-    const bool busy = app.sd.save_in_progress
+    const bool busy = app.ui.sd.save_in_progress
                       || (app.worker.ui_req_busy
                           && (app.worker.ui_req_active == UiReqType::NormalizeCurrent
                               || app.worker.ui_req_active == UiReqType::LoopFindCurrent
                               || app.worker.ui_req_active == UiReqType::SaveRenderedWavCurrent));
     const char* hint = busy ? "BUSY"
-                            : (app.input.value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
+                            : (app.ui.value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
                                                      : "A=SEL  B=BACK");
     UiDraw_Footer(d, layout, hint);
 }

@@ -299,8 +299,8 @@ bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const int32_t next = NextPerformMenuIndex(static_cast<int32_t>(ctx.app->perform.perform_menu_index), e.value);
-        ctx.app->perform.perform_menu_index = static_cast<uint8_t>(next);
+        const int32_t next = NextPerformMenuIndex(static_cast<int32_t>(ctx.app->engine.perform_menu_index), e.value);
+        ctx.app->engine.perform_menu_index = static_cast<uint8_t>(next);
         ctx.app->ui.ui_dirty = true;
         return true;
     }
@@ -313,7 +313,7 @@ bool PerformMenu_OnEnter(UiScreenCtx& ctx)
     if(!ctx.app)
         return false;
 
-    const uint8_t selected = static_cast<uint8_t>(ctx.app->perform.perform_menu_index % kPerformMenuCount);
+    const uint8_t selected = static_cast<uint8_t>(ctx.app->engine.perform_menu_index % kPerformMenuCount);
     switch(selected)
     {
         case 0:
@@ -335,6 +335,6 @@ void PerformMenu_Render(UiScreenCtx& ctx)
     if(!ctx.app || !ctx.display)
         return;
 
-    const int selected = static_cast<int>(ctx.app->perform.perform_menu_index % kPerformMenuCount);
+    const int selected = static_cast<int>(ctx.app->engine.perform_menu_index % kPerformMenuCount);
     DrawPerformMenuFriendStyle(*ctx.display, selected);
 }

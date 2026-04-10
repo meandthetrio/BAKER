@@ -50,8 +50,8 @@ void BuildStatus(const AppState& app, char* out, size_t n)
         out[0] = '\0';
         return;
     }
-    const char seq = app.seq_running ? '1' : '0';
-    const char plk = app.plock_apply_enabled ? '1' : '0';
-    const char* lfo = WaveChar(app.lfo_wave.load(std::memory_order_relaxed));
+    const char seq = app.shared.seq_running ? '1' : '0';
+    const char plk = app.shared.plock_apply_enabled ? '1' : '0';
+    const char* lfo = WaveChar(app.shared.lfo_wave.load(std::memory_order_relaxed));
     std::snprintf(out, n, "S%c P%c L:%s", seq, plk, lfo);
 }

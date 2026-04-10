@@ -669,16 +669,16 @@ static void PublishProjectPerformParams(Params& params,
             t.engine_filter_cutoff_hz[layer] = ClampProjectFilterCutoffHz(emphasis_cutoff_hz[layer]);
         if(emphasis_resonance)
             t.engine_filter_resonance[layer] = ClampProjectFloat(emphasis_resonance[layer], 0.0f, 1.0f);
-        t.perform_keyzone_lo_note[layer] = app.perform.perform_keyzone_lo_note[layer];
-        t.perform_keyzone_hi_note[layer] = app.perform.perform_keyzone_hi_note[layer];
+        t.perform_keyzone_lo_note[layer] = app.engine.perform_keyzone_lo_note[layer];
+        t.perform_keyzone_hi_note[layer] = app.engine.perform_keyzone_hi_note[layer];
         t.engine_loop_mode[layer] = (app.engine.engine_play_mode[layer] != 0);
-        t.engine_loop_attack_ms[layer] = static_cast<float>(app.perform.perform_adsr_loop_attack[layer]);
-        t.engine_loop_decay_ms[layer] = static_cast<float>(app.perform.perform_adsr_loop_decay[layer]);
+        t.engine_loop_attack_ms[layer] = static_cast<float>(app.engine.perform_adsr_loop_attack[layer]);
+        t.engine_loop_decay_ms[layer] = static_cast<float>(app.engine.perform_adsr_loop_decay[layer]);
         t.engine_loop_sustain_level[layer]
-            = static_cast<float>(app.perform.perform_adsr_loop_sustain[layer]) * 0.01f;
-        t.engine_loop_release_ms[layer] = static_cast<float>(app.perform.perform_adsr_loop_release[layer]);
-        t.engine_loop_crossfade_amount[layer] = app.perform.perform_adsr_loop_crossfade[layer];
-        t.engine_loop_crossfade_shape[layer] = app.perform.perform_adsr_loop_crossfade_shape[layer];
+            = static_cast<float>(app.engine.perform_adsr_loop_sustain[layer]) * 0.01f;
+        t.engine_loop_release_ms[layer] = static_cast<float>(app.engine.perform_adsr_loop_release[layer]);
+        t.engine_loop_crossfade_amount[layer] = app.engine.perform_adsr_loop_crossfade[layer];
+        t.engine_loop_crossfade_shape[layer] = app.engine.perform_adsr_loop_crossfade_shape[layer];
     }
     params.PublishTargets();
 }
@@ -691,9 +691,9 @@ static void SyncProjectProcessVolumeUiState(AppState& app, const float* process_
     for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
     {
         const float level = ClampProjectFloat(process_layer_master_level[layer], 0.0f, 2.0f);
-        app.perform.perform_process_vol_muted[layer] = false;
-        app.perform.perform_process_vol_unmuted_level[layer] = level;
-        app.perform.perform_process_vol_pct[layer] = static_cast<uint16_t>(level * 100.0f + 0.5f);
+        app.engine.perform_process_vol_muted[layer] = false;
+        app.engine.perform_process_vol_unmuted_level[layer] = level;
+        app.engine.perform_process_vol_pct[layer] = static_cast<uint16_t>(level * 100.0f + 0.5f);
     }
 }
 
@@ -703,8 +703,8 @@ static void SyncProjectProcessFxOrderUiState(AppState& app, const uint8_t* proce
         return;
 
     for(uint8_t i = 0; i < 4; ++i)
-        app.perform.perform_process_fx_order[i] = process_fx_order[i];
-    SanitizeProjectFxOrder(app.perform.perform_process_fx_order);
+        app.engine.perform_process_fx_order[i] = process_fx_order[i];
+    SanitizeProjectFxOrder(app.engine.perform_process_fx_order);
 }
 
 static void CollectProjectLayerState(ProjectManifestV10& manifest,
@@ -713,7 +713,7 @@ static void CollectProjectLayerState(ProjectManifestV10& manifest,
 {
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
-        const Sample& sample = app.sd_slots[slot];
+        const Sample& sample = app.shared.sd_slots[slot];
         const char* path = app.engine.engine_sample_path[slot];
         if(sample.pcm == nullptr || sample.length == 0 || !path || path[0] == '\0')
             continue;
@@ -722,24 +722,24 @@ static void CollectProjectLayerState(ProjectManifestV10& manifest,
         manifest.sample_present_mask |= bit;
         std::snprintf(manifest.wav_path[slot], sizeof(manifest.wav_path[slot]), "%s", path);
 
-        SampleEdit edit = app.sd_edit_slots[slot];
+        SampleEdit edit = app.shared.sd_edit_slots[slot];
         SampleEdit_Clamp(edit, sample.length);
         manifest.edit[slot] = edit;
         manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine.engine_tune_semitones[slot]);
-        manifest.perform_keyzone_lo_note[slot] = app.perform.perform_keyzone_lo_note[slot];
-        manifest.perform_keyzone_hi_note[slot] = app.perform.perform_keyzone_hi_note[slot];
-        manifest.perform_adsr_row[slot] = ClampProjectAdsrRow(app.perform.perform_adsr_row[slot]);
+        manifest.perform_keyzone_lo_note[slot] = app.engine.perform_keyzone_lo_note[slot];
+        manifest.perform_keyzone_hi_note[slot] = app.engine.perform_keyzone_hi_note[slot];
+        manifest.perform_adsr_row[slot] = ClampProjectAdsrRow(app.engine.perform_adsr_row[slot]);
         manifest.engine_play_mode[slot] = ClampProjectPlayMode(app.engine.engine_play_mode[slot]);
-        manifest.perform_adsr_loop_attack[slot] = app.perform.perform_adsr_loop_attack[slot];
-        manifest.perform_adsr_loop_decay[slot] = app.perform.perform_adsr_loop_decay[slot];
-        manifest.perform_adsr_loop_sustain[slot] = app.perform.perform_adsr_loop_sustain[slot];
-        manifest.perform_adsr_loop_release[slot] = app.perform.perform_adsr_loop_release[slot];
-        manifest.perform_adsr_loop_crossfade[slot] = app.perform.perform_adsr_loop_crossfade[slot];
-        manifest.perform_adsr_loop_crossfade_shape[slot] = app.perform.perform_adsr_loop_crossfade_shape[slot];
-        manifest.perform_adsr_env_a_x[slot] = app.perform.perform_adsr_env_a_x[slot];
-        manifest.perform_adsr_env_d_x[slot] = app.perform.perform_adsr_env_d_x[slot];
-        manifest.perform_adsr_env_r_x[slot] = app.perform.perform_adsr_env_r_x[slot];
-        manifest.perform_adsr_env_s_level[slot] = app.perform.perform_adsr_env_s_level[slot];
+        manifest.perform_adsr_loop_attack[slot] = app.engine.perform_adsr_loop_attack[slot];
+        manifest.perform_adsr_loop_decay[slot] = app.engine.perform_adsr_loop_decay[slot];
+        manifest.perform_adsr_loop_sustain[slot] = app.engine.perform_adsr_loop_sustain[slot];
+        manifest.perform_adsr_loop_release[slot] = app.engine.perform_adsr_loop_release[slot];
+        manifest.perform_adsr_loop_crossfade[slot] = app.engine.perform_adsr_loop_crossfade[slot];
+        manifest.perform_adsr_loop_crossfade_shape[slot] = app.engine.perform_adsr_loop_crossfade_shape[slot];
+        manifest.perform_adsr_env_a_x[slot] = app.engine.perform_adsr_env_a_x[slot];
+        manifest.perform_adsr_env_d_x[slot] = app.engine.perform_adsr_env_d_x[slot];
+        manifest.perform_adsr_env_r_x[slot] = app.engine.perform_adsr_env_r_x[slot];
+        manifest.perform_adsr_env_s_level[slot] = app.engine.perform_adsr_env_s_level[slot];
         manifest.engine_gain_db[slot] = app.engine.engine_gain_db[slot];
         manifest.engine_drive_mode[slot] = app.engine.engine_drive_mode[slot];
         manifest.engine_filter_cutoff_hz[slot] = targets.engine_filter_cutoff_hz[slot];
@@ -752,11 +752,11 @@ static void CollectProjectLayerState(ProjectManifestV10& manifest,
             = ClampProjectFloat(targets.engine_layer_master_level[slot], 0.0f, 2.0f);
         if((manifest.sample_present_mask & static_cast<uint8_t>(1u << slot)) == 0u)
             manifest.engine_tune_semitones[slot] = ClampProjectTune(app.engine.engine_tune_semitones[slot]);
-        manifest.perform_keyzone_lo_note[slot] = app.perform.perform_keyzone_lo_note[slot];
-        manifest.perform_keyzone_hi_note[slot] = app.perform.perform_keyzone_hi_note[slot];
+        manifest.perform_keyzone_lo_note[slot] = app.engine.perform_keyzone_lo_note[slot];
+        manifest.perform_keyzone_hi_note[slot] = app.engine.perform_keyzone_hi_note[slot];
         ClampProjectKeyzoneRange(manifest.perform_keyzone_lo_note[slot],
                                  manifest.perform_keyzone_hi_note[slot]);
-        manifest.perform_adsr_row[slot] = ClampProjectAdsrRow(app.perform.perform_adsr_row[slot]);
+        manifest.perform_adsr_row[slot] = ClampProjectAdsrRow(app.engine.perform_adsr_row[slot]);
         manifest.engine_play_mode[slot] = ClampProjectPlayMode(app.engine.engine_play_mode[slot]);
         if(manifest.perform_adsr_loop_attack[slot] < 1u)
             manifest.perform_adsr_loop_attack[slot] = 1u;
@@ -811,15 +811,15 @@ static void CollectProjectGlobalState(ProjectManifestV10& manifest,
     manifest.eq.eq_q = targets.eq_q;
     ClampProjectEqState(manifest.eq);
 
-    manifest.seq_running = app.seq_running ? 1 : 0;
-    manifest.plock_apply_enabled = app.plock_apply_enabled ? 1 : 0;
-    manifest.lfo_wave = app.lfo_wave.load(std::memory_order_relaxed);
-    manifest.seq_bpm = app.seq_bpm;
-    manifest.macro_ui = app.macro_ui;
-    manifest.macro_sel = app.macro_sel.load(std::memory_order_relaxed) & 1u;
+    manifest.seq_running = app.shared.seq_running ? 1 : 0;
+    manifest.plock_apply_enabled = app.shared.plock_apply_enabled ? 1 : 0;
+    manifest.lfo_wave = app.shared.lfo_wave.load(std::memory_order_relaxed);
+    manifest.seq_bpm = app.shared.seq_bpm;
+    manifest.macro_ui = app.shared.macro_ui;
+    manifest.macro_sel = app.shared.macro_sel.load(std::memory_order_relaxed) & 1u;
     for(size_t i = 0; i < kMaxModRoutes; ++i)
-        manifest.mod_routes[i] = app.mod_routes_ui[i];
-    manifest.mod_route_selected = app.mod_route_selected;
+        manifest.mod_routes[i] = app.shared.mod_routes_ui[i];
+    manifest.mod_route_selected = app.shared.mod_route_selected;
 }
 
 static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifestV10& manifest)
@@ -1093,19 +1093,19 @@ static bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
 
 static void ApplyProjectManifestGlobalState(AppState& app, const ProjectManifestV10& manifest)
 {
-    app.seq_running = (manifest.seq_running != 0);
-    app.plock_apply_enabled = (manifest.plock_apply_enabled != 0);
-    app.lfo_wave.store(manifest.lfo_wave, std::memory_order_release);
-    app.seq_bpm = manifest.seq_bpm;
+    app.shared.seq_running = (manifest.seq_running != 0);
+    app.shared.plock_apply_enabled = (manifest.plock_apply_enabled != 0);
+    app.shared.lfo_wave.store(manifest.lfo_wave, std::memory_order_release);
+    app.shared.seq_bpm = manifest.seq_bpm;
 
-    app.macro_ui = manifest.macro_ui;
-    app.macro_ui.selected = manifest.macro_ui.selected;
-    Macros_Publish(app, app.macro_ui);
+    app.shared.macro_ui = manifest.macro_ui;
+    app.shared.macro_ui.selected = manifest.macro_ui.selected;
+    Macros_Publish(app, app.shared.macro_ui);
 
     for(size_t i = 0; i < kMaxModRoutes; ++i)
-        app.mod_routes_ui[i] = manifest.mod_routes[i];
-    app.mod_route_selected = manifest.mod_route_selected;
-    ModMatrix_Publish(app.mod_matrix, app.mod_routes_ui);
+        app.shared.mod_routes_ui[i] = manifest.mod_routes[i];
+    app.shared.mod_route_selected = manifest.mod_route_selected;
+    ModMatrix_Publish(app.shared.mod_matrix, app.shared.mod_routes_ui);
 }
 
 static void ApplyProjectManifestLayerState(AppState& app, const ProjectManifestV10& manifest)
@@ -1113,42 +1113,42 @@ static void ApplyProjectManifestLayerState(AppState& app, const ProjectManifestV
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
     {
         app.engine.engine_tune_semitones[slot] = ClampProjectTune(manifest.engine_tune_semitones[slot]);
-        app.perform.perform_keyzone_lo_note[slot] = manifest.perform_keyzone_lo_note[slot];
-        app.perform.perform_keyzone_hi_note[slot] = manifest.perform_keyzone_hi_note[slot];
-        ClampProjectKeyzoneRange(app.perform.perform_keyzone_lo_note[slot],
-                                 app.perform.perform_keyzone_hi_note[slot]);
-        app.perform.perform_adsr_row[slot] = ClampProjectAdsrRow(manifest.perform_adsr_row[slot]);
+        app.engine.perform_keyzone_lo_note[slot] = manifest.perform_keyzone_lo_note[slot];
+        app.engine.perform_keyzone_hi_note[slot] = manifest.perform_keyzone_hi_note[slot];
+        ClampProjectKeyzoneRange(app.engine.perform_keyzone_lo_note[slot],
+                                 app.engine.perform_keyzone_hi_note[slot]);
+        app.engine.perform_adsr_row[slot] = ClampProjectAdsrRow(manifest.perform_adsr_row[slot]);
         app.engine.engine_play_mode[slot] = ClampProjectPlayMode(manifest.engine_play_mode[slot]);
-        app.perform.perform_adsr_loop_attack[slot] = manifest.perform_adsr_loop_attack[slot];
-        if(app.perform.perform_adsr_loop_attack[slot] < 1u)
-            app.perform.perform_adsr_loop_attack[slot] = 1u;
-        if(app.perform.perform_adsr_loop_attack[slot] > 1000u)
-            app.perform.perform_adsr_loop_attack[slot] = 1000u;
-        app.perform.perform_adsr_loop_decay[slot] = manifest.perform_adsr_loop_decay[slot];
-        if(app.perform.perform_adsr_loop_decay[slot] < 1u)
-            app.perform.perform_adsr_loop_decay[slot] = 1u;
-        if(app.perform.perform_adsr_loop_decay[slot] > 100u)
-            app.perform.perform_adsr_loop_decay[slot] = 100u;
-        app.perform.perform_adsr_loop_sustain[slot] = manifest.perform_adsr_loop_sustain[slot];
-        if(app.perform.perform_adsr_loop_sustain[slot] > 100u)
-            app.perform.perform_adsr_loop_sustain[slot] = 100u;
-        app.perform.perform_adsr_loop_release[slot] = manifest.perform_adsr_loop_release[slot];
-        if(app.perform.perform_adsr_loop_release[slot] < 1u)
-            app.perform.perform_adsr_loop_release[slot] = 1u;
-        if(app.perform.perform_adsr_loop_release[slot] > 1000u)
-            app.perform.perform_adsr_loop_release[slot] = 1000u;
-        app.perform.perform_adsr_loop_crossfade[slot]
+        app.engine.perform_adsr_loop_attack[slot] = manifest.perform_adsr_loop_attack[slot];
+        if(app.engine.perform_adsr_loop_attack[slot] < 1u)
+            app.engine.perform_adsr_loop_attack[slot] = 1u;
+        if(app.engine.perform_adsr_loop_attack[slot] > 1000u)
+            app.engine.perform_adsr_loop_attack[slot] = 1000u;
+        app.engine.perform_adsr_loop_decay[slot] = manifest.perform_adsr_loop_decay[slot];
+        if(app.engine.perform_adsr_loop_decay[slot] < 1u)
+            app.engine.perform_adsr_loop_decay[slot] = 1u;
+        if(app.engine.perform_adsr_loop_decay[slot] > 100u)
+            app.engine.perform_adsr_loop_decay[slot] = 100u;
+        app.engine.perform_adsr_loop_sustain[slot] = manifest.perform_adsr_loop_sustain[slot];
+        if(app.engine.perform_adsr_loop_sustain[slot] > 100u)
+            app.engine.perform_adsr_loop_sustain[slot] = 100u;
+        app.engine.perform_adsr_loop_release[slot] = manifest.perform_adsr_loop_release[slot];
+        if(app.engine.perform_adsr_loop_release[slot] < 1u)
+            app.engine.perform_adsr_loop_release[slot] = 1u;
+        if(app.engine.perform_adsr_loop_release[slot] > 1000u)
+            app.engine.perform_adsr_loop_release[slot] = 1000u;
+        app.engine.perform_adsr_loop_crossfade[slot]
             = ClampProjectFloat(manifest.perform_adsr_loop_crossfade[slot], 0.0f, 0.5f);
-        app.perform.perform_adsr_loop_crossfade_shape[slot]
+        app.engine.perform_adsr_loop_crossfade_shape[slot]
             = ClampProjectFloat(manifest.perform_adsr_loop_crossfade_shape[slot], 0.0f, 1.0f);
-        app.perform.perform_adsr_env_a_x[slot] = manifest.perform_adsr_env_a_x[slot];
-        app.perform.perform_adsr_env_d_x[slot] = manifest.perform_adsr_env_d_x[slot];
-        app.perform.perform_adsr_env_r_x[slot] = manifest.perform_adsr_env_r_x[slot];
-        app.perform.perform_adsr_env_s_level[slot] = manifest.perform_adsr_env_s_level[slot];
-        ClampProjectAdsrGraph(app.perform.perform_adsr_env_a_x[slot],
-                              app.perform.perform_adsr_env_d_x[slot],
-                              app.perform.perform_adsr_env_r_x[slot],
-                              app.perform.perform_adsr_env_s_level[slot]);
+        app.engine.perform_adsr_env_a_x[slot] = manifest.perform_adsr_env_a_x[slot];
+        app.engine.perform_adsr_env_d_x[slot] = manifest.perform_adsr_env_d_x[slot];
+        app.engine.perform_adsr_env_r_x[slot] = manifest.perform_adsr_env_r_x[slot];
+        app.engine.perform_adsr_env_s_level[slot] = manifest.perform_adsr_env_s_level[slot];
+        ClampProjectAdsrGraph(app.engine.perform_adsr_env_a_x[slot],
+                              app.engine.perform_adsr_env_d_x[slot],
+                              app.engine.perform_adsr_env_r_x[slot],
+                              app.engine.perform_adsr_env_s_level[slot]);
         app.engine.engine_gain_db[slot] = ClampProjectEngineGainDb(manifest.engine_gain_db[slot]);
         app.engine.engine_drive_mode[slot] = ClampProjectDriveMode(manifest.engine_drive_mode[slot]);
     }
@@ -1182,7 +1182,7 @@ static void SetupProjectRestoreState(AppState& app, const ProjectManifestV10& ma
 
 bool LoadProject(AppState& app, Params& params)
 {
-    SdBrowserState& sd = app.sd;
+    SdBrowserState& sd = app.ui.sd;
     const uint8_t project_slot = RequestedProjectSlot(app);
     SetProjectSlotStatus(app, project_slot, "LOADING");
 

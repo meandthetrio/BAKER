@@ -88,16 +88,16 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppState& app = *ctx.app;
-    const uint8_t layer = app.perform.perform_layer & 1u;
+    const uint8_t layer = app.engine.perform_layer & 1u;
 
     static uint32_t s_last_ext_t_ms = 0u;
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        int row = static_cast<int>(app.perform.perform_emphasis_row) + e.value;
+        int row = static_cast<int>(app.engine.perform_emphasis_row) + e.value;
         while(row < 0) row += 3;
         while(row >= 3) row -= 3;
-        app.perform.perform_emphasis_row = static_cast<uint8_t>(row);
+        app.engine.perform_emphasis_row = static_cast<uint8_t>(row);
         app.ui.ui_dirty = true;
         return true;
     }
@@ -105,7 +105,7 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
         const float delta_norm = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
-        if(app.perform.perform_emphasis_row == 0)
+        if(app.engine.perform_emphasis_row == 0)
         {
             if(ctx.rshift)
             {
@@ -138,7 +138,7 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
 
         PerformParamsTargets& t = ctx.params->EditTargets();
-        if(app.perform.perform_emphasis_row == 1)
+        if(app.engine.perform_emphasis_row == 1)
         {
             // Keep fast fader motion; map fader space to cutoff using ADSR-style curve.
             float fader = AdsrFltFaderFromCutoffHz(t.engine_filter_cutoff_hz[layer]);
@@ -159,9 +159,9 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // POD2 toggles layer (same behavior as ENGINE).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        app.perform.perform_layer ^= 1u;
-        const uint8_t layer = app.perform.perform_layer & 1u;
-        app.sd_current_slot.store(layer, std::memory_order_release);
+        app.engine.perform_layer ^= 1u;
+        const uint8_t layer = app.engine.perform_layer & 1u;
+        app.shared.sd_current_slot.store(layer, std::memory_order_release);
         app.engine.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
         app.ui.ui_dirty = true;
@@ -189,7 +189,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const uint8_t layer = app.perform.perform_layer & 1u;
+    const uint8_t layer = app.engine.perform_layer & 1u;
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
     const float cutoff_hz = t.engine_filter_cutoff_hz[layer];
     const float resonance = Clamp01(t.engine_filter_resonance[layer]);
@@ -263,7 +263,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
 
     char gain_buf[12];
     FormatDbTenths(app.engine.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
-    const bool drive_mode_focus = (app.perform.perform_emphasis_row == 0u) && ctx.rshift;
+    const bool drive_mode_focus = (app.engine.perform_emphasis_row == 0u) && ctx.rshift;
     const char* drive_label = drive_mode_focus ? DriveModeLabel(app.engine.engine_drive_mode[layer]) : "drive";
     const char* drive_value = drive_mode_focus ? "" : gain_buf;
 
@@ -303,19 +303,19 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
               drive_label,
               drive_value,
               gain_angle,
-              app.perform.perform_emphasis_row == 0 ? (drive_mode_focus ? 2 : 1) : 0);
+              app.engine.perform_emphasis_row == 0 ? (drive_mode_focus ? 2 : 1) : 0);
     draw_knob(kKnobCx[1],
               kKnobCy,
               kKnobRadius,
               "cutoff",
               cutoff_buf,
               cutoff_angle,
-              app.perform.perform_emphasis_row == 1 ? 2 : 0);
+              app.engine.perform_emphasis_row == 1 ? 2 : 0);
     draw_knob(kKnobCx[2],
               kKnobCy,
               kKnobRadius,
               "reso",
               "",
               reso_angle,
-              app.perform.perform_emphasis_row == 2 ? 2 : 0);
+              app.engine.perform_emphasis_row == 2 ? 2 : 0);
 }

@@ -1,0 +1,78 @@
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+
+#include "macros.h"
+#include "mod_matrix.h"
+#include "plocks.h"
+#include "sample_edit.h"
+#include "sampler_sample.h"
+#include "sd_sample_pool.h"
+
+/*
+`AppSharedState` is only for handoff-sensitive, publish/apply-boundary, or
+otherwise cross-thread/cross-phase sensitive state.
+
+Do not put a field in `shared` just because multiple systems touch it.
+UI-only state belongs in `ui`.
+Project save/load coordination belongs in `project` unless it is truly
+handoff-sensitive shared state.
+Worker request/progress bookkeeping belongs in `worker` unless it is truly
+handoff-sensitive shared state.
+Engine/editor state belongs in `engine` unless it is truly publish/apply-boundary
+or otherwise sensitive shared state.
+
+Keep this struct intentionally narrow. It is the highest-risk ownership bucket
+and must not become a convenience dumping ground.
+*/
+struct AppSharedState
+{
+    // Sample publish/apply state shared between worker-side preparation,
+    // main-thread editing, and audio-thread consumption.
+    Sample sd_slots[kSdSampleSlots]{};
+    std::atomic<uint8_t> sd_current_slot{0};
+    std::atomic<uint8_t> sd_published_slot{0};
+    std::atomic<uint8_t> sd_published_ready{0};
+    std::atomic<uint32_t> sd_published_gen{0};
+    std::atomic<uint32_t> sd_applied_gen{0};
+    SampleEdit sd_edit_slots[kSdSampleSlots]{};
+    SampleEdit sd_edit_pending{};
+    std::atomic<uint8_t> sd_edit_slot{0};
+    std::atomic<uint8_t> sd_edit_ready{0};
+    std::atomic<uint32_t> sd_edit_gen{0};
+    std::atomic<uint32_t> sd_edit_applied_gen{0};
+
+    // Recording request/live-meter handoff between UI and audio paths.
+    std::atomic<uint8_t> rec_source_sel{0};
+    std::atomic<uint8_t> rec_monitor_enable{0};
+    std::atomic<uint8_t> rec_start_req{0};
+    std::atomic<uint8_t> rec_stop_req{0};
+    std::atomic<uint8_t> rec_active{0};
+    std::atomic<uint8_t> rec_slot_pending{0};
+    std::atomic<uint32_t> rec_pos{0};
+    std::atomic<uint32_t> rec_length{0};
+    std::atomic<uint32_t> rec_live_gen{0};
+    int16_t rec_live_min[128] = {};
+    int16_t rec_live_max[128] = {};
+    int16_t rec_live_last_col = -1;
+
+    // Modulation, lock, and macro state that feeds publish/apply paths.
+    ModMatrixState mod_matrix{};
+    ModRoute mod_routes_ui[kMaxModRoutes]{};
+    uint8_t mod_route_selected = 0;
+    PLocksState plocks{};
+    Pattern plock_pattern{};
+    bool seq_running = false;
+    bool plock_apply_enabled = false;
+    std::atomic<uint8_t> lfo_wave{0};
+    uint32_t seq_bpm = 120;
+    uint32_t seq_last_ms = 0;
+    uint32_t seq_accum_ms = 0;
+
+    MacroState macro_ui{};
+    MacroState macro_a{};
+    MacroState macro_b{};
+    std::atomic<uint8_t> macro_sel{0};
+    std::atomic<uint32_t> macro_gen{0};
+};

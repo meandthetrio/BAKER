@@ -33,9 +33,9 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         // Special case: when editing SETTINGS->VOLUME, "BACK" should exit edit mode
         // without leaving the SETTINGS screen.
         if(active == UiScreenId::ShiftMenu
-           && ctx.app->shift.shift_menu_edit_volume)
+           && ctx.app->ui.shift_menu_edit_volume)
         {
-            ctx.app->shift.shift_menu_edit_volume = false;
+            ctx.app->ui.shift_menu_edit_volume = false;
             ctx.app->ui.ui_dirty = true;
             return;
         }
@@ -83,15 +83,15 @@ void UiRouter_Render(UiScreenCtx& ctx)
            && UiNav_Active(ctx.app->ui.ui_nav) == UiScreenId::PerformProcess)
         {
             // In-screen parent: PROCESS detail / EQ graph -> PROCESS main.
-            const bool saved_detail = ctx.app->perform.perform_process_detail_active;
-            const bool saved_eqg    = ctx.app->perform.perform_process_eq_graph_active;
-            ctx.app->perform.perform_process_detail_active  = false;
-            ctx.app->perform.perform_process_eq_graph_active = false;
+            const bool saved_detail = ctx.app->engine.perform_process_detail_active;
+            const bool saved_eqg    = ctx.app->engine.perform_process_eq_graph_active;
+            ctx.app->engine.perform_process_detail_active  = false;
+            ctx.app->engine.perform_process_eq_graph_active = false;
             const UiScreen& active = GetScreen(UiScreenId::PerformProcess);
             if(active.Render)
                 active.Render(ctx);
-            ctx.app->perform.perform_process_detail_active   = saved_detail;
-            ctx.app->perform.perform_process_eq_graph_active = saved_eqg;
+            ctx.app->engine.perform_process_detail_active   = saved_detail;
+            ctx.app->engine.perform_process_eq_graph_active = saved_eqg;
             return;
         }
 

@@ -9,8 +9,8 @@ bool UiReq_Push(AppState& app, const UiReq& r)
 {
     if(r.type == UiReqType::LoadWavIndex)
     {
-        app.sd.load_pending = true;
-        app.sd.load_pending_index = r.a;
+        app.ui.sd.load_pending = true;
+        app.ui.sd.load_pending_index = r.a;
         app.worker.ui_req_push++;
         return true;
     }

@@ -23,11 +23,11 @@ bool Macro_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     bool changed = false;
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
     {
-        const uint8_t sel = ctx.app->macro_ui.selected % kNumMacros;
-        float v = ctx.app->macro_ui.value[sel];
+        const uint8_t sel = ctx.app->shared.macro_ui.selected % kNumMacros;
+        float v = ctx.app->shared.macro_ui.value[sel];
         v = Clamp01(v + (float)e.value * 0.02f);
-        ctx.app->macro_ui.value[sel] = v;
-        Macros_Publish(*ctx.app, ctx.app->macro_ui);
+        ctx.app->shared.macro_ui.value[sel] = v;
+        Macros_Publish(*ctx.app, ctx.app->shared.macro_ui);
         changed = true;
     }
 
@@ -45,8 +45,8 @@ void Macro_Render(UiScreenCtx& ctx)
     if(!ctx.app || !ctx.display)
         return;
 
-    const uint8_t sel = ctx.app->macro_ui.selected % kNumMacros;
-    uint32_t mac_val = (uint32_t)(ctx.app->macro_ui.value[sel] * 100.0f + 0.5f);
+    const uint8_t sel = ctx.app->shared.macro_ui.selected % kNumMacros;
+    uint32_t mac_val = (uint32_t)(ctx.app->shared.macro_ui.value[sel] * 100.0f + 0.5f);
     if(mac_val > 100)
         mac_val = 100;
 

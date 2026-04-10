@@ -27,35 +27,35 @@ static void Record_ResetLiveWave(AppState& app)
 {
     for(int i = 0; i < 128; ++i)
     {
-        app.rec_live_min[i] = 0;
-        app.rec_live_max[i] = 0;
+        app.shared.rec_live_min[i] = 0;
+        app.shared.rec_live_max[i] = 0;
     }
-    app.rec_live_last_col = -1;
+    app.shared.rec_live_last_col = -1;
 }
 
 static void Record_StopPreview(AppState& app)
 {
-    app.record.record_preview_hold = false;
-    app.record.record_preview_gate = false;
+    app.recording.record_preview_hold = false;
+    app.recording.record_preview_gate = false;
 }
 
 static void Record_PrepareRecordingUiState(AppState& app)
 {
     Record_StopPreview(app);
-    app.rec_monitor_enable.store(0, std::memory_order_release);
-    app.rec_start_req.store(0, std::memory_order_release);
-    app.rec_stop_req.store(0, std::memory_order_release);
-    app.rec_active.store(0, std::memory_order_release);
-    app.rec_pos.store(0, std::memory_order_release);
-    app.rec_length.store(0, std::memory_order_release);
+    app.shared.rec_monitor_enable.store(0, std::memory_order_release);
+    app.shared.rec_start_req.store(0, std::memory_order_release);
+    app.shared.rec_stop_req.store(0, std::memory_order_release);
+    app.shared.rec_active.store(0, std::memory_order_release);
+    app.shared.rec_pos.store(0, std::memory_order_release);
+    app.shared.rec_length.store(0, std::memory_order_release);
     Record_ResetLiveWave(app);
 
-    const uint8_t slot = app.perform.perform_layer & 1u;
-    app.record.record_slot = slot;
-    app.rec_slot_pending.store(slot, std::memory_order_release);
+    const uint8_t slot = app.engine.perform_layer & 1u;
+    app.recording.record_slot = slot;
+    app.shared.rec_slot_pending.store(slot, std::memory_order_release);
 
     // Reset target slot metadata so review/save reflects the fresh unsaved take.
-    Sample& s = app.sd_slots[slot];
+    Sample& s = app.shared.sd_slots[slot];
     s.pcm = nullptr;
     s.length = 0;
     s.sample_rate = 48000;
@@ -65,11 +65,11 @@ static void Record_PrepareRecordingUiState(AppState& app)
     s.loop_enabled = false;
 
     SampleEdit edit = SampleEdit_Default(0);
-    app.sd_edit_slots[slot] = edit;
-    app.sd_edit_pending = edit;
-    app.sd_edit_slot.store(slot, std::memory_order_release);
-    app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-    app.sd_edit_ready.store(1, std::memory_order_release);
+    app.shared.sd_edit_slots[slot] = edit;
+    app.shared.sd_edit_pending = edit;
+    app.shared.sd_edit_slot.store(slot, std::memory_order_release);
+    app.shared.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+    app.shared.sd_edit_ready.store(1, std::memory_order_release);
 }
 
 static void Record_StartRecording(UiScreenCtx& ctx)
@@ -78,15 +78,15 @@ static void Record_StartRecording(UiScreenCtx& ctx)
         return;
 
     AppState& app = *ctx.app;
-    const uint8_t src = (app.record.record_source_index == 1)
+    const uint8_t src = (app.recording.record_source_index == 1)
                             ? static_cast<uint8_t>(RecordInputSource::Mic)
                             : static_cast<uint8_t>(RecordInputSource::LineIn);
-    app.rec_source_sel.store(src, std::memory_order_release);
+    app.shared.rec_source_sel.store(src, std::memory_order_release);
     Record_PrepareRecordingUiState(app);
     // Keep input monitor live while recording.
-    app.rec_monitor_enable.store(1, std::memory_order_release);
-    app.rec_start_req.store(1, std::memory_order_release);
-    app.record.record_state = RecordUiState::Recording;
+    app.shared.rec_monitor_enable.store(1, std::memory_order_release);
+    app.shared.rec_start_req.store(1, std::memory_order_release);
+    app.recording.record_state = RecordUiState::Recording;
     app.ui.ui_dirty = true;
 }
 
@@ -104,14 +104,14 @@ static void Record_RenderReadyCuzStyle(UiScreenCtx& ctx)
     static uint8_t cached_source = 0xFFu;
     static bool cache_valid = false;
 
-    if(app.record.record_anim_start_ms < 0.0)
-        app.record.record_anim_start_ms = static_cast<double>(ctx.now_ms);
+    if(app.recording.record_anim_start_ms < 0.0)
+        app.recording.record_anim_start_ms = static_cast<double>(ctx.now_ms);
 
-    const double elapsed_s = (static_cast<double>(ctx.now_ms) - app.record.record_anim_start_ms) / 1000.0;
+    const double elapsed_s = (static_cast<double>(ctx.now_ms) - app.recording.record_anim_start_ms) / 1000.0;
     const int cx = 64;
     const int cy = 32;
 
-    const char* line1 = (app.record.record_source_index == 1) ? "RECORD MICROPHONE" : "RECORD LINE IN";
+    const char* line1 = (app.recording.record_source_index == 1) ? "RECORD MICROPHONE" : "RECORD LINE IN";
     const char* line2 = "READY";
     int scale = 2;
     int char_spacing = scale;
@@ -121,7 +121,7 @@ static void Record_RenderReadyCuzStyle(UiScreenCtx& ctx)
     int text_h = lines * char_h + (lines - 1) * line_gap;
     int y0 = (64 / 2) - (text_h / 2);
 
-    if(!cache_valid || cached_source != app.record.record_source_index)
+    if(!cache_valid || cached_source != app.recording.record_source_index)
     {
         std::memset(text_mask, 0, sizeof(text_mask));
         std::memset(text_fb, 0, sizeof(text_fb));
@@ -229,7 +229,7 @@ static void Record_RenderReadyCuzStyle(UiScreenCtx& ctx)
             }
         }
         cache_valid = true;
-        cached_source = app.record.record_source_index;
+        cached_source = app.recording.record_source_index;
     }
 
     const double max_visible_r = std::sqrt(std::pow(128 / 2.0, 2) + std::pow(64 / 2.0, 2));
@@ -381,16 +381,16 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        if(app.record.record_state == RecordUiState::SourceSelect)
+        if(app.recording.record_state == RecordUiState::SourceSelect)
         {
-            app.record.record_source_index = wrap2(static_cast<int>(app.record.record_source_index) + e.value);
-            app.rec_source_sel.store(app.record.record_source_index & 1u, std::memory_order_release);
+            app.recording.record_source_index = wrap2(static_cast<int>(app.recording.record_source_index) + e.value);
+            app.shared.rec_source_sel.store(app.recording.record_source_index & 1u, std::memory_order_release);
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::TargetSelect)
+        if(app.recording.record_state == RecordUiState::TargetSelect)
         {
-            app.record.record_target_index = wrap2(static_cast<int>(app.record.record_target_index) + e.value);
+            app.recording.record_target_index = wrap2(static_cast<int>(app.recording.record_target_index) + e.value);
             app.ui.ui_dirty = true;
             return true;
         }
@@ -398,36 +398,36 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
-        if(app.record.record_state == RecordUiState::Review)
+        if(app.recording.record_state == RecordUiState::Review)
         {
-            app.record.record_state = RecordUiState::BackConfirm;
+            app.recording.record_state = RecordUiState::BackConfirm;
             Record_StopPreview(app);
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::BackConfirm)
+        if(app.recording.record_state == RecordUiState::BackConfirm)
         {
-            app.record.record_state = RecordUiState::Review;
+            app.recording.record_state = RecordUiState::Review;
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::Recording)
+        if(app.recording.record_state == RecordUiState::Recording)
         {
-            app.rec_stop_req.store(1, std::memory_order_release);
+            app.shared.rec_stop_req.store(1, std::memory_order_release);
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::Armed)
+        if(app.recording.record_state == RecordUiState::Armed)
         {
-            app.record.record_state = RecordUiState::SourceSelect;
-            app.rec_monitor_enable.store(0, std::memory_order_release);
-            app.record.record_anim_start_ms = -1.0;
+            app.recording.record_state = RecordUiState::SourceSelect;
+            app.shared.rec_monitor_enable.store(0, std::memory_order_release);
+            app.recording.record_anim_start_ms = -1.0;
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::TargetSelect)
+        if(app.recording.record_state == RecordUiState::TargetSelect)
         {
-            app.record.record_state = RecordUiState::Review;
+            app.recording.record_state = RecordUiState::Review;
             app.ui.ui_dirty = true;
             return true;
         }
@@ -436,16 +436,16 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(app.record.record_state == RecordUiState::Review)
+        if(app.recording.record_state == RecordUiState::Review)
         {
-            app.record.record_preview_hold = true;
+            app.recording.record_preview_hold = true;
             app.ui.ui_dirty = true;
             return true;
         }
     }
     else if(e.type == UiInputType::BtnUp && e.id == kUiBtnPod2)
     {
-        if(app.record.record_state == RecordUiState::Review)
+        if(app.recording.record_state == RecordUiState::Review)
         {
             Record_StopPreview(app);
             app.ui.ui_dirty = true;
@@ -455,71 +455,71 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(app.record.record_state == RecordUiState::SourceSelect)
+        if(app.recording.record_state == RecordUiState::SourceSelect)
         {
-            app.record.record_state = RecordUiState::Armed;
-            app.rec_source_sel.store(app.record.record_source_index & 1u, std::memory_order_release);
-            app.rec_monitor_enable.store(1, std::memory_order_release);
-            app.record.record_anim_start_ms = -1.0;
+            app.recording.record_state = RecordUiState::Armed;
+            app.shared.rec_source_sel.store(app.recording.record_source_index & 1u, std::memory_order_release);
+            app.shared.rec_monitor_enable.store(1, std::memory_order_release);
+            app.recording.record_anim_start_ms = -1.0;
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::Armed)
+        if(app.recording.record_state == RecordUiState::Armed)
         {
-            app.record.record_countdown_start_ms = ctx.now_ms;
-            app.record.record_state = RecordUiState::Countdown;
-            app.rec_monitor_enable.store(1, std::memory_order_release);
-            app.record.record_anim_start_ms = -1.0;
+            app.recording.record_countdown_start_ms = ctx.now_ms;
+            app.recording.record_state = RecordUiState::Countdown;
+            app.shared.rec_monitor_enable.store(1, std::memory_order_release);
+            app.recording.record_anim_start_ms = -1.0;
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::Recording)
+        if(app.recording.record_state == RecordUiState::Recording)
         {
-            app.rec_stop_req.store(1, std::memory_order_release);
+            app.shared.rec_stop_req.store(1, std::memory_order_release);
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::Review)
+        if(app.recording.record_state == RecordUiState::Review)
         {
-            app.record.record_target_index = 0;
-            app.record.record_state = RecordUiState::TargetSelect;
+            app.recording.record_target_index = 0;
+            app.recording.record_state = RecordUiState::TargetSelect;
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::TargetSelect)
+        if(app.recording.record_state == RecordUiState::TargetSelect)
         {
-            if(app.record.record_target_index == 0)
+            if(app.recording.record_target_index == 0)
             {
                 UiReq req{UiReqType::SaveRenderedWavCurrent, 0, 0};
                 if(UiReq_Push(app, req))
                 {
-                    SdBrowser_SetSaveStatus(app.sd, "SAVING");
-                    app.sd.save_progress = 0;
-                    app.sd.save_in_progress = true;
-                    app.record.record_state = RecordUiState::SaveWait;
+                    SdBrowser_SetSaveStatus(app.ui.sd, "SAVING");
+                    app.ui.sd.save_progress = 0;
+                    app.ui.sd.save_in_progress = true;
+                    app.recording.record_state = RecordUiState::SaveWait;
                 }
                 else
                 {
-                    SdBrowser_SetSaveStatus(app.sd, "SAVE ERR");
-                    app.record.record_state = RecordUiState::Review;
+                    SdBrowser_SetSaveStatus(app.ui.sd, "SAVE ERR");
+                    app.recording.record_state = RecordUiState::Review;
                 }
             }
             else
             {
                 Record_StopPreview(app);
-                app.record.record_state = RecordUiState::SourceSelect;
+                app.recording.record_state = RecordUiState::SourceSelect;
             }
             app.ui.ui_dirty = true;
             return true;
         }
-        if(app.record.record_state == RecordUiState::BackConfirm)
+        if(app.recording.record_state == RecordUiState::BackConfirm)
         {
             Record_StopPreview(app);
-            app.rec_stop_req.store(1, std::memory_order_release);
-            app.rec_active.store(0, std::memory_order_release);
-            app.rec_length.store(0, std::memory_order_release);
-            app.rec_monitor_enable.store(0, std::memory_order_release);
-            app.record.record_state = RecordUiState::SourceSelect;
+            app.shared.rec_stop_req.store(1, std::memory_order_release);
+            app.shared.rec_active.store(0, std::memory_order_release);
+            app.shared.rec_length.store(0, std::memory_order_release);
+            app.shared.rec_monitor_enable.store(0, std::memory_order_release);
+            app.recording.record_state = RecordUiState::SourceSelect;
             app.ui.ui_dirty = true;
             return true;
         }
@@ -541,40 +541,40 @@ void Record_Render(UiScreenCtx& ctx)
     char status[16];
     BuildStatus(app, status, sizeof(status));
 
-    const uint32_t rec_len = app.rec_length.load(std::memory_order_acquire);
-    const uint32_t rec_pos = app.rec_pos.load(std::memory_order_acquire);
+    const uint32_t rec_len = app.shared.rec_length.load(std::memory_order_acquire);
+    const uint32_t rec_pos = app.shared.rec_pos.load(std::memory_order_acquire);
 
-    if(app.record.record_state == RecordUiState::Countdown)
+    if(app.recording.record_state == RecordUiState::Countdown)
     {
-        const uint32_t elapsed = ctx.now_ms - app.record.record_countdown_start_ms;
+        const uint32_t elapsed = ctx.now_ms - app.recording.record_countdown_start_ms;
         if(elapsed >= kRecordCountdownMs)
         {
             Record_StartRecording(ctx);
         }
     }
 
-    if(app.record.record_state == RecordUiState::SaveWait)
+    if(app.recording.record_state == RecordUiState::SaveWait)
     {
-        if(!app.sd.save_in_progress && !app.worker.ui_req_busy)
+        if(!app.ui.sd.save_in_progress && !app.worker.ui_req_busy)
         {
-            const bool save_ok = (std::strncmp(app.sd.save_status, "SAVED", 5) == 0);
+            const bool save_ok = (std::strncmp(app.ui.sd.save_status, "SAVED", 5) == 0);
             if(save_ok)
             {
                 // Successful save: go back to source select (recording is no longer at risk).
                 Record_StopPreview(app);
-                app.rec_monitor_enable.store(0, std::memory_order_release);
-                app.record.record_state = RecordUiState::SourceSelect;
+                app.shared.rec_monitor_enable.store(0, std::memory_order_release);
+                app.recording.record_state = RecordUiState::SourceSelect;
             }
             else
             {
                 // On failure, return to review so user can retry/save again.
-                app.record.record_state = RecordUiState::Review;
+                app.recording.record_state = RecordUiState::Review;
             }
             app.ui.ui_dirty = true;
         }
     }
 
-    switch(app.record.record_state)
+    switch(app.recording.record_state)
     {
         case RecordUiState::SourceSelect:
         {
@@ -585,7 +585,7 @@ void Record_Render(UiScreenCtx& ctx)
             for(int i = 0; i < 2; ++i)
             {
                 const int y = y0 + i * line_h;
-                const bool sel = (static_cast<uint8_t>(i) == app.record.record_source_index);
+                const bool sel = (static_cast<uint8_t>(i) == app.recording.record_source_index);
                 if(sel)
                     d.DrawRect(0, y, 127, y + line_h - 1, true, true);
                 d.SetCursor(2, y + 1);
@@ -602,7 +602,7 @@ void Record_Render(UiScreenCtx& ctx)
 
         case RecordUiState::Countdown:
         {
-            const uint32_t elapsed = ctx.now_ms - app.record.record_countdown_start_ms;
+            const uint32_t elapsed = ctx.now_ms - app.recording.record_countdown_start_ms;
             const uint32_t remain = (elapsed < kRecordCountdownMs) ? (kRecordCountdownMs - elapsed) : 0u;
             const uint32_t sec = (remain + 999u) / 1000u;
             const int cx = 64;
@@ -646,17 +646,17 @@ void Record_Render(UiScreenCtx& ctx)
             static uint32_t snap_gen = 0;
             static int16_t snap_min[128] = {};
             static int16_t snap_max[128] = {};
-            const uint32_t live_gen = app.rec_live_gen.load(std::memory_order_acquire);
+            const uint32_t live_gen = app.shared.rec_live_gen.load(std::memory_order_acquire);
             if(live_gen != snap_gen)
             {
                 uint32_t g0 = 0, g1 = 0;
                 int retry = 0;
                 do
                 {
-                    g0 = app.rec_live_gen.load(std::memory_order_acquire);
-                    std::memcpy(snap_min, app.rec_live_min, sizeof(snap_min));
-                    std::memcpy(snap_max, app.rec_live_max, sizeof(snap_max));
-                    g1 = app.rec_live_gen.load(std::memory_order_acquire);
+                    g0 = app.shared.rec_live_gen.load(std::memory_order_acquire);
+                    std::memcpy(snap_min, app.shared.rec_live_min, sizeof(snap_min));
+                    std::memcpy(snap_max, app.shared.rec_live_max, sizeof(snap_max));
+                    g1 = app.shared.rec_live_gen.load(std::memory_order_acquire);
                 } while(g0 != g1 && ++retry < 2);
                 snap_gen = g1;
             }
@@ -669,7 +669,7 @@ void Record_Render(UiScreenCtx& ctx)
 
             const int px = static_cast<int>((static_cast<uint64_t>(rec_pos) * 127u) / kSdSampleMaxFrames);
             const int kTrail = 24; // slightly looser follow
-            const float mic_boost = (app.record.record_source_index == 1) ? 1.5f : 1.0f;
+            const float mic_boost = (app.recording.record_source_index == 1) ? 1.5f : 1.0f;
             for(int x = 0; x < 128; ++x)
             {
                 int16_t minv = snap_min[x];
@@ -715,9 +715,9 @@ void Record_Render(UiScreenCtx& ctx)
         case RecordUiState::Review:
         {
             UiDraw_Header(d, layout, "RECORDED PLAYBACK", status);
-            const uint8_t slot = app.record.record_slot & 1u;
-            const Sample& s = app.sd_slots[slot];
-            const SampleEdit* e = (s.length > 0) ? &app.sd_edit_slots[slot] : nullptr;
+            const uint8_t slot = app.recording.record_slot & 1u;
+            const Sample& s = app.shared.sd_slots[slot];
+            const SampleEdit* e = (s.length > 0) ? &app.shared.sd_edit_slots[slot] : nullptr;
             DrawWaveformPreview(d, s, e, 0, layout.y_body, 128, 50);
             if(s.length == 0)
             {
@@ -732,7 +732,7 @@ void Record_Render(UiScreenCtx& ctx)
             UiDraw_Header(d, layout, "SAVE SAMPLE?", status);
             const char* a = "SAVE";
             const char* b = "RECORD AGAIN";
-            const bool sa = (app.record.record_target_index == 0);
+            const bool sa = (app.recording.record_target_index == 0);
             const bool sb = !sa;
             d.DrawRect(8, 20, 119, 31, true, sa);
             d.SetCursor(44, 22);
@@ -755,7 +755,7 @@ void Record_Render(UiScreenCtx& ctx)
         case RecordUiState::SaveWait:
         {
             d.Fill(false);
-            if(app.sd.save_in_progress)
+            if(app.ui.sd.save_in_progress)
             {
                 d.SetCursor(0, 0);
                 d.WriteString("SAVING", Font_6x8, true);
@@ -763,7 +763,7 @@ void Record_Render(UiScreenCtx& ctx)
                 const int bar_h = 6;
                 const int bar_x = (128 - bar_w) / 2;
                 const int bar_y = Font_6x8.FontHeight + 16;
-                const int pct = static_cast<int>(app.sd.save_progress);
+                const int pct = static_cast<int>(app.ui.sd.save_progress);
                 const int fill_w = (pct <= 0) ? 0 : ((pct >= 100) ? bar_w : ((bar_w * pct) / 100));
                 d.DrawRect(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, true, false);
                 if(fill_w > 0)
@@ -771,13 +771,13 @@ void Record_Render(UiScreenCtx& ctx)
             }
             else
             {
-                const bool ok = (std::strncmp(app.sd.save_status, "SAVED", 5) == 0);
+                const bool ok = (std::strncmp(app.ui.sd.save_status, "SAVED", 5) == 0);
                 d.SetCursor(0, 0);
                 d.WriteString(ok ? "SAVE OK" : "SAVE FAILED", Font_6x8, true);
-                if(ok && app.sd.save_name[0] != '\0')
+                if(ok && app.ui.sd.save_name[0] != '\0')
                 {
                     d.SetCursor(0, Font_6x8.FontHeight + 2);
-                    d.WriteString(app.sd.save_name, Font_6x8, true);
+                    d.WriteString(app.ui.sd.save_name, Font_6x8, true);
                 }
             }
         }
@@ -792,16 +792,16 @@ void Record_OnEnter(UiScreenCtx& ctx)
     if(!ctx.app)
         return;
     AppState& app = *ctx.app;
-    app.record.record_state = RecordUiState::SourceSelect;
-    app.record.record_source_index = 0;
-    app.record.record_target_index = 0;
-    app.record.record_slot = app.perform.perform_layer & 1u;
-    app.record.record_anim_start_ms = -1.0;
-    app.rec_source_sel.store(app.record.record_source_index & 1u, std::memory_order_release);
-    app.rec_monitor_enable.store(0, std::memory_order_release);
+    app.recording.record_state = RecordUiState::SourceSelect;
+    app.recording.record_source_index = 0;
+    app.recording.record_target_index = 0;
+    app.recording.record_slot = app.engine.perform_layer & 1u;
+    app.recording.record_anim_start_ms = -1.0;
+    app.shared.rec_source_sel.store(app.recording.record_source_index & 1u, std::memory_order_release);
+    app.shared.rec_monitor_enable.store(0, std::memory_order_release);
     Record_StopPreview(app);
-    app.rec_start_req.store(0, std::memory_order_release);
-    app.rec_stop_req.store(0, std::memory_order_release);
+    app.shared.rec_start_req.store(0, std::memory_order_release);
+    app.shared.rec_stop_req.store(0, std::memory_order_release);
     app.ui.ui_dirty = true;
 }
 
@@ -811,7 +811,7 @@ void Record_OnExit(UiScreenCtx& ctx)
         return;
     AppState& app = *ctx.app;
     Record_StopPreview(app);
-    app.rec_monitor_enable.store(0, std::memory_order_release);
-    app.record.record_anim_start_ms = -1.0;
-    app.rec_stop_req.store(1, std::memory_order_release);
+    app.shared.rec_monitor_enable.store(0, std::memory_order_release);
+    app.recording.record_anim_start_ms = -1.0;
+    app.shared.rec_stop_req.store(1, std::memory_order_release);
 }

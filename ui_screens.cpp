@@ -52,7 +52,7 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         return;
 
     AppState& app = *ctx.app;
-    const uint8_t layer = app.perform.perform_layer & 1u;
+    const uint8_t layer = app.engine.perform_layer & 1u;
     PerformParamsTargets& t = ctx.params->EditTargets();
     t.engine_tune_semitones[layer] = static_cast<float>(app.engine.engine_tune_semitones[layer]);
     t.engine_gain_db[layer] = static_cast<float>(app.engine.engine_gain_db[layer]);
@@ -60,50 +60,50 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
     for(uint8_t i = 0; i < kPerformLayerCount; ++i)
     {
         const uint16_t clamped_attack = static_cast<uint16_t>(
-            ClampInt(static_cast<int>(app.perform.perform_adsr_loop_attack[i]),
+            ClampInt(static_cast<int>(app.engine.perform_adsr_loop_attack[i]),
                      static_cast<int>(kPerformAdsrAttackReleaseMinMs),
                      static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
         const uint16_t clamped_release = static_cast<uint16_t>(
-            ClampInt(static_cast<int>(app.perform.perform_adsr_loop_release[i]),
+            ClampInt(static_cast<int>(app.engine.perform_adsr_loop_release[i]),
                      static_cast<int>(kPerformAdsrAttackReleaseMinMs),
                      static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
         const uint8_t clamped_decay = static_cast<uint8_t>(
-            ClampInt(static_cast<int>(app.perform.perform_adsr_loop_decay[i]), 1, static_cast<int>(kPerformAdsrDecayMaxMs)));
+            ClampInt(static_cast<int>(app.engine.perform_adsr_loop_decay[i]), 1, static_cast<int>(kPerformAdsrDecayMaxMs)));
         const uint8_t clamped_sustain = static_cast<uint8_t>(
-            ClampInt(static_cast<int>(app.perform.perform_adsr_loop_sustain[i]), 0, static_cast<int>(kPerformAdsrSustainMax)));
-        app.perform.perform_adsr_loop_attack[i] = clamped_attack;
-        app.perform.perform_adsr_loop_decay[i] = clamped_decay;
-        app.perform.perform_adsr_loop_sustain[i] = clamped_sustain;
-        app.perform.perform_adsr_loop_release[i] = clamped_release;
+            ClampInt(static_cast<int>(app.engine.perform_adsr_loop_sustain[i]), 0, static_cast<int>(kPerformAdsrSustainMax)));
+        app.engine.perform_adsr_loop_attack[i] = clamped_attack;
+        app.engine.perform_adsr_loop_decay[i] = clamped_decay;
+        app.engine.perform_adsr_loop_sustain[i] = clamped_sustain;
+        app.engine.perform_adsr_loop_release[i] = clamped_release;
         t.engine_drive_mode[i] = ClampDriveMode(static_cast<int>(app.engine.engine_drive_mode[i]));
-        t.perform_keyzone_lo_note[i] = app.perform.perform_keyzone_lo_note[i];
-        t.perform_keyzone_hi_note[i] = app.perform.perform_keyzone_hi_note[i];
+        t.perform_keyzone_lo_note[i] = app.engine.perform_keyzone_lo_note[i];
+        t.perform_keyzone_hi_note[i] = app.engine.perform_keyzone_hi_note[i];
         t.engine_loop_attack_ms[i] = static_cast<float>(clamped_attack);
         t.engine_loop_decay_ms[i] = static_cast<float>(clamped_decay);
         t.engine_loop_sustain_level[i] = static_cast<float>(clamped_sustain) * 0.01f;
         t.engine_loop_release_ms[i] = static_cast<float>(clamped_release);
-        t.engine_loop_crossfade_amount[i] = app.perform.perform_adsr_loop_crossfade[i];
-        t.engine_loop_crossfade_shape[i] = app.perform.perform_adsr_loop_crossfade_shape[i];
+        t.engine_loop_crossfade_amount[i] = app.engine.perform_adsr_loop_crossfade[i];
+        t.engine_loop_crossfade_shape[i] = app.engine.perform_adsr_loop_crossfade_shape[i];
     }
     ctx.params->PublishTargets();
 }
 
 void EngineRefreshLoadedMetadata(AppState& app)
 {
-    const uint32_t applied_gen = app.sd_applied_gen.load(std::memory_order_relaxed);
+    const uint32_t applied_gen = app.shared.sd_applied_gen.load(std::memory_order_relaxed);
     if(applied_gen == app.engine.engine_seen_applied_gen)
         return;
 
     app.engine.engine_seen_applied_gen = applied_gen;
-    const uint8_t slot = app.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const Sample& s = app.sd_slots[slot];
+    const uint8_t slot = app.shared.sd_current_slot.load(std::memory_order_relaxed) & 1u;
+    const Sample& s = app.shared.sd_slots[slot];
     if(s.pcm != nullptr && s.length > 0)
     {
         std::snprintf(app.engine.engine_sample_path[slot],
                       sizeof(app.engine.engine_sample_path[slot]),
                       "%s",
-                      app.sd.last_loaded_path);
-        ExtractBaseName(app.sd.last_loaded_path,
+                      app.ui.sd.last_loaded_path);
+        ExtractBaseName(app.ui.sd.last_loaded_path,
                         app.engine.engine_sample_name[slot],
                         sizeof(app.engine.engine_sample_name[slot]));
     }

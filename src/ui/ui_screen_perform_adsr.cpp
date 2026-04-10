@@ -54,10 +54,10 @@ static uint16_t PerformAdsrStageValue(const AppState& app, uint8_t layer, uint8_
     const uint8_t safe_layer = layer & 1u;
     switch(stage % static_cast<uint8_t>(kAdsrStageCount))
     {
-        case 0: return app.perform.perform_adsr_loop_attack[safe_layer];
-        case 1: return app.perform.perform_adsr_loop_decay[safe_layer];
-        case 2: return app.perform.perform_adsr_loop_sustain[safe_layer];
-        default: return app.perform.perform_adsr_loop_release[safe_layer];
+        case 0: return app.engine.perform_adsr_loop_attack[safe_layer];
+        case 1: return app.engine.perform_adsr_loop_decay[safe_layer];
+        case 2: return app.engine.perform_adsr_loop_sustain[safe_layer];
+        default: return app.engine.perform_adsr_loop_release[safe_layer];
     }
 }
 
@@ -67,16 +67,16 @@ static void SetPerformAdsrStageValue(AppState& app, uint8_t layer, uint8_t stage
     switch(stage % static_cast<uint8_t>(kAdsrStageCount))
     {
         case 0:
-            app.perform.perform_adsr_loop_attack[safe_layer] = value;
+            app.engine.perform_adsr_loop_attack[safe_layer] = value;
             return;
         case 1:
-            app.perform.perform_adsr_loop_decay[safe_layer] = static_cast<uint8_t>(value);
+            app.engine.perform_adsr_loop_decay[safe_layer] = static_cast<uint8_t>(value);
             return;
         case 2:
-            app.perform.perform_adsr_loop_sustain[safe_layer] = static_cast<uint8_t>(value);
+            app.engine.perform_adsr_loop_sustain[safe_layer] = static_cast<uint8_t>(value);
             return;
         default:
-            app.perform.perform_adsr_loop_release[safe_layer] = value;
+            app.engine.perform_adsr_loop_release[safe_layer] = value;
             return;
     }
 }
@@ -102,7 +102,7 @@ static int PerformAdsrStageMax(uint8_t stage)
 
 static uint8_t& PerformAdsrRow(AppState& app, uint8_t layer)
 {
-    return app.perform.perform_adsr_row[layer & 1u];
+    return app.engine.perform_adsr_row[layer & 1u];
 }
 
 static uint8_t& PerformAdsrEnvX(AppState& app, uint8_t layer, uint8_t stage)
@@ -110,15 +110,15 @@ static uint8_t& PerformAdsrEnvX(AppState& app, uint8_t layer, uint8_t stage)
     const uint8_t safe_layer = layer & 1u;
     switch(stage % static_cast<uint8_t>(kAdsrStageCount))
     {
-        case 0: return app.perform.perform_adsr_env_a_x[safe_layer];
-        case 1: return app.perform.perform_adsr_env_d_x[safe_layer];
-        default: return app.perform.perform_adsr_env_r_x[safe_layer];
+        case 0: return app.engine.perform_adsr_env_a_x[safe_layer];
+        case 1: return app.engine.perform_adsr_env_d_x[safe_layer];
+        default: return app.engine.perform_adsr_env_r_x[safe_layer];
     }
 }
 
 static uint8_t& PerformAdsrEnvSLevel(AppState& app, uint8_t layer)
 {
-    return app.perform.perform_adsr_env_s_level[layer & 1u];
+    return app.engine.perform_adsr_env_s_level[layer & 1u];
 }
 
 static bool PerformAdsrStageEnabled(uint8_t adsr_row, uint8_t stage)
@@ -138,60 +138,60 @@ static bool PerformAdsrWaveFocusable(uint8_t adsr_row)
 
 static int PerformAdsrFocusIndex(const AppState& app, uint8_t layer)
 {
-    if(app.perform.perform_adsr_type_focus)
+    if(app.engine.perform_adsr_type_focus)
         return 0;
 
-    const uint8_t adsr_row = app.perform.perform_adsr_row[layer & 1u];
-    if(PerformAdsrWaveFocusable(adsr_row) && app.perform.perform_adsr_wave_focus)
+    const uint8_t adsr_row = app.engine.perform_adsr_row[layer & 1u];
+    if(PerformAdsrWaveFocusable(adsr_row) && app.engine.perform_adsr_wave_focus)
         return 1;
 
-    return static_cast<int>(app.perform.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount))
+    return static_cast<int>(app.engine.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount))
            + (PerformAdsrWaveFocusable(adsr_row) ? 2 : 1);
 }
 
 static void PerformAdsrSetFocusIndex(AppState& app, uint8_t layer, int idx)
 {
-    const uint8_t adsr_row = app.perform.perform_adsr_row[layer & 1u];
+    const uint8_t adsr_row = app.engine.perform_adsr_row[layer & 1u];
     if(idx <= 0)
     {
-        app.perform.perform_adsr_type_focus = true;
-        app.perform.perform_adsr_wave_focus = false;
+        app.engine.perform_adsr_type_focus = true;
+        app.engine.perform_adsr_wave_focus = false;
         return;
     }
 
     if(PerformAdsrWaveFocusable(adsr_row) && idx == 1)
     {
-        app.perform.perform_adsr_type_focus = false;
-        app.perform.perform_adsr_wave_focus = true;
+        app.engine.perform_adsr_type_focus = false;
+        app.engine.perform_adsr_wave_focus = true;
         return;
     }
 
-    app.perform.perform_adsr_type_focus = false;
-    app.perform.perform_adsr_wave_focus = false;
+    app.engine.perform_adsr_type_focus = false;
+    app.engine.perform_adsr_wave_focus = false;
     const int stage_base = PerformAdsrWaveFocusable(adsr_row) ? 2 : 1;
-    app.perform.perform_adsr_stage_focus
+    app.engine.perform_adsr_stage_focus
         = static_cast<uint8_t>(ClampInt(idx - stage_base, 0, kAdsrStageCount - 1));
 }
 
 static void PerformAdsrEnsureValidFocus(AppState& app, uint8_t layer)
 {
     const uint8_t adsr_row = PerformAdsrRow(app, layer);
-    if(app.perform.perform_adsr_type_focus)
+    if(app.engine.perform_adsr_type_focus)
     {
-        app.perform.perform_adsr_wave_focus = false;
+        app.engine.perform_adsr_wave_focus = false;
         return;
     }
 
     if(!PerformAdsrWaveFocusable(adsr_row))
-        app.perform.perform_adsr_wave_focus = false;
-    if(app.perform.perform_adsr_wave_focus)
+        app.engine.perform_adsr_wave_focus = false;
+    if(app.engine.perform_adsr_wave_focus)
         return;
 
-    const uint8_t stage = app.perform.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+    const uint8_t stage = app.engine.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
     if(PerformAdsrStageEnabled(adsr_row, stage))
         return;
 
-    app.perform.perform_adsr_stage_focus = (stage <= 1u) ? 0u : 3u;
+    app.engine.perform_adsr_stage_focus = (stage <= 1u) ? 0u : 3u;
 }
 
 static void DrawPerformLoopCrossfadeCurve(OledPager& d,
@@ -234,9 +234,9 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        app.perform.perform_layer ^= 1u;
-        const uint8_t layer = app.perform.perform_layer & 1u;
-        app.sd_current_slot.store(layer, std::memory_order_release);
+        app.engine.perform_layer ^= 1u;
+        const uint8_t layer = app.engine.perform_layer & 1u;
+        app.shared.sd_current_slot.store(layer, std::memory_order_release);
         app.engine.engine_header_invert_until_ms = e.t_ms + 250u;
         PerformAdsrEnsureValidFocus(app, layer);
         PublishEngineLayerParams(ctx);
@@ -246,7 +246,7 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const uint8_t layer = app.perform.perform_layer & 1u;
+        const uint8_t layer = app.engine.perform_layer & 1u;
         const uint8_t adsr_row = PerformAdsrRow(app, layer);
         int idx = PerformAdsrFocusIndex(app, layer);
         const bool wave_focusable = PerformAdsrWaveFocusable(adsr_row);
@@ -275,9 +275,9 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
-        const uint8_t layer = app.perform.perform_layer & 1u;
+        const uint8_t layer = app.engine.perform_layer & 1u;
         uint8_t& adsr_row = PerformAdsrRow(app, layer);
-        if(app.perform.perform_adsr_type_focus)
+        if(app.engine.perform_adsr_type_focus)
         {
             int row = static_cast<int>(adsr_row % static_cast<uint8_t>(kAdsrRowCount));
             row += e.value;
@@ -316,11 +316,11 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
-        if(app.perform.perform_adsr_wave_focus
+        if(app.engine.perform_adsr_wave_focus
            && (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop))
         {
-            float& target = ctx.rshift ? app.perform.perform_adsr_loop_crossfade_shape[layer]
-                                       : app.perform.perform_adsr_loop_crossfade[layer];
+            float& target = ctx.rshift ? app.engine.perform_adsr_loop_crossfade_shape[layer]
+                                       : app.engine.perform_adsr_loop_crossfade[layer];
             const float step = ctx.rshift ? kPerformLoopCrossfadeShapeStep
                                           : kPerformLoopCrossfadeStep;
             const float min_value = ctx.rshift ? kPerformLoopCrossfadeShapeMin
@@ -345,7 +345,7 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             if((adsr_row % static_cast<uint8_t>(kAdsrRowCount)) != static_cast<uint8_t>(kAdsrRowAdsr))
                 return false;
 
-            const uint8_t stage = app.perform.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+            const uint8_t stage = app.engine.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
             if(stage == 2u)
             {
                 uint8_t& level = PerformAdsrEnvSLevel(app, layer);
@@ -359,9 +359,9 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
             static constexpr int kAdsrEnvMinGap = 6;
             uint8_t& value = PerformAdsrEnvX(app, layer, stage);
-            const int a_x = static_cast<int>(app.perform.perform_adsr_env_a_x[layer]);
-            const int d_x = static_cast<int>(app.perform.perform_adsr_env_d_x[layer]);
-            const int r_x = static_cast<int>(app.perform.perform_adsr_env_r_x[layer]);
+            const int a_x = static_cast<int>(app.engine.perform_adsr_env_a_x[layer]);
+            const int d_x = static_cast<int>(app.engine.perform_adsr_env_d_x[layer]);
+            const int r_x = static_cast<int>(app.engine.perform_adsr_env_r_x[layer]);
             int min_value = 0;
             int max_value = 100;
             if(stage == 0u)
@@ -386,7 +386,7 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
-        const uint8_t stage = app.perform.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+        const uint8_t stage = app.engine.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
         const uint16_t value = PerformAdsrStageValue(app, layer, stage);
         const int min_value = PerformAdsrStageMin(stage);
         const int max_value = PerformAdsrStageMax(stage);
@@ -408,10 +408,10 @@ void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
     if(!ctx.app)
         return;
     AppState& app = *ctx.app;
-    app.perform.perform_adsr_stage_focus = 0;
-    app.perform.perform_adsr_type_focus = false;
-    app.perform.perform_adsr_wave_focus = false;
-    const uint8_t layer = app.perform.perform_layer & 1u;
+    app.engine.perform_adsr_stage_focus = 0;
+    app.engine.perform_adsr_type_focus = false;
+    app.engine.perform_adsr_wave_focus = false;
+    const uint8_t layer = app.engine.perform_layer & 1u;
     uint8_t& adsr_row = PerformAdsrRow(app, layer);
     if(adsr_row >= static_cast<uint8_t>(kAdsrRowCount))
         adsr_row = (app.engine.engine_play_mode[layer] & 1u) ? kAdsrRowLoop : kAdsrRowOneShot;
@@ -430,11 +430,11 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const uint8_t layer = app.perform.perform_layer & 1u;
+    const uint8_t layer = app.engine.perform_layer & 1u;
     const uint8_t adsr_row = PerformAdsrRow(app, layer);
-    const Sample& sample = app.sd_slots[layer];
+    const Sample& sample = app.shared.sd_slots[layer];
     const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
-    const SampleEdit* edit = sample_loaded ? &app.sd_edit_slots[layer] : nullptr;
+    const SampleEdit* edit = sample_loaded ? &app.shared.sd_edit_slots[layer] : nullptr;
 
     char header_label[16] = {};
     std::snprintf(header_label, sizeof(header_label), "adsr %c", layer == 0 ? 'a' : 'b');
@@ -463,8 +463,8 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
     constexpr int kWaveW = 128;
 
     const char* kPlaybackTypeLabel = "playback type";
-    const bool type_focused = app.perform.perform_adsr_type_focus;
-    const bool wave_focused = (!type_focused && app.perform.perform_adsr_wave_focus
+    const bool type_focused = app.engine.perform_adsr_type_focus;
+    const bool wave_focused = (!type_focused && app.engine.perform_adsr_wave_focus
                                && PerformAdsrWaveFocusable(adsr_row));
     const int label_area_x0 = 0;
     const int label_area_x1 = box_x - 1;
@@ -540,7 +540,7 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
     static const char* kBottomLetters[4] = {"a", "d", "s", "r"};
     const int bottom_y = kWaveBottomY + 2;
     const int seg_w = static_cast<int>(d.Width()) / 4;
-    const uint8_t stage_focus = app.perform.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+    const uint8_t stage_focus = app.engine.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
     const bool loop_stage_editing
         = (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop);
     const int preview_x0 = kWaveX + 1;
@@ -554,7 +554,7 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
     {
         const int preview_pixels = preview_x1 - preview_x0 + 1;
         int crossfade_px = static_cast<int>(
-            (static_cast<float>(preview_pixels - 1) * app.perform.perform_adsr_loop_crossfade[layer]) + 0.5f);
+            (static_cast<float>(preview_pixels - 1) * app.engine.perform_adsr_loop_crossfade[layer]) + 0.5f);
         if(crossfade_px < 0)
             crossfade_px = 0;
         const int max_crossfade_px = (preview_pixels - 1) / 2;
@@ -583,14 +583,14 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
                                           preview_y0,
                                           left_bar_x,
                                           preview_y1,
-                                          app.perform.perform_adsr_loop_crossfade_shape[layer],
+                                          app.engine.perform_adsr_loop_crossfade_shape[layer],
                                           false);
             DrawPerformLoopCrossfadeCurve(d,
                                           right_bar_x,
                                           preview_y0,
                                           preview_x1,
                                           preview_y1,
-                                          app.perform.perform_adsr_loop_crossfade_shape[layer],
+                                          app.engine.perform_adsr_loop_crossfade_shape[layer],
                                           true);
             d.DrawRect(preview_x0, preview_y0, left_bar_x, preview_y1, true, false);
             d.DrawRect(right_bar_x, preview_y0, preview_x1, preview_y1, true, false);
@@ -617,11 +617,11 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
 
     if(adsr_mode)
     {
-        const int a_x = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_a_x[layer])) / 100;
-        const int d_x = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_d_x[layer])) / 100;
-        const int r_x = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_r_x[layer])) / 100;
+        const int a_x = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_a_x[layer])) / 100;
+        const int d_x = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_d_x[layer])) / 100;
+        const int r_x = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_r_x[layer])) / 100;
         const int sustain_y
-            = preview_y1 - (preview_h * static_cast<int>(app.perform.perform_adsr_env_s_level[layer])) / 100;
+            = preview_y1 - (preview_h * static_cast<int>(app.engine.perform_adsr_env_s_level[layer])) / 100;
 
         d.DrawLine(a_x, kWaveY + 1, a_x, kWaveBottomY - 1, true);
         d.DrawLine(d_x, kWaveY + 1, d_x, kWaveBottomY - 1, true);
@@ -645,19 +645,19 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
             const int w = MiniString3x5Width(kBottomLetters[i]);
             int box_center = seg_center;
             if(i == 0)
-                box_center = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_a_x[layer])) / 100;
+                box_center = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_a_x[layer])) / 100;
             else if(i == 1)
-                box_center = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_d_x[layer])) / 100;
+                box_center = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_d_x[layer])) / 100;
             else if(i == 2)
             {
                 const int d_x
-                    = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_d_x[layer])) / 100;
+                    = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_d_x[layer])) / 100;
                 const int r_x
-                    = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_r_x[layer])) / 100;
+                    = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_r_x[layer])) / 100;
                 box_center = d_x + ((r_x - d_x) / 2);
             }
             else
-                box_center = preview_x0 + (preview_w * static_cast<int>(app.perform.perform_adsr_env_r_x[layer])) / 100;
+                box_center = preview_x0 + (preview_w * static_cast<int>(app.engine.perform_adsr_env_r_x[layer])) / 100;
             const int box_w = w + 6;
             int box_x0 = box_center - (box_w / 2);
             int box_x1 = box_x0 + box_w - 1;

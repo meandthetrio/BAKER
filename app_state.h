@@ -50,6 +50,7 @@ enum class ProjectAction : uint8_t
 
 static constexpr uint8_t kProjectSlotCount = 8;
 
+// Worker request bookkeeping [WORKER/MAIN-LOOP ONLY].
 struct WorkerState
 {
     UiReqQueue ui_req_q{};
@@ -66,97 +67,72 @@ struct WorkerState
     uint32_t ui_req_work_units_total = 0;
 };
 
-struct AppState
+// Project slot/status and pending-edit restore state [MAIN/UI + WORKER COORDINATION].
+struct ProjectUiState
 {
-    PerformPage page = PerformPage::Main;
+    uint8_t current_project_slot = 0;
+    ProjectAction project_action = ProjectAction::None;
+    uint8_t project_action_slot = 0;
+    char project_status[16] = {};
+    uint8_t project_edit_pending_mask = 0;
+    SampleEdit project_pending_edit[kSdSampleSlots]{};
+};
 
-    // UI “dirty flag” = something visible changed and we should redraw.
-    bool ui_dirty = true;
+// SHIFT menu and destructive SD-delete UI state [MAIN/UI ONLY].
+struct ShiftMenuState
+{
+    // SHIFT menu (opened by POD BUTTON1)
+    uint8_t shift_menu_cursor = 0; // 0=DELETE, 1=VOLUME, 2=PROJECT SLOT, 3=SAVE PROJECT, 4=LOAD PROJECT
+    bool    shift_menu_edit_volume = false;
 
-    // Debug / proof-of-life counters for SPSC event queue.
-    std::atomic<uint32_t> events_pushed{0};
-    std::atomic<uint32_t> events_popped{0};
-    std::atomic<uint32_t> queue_overflows{0};
-    std::atomic<uint32_t> midi_rx_count{0};
-    std::atomic<uint32_t> loop_mode{0}; // 0=FWD, 1=PINGPONG
-    std::atomic<uint32_t> clip_count{0};
-    std::atomic<uint32_t> fadeouts_started{0};
+    // SD delete flow (entered via SHIFT→DELETE)
+    bool     sd_delete_mode = false;      // when true, EXT ENC selects file for deletion
+    uint16_t sd_delete_index = 0;
+    char     sd_delete_name[kSdNameMax] = {};
+};
 
-    // Voice engine debug (written by audio thread, read by UI).
-    std::atomic<uint32_t> voices_active{0};
-    std::atomic<uint32_t> voices_peak_1s{0};
-    std::atomic<uint32_t> voice_steals{0};
-    std::atomic<uint32_t> last_stolen_voice_index{0};
-    std::atomic<uint32_t> last_stolen_start_id{0};
-    std::atomic<uint32_t> last_new_start_id{0};
+// Overlay/render diagnostics [MAIN/UI DIAGNOSTICS].
+struct RenderOverlayState
+{
+    UiOverlayState overlay{};
+    uint16_t render_ms = 0;
+    uint16_t render_hi_ms = 0;
+    uint32_t render_skips = 0;
+    uint32_t render_frames = 0;
+    uint32_t render_cooldown_until_ms = 0;
+};
 
-    // Audio thread diagnostics.
-    std::atomic<uint32_t> audio_cycles_last{0};
-    std::atomic<uint32_t> audio_cycles_peak{0};
-    std::atomic<uint32_t> audio_budget_cycles{0};
-    std::atomic<uint32_t> audio_late_count{0};
-    // Packed {voice_idx, note, velocity} in low 24 bits.
-    std::atomic<uint32_t> last_voice_packed{0};
-    std::atomic<uint32_t> last_sample_index{0};
-    std::atomic<uint32_t> last_vel_layer{0};
-    std::atomic<uint32_t> last_velocity{0};
-    std::atomic<int32_t> last_lfo{0};
-    std::atomic<int32_t> last_env{0};
-    std::atomic<uint32_t> lfo_rate_dbg{0};
-    std::atomic<uint32_t> lfo_depth_dbg{0};
-    std::atomic<uint32_t> playhead_frame[2]{{0}, {0}};
-    std::atomic<uint32_t> playhead_active[2]{{0}, {0}};
+// RECORD screen UI-only state [MAIN/UI ONLY].
+struct RecordUiStateData
+{
+    RecordUiState record_state = RecordUiState::SourceSelect;
+    uint8_t record_source_index = 0; // 0=LINE IN, 1=MIC
+    uint8_t record_target_index = 0; // 0=SAVE, 1=RECORD AGAIN
+    uint32_t record_countdown_start_ms = 0;
+    double record_anim_start_ms = -1.0;
+    uint8_t record_slot = 0;
+    bool    record_preview_hold = false;
+    bool    record_preview_gate = false;
+};
 
-    // Mod matrix (main loop owns edits, audio thread consumes snapshot).
-    ModMatrixState mod_matrix{};
-    ModRoute       mod_routes_ui[kMaxModRoutes]{};
-    uint8_t        mod_route_selected = 0;
+// Engine/sample presentation state [MAIN/UI ONLY].
+struct EngineUiState
+{
+    int8_t  engine_tune_semitones[2] = {0, 0};
+    int16_t engine_gain_db[2] = {0, 0}; // tenths of dB, 0..60 = 0.0..6.0 dB
+    uint8_t engine_drive_mode[2] = {0u, 0u}; // 0=odd, 1=even
+    uint8_t engine_play_mode[2] = {1, 1}; // 0=OneShot, 1=Loop
+    char    engine_sample_path[2][kSdPathMax] = {};
+    char    engine_sample_name[2][kSdNameMax] = {};
+    uint8_t engine_load_target_layer = 0xFFu;
+    bool    engine_load_from_perform = false;
+    uint32_t engine_seen_applied_gen = 0;
+    uint32_t engine_header_invert_until_ms = 0;
+};
 
-    // Parameter locks (main loop owns pattern and clock).
-    PLocksState plocks{};
-    Pattern     plock_pattern{};
-    bool        seq_running = false;
-    bool        plock_apply_enabled = false;
-    std::atomic<uint8_t> lfo_wave{0}; // 0=SINE, 1=PULSE
-    uint32_t    seq_bpm = 120;
-    uint32_t    seq_last_ms = 0;
-    uint32_t    seq_accum_ms = 0;
-
-    // Performance macros (main loop edits, audio thread latches).
-    MacroState macro_ui{};
-    MacroState macro_a{};
-    MacroState macro_b{};
-    std::atomic<uint8_t>  macro_sel{0};
-    std::atomic<uint32_t> macro_gen{0};
-
-    // Main-loop owned UI helpers (not accessed from audio thread).
-    uint32_t last_input_ms = 0;
-    uint32_t ui_hz         = 0;
-    uint32_t ctrl_hz       = 0;
-    UiInputQueue ui_in{};
-    uint32_t ui_in_push    = 0;
-    uint32_t ui_in_pop     = 0;
-    uint32_t ui_in_ovf     = 0;
-    uint32_t ui_in_hi      = 0;
-    WorkerState worker{};
-    UiNav    ui_nav{};
-    UiScreenId ui_active_screen = UiScreenId::Hud;
-    UiListMenu hud_menu{};
-    bool     hud_menu_inited = false;
-    bool     ui_lshift_held = false;
-    bool     ui_rshift_held = false;
-    bool     ui_parent_preview_active = false;
-    uint8_t  ui_parent_preview_from_top = 0;
-    uint8_t  ui_parent_preview_mode = 0; // 0=none, 1=nav parent, 2=process detail parent
-    UiScreenId ui_parent_preview_origin_screen = UiScreenId::COUNT;
-    uint8_t  ui_parent_preview_origin_main_cursor = 0;
-    uint8_t  ui_parent_preview_origin_fx_cursor = 0;
-    bool     ui_parent_preview_origin_process_detail = false;
-    bool     ui_parent_preview_origin_process_eq_graph = false;
-    bool     ui_btn1_held  = false;
-    bool     ui_btn2_held  = false;
-    UiValueEdit value_edit{};
-    uint8_t main_menu_index = 0;
+// PERFORM screen UI/editor state [MAIN/UI ONLY].
+struct PerformUiState
+{
     uint8_t perform_menu_index = 0;
     uint8_t perform_layer = 0; // 0=A, 1=B
     // PERFORM submenu cursor rows (each submenu tracks its own cursor)
@@ -192,42 +168,81 @@ struct AppState
     bool    perform_process_detail_active = false;
     bool    perform_process_eq_graph_active = false;
     uint8_t perform_process_detail_param[4] = {0, 0, 0, 0};
-    RecordUiState record_state = RecordUiState::SourceSelect;
-    uint8_t record_source_index = 0; // 0=LINE IN, 1=MIC
-    uint8_t record_target_index = 0; // 0=SAVE, 1=RECORD AGAIN
-    uint32_t record_countdown_start_ms = 0;
-    double record_anim_start_ms = -1.0;
-    uint8_t record_slot = 0;
-    bool    record_preview_hold = false;
-    bool    record_preview_gate = false;
-    int8_t  engine_tune_semitones[2] = {0, 0};
-    int16_t engine_gain_db[2] = {0, 0}; // tenths of dB, 0..60 = 0.0..6.0 dB
-    uint8_t engine_drive_mode[2] = {0u, 0u}; // 0=odd, 1=even
-    uint8_t engine_play_mode[2] = {1, 1}; // 0=OneShot, 1=Loop
-    char    engine_sample_path[2][kSdPathMax] = {};
-    char    engine_sample_name[2][kSdNameMax] = {};
-    uint8_t engine_load_target_layer = 0xFFu;
-    bool    engine_load_from_perform = false;
-    uint32_t engine_seen_applied_gen = 0;
-    uint32_t engine_header_invert_until_ms = 0;
     uint8_t fx_field_cursor = 0;
     uint8_t mod_field_cursor = 0;
+};
 
-    // SHIFT menu (opened by POD BUTTON1)
-    uint8_t shift_menu_cursor = 0; // 0=DELETE, 1=VOLUME, 2=PROJECT SLOT, 3=SAVE PROJECT, 4=LOAD PROJECT
-    bool    shift_menu_edit_volume = false;
+// Top-level UI shell / navigation state [MAIN/UI ONLY].
+struct UiShellState
+{
+    PerformPage page = PerformPage::Main;
 
-    // SD delete flow (entered via SHIFT→DELETE)
-    bool     sd_delete_mode = false;      // when true, EXT ENC selects file for deletion
-    uint16_t sd_delete_index = 0;
-    char     sd_delete_name[kSdNameMax] = {};
+    // UI “dirty flag” = something visible changed and we should redraw.
+    bool ui_dirty = true;
+    UiNav ui_nav{};
+    UiScreenId ui_active_screen = UiScreenId::Hud;
+    bool     ui_lshift_held = false;
+    bool     ui_rshift_held = false;
+    bool     ui_parent_preview_active = false;
+    uint8_t  ui_parent_preview_from_top = 0;
+    uint8_t  ui_parent_preview_mode = 0; // 0=none, 1=nav parent, 2=process detail parent
+    UiScreenId ui_parent_preview_origin_screen = UiScreenId::COUNT;
+    uint8_t  ui_parent_preview_origin_main_cursor = 0;
+    uint8_t  ui_parent_preview_origin_fx_cursor = 0;
+    bool     ui_parent_preview_origin_process_detail = false;
+    bool     ui_parent_preview_origin_process_eq_graph = false;
+    bool     ui_btn1_held  = false;
+    bool     ui_btn2_held  = false;
+    uint8_t main_menu_index = 0;
+};
 
-    UiOverlayState overlay{};
-    uint16_t render_ms = 0;
-    uint16_t render_hi_ms = 0;
-    uint32_t render_skips = 0;
-    uint32_t render_frames = 0;
-    uint32_t render_cooldown_until_ms = 0;
+// Main-loop input/plumbing helpers [MAIN/UI ONLY].
+struct UiInputState
+{
+    uint32_t last_input_ms = 0;
+    uint32_t ui_hz         = 0;
+    uint32_t ctrl_hz       = 0;
+    UiInputQueue ui_in{};
+    uint32_t ui_in_push    = 0;
+    uint32_t ui_in_pop     = 0;
+    uint32_t ui_in_ovf     = 0;
+    uint32_t ui_in_hi      = 0;
+    UiListMenu hud_menu{};
+    bool     hud_menu_inited = false;
+    UiValueEdit value_edit{};
+};
+
+struct AppState
+{
+    // Global UI shell / navigation state [MAIN/UI ONLY]
+    UiShellState ui{};
+
+    // Main-loop UI plumbing [MAIN/UI ONLY]
+    // These helpers should stay out of audio-thread diagnostics and handoff state.
+    UiInputState input{};
+
+    // PERFORM editor state [MAIN/UI ONLY]
+    PerformUiState perform{};
+
+    // RECORD UI state [MAIN/UI ONLY]
+    RecordUiStateData record{};
+
+    // SD browser / sample-edit UI state [MAIN/UI ONLY]
+    UiListMenu sample_edit_menu{};
+    bool sample_edit_menu_inited = false;
+
+    // Engine/sample presentation state [MAIN/UI ONLY]
+    EngineUiState engine{};
+
+    // Worker / SD / project operations
+    WorkerState worker{};
+
+    // SHIFT / destructive SD actions [MAIN/UI ONLY]
+    ShiftMenuState shift{};
+
+    // SD browser / sample slot state [WORKER/MAIN + CROSS-THREAD PUBLISH/APPLY]
+    // The atomics below feed block-boundary sample/edit handoff and should remain visibly separate
+    // from pure UI cursor state.
     SdBrowserState sd{};
     Sample sd_slots[kSdSampleSlots]{};
     std::atomic<uint8_t> sd_current_slot{0};
@@ -242,7 +257,11 @@ struct AppState
     std::atomic<uint32_t> sd_edit_gen{0};
     std::atomic<uint32_t> sd_edit_applied_gen{0};
 
-    // Recording (UI thread commands, audio thread capture).
+    // Project persistence state [MAIN/UI + WORKER COORDINATION]
+    ProjectUiState project{};
+
+    // Recording cross-thread handoff [CROSS-THREAD PUBLISH/APPLY]
+    // UI writes requests and control flags; audio writes activity, progress, and live waveform state.
     std::atomic<uint8_t> rec_source_sel{0}; // 0=LINE IN, 1=MIC
     std::atomic<uint8_t> rec_monitor_enable{0};
     std::atomic<uint8_t> rec_start_req{0};
@@ -256,14 +275,67 @@ struct AppState
     int16_t rec_live_max[128] = {};
     int16_t rec_live_last_col = -1;
 
-    UiListMenu sample_edit_menu{};
-    bool sample_edit_menu_inited = false;
-    uint8_t current_project_slot = 0;
-    ProjectAction project_action = ProjectAction::None;
-    uint8_t project_action_slot = 0;
-    char project_status[16] = {};
-    uint8_t project_edit_pending_mask = 0;
-    SampleEdit project_pending_edit[kSdSampleSlots]{};
+    // Mod / plock / macro state [MAIN/UI EDITS -> AUDIO SNAPSHOT/HANDOFF]
+    // Mod matrix (main loop owns edits, audio thread consumes snapshot).
+    ModMatrixState mod_matrix{};
+    ModRoute       mod_routes_ui[kMaxModRoutes]{};
+    uint8_t        mod_route_selected = 0;
+
+    // Parameter locks (main loop owns pattern and clock).
+    PLocksState plocks{};
+    Pattern     plock_pattern{};
+    bool        seq_running = false;
+    bool        plock_apply_enabled = false;
+    std::atomic<uint8_t> lfo_wave{0}; // 0=SINE, 1=PULSE
+    uint32_t    seq_bpm = 120;
+    uint32_t    seq_last_ms = 0;
+    uint32_t    seq_accum_ms = 0;
+
+    // Performance macros (main loop edits, audio thread latches).
+    MacroState macro_ui{};
+    MacroState macro_a{};
+    MacroState macro_b{};
+    std::atomic<uint8_t>  macro_sel{0};
+    std::atomic<uint32_t> macro_gen{0};
+
+    // Overlay/render state [MAIN/UI DIAGNOSTICS]
+    RenderOverlayState render{};
+
+    // Audio/runtime diagnostics [AUDIO-WRITTEN, UI-READ]
+    // These counters are product diagnostics, not editable UI state.
+    // Debug / proof-of-life counters for SPSC event queue.
+    std::atomic<uint32_t> events_pushed{0};
+    std::atomic<uint32_t> events_popped{0};
+    std::atomic<uint32_t> queue_overflows{0};
+    std::atomic<uint32_t> midi_rx_count{0};
+    std::atomic<uint32_t> loop_mode{0}; // 0=FWD, 1=PINGPONG
+    std::atomic<uint32_t> clip_count{0};
+    std::atomic<uint32_t> fadeouts_started{0};
+
+    // Voice engine debug (written by audio thread, read by UI).
+    std::atomic<uint32_t> voices_active{0};
+    std::atomic<uint32_t> voices_peak_1s{0};
+    std::atomic<uint32_t> voice_steals{0};
+    std::atomic<uint32_t> last_stolen_voice_index{0};
+    std::atomic<uint32_t> last_stolen_start_id{0};
+    std::atomic<uint32_t> last_new_start_id{0};
+
+    // Audio thread diagnostics.
+    std::atomic<uint32_t> audio_cycles_last{0};
+    std::atomic<uint32_t> audio_cycles_peak{0};
+    std::atomic<uint32_t> audio_budget_cycles{0};
+    std::atomic<uint32_t> audio_late_count{0};
+    // Packed {voice_idx, note, velocity} in low 24 bits.
+    std::atomic<uint32_t> last_voice_packed{0};
+    std::atomic<uint32_t> last_sample_index{0};
+    std::atomic<uint32_t> last_vel_layer{0};
+    std::atomic<uint32_t> last_velocity{0};
+    std::atomic<int32_t> last_lfo{0};
+    std::atomic<int32_t> last_env{0};
+    std::atomic<uint32_t> lfo_rate_dbg{0};
+    std::atomic<uint32_t> lfo_depth_dbg{0};
+    std::atomic<uint32_t> playhead_frame[2]{{0}, {0}};
+    std::atomic<uint32_t> playhead_active[2]{{0}, {0}};
 };
 
 static inline const char* WaveChar(uint8_t w)

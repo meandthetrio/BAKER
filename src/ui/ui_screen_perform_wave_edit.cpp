@@ -15,7 +15,7 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
 
     AppState& app = *ctx.app;
     EngineRefreshLoadedMetadata(app);
-    const uint8_t layer = app.perform_layer & 1u;
+    const uint8_t layer = app.perform.perform_layer & 1u;
     app.sd_current_slot.store(layer, std::memory_order_release);
     const Sample& sample = app.sd_slots[layer];
     const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
@@ -178,9 +178,9 @@ void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
 
     AppState& app = *ctx.app;
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
-        app.perform_wave_edit_entry[slot] = app.sd_edit_slots[slot];
-    app.perform_wave_edit_has_entry = true;
-    app.ui_dirty = true;
+        app.perform.perform_wave_edit_entry[slot] = app.sd_edit_slots[slot];
+    app.perform.perform_wave_edit_has_entry = true;
+    app.ui.ui_dirty = true;
 }
 
 bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
@@ -189,7 +189,7 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
         return false;
 
     AppState& app = *ctx.app;
-    const uint8_t layer = app.perform_layer & 1u;
+    const uint8_t layer = app.perform.perform_layer & 1u;
     SampleEdit edit = app.sd_edit_slots[layer];
     const Sample& sample = app.sd_slots[layer];
     SampleEdit_Clamp(edit, sample.length);
@@ -198,9 +198,9 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
     app.sd_edit_slot.store(layer, std::memory_order_release);
     app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
     app.sd_edit_ready.store(1, std::memory_order_release);
-    app.perform_wave_edit_has_entry = false;
-    UiNav_Pop(app.ui_nav);
-    app.ui_dirty = true;
+    app.perform.perform_wave_edit_has_entry = false;
+    UiNav_Pop(app.ui.ui_nav);
+    app.ui.ui_dirty = true;
     return true;
 }
 
@@ -210,7 +210,7 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppState& app = *ctx.app;
-    const uint8_t layer = app.perform_layer & 1u;
+    const uint8_t layer = app.perform.perform_layer & 1u;
     app.sd_current_slot.store(layer, std::memory_order_release);
     Sample& sample = app.sd_slots[layer];
     if(sample.pcm == nullptr || sample.length == 0)
@@ -218,24 +218,24 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        app.perform_layer ^= 1u;
-        const uint8_t next = app.perform_layer & 1u;
+        app.perform.perform_layer ^= 1u;
+        const uint8_t next = app.perform.perform_layer & 1u;
         app.sd_current_slot.store(next, std::memory_order_release);
-        app.ui_dirty = true;
+        app.ui.ui_dirty = true;
         return true;
     }
 
     // Cancel trim edit session: restore entry snapshot and return.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
-        if(app.perform_wave_edit_has_entry)
+        if(app.perform.perform_wave_edit_has_entry)
         {
             for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
-                app.sd_edit_slots[slot] = app.perform_wave_edit_entry[slot];
-            app.perform_wave_edit_has_entry = false;
+                app.sd_edit_slots[slot] = app.perform.perform_wave_edit_entry[slot];
+            app.perform.perform_wave_edit_has_entry = false;
         }
-        UiNav_Pop(app.ui_nav);
-        app.ui_dirty = true;
+        UiNav_Pop(app.ui.ui_nav);
+        app.ui.ui_dirty = true;
         return true;
     }
 
@@ -303,7 +303,7 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         SampleEdit_Clamp(edit, frames);
         app.sd_edit_slots[layer] = edit;
-        app.ui_dirty = true;
+        app.ui.ui_dirty = true;
         return true;
     }
 

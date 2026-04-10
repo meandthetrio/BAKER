@@ -51,17 +51,17 @@ void UIRender::Render(const AppState& app, const Params& params)
     ctx.params = const_cast<Params*>(&params);
     ctx.display = &oled_pager_;
     ctx.now_ms = System::GetNow();
-    const bool shift_held = app.ui_lshift_held || app.ui_rshift_held;
+    const bool shift_held = app.ui.ui_lshift_held || app.ui.ui_rshift_held;
     ctx.shift = shift_held;
-    ctx.lshift = app.ui_lshift_held;
-    ctx.rshift = app.ui_rshift_held;
+    ctx.lshift = app.ui.ui_lshift_held;
+    ctx.rshift = app.ui.ui_rshift_held;
     UiRouter_Render(ctx);
 
-    if(app.overlay.visible)
+    if(app.render.overlay.visible)
     {
         const UiLayout layout = UiLayout_Default();
         UiOverlay_Render(app, params, layout, oled_pager_);
-        const char* hint = app.value_edit.active ? "SHIFT:OVER P2:CANC"
+        const char* hint = app.input.value_edit.active ? "SHIFT:OVER P2:CANC"
                                                   : "SHIFT:OVER P2:BACK";
         UiDraw_Footer(oled_pager_, layout, hint);
     }
@@ -89,13 +89,13 @@ void UIRender::Tick(AppState& app, const Params& params)
     ui_ticks_accum_++;
     if((now_ms - ui_window_start_ms_) >= 1000)
     {
-        app.ui_hz = ui_ticks_accum_;
+        app.input.ui_hz = ui_ticks_accum_;
         ui_ticks_accum_ = 0;
         ui_window_start_ms_ = now_ms;
-        app.ui_dirty = true;
+        app.ui.ui_dirty = true;
     }
 
-    if(UiNav_Active(app.ui_nav) == UiScreenId::PerformWaveEdit)
+    if(UiNav_Active(app.ui.ui_nav) == UiScreenId::PerformWaveEdit)
     {
         for(uint8_t layer = 0; layer < 2; ++layer)
         {
@@ -103,7 +103,7 @@ void UIRender::Tick(AppState& app, const Params& params)
             const uint32_t active = app.playhead_active[layer].load(std::memory_order_relaxed);
             if(frame != last_playhead_frame_[layer] || active != last_playhead_active_[layer])
             {
-                app.ui_dirty = true;
+                app.ui.ui_dirty = true;
                 last_playhead_frame_[layer] = frame;
                 last_playhead_active_[layer] = active;
             }
@@ -181,7 +181,7 @@ void UIRender::Tick(AppState& app, const Params& params)
            || (env_val != last_env_)
            || (lfo_rate_dbg != last_lfo_rate_dbg_)
            || (lfo_depth_dbg != last_lfo_depth_dbg_))
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
 
         // Decimate stats-driven dirty marking to 10Hz max.
         last_stats_ms_ = now_ms;
@@ -192,13 +192,13 @@ void UIRender::Tick(AppState& app, const Params& params)
     if(oled_pager_.IsTransferring())
         return;
 
-    if(now_ms < app.render_cooldown_until_ms)
+    if(now_ms < app.render.render_cooldown_until_ms)
     {
-        app.render_skips++;
+        app.render.render_skips++;
         return;
     }
 
-    if(!app.ui_dirty && !app.overlay.visible)
+    if(!app.ui.ui_dirty && !app.render.overlay.visible)
         return;
 
     const uint32_t start_ms = System::GetNow();
@@ -209,14 +209,14 @@ void UIRender::Tick(AppState& app, const Params& params)
     if(dt32 > 0xFFFFu)
         dt32 = 0xFFFFu;
     const uint16_t dt = static_cast<uint16_t>(dt32);
-    app.render_ms = dt;
-    if(dt > app.render_hi_ms)
-        app.render_hi_ms = dt;
-    app.render_frames++;
+    app.render.render_ms = dt;
+    if(dt > app.render.render_hi_ms)
+        app.render.render_hi_ms = dt;
+    app.render.render_frames++;
     if(dt > kRenderBudgetMs)
-        app.render_cooldown_until_ms = end_ms + kCooldownMs;
+        app.render.render_cooldown_until_ms = end_ms + kCooldownMs;
 
-    app.ui_dirty = false;
+    app.ui.ui_dirty = false;
 
     // Update cached stats after any render (even if render was triggered by controls).
     if(!stats_loaded)

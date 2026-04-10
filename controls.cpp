@@ -26,13 +26,13 @@ static UiInputEvent MakeEncEvent(uint8_t id, int16_t delta, uint32_t now_ms)
 
 static void PushEvent(AppState& app, const UiInputEvent& e)
 {
-    if(UiInput_Push(app.ui_in, e))
+    if(UiInput_Push(app.input.ui_in, e))
     {
-        app.ui_in_push++;
+        app.input.ui_in_push++;
     }
     else
     {
-        app.ui_in_ovf = UiInput_Dropped(app.ui_in);
+        app.input.ui_in_ovf = UiInput_Dropped(app.input.ui_in);
     }
 }
 
@@ -130,5 +130,5 @@ void Controls_Tick(ControlsState& cs, AppState& app, uint32_t now_ms)
         PushEvent(app, MakeEncEvent(kUiEncExt, delta, now_ms));
     }
 
-    app.ui_in_ovf = UiInput_Dropped(app.ui_in);
+    app.input.ui_in_ovf = UiInput_Dropped(app.input.ui_in);
 }

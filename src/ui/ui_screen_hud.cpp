@@ -21,13 +21,13 @@ static const UiMenuItem kHudMenuItems[] = {
 
 static void EnsureHudMenu(AppState& app)
 {
-    if(app.hud_menu_inited)
+    if(app.input.hud_menu_inited)
         return;
-    UiListMenu_Init(app.hud_menu,
+    UiListMenu_Init(app.input.hud_menu,
                     kHudMenuItems,
                     static_cast<uint8_t>(sizeof(kHudMenuItems) / sizeof(kHudMenuItems[0])),
                     3);
-    app.hud_menu_inited = true;
+    app.input.hud_menu_inited = true;
 }
 
 bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -40,25 +40,25 @@ bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
     {
-        if(UiListMenu_OnEnc(ctx.app->hud_menu, e.value))
+        if(UiListMenu_OnEnc(ctx.app->input.hud_menu, e.value))
         {
-            ctx.app->ui_dirty = true;
+            ctx.app->ui.ui_dirty = true;
             return true;
         }
         return false;
     }
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        const UiMenuItem& item = ctx.app->hud_menu.items[ctx.app->hud_menu.cursor];
+        const UiMenuItem& item = ctx.app->input.hud_menu.items[ctx.app->input.hud_menu.cursor];
         if(item.req != UiReqType::None)
         {
             UiReq req{item.req, 0, 0};
             UiReq_Push(*ctx.app, req);
-            ctx.app->ui_dirty = true;
+            ctx.app->ui.ui_dirty = true;
             return true;
         }
-        if(item.screen != UiScreenId::COUNT && UiNav_Push(ctx.app->ui_nav, item.screen))
-            ctx.app->ui_dirty = true;
+        if(item.screen != UiScreenId::COUNT && UiNav_Push(ctx.app->ui.ui_nav, item.screen))
+            ctx.app->ui.ui_dirty = true;
         return true;
     }
 
@@ -82,8 +82,8 @@ void Hud_Render(UiScreenCtx& ctx)
         cpu_pct = 999u;
     const uint32_t late_cnt = app.audio_late_count.load(std::memory_order_relaxed);
 
-    const uint32_t ovf_mod = app.ui_in_ovf % 1000;
-    uint32_t hi = app.ui_in_hi;
+    const uint32_t ovf_mod = app.input.ui_in_ovf % 1000;
+    uint32_t hi = app.input.ui_in_hi;
     if(hi > 99u)
         hi = 99u;
     const char* sd_ok = app.sd.sd_ok ? "OK" : "ER";
@@ -105,8 +105,8 @@ void Hud_Render(UiScreenCtx& ctx)
     std::snprintf(buf,
                   sizeof(buf),
                   "U:%02lu C:%04lu CPU:%03lu",
-                  (unsigned long)app.ui_hz,
-                  (unsigned long)app.ctrl_hz,
+                  (unsigned long)app.input.ui_hz,
+                  (unsigned long)app.input.ctrl_hz,
                   (unsigned long)cpu_pct);
     d.WriteString(buf, Font_6x8, true);
 
@@ -124,7 +124,7 @@ void Hud_Render(UiScreenCtx& ctx)
                   (unsigned long)ld);
     d.WriteString(buf, Font_6x8, true);
 
-    UiListMenu_Render(ctx.app->hud_menu,
+    UiListMenu_Render(ctx.app->input.hud_menu,
                       d,
                       layout.x,
                       layout.y_body + layout.line_h * 3,

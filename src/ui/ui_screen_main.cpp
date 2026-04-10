@@ -222,9 +222,9 @@ bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const int32_t next = NextMenuIndex(static_cast<int32_t>(ctx.app->main_menu_index), e.value);
-        ctx.app->main_menu_index = static_cast<uint8_t>(next);
-        ctx.app->ui_dirty = true;
+        const int32_t next = NextMenuIndex(static_cast<int32_t>(ctx.app->ui.main_menu_index), e.value);
+        ctx.app->ui.main_menu_index = static_cast<uint8_t>(next);
+        ctx.app->ui.ui_dirty = true;
         return true;
     }
 
@@ -236,16 +236,16 @@ bool MainMenu_OnEnter(UiScreenCtx& ctx)
     if(!ctx.app)
         return false;
 
-    const uint8_t selected = static_cast<uint8_t>(ctx.app->main_menu_index % kMainMenuCount);
+    const uint8_t selected = static_cast<uint8_t>(ctx.app->ui.main_menu_index % kMainMenuCount);
     switch(selected)
     {
         case 0:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::Presets);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::Presets);
         case 1:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::Record);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::Record);
         case 2:
         default:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformMenu);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformMenu);
     }
 }
 
@@ -254,7 +254,7 @@ void MainMenu_Render(UiScreenCtx& ctx)
     if(!ctx.app || !ctx.display)
         return;
 
-    const int selected = static_cast<int>(ctx.app->main_menu_index % kMainMenuCount);
+    const int selected = static_cast<int>(ctx.app->ui.main_menu_index % kMainMenuCount);
     DrawMainMenuFriendStyle(*ctx.display, selected);
 }
 

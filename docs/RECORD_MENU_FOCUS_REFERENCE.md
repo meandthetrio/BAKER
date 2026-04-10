@@ -2,7 +2,7 @@
 
 ## Notes
 - This file documents the CURRENT IMPLEMENTED RECORD branch only.
-- Source of truth is code (`ui_screens.*`, `ui_logic.cpp`, `app_state.h`).
+- Source of truth is code (`src/ui/ui_screen_record.cpp`, `src/ui/ui_screen_main.cpp`, `src/ui/ui_router.cpp`, `ui_logic.cpp`, `app_state.h`).
 - RECORD is a single screen (`UiScreenId::Record`) with internal state-driven focus/actions.
 
 ## Screen Inventory

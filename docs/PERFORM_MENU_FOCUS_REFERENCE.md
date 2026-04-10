@@ -2,7 +2,7 @@
 
 ## Notes
 - This file documents the CURRENT IMPLEMENTED PERFORM branch only.
-- Source of truth is code (`ui_screens.*`, `ui_logic.cpp`, `app_state.h`).
+- Source of truth is current PERFORM code in `src/ui/ui_screen_perform_*.cpp`, `src/ui/ui_router.cpp`, `src/ui/ui_screen_registry.cpp`, `ui_logic.cpp`, and `app_state.h`.
 - Includes PROCESS in-screen FX detail submenus.
 - LShift is a parent-preview modifier (not overlay toggle):
   - hold LShift to preview parent menu/process-main context
@@ -10,6 +10,8 @@
   - releasing LShift commits the preview selection
 
 ## Screen Inventory
+
+### Stack-backed screens
 - Start (Main Menu entry point)
 - PerformMenu
 - PerformEngine
@@ -18,13 +20,15 @@
 - PerformAdsr
 - PerformEmphasis
 - PerformProcess
+- SdBrowse (when entered from PerformEngine LOAD)
+
+### In-screen detail modes inside PerformProcess
 - PerformProcess / SATURATION detail (in-screen mode)
 - PerformProcess / MODULATION detail (in-screen mode)
 - PerformProcess / DELAY detail (in-screen mode)
 - PerformProcess / REVERB detail (in-screen mode)
-- SdBrowse (when entered from PerformEngine LOAD)
 
-## UI Tree
+## Structural Tree
 - Start (Main Menu)
   - PerformMenu
     - PerformEngine
@@ -38,6 +42,11 @@
       - MODULATION detail (in-screen detail mode)
       - DELAY detail (in-screen detail mode)
       - REVERB detail (in-screen detail mode)
+
+## Structural Notes
+- PERFORM uses both nav-stack screens and in-screen detail modes; only the stack-backed nodes exist as distinct `UiScreenId` entries.
+- `SdBrowse` is shared repo UI, but in the PERFORM branch it hangs off `PerformEngine` via the LOAD row.
+- This pass is structural only; detailed focus/navigation claims remain in the screen sections below.
 
 ## Screen Reference
 
@@ -92,7 +101,7 @@
   - `LOAD` pushes `SdBrowse` with perform-load context.
   - `TUNE` does not push a screen.
 - Notes:
-  - On screen-enter, default row is forced to `LOAD`.
+  - Enter behavior follows the currently selected row; the row is not forced back to `LOAD` on screen entry.
   - Wave region is inverted when `WAVE` row selected.
 
 2. **Tune field (`engine_tune_semitones[layer]`)**
@@ -188,18 +197,15 @@
 - Notes:
   - Right encoder owns high-note editing on this screen.
 
-3. **Alternate split move (`perform_keyzone_hi_note[0]`, `perform_keyzone_lo_note[1]`)**
+3. **Range move modifier (`perform_keyzone_lo_note[layer]`, `perform_keyzone_hi_note[layer]`)**
 - Type: modifier edit
-- Purpose: move the split boundary between layers without breaking either layer's bounds.
+- Purpose: shift the active layer's whole keyzone range up or down without changing its width.
 - Behavior:
-  - `RShift + kUiEncExt` moves layer A high note and layer B low note together by one note per encoder gesture.
+  - While `RShift` is held, either encoder moves the active layer's low and high note together by one note per encoder gesture.
 - Result:
-  - Boundary motion is clamped so:
-    - layer A never collapses below its low note
-    - layer B never collapses below its high note
-    - split stays inside `A0..C8`
+  - Whole-range motion is clamped so the active layer stays inside `A0..C8`.
 - Notes:
-  - This reuses the repo's existing `RShift` alternate-action pattern instead of creating a new modifier system.
+  - This is a per-layer range shift, not a cross-layer split-boundary edit.
 
 4. **Alternate split/full-range toggle**
 - Type: modifier action

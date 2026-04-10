@@ -25,7 +25,7 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(!ctx.app)
         return;
 
-    const UiScreenId active = UiNav_Active(ctx.app->ui_nav);
+    const UiScreenId active = UiNav_Active(ctx.app->ui.ui_nav);
     const UiScreen& s = GetScreen(active);
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
@@ -33,10 +33,10 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         // Special case: when editing SETTINGS->VOLUME, "BACK" should exit edit mode
         // without leaving the SETTINGS screen.
         if(active == UiScreenId::ShiftMenu
-           && ctx.app->shift_menu_edit_volume)
+           && ctx.app->shift.shift_menu_edit_volume)
         {
-            ctx.app->shift_menu_edit_volume = false;
-            ctx.app->ui_dirty = true;
+            ctx.app->shift.shift_menu_edit_volume = false;
+            ctx.app->ui.ui_dirty = true;
             return;
         }
 
@@ -53,8 +53,8 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(active == UiScreenId::PerformWaveEdit && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
-        if(UiNav_Pop(ctx.app->ui_nav))
-            ctx.app->ui_dirty = true;
+        if(UiNav_Pop(ctx.app->ui.ui_nav))
+            ctx.app->ui.ui_dirty = true;
         return;
     }
 
@@ -62,7 +62,7 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(s.on_enter(ctx))
         {
-            ctx.app->ui_dirty = true;
+            ctx.app->ui.ui_dirty = true;
             return;
         }
     }
@@ -77,27 +77,27 @@ void UiRouter_Render(UiScreenCtx& ctx)
         return;
 
     // Hold LShift to temporarily preview parent without changing nav state.
-    if(ctx.lshift && ctx.app->ui_parent_preview_active)
+    if(ctx.lshift && ctx.app->ui.ui_parent_preview_active)
     {
-        if(ctx.app->ui_parent_preview_mode == 2
-           && UiNav_Active(ctx.app->ui_nav) == UiScreenId::PerformProcess)
+        if(ctx.app->ui.ui_parent_preview_mode == 2
+           && UiNav_Active(ctx.app->ui.ui_nav) == UiScreenId::PerformProcess)
         {
             // In-screen parent: PROCESS detail / EQ graph -> PROCESS main.
-            const bool saved_detail = ctx.app->perform_process_detail_active;
-            const bool saved_eqg    = ctx.app->perform_process_eq_graph_active;
-            ctx.app->perform_process_detail_active  = false;
-            ctx.app->perform_process_eq_graph_active = false;
+            const bool saved_detail = ctx.app->perform.perform_process_detail_active;
+            const bool saved_eqg    = ctx.app->perform.perform_process_eq_graph_active;
+            ctx.app->perform.perform_process_detail_active  = false;
+            ctx.app->perform.perform_process_eq_graph_active = false;
             const UiScreen& active = GetScreen(UiScreenId::PerformProcess);
             if(active.Render)
                 active.Render(ctx);
-            ctx.app->perform_process_detail_active   = saved_detail;
-            ctx.app->perform_process_eq_graph_active = saved_eqg;
+            ctx.app->perform.perform_process_detail_active   = saved_detail;
+            ctx.app->perform.perform_process_eq_graph_active = saved_eqg;
             return;
         }
 
-        if(ctx.app->ui_parent_preview_mode == 1 && ctx.app->ui_nav.top > 0)
+        if(ctx.app->ui.ui_parent_preview_mode == 1 && ctx.app->ui.ui_nav.top > 0)
         {
-            const UiScreenId parent_id = ctx.app->ui_nav.stack[ctx.app->ui_nav.top - 1];
+            const UiScreenId parent_id = ctx.app->ui.ui_nav.stack[ctx.app->ui.ui_nav.top - 1];
             const UiScreen& parent = GetScreen(parent_id);
             if(parent.Render)
             {
@@ -107,7 +107,7 @@ void UiRouter_Render(UiScreenCtx& ctx)
         }
     }
 
-    const UiScreen& active = GetScreen(UiNav_Active(ctx.app->ui_nav));
+    const UiScreen& active = GetScreen(UiNav_Active(ctx.app->ui.ui_nav));
     if(active.Render)
         active.Render(ctx);
 }

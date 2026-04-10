@@ -322,7 +322,7 @@ static inline void PushAudioEventFromMain(const Event& evt)
     else
     {
         g_app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-        g_app.ui_dirty = true;
+        g_app.ui.ui_dirty = true;
     }
 }
 
@@ -350,7 +350,7 @@ static void HandleMidiNoteOn(const NoteOnEvent& note_on)
         evt.value = static_cast<uint32_t>(layer)
                     | (static_cast<uint32_t>(vel_layer) << 8);
         g_app.last_sample_index.store(layer, std::memory_order_relaxed);
-        g_app.ui_dirty = true;
+        g_app.ui.ui_dirty = true;
         PushAudioEventFromMain(evt);
     }
 }
@@ -376,7 +376,7 @@ static bool DrainMidiInput(uint32_t now_ms)
             HandleMidiNoteOff(msg.AsNoteOff());
     }
     if(midi_activity)
-        g_app.last_input_ms = now_ms;
+        g_app.input.last_input_ms = now_ms;
     return midi_activity;
 }
 
@@ -399,10 +399,10 @@ static void RunControlTicks(uint32_t now_ms)
 
         if((now_ms - ctrl_window_start_ms) >= 1000)
         {
-            g_app.ctrl_hz = ctrl_ticks_accum;
+            g_app.input.ctrl_hz = ctrl_ticks_accum;
             ctrl_ticks_accum = 0;
             ctrl_window_start_ms = now_ms;
-            g_app.ui_dirty = true;
+            g_app.ui.ui_dirty = true;
         }
 
         ctrl_accum_ms -= 1;
@@ -433,27 +433,27 @@ int main(void)
         t.engine_filter_resonance[1] = 0.0f;
         for(uint8_t layer = 0; layer < PerformParamsTargets::kLayerCount; ++layer)
         {
-            float loop_attack_ms = static_cast<float>(g_app.perform_adsr_loop_attack[layer]);
+            float loop_attack_ms = static_cast<float>(g_app.perform.perform_adsr_loop_attack[layer]);
             if(loop_attack_ms < 1.0f)
                 loop_attack_ms = 1.0f;
             if(loop_attack_ms > 1000.0f)
                 loop_attack_ms = 1000.0f;
-            float loop_release_ms = static_cast<float>(g_app.perform_adsr_loop_release[layer]);
+            float loop_release_ms = static_cast<float>(g_app.perform.perform_adsr_loop_release[layer]);
             if(loop_release_ms < 1.0f)
                 loop_release_ms = 1.0f;
             if(loop_release_ms > 1000.0f)
                 loop_release_ms = 1000.0f;
-            t.engine_drive_mode[layer] = g_app.engine_drive_mode[layer] & 1u;
-            t.engine_loop_mode[layer] = (g_app.engine_play_mode[layer] != 0);
+            t.engine_drive_mode[layer] = g_app.engine.engine_drive_mode[layer] & 1u;
+            t.engine_loop_mode[layer] = (g_app.engine.engine_play_mode[layer] != 0);
             t.engine_loop_attack_ms[layer] = loop_attack_ms;
-            t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.perform_adsr_loop_decay[layer]);
+            t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.perform.perform_adsr_loop_decay[layer]);
             t.engine_loop_sustain_level[layer]
-                = static_cast<float>(g_app.perform_adsr_loop_sustain[layer]) * 0.01f;
+                = static_cast<float>(g_app.perform.perform_adsr_loop_sustain[layer]) * 0.01f;
             t.engine_loop_release_ms[layer] = loop_release_ms;
-            t.engine_loop_crossfade_amount[layer] = g_app.perform_adsr_loop_crossfade[layer];
-            t.engine_loop_crossfade_shape[layer] = g_app.perform_adsr_loop_crossfade_shape[layer];
-            t.perform_keyzone_lo_note[layer] = g_app.perform_keyzone_lo_note[layer];
-            t.perform_keyzone_hi_note[layer] = g_app.perform_keyzone_hi_note[layer];
+            t.engine_loop_crossfade_amount[layer] = g_app.perform.perform_adsr_loop_crossfade[layer];
+            t.engine_loop_crossfade_shape[layer] = g_app.perform.perform_adsr_loop_crossfade_shape[layer];
+            t.perform_keyzone_lo_note[layer] = g_app.perform.perform_keyzone_lo_note[layer];
+            t.perform_keyzone_hi_note[layer] = g_app.perform.perform_keyzone_hi_note[layer];
         }
         g_params.PublishTargets();
     }
@@ -470,9 +470,9 @@ int main(void)
     g_audio.Init(hw.AudioSampleRate(), hw.AudioBlockSize());
     g_ui.Init(hw);
     g_render.Init(&display, hw);
-    g_app.ui_nav.top = 0;
-    g_app.ui_nav.stack[0] = UiScreenId::Start;
-    g_app.ui_active_screen = UiScreenId::Start;
+    g_app.ui.ui_nav.top = 0;
+    g_app.ui.ui_nav.stack[0] = UiScreenId::Start;
+    g_app.ui.ui_active_screen = UiScreenId::Start;
     hw.midi.StartReceive();
     g_voice.Init(g_sample_rate_hz, hw.AudioBlockSize());
     g_voice.SetModMatrix(&g_app.mod_matrix);
@@ -545,14 +545,14 @@ int main(void)
         // - RECORD > REVIEW: solid GREEN (POD2 preview available).
         // - PERFORM A/B pages: solid BLUE.
         // - otherwise off.
-        const bool sd_browse_active = (g_app.ui_active_screen == UiScreenId::SdBrowse);
-        const bool record_review_active = (g_app.ui_active_screen == UiScreenId::Record)
-                                          && (g_app.record_state == RecordUiState::Review);
+        const bool sd_browse_active = (g_app.ui.ui_active_screen == UiScreenId::SdBrowse);
+        const bool record_review_active = (g_app.ui.ui_active_screen == UiScreenId::Record)
+                                          && (g_app.record.record_state == RecordUiState::Review);
         const bool perform_ab_active
-            = (g_app.ui_active_screen == UiScreenId::PerformEngine)
-              || (g_app.ui_active_screen == UiScreenId::PerformKeyzone)
-              || (g_app.ui_active_screen == UiScreenId::PerformAdsr)
-              || (g_app.ui_active_screen == UiScreenId::PerformEmphasis);
+            = (g_app.ui.ui_active_screen == UiScreenId::PerformEngine)
+              || (g_app.ui.ui_active_screen == UiScreenId::PerformKeyzone)
+              || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
+              || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis);
 
         if(sd_browse_active || record_review_active)
         {

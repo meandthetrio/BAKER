@@ -33,25 +33,25 @@ bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     static constexpr float kLpfMinHz = 80.0f;
     static constexpr float kLpfMaxHz = 12000.0f;
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && !ctx.app->value_edit.active)
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && !ctx.app->input.value_edit.active)
     {
-        int next = static_cast<int>(ctx.app->fx_field_cursor) + e.value;
+        int next = static_cast<int>(ctx.app->perform.fx_field_cursor) + e.value;
         while(next < 0) next += kFxFieldCount;
         while(next >= kFxFieldCount) next -= kFxFieldCount;
-        ctx.app->fx_field_cursor = static_cast<uint8_t>(next);
-        ctx.app->ui_dirty = true;
+        ctx.app->perform.fx_field_cursor = static_cast<uint8_t>(next);
+        ctx.app->ui.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(!ctx.app->value_edit.active)
+        if(!ctx.app->input.value_edit.active)
         {
             const auto& t = ctx.params->TargetsForUI();
             int16_t start_i = 0;
             UiValueSpec spec{};
             const char* label = "";
-            switch(ctx.app->fx_field_cursor)
+            switch(ctx.app->perform.fx_field_cursor)
             {
                 case 0: // Delay On
                     label = "DLY";
@@ -82,14 +82,14 @@ bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                     break;
                 }
             }
-            UiValueEdit_Begin(ctx.app->value_edit, label, spec, start_i);
-            ctx.app->ui_dirty = true;
+            UiValueEdit_Begin(ctx.app->input.value_edit, label, spec, start_i);
+            ctx.app->ui.ui_dirty = true;
         }
         else
         {
             PerformParamsTargets& t = ctx.params->EditTargets();
-            const int16_t v = ctx.app->value_edit.value_i;
-            switch(ctx.app->fx_field_cursor)
+            const int16_t v = ctx.app->input.value_edit.value_i;
+            switch(ctx.app->perform.fx_field_cursor)
             {
                 case 0:
                     t.delay_on = (v != 0);
@@ -110,20 +110,20 @@ bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 }
             }
             ctx.params->PublishTargets();
-            UiValueEdit_Commit(ctx.app->value_edit);
-            ctx.app->ui_dirty = true;
+            UiValueEdit_Commit(ctx.app->input.value_edit);
+            ctx.app->ui.ui_dirty = true;
         }
         return true;
     }
 
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && ctx.app->value_edit.active)
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && ctx.app->input.value_edit.active)
     {
-        if(UiValueEdit_OnEnc(ctx.app->value_edit, e.value))
-            ctx.app->ui_dirty = true;
+        if(UiValueEdit_OnEnc(ctx.app->input.value_edit, e.value))
+            ctx.app->ui.ui_dirty = true;
         return true;
     }
 
-    if(ctx.app->value_edit.active)
+    if(ctx.app->input.value_edit.active)
         return true;
 
     return false;
@@ -152,7 +152,7 @@ void Fx_Render(UiScreenCtx& ctx)
     else
         std::snprintf(lpf_buf, sizeof(lpf_buf), "%3lu", (unsigned long)lpf_hz);
 
-    const uint8_t cursor = ctx.app->fx_field_cursor;
+    const uint8_t cursor = ctx.app->perform.fx_field_cursor;
     d.SetCursor(layout.x, layout.y_body);
     std::snprintf(buf, sizeof(buf), "%c DLY:%c", (cursor == 0) ? '>' : ' ',
                   t.delay_on ? '1' : '0');
@@ -173,9 +173,9 @@ void Fx_Render(UiScreenCtx& ctx)
                   lpf_buf);
     d.WriteString(buf, Font_6x8, true);
 
-    UiValueEdit_Render(ctx.app->value_edit, d, layout.x, layout.y_body + layout.line_h * 4);
+    UiValueEdit_Render(ctx.app->input.value_edit, d, layout.x, layout.y_body + layout.line_h * 4);
 
-    const char* hint = ctx.app->value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
+    const char* hint = ctx.app->input.value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
                                                    : "EXT:MOVE EXT:EDIT P2:BACK";
     UiDraw_Footer(d, layout, hint);
 }

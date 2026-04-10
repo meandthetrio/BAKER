@@ -1,6 +1,6 @@
 # Hardware + Peripheral Connections (Reference)
 
-This document is a **reference** for the hardware/peripherals connected/available for this template repo.
+This document is a **reference** for the hardware/peripherals connected or assumed by this repo.
 
 Where the repo does not explicitly define pin mappings (because libDaisy/DaisyPod defaults are used),
 this document notes that clearly. It also includes “hardware reference” sections for onboard resources
@@ -68,6 +68,11 @@ Source: `main.cpp` (`InitOled`)
 - MIDI receive is started via: `hw.midi.StartReceive();`
 Source: `main.cpp`
 > Note: Physical pin/jack wiring is not stated in this repo (handled by DaisyPod/libDaisy defaults).
+
+## Record input source selection
+- The RECORD flow switches between `LINE IN` and `MICROPHONE` in UI/state code.
+- The repo documents the logical source selection, but it does not restate additional pin-level analog routing here.
+Source: `src/ui/ui_screen_record.cpp`, `main.cpp`
 
 ## SD card storage (used by code; pins not stated in repo)
 Used modules:

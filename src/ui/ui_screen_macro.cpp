@@ -33,7 +33,7 @@ bool Macro_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(changed)
     {
-        ctx.app->ui_dirty = true;
+        ctx.app->ui.ui_dirty = true;
         return true;
     }
 

@@ -299,9 +299,9 @@ bool PerformMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const int32_t next = NextPerformMenuIndex(static_cast<int32_t>(ctx.app->perform_menu_index), e.value);
-        ctx.app->perform_menu_index = static_cast<uint8_t>(next);
-        ctx.app->ui_dirty = true;
+        const int32_t next = NextPerformMenuIndex(static_cast<int32_t>(ctx.app->perform.perform_menu_index), e.value);
+        ctx.app->perform.perform_menu_index = static_cast<uint8_t>(next);
+        ctx.app->ui.ui_dirty = true;
         return true;
     }
 
@@ -313,20 +313,20 @@ bool PerformMenu_OnEnter(UiScreenCtx& ctx)
     if(!ctx.app)
         return false;
 
-    const uint8_t selected = static_cast<uint8_t>(ctx.app->perform_menu_index % kPerformMenuCount);
+    const uint8_t selected = static_cast<uint8_t>(ctx.app->perform.perform_menu_index % kPerformMenuCount);
     switch(selected)
     {
         case 0:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformEngine);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformEngine);
         case 1:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformKeyzone);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformKeyzone);
         case 2:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformAdsr);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformAdsr);
         case 3:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformEmphasis);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformEmphasis);
         case 4:
         default:
-            return UiNav_Push(ctx.app->ui_nav, UiScreenId::PerformProcess);
+            return UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::PerformProcess);
     }
 }
 
@@ -335,6 +335,6 @@ void PerformMenu_Render(UiScreenCtx& ctx)
     if(!ctx.app || !ctx.display)
         return;
 
-    const int selected = static_cast<int>(ctx.app->perform_menu_index % kPerformMenuCount);
+    const int selected = static_cast<int>(ctx.app->perform.perform_menu_index % kPerformMenuCount);
     DrawPerformMenuFriendStyle(*ctx.display, selected);
 }

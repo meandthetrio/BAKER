@@ -8,8 +8,8 @@
 
 static void SetProjectStatusImmediate(AppState& app, uint8_t slot, const char* msg)
 {
-    std::snprintf(app.project_status,
-                  sizeof(app.project_status),
+    std::snprintf(app.project.project_status,
+                  sizeof(app.project.project_status),
                   "P%02u %s",
                   static_cast<unsigned>(slot + 1u),
                   msg ? msg : "");
@@ -20,12 +20,12 @@ static bool OpenProjectStatusScreen(AppState& app,
                                     uint8_t slot,
                                     const char* status)
 {
-    app.project_action = action;
-    app.project_action_slot = slot;
+    app.project.project_action = action;
+    app.project.project_action_slot = slot;
     SetProjectStatusImmediate(app, slot, status);
-    if(UiNav_Active(app.ui_nav) == UiScreenId::ProjectStatus)
+    if(UiNav_Active(app.ui.ui_nav) == UiScreenId::ProjectStatus)
         return true;
-    return UiNav_Push(app.ui_nav, UiScreenId::ProjectStatus);
+    return UiNav_Push(app.ui.ui_nav, UiScreenId::ProjectStatus);
 }
 
 uint8_t ProjectActions_WrapSlot(int slot)
@@ -46,6 +46,6 @@ bool ProjectActions_TriggerRequest(AppState& app, UiReqType req_type, uint8_t sl
     const UiReq req{req_type, slot, 0};
     if(!UiReq_Push(app, req))
         SetProjectStatusImmediate(app, slot, "ERR");
-    app.ui_dirty = true;
+    app.ui.ui_dirty = true;
     return true;
 }

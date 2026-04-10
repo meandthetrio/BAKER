@@ -8,7 +8,7 @@
 
 // UI Render Layer:
 // - Draw only.
-// - Uses app.ui_dirty and a 60Hz timer.
+// - Uses app.ui.ui_dirty and a 60Hz timer.
 // - Does NOT change params or read controls.
 
 class UIRender

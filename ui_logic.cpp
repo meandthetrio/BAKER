@@ -18,7 +18,7 @@ namespace
 {
 bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& e, uint32_t now_ms)
 {
-    if(!app.ui_parent_preview_active)
+    if(!app.ui.ui_parent_preview_active)
         return false;
     if(e.type != UiInputType::EncDelta || e.value == 0)
         return false;
@@ -32,38 +32,38 @@ bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& 
     parent_ctx.now_ms = now_ms;
     parent_ctx.shift = false;
     parent_ctx.lshift = false;
-    parent_ctx.rshift = app.ui_rshift_held;
+    parent_ctx.rshift = app.ui.ui_rshift_held;
 
     UiInputEvent pe = e;
     if(e.id == kUiEncPod)
         pe.value = (e.value > 0) ? 1 : -1;
 
-    if(app.ui_parent_preview_mode == 2
-       && UiNav_Active(app.ui_nav) == UiScreenId::PerformProcess)
+    if(app.ui.ui_parent_preview_mode == 2
+       && UiNav_Active(app.ui.ui_nav) == UiScreenId::PerformProcess)
     {
-        const bool saved_detail = app.perform_process_detail_active;
-        const bool saved_eqg    = app.perform_process_eq_graph_active;
-        app.perform_process_detail_active  = false;
-        app.perform_process_eq_graph_active = false;
+        const bool saved_detail = app.perform.perform_process_detail_active;
+        const bool saved_eqg    = app.perform.perform_process_eq_graph_active;
+        app.perform.perform_process_detail_active  = false;
+        app.perform.perform_process_eq_graph_active = false;
         const UiScreen& process = GetScreen(UiScreenId::PerformProcess);
         const bool handled = process.OnEvent && process.OnEvent(parent_ctx, pe);
-        app.perform_process_detail_active   = saved_detail;
-        app.perform_process_eq_graph_active = saved_eqg;
+        app.perform.perform_process_detail_active   = saved_detail;
+        app.perform.perform_process_eq_graph_active = saved_eqg;
         if(handled)
         {
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
             return true;
         }
         return false;
     }
 
-    if(app.ui_parent_preview_mode == 1 && app.ui_nav.top > 0)
+    if(app.ui.ui_parent_preview_mode == 1 && app.ui.ui_nav.top > 0)
     {
-        const UiScreenId parent_id = app.ui_nav.stack[app.ui_nav.top - 1];
+        const UiScreenId parent_id = app.ui.ui_nav.stack[app.ui.ui_nav.top - 1];
         const UiScreen& parent = GetScreen(parent_id);
         if(parent.OnEvent && parent.OnEvent(parent_ctx, pe))
         {
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
             return true;
         }
     }
@@ -72,33 +72,33 @@ bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& 
 
 void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms)
 {
-    if(!app.ui_parent_preview_active)
+    if(!app.ui.ui_parent_preview_active)
         return;
 
-    if(app.ui_parent_preview_mode == 2
-       && UiNav_Active(app.ui_nav) == UiScreenId::PerformProcess)
+    if(app.ui.ui_parent_preview_mode == 2
+       && UiNav_Active(app.ui.ui_nav) == UiScreenId::PerformProcess)
     {
-        const bool focus_has_submenu = (app.perform_process_main_cursor >= 2u);
+        const bool focus_has_submenu = (app.perform.perform_process_main_cursor >= 2u);
         if(focus_has_submenu)
         {
-            app.perform_process_detail_active   = app.ui_parent_preview_origin_process_detail;
-            app.perform_process_eq_graph_active = app.ui_parent_preview_origin_process_eq_graph;
+            app.perform.perform_process_detail_active   = app.ui.ui_parent_preview_origin_process_detail;
+            app.perform.perform_process_eq_graph_active = app.ui.ui_parent_preview_origin_process_eq_graph;
         }
         else
         {
-            app.perform_process_main_cursor = app.ui_parent_preview_origin_main_cursor;
-            app.perform_process_fx_cursor = app.ui_parent_preview_origin_fx_cursor;
-            app.perform_process_detail_active   = app.ui_parent_preview_origin_process_detail;
-            app.perform_process_eq_graph_active = app.ui_parent_preview_origin_process_eq_graph;
+            app.perform.perform_process_main_cursor = app.ui.ui_parent_preview_origin_main_cursor;
+            app.perform.perform_process_fx_cursor = app.ui.ui_parent_preview_origin_fx_cursor;
+            app.perform.perform_process_detail_active   = app.ui.ui_parent_preview_origin_process_detail;
+            app.perform.perform_process_eq_graph_active = app.ui.ui_parent_preview_origin_process_eq_graph;
         }
     }
-    else if(app.ui_parent_preview_mode == 1
-            && app.ui_nav.top > 0
-            && app.ui_parent_preview_from_top > 0)
+    else if(app.ui.ui_parent_preview_mode == 1
+            && app.ui.ui_nav.top > 0
+            && app.ui.ui_parent_preview_from_top > 0)
     {
-        const uint8_t parent_top = static_cast<uint8_t>(app.ui_parent_preview_from_top - 1u);
-        while(app.ui_nav.top > parent_top)
-            UiNav_Pop(app.ui_nav);
+        const uint8_t parent_top = static_cast<uint8_t>(app.ui.ui_parent_preview_from_top - 1u);
+        while(app.ui.ui_nav.top > parent_top)
+            UiNav_Pop(app.ui.ui_nav);
 
         UiScreenCtx parent_ctx{};
         parent_ctx.app = &app;
@@ -107,25 +107,25 @@ void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms
         parent_ctx.now_ms = now_ms;
         parent_ctx.shift = false;
         parent_ctx.lshift = false;
-        parent_ctx.rshift = app.ui_rshift_held;
+        parent_ctx.rshift = app.ui.ui_rshift_held;
 
-        const UiScreen& parent = GetScreen(UiNav_Active(app.ui_nav));
+        const UiScreen& parent = GetScreen(UiNav_Active(app.ui.ui_nav));
         bool entered = false;
         if(parent.on_enter)
             entered = parent.on_enter(parent_ctx);
-        if(!entered && app.ui_parent_preview_origin_screen != UiScreenId::COUNT)
-            UiNav_Push(app.ui_nav, app.ui_parent_preview_origin_screen);
+        if(!entered && app.ui.ui_parent_preview_origin_screen != UiScreenId::COUNT)
+            UiNav_Push(app.ui.ui_nav, app.ui.ui_parent_preview_origin_screen);
     }
 
-    app.ui_parent_preview_active = false;
-    app.ui_parent_preview_from_top = 0;
-    app.ui_parent_preview_mode = 0;
-    app.ui_parent_preview_origin_screen = UiScreenId::COUNT;
-    app.ui_parent_preview_origin_main_cursor = 0;
-    app.ui_parent_preview_origin_fx_cursor = 0;
-    app.ui_parent_preview_origin_process_detail   = false;
-    app.ui_parent_preview_origin_process_eq_graph = false;
-    app.ui_dirty = true;
+    app.ui.ui_parent_preview_active = false;
+    app.ui.ui_parent_preview_from_top = 0;
+    app.ui.ui_parent_preview_mode = 0;
+    app.ui.ui_parent_preview_origin_screen = UiScreenId::COUNT;
+    app.ui.ui_parent_preview_origin_main_cursor = 0;
+    app.ui.ui_parent_preview_origin_fx_cursor = 0;
+    app.ui.ui_parent_preview_origin_process_detail   = false;
+    app.ui.ui_parent_preview_origin_process_eq_graph = false;
+    app.ui.ui_dirty = true;
 }
 } // namespace
 
@@ -159,7 +159,7 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
             app.plock_pattern.step_index = (app.plock_pattern.step_index + 1) % kSteps;
             if(app.plock_apply_enabled)
                 PLocks_PublishCurrentStep(app.plocks, app.plock_pattern);
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
         }
     }
 
@@ -205,7 +205,7 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
         else
         {
             app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
         }
     }
 
@@ -227,87 +227,87 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     ctx.params = &params;
     ctx.display = nullptr;
     ctx.now_ms = now_ms;
-    bool shift_held = app.ui_lshift_held;
+    bool shift_held = app.ui.ui_lshift_held;
     ctx.shift = shift_held;
-    ctx.lshift = app.ui_lshift_held;
-    ctx.rshift = app.ui_rshift_held;
+    ctx.lshift = app.ui.ui_lshift_held;
+    ctx.rshift = app.ui.ui_rshift_held;
 
     UiInputEvent e{};
     int processed = 0;
-    while(processed < kMaxUiEventsPerTick && UiInput_Pop(app.ui_in, e))
+    while(processed < kMaxUiEventsPerTick && UiInput_Pop(app.input.ui_in, e))
     {
         processed++;
-        app.ui_in_pop++;
+        app.input.ui_in_pop++;
         input_detected = true;
 
         if(e.type == UiInputType::BtnDown)
         {
             if(e.id == kUiBtnLShift)
             {
-                app.ui_lshift_held = true;
-                const UiScreenId active = UiNav_Active(app.ui_nav);
+                app.ui.ui_lshift_held = true;
+                const UiScreenId active = UiNav_Active(app.ui.ui_nav);
                 if(active == UiScreenId::PerformProcess
-                   && (app.perform_process_detail_active || app.perform_process_eq_graph_active))
+                   && (app.perform.perform_process_detail_active || app.perform.perform_process_eq_graph_active))
                 {
-                    app.ui_parent_preview_origin_screen = active;
-                    app.ui_parent_preview_origin_main_cursor = app.perform_process_main_cursor;
-                    app.ui_parent_preview_origin_fx_cursor = app.perform_process_fx_cursor;
-                    app.ui_parent_preview_origin_process_detail   = app.perform_process_detail_active;
-                    app.ui_parent_preview_origin_process_eq_graph = app.perform_process_eq_graph_active;
-                    app.ui_parent_preview_active = true;
-                    app.ui_parent_preview_mode = 2;
-                    app.ui_parent_preview_from_top = app.ui_nav.top;
-                    app.ui_dirty = true;
+                    app.ui.ui_parent_preview_origin_screen = active;
+                    app.ui.ui_parent_preview_origin_main_cursor = app.perform.perform_process_main_cursor;
+                    app.ui.ui_parent_preview_origin_fx_cursor = app.perform.perform_process_fx_cursor;
+                    app.ui.ui_parent_preview_origin_process_detail   = app.perform.perform_process_detail_active;
+                    app.ui.ui_parent_preview_origin_process_eq_graph = app.perform.perform_process_eq_graph_active;
+                    app.ui.ui_parent_preview_active = true;
+                    app.ui.ui_parent_preview_mode = 2;
+                    app.ui.ui_parent_preview_from_top = app.ui.ui_nav.top;
+                    app.ui.ui_dirty = true;
                 }
-                else if(app.ui_nav.top > 0)
+                else if(app.ui.ui_nav.top > 0)
                 {
-                    app.ui_parent_preview_origin_screen = active;
-                    app.ui_parent_preview_origin_main_cursor = app.perform_process_main_cursor;
-                    app.ui_parent_preview_origin_fx_cursor = app.perform_process_fx_cursor;
-                    app.ui_parent_preview_origin_process_detail   = app.perform_process_detail_active;
-                    app.ui_parent_preview_origin_process_eq_graph = app.perform_process_eq_graph_active;
-                    app.ui_parent_preview_active = true;
-                    app.ui_parent_preview_mode = 1;
-                    app.ui_parent_preview_from_top = app.ui_nav.top;
-                    app.ui_dirty = true;
+                    app.ui.ui_parent_preview_origin_screen = active;
+                    app.ui.ui_parent_preview_origin_main_cursor = app.perform.perform_process_main_cursor;
+                    app.ui.ui_parent_preview_origin_fx_cursor = app.perform.perform_process_fx_cursor;
+                    app.ui.ui_parent_preview_origin_process_detail   = app.perform.perform_process_detail_active;
+                    app.ui.ui_parent_preview_origin_process_eq_graph = app.perform.perform_process_eq_graph_active;
+                    app.ui.ui_parent_preview_active = true;
+                    app.ui.ui_parent_preview_mode = 1;
+                    app.ui.ui_parent_preview_from_top = app.ui.ui_nav.top;
+                    app.ui.ui_dirty = true;
                 }
             }
             else if(e.id == kUiBtnRShift)
-                app.ui_rshift_held = true;
+                app.ui.ui_rshift_held = true;
             else if(e.id == kUiBtnPod1)
-                app.ui_btn1_held = true;
+                app.ui.ui_btn1_held = true;
             else if(e.id == kUiBtnPod2)
-                app.ui_btn2_held = true;
+                app.ui.ui_btn2_held = true;
         }
         else if(e.type == UiInputType::BtnUp)
         {
             if(e.id == kUiBtnLShift)
             {
-                app.ui_lshift_held = false;
-                if(app.ui_parent_preview_active)
+                app.ui.ui_lshift_held = false;
+                if(app.ui.ui_parent_preview_active)
                 {
                     CommitParentPreviewSelection(app, params, now_ms);
                     continue;
                 }
             }
             else if(e.id == kUiBtnRShift)
-                app.ui_rshift_held = false;
+                app.ui.ui_rshift_held = false;
             else if(e.id == kUiBtnPod1)
-                app.ui_btn1_held = false;
+                app.ui.ui_btn1_held = false;
             else if(e.id == kUiBtnPod2)
-                app.ui_btn2_held = false;
+                app.ui.ui_btn2_held = false;
         }
 
-        shift_held = app.ui_lshift_held;
+        shift_held = app.ui.ui_lshift_held;
 
         // POD BUTTON1 opens/closes SHIFT menu (short press, global).
         // Button1 is NEVER "enter/load"; EXT encoder click is enter.
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod1)
         {
             // Toggle SHIFT menu.
-            const UiScreenId active = UiNav_Active(app.ui_nav);
+            const UiScreenId active = UiNav_Active(app.ui.ui_nav);
             if(active == UiScreenId::PerformProcess
-               && (app.perform_process_detail_active || app.perform_process_eq_graph_active))
+               && (app.perform.perform_process_detail_active || app.perform.perform_process_eq_graph_active))
             {
                 // Let PROCESS detail / EQ graph consume POD1 as "back to PROCESS".
                 // Do not globally open SHIFT menu from inside FX detail.
@@ -316,28 +316,28 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             {
             if(active == UiScreenId::ShiftMenu)
             {
-                UiNav_Pop(app.ui_nav);
+                UiNav_Pop(app.ui.ui_nav);
             }
             else
             {
                 // Reset SHIFT menu state on entry.
-                app.shift_menu_cursor = 0;
-                app.shift_menu_edit_volume = false;
+                app.shift.shift_menu_cursor = 0;
+                app.shift.shift_menu_edit_volume = false;
                 // Cancel any pending SD delete mode when opening SHIFT.
-                app.sd_delete_mode = false;
-                UiNav_Push(app.ui_nav, UiScreenId::ShiftMenu);
+                app.shift.sd_delete_mode = false;
+                UiNav_Push(app.ui.ui_nav, UiScreenId::ShiftMenu);
             }
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
             continue;
             }
         }
 
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
         {
-            if(app.value_edit.active)
+            if(app.input.value_edit.active)
             {
-                UiValueEdit_Cancel(app.value_edit);
-                app.ui_dirty = true;
+                UiValueEdit_Cancel(app.input.value_edit);
+                app.ui.ui_dirty = true;
                 continue;
             }
         }
@@ -347,13 +347,13 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             if(e.id == kUiBtnPod1)
             {
                 app.seq_running = !app.seq_running;
-                app.ui_dirty = true;
+                app.ui.ui_dirty = true;
                 continue;
             }
             if(e.id == kUiBtnPodEnc)
             {
                 app.plock_apply_enabled = !app.plock_apply_enabled;
-                app.ui_dirty = true;
+                app.ui.ui_dirty = true;
                 continue;
             }
             if(e.id == kUiBtnExtEnc)
@@ -361,7 +361,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 const uint8_t cur = app.lfo_wave.load(std::memory_order_relaxed);
                 const uint8_t next = (cur == 0) ? 1u : 0u;
                 app.lfo_wave.store(next, std::memory_order_relaxed);
-                app.ui_dirty = true;
+                app.ui.ui_dirty = true;
                 continue;
             }
             if(e.id == kUiBtnPod2)
@@ -372,12 +372,12 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 else
                 {
                     app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-                    app.ui_dirty = true;
+                    app.ui.ui_dirty = true;
                 }
 
                 for(size_t i = 0; i < kMaxPendingNoteOffs; i++)
                     pending_note_offs_[i].active = false;
-                app.ui_dirty = true;
+                app.ui.ui_dirty = true;
                 continue;
             }
         }
@@ -386,28 +386,28 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             continue;
 
         ctx.shift = shift_held;
-        ctx.lshift = app.ui_lshift_held;
-        ctx.rshift = app.ui_rshift_held;
+        ctx.lshift = app.ui.ui_lshift_held;
+        ctx.rshift = app.ui.ui_rshift_held;
         UiRouter_DispatchEvent(ctx, e);
     }
 
-    const UiScreenId active_screen = UiNav_Active(app.ui_nav);
-    if(active_screen != app.ui_active_screen)
+    const UiScreenId active_screen = UiNav_Active(app.ui.ui_nav);
+    if(active_screen != app.ui.ui_active_screen)
     {
-        app.ui_active_screen = active_screen;
+        app.ui.ui_active_screen = active_screen;
         const UiScreen& s = GetScreen(active_screen);
         if(s.OnEnter)
         {
-            shift_held = app.ui_lshift_held;
+            shift_held = app.ui.ui_lshift_held;
             ctx.shift = shift_held;
-            ctx.lshift = app.ui_lshift_held;
-            ctx.rshift = app.ui_rshift_held;
+            ctx.lshift = app.ui.ui_lshift_held;
+            ctx.rshift = app.ui.ui_rshift_held;
             s.OnEnter(ctx);
         }
-        app.ui_dirty = true;
+        app.ui.ui_dirty = true;
     }
 
-    if(app.record_state == RecordUiState::Recording
+    if(app.record.record_state == RecordUiState::Recording
        && app.rec_active.load(std::memory_order_acquire) == 0)
     {
         app.rec_monitor_enable.store(0, std::memory_order_release);
@@ -432,22 +432,22 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             app.sd_edit_ready.store(1, std::memory_order_release);
 
             app.sd_current_slot.store(slot, std::memory_order_release);
-            app.record_slot = slot;
-            app.record_state = RecordUiState::Review;
-            app.ui_dirty = true;
+            app.record.record_slot = slot;
+            app.record.record_state = RecordUiState::Review;
+            app.ui.ui_dirty = true;
         }
         else
         {
-            app.record_state = RecordUiState::SourceSelect;
-            app.ui_dirty = true;
+            app.record.record_state = RecordUiState::SourceSelect;
+            app.ui.ui_dirty = true;
         }
     }
 
     const bool record_review_active = (active_screen == UiScreenId::Record
-                                       && app.record_state == RecordUiState::Review);
-    if(record_review_active && app.record_preview_hold && !app.record_preview_gate)
+                                       && app.record.record_state == RecordUiState::Review);
+    if(record_review_active && app.record.record_preview_hold && !app.record.record_preview_gate)
     {
-        const uint8_t slot = app.record_slot & 1u;
+        const uint8_t slot = app.record.record_slot & 1u;
         const Sample& s = app.sd_slots[slot];
         if(s.pcm != nullptr && s.length > 0)
         {
@@ -458,52 +458,52 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             if(evtq.Push(evt))
             {
                 app.events_pushed.fetch_add(1, std::memory_order_relaxed);
-                app.record_preview_gate = true;
+                app.record.record_preview_gate = true;
             }
             else
             {
                 app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-                app.ui_dirty = true;
+                app.ui.ui_dirty = true;
             }
         }
     }
-    if((!record_review_active || !app.record_preview_hold) && app.record_preview_gate)
+    if((!record_review_active || !app.record.record_preview_hold) && app.record.record_preview_gate)
     {
         const Event evt = Event::NoteOffEvent(60);
         if(evtq.Push(evt))
             app.events_pushed.fetch_add(1, std::memory_order_relaxed);
         else
             app.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-        app.record_preview_gate = false;
+        app.record.record_preview_gate = false;
     }
 
-    shift_held = app.ui_lshift_held;
-    UiOverlay_Update(app.overlay, now_ms, false, app.value_edit.active);
+    shift_held = app.ui.ui_lshift_held;
+    UiOverlay_Update(app.render.overlay, now_ms, false, app.input.value_edit.active);
 
-    app.ui_in_ovf = UiInput_Dropped(app.ui_in);
-    app.ui_in_hi = UiInput_HighWater(app.ui_in);
+    app.input.ui_in_ovf = UiInput_Dropped(app.input.ui_in);
+    app.input.ui_in_hi = UiInput_HighWater(app.input.ui_in);
 
-    if(app.engine_header_invert_until_ms != 0u
-       && static_cast<int32_t>(now_ms - app.engine_header_invert_until_ms) >= 0)
+    if(app.engine.engine_header_invert_until_ms != 0u
+       && static_cast<int32_t>(now_ms - app.engine.engine_header_invert_until_ms) >= 0)
     {
-        app.engine_header_invert_until_ms = 0u;
-        app.ui_dirty = true;
+        app.engine.engine_header_invert_until_ms = 0u;
+        app.ui.ui_dirty = true;
     }
 
-    if(processed > 0 && !app.ui_dirty)
-        app.ui_dirty = true;
+    if(processed > 0 && !app.ui.ui_dirty)
+        app.ui.ui_dirty = true;
 
     if(input_detected)
-        app.last_input_ms = now_ms;
+        app.input.last_input_ms = now_ms;
 
     // Keep animated Record screens responsive at UI tick rate.
     if(active_screen == UiScreenId::Record)
     {
-        if(app.record_state == RecordUiState::Armed
-           || app.record_state == RecordUiState::Countdown
-           || app.record_state == RecordUiState::Recording)
+        if(app.record.record_state == RecordUiState::Armed
+           || app.record.record_state == RecordUiState::Countdown
+           || app.record.record_state == RecordUiState::Recording)
         {
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
         }
     }
 

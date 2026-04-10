@@ -1,6 +1,6 @@
 # Hardware Naming Convention (Canonical)
 
-This file defines the canonical names used in prompts, docs, and (eventually) code IDs.
+This file defines the canonical names used in prompts and docs.
 
 ## Controls (prompt names)
 
@@ -11,8 +11,8 @@ This file defines the canonical names used in prompts, docs, and (eventually) co
 - **RClick** = External encoder click
 
 ### Shift buttons
-- **LShift** = Shift button on Pod **ADC1** pin (**A1 / D16**) (new)
-- **RShift** = Shift button on Seed **D9** (existing)
+- **LShift** = Shift button on Pod **ADC1** pin (**A1 / D16**)
+- **RShift** = Shift button on Seed **D9**
 
 ### Pod buttons
 - **Btn1** = Pod tactile switch 1
@@ -26,8 +26,8 @@ Optional per-channel naming:
 - `LED1_R`, `LED1_G`, `LED1_B`
 - `LED2_R`, `LED2_G`, `LED2_B`
 
-## Rules (to keep everything consistent)
-1) These names are the only names used in future prompts and docs.
-2) “Shift” always means a modifier button (held state).
-3) “Click” always means an encoder push-switch.
-4) If a control is later remapped, update `docs/HARDWARE_CONNECTIONS.md` but KEEP the canonical name stable.
+## Rules
+1) Use these names consistently in prompts and docs.
+2) `Shift` always means a modifier button (held state).
+3) `Click` always means an encoder push-switch.
+4) If a control is later remapped, update `docs/HARDWARE_CONNECTIONS.md` but keep the canonical name stable.

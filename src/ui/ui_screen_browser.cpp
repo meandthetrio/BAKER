@@ -35,7 +35,7 @@ void SdBrowse_OnEnter(UiScreenCtx& ctx)
         UiReq_Push(*ctx.app, req);
         sd.scan_in_progress = true;
         SdBrowser_SetStatus(sd, "SCANNING");
-        ctx.app->ui_dirty = true;
+        ctx.app->ui.ui_dirty = true;
     }
 }
 
@@ -52,7 +52,7 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(UiListMenu_OnEnc(sd.menu, e.value))
         {
-            ctx.app->ui_dirty = true;
+            ctx.app->ui.ui_dirty = true;
             return true;
         }
         return false;
@@ -64,39 +64,39 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             const uint16_t idx = sd.menu.cursor;
 
-            if(ctx.app->sd_delete_mode)
+            if(ctx.app->shift.sd_delete_mode)
             {
-                ctx.app->sd_delete_index = idx;
+                ctx.app->shift.sd_delete_index = idx;
                 ExtractBaseName(sd.paths[idx],
-                                ctx.app->sd_delete_name,
-                                sizeof(ctx.app->sd_delete_name));
-                UiNav_Push(ctx.app->ui_nav, UiScreenId::SdDeleteConfirm);
-                ctx.app->ui_dirty = true;
+                                ctx.app->shift.sd_delete_name,
+                                sizeof(ctx.app->shift.sd_delete_name));
+                UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::SdDeleteConfirm);
+                ctx.app->ui.ui_dirty = true;
                 return true;
             }
 
             const uint8_t layer_count = static_cast<uint8_t>(
-                sizeof(ctx.app->engine_sample_path) / sizeof(ctx.app->engine_sample_path[0]));
-            if(ctx.app->engine_load_target_layer < layer_count)
+                sizeof(ctx.app->engine.engine_sample_path) / sizeof(ctx.app->engine.engine_sample_path[0]));
+            if(ctx.app->engine.engine_load_target_layer < layer_count)
             {
-                const uint8_t target = ctx.app->engine_load_target_layer & 1u;
+                const uint8_t target = ctx.app->engine.engine_load_target_layer & 1u;
                 ctx.app->sd_current_slot.store(target ^ 1u, std::memory_order_release);
-                std::snprintf(ctx.app->engine_sample_path[target],
-                              sizeof(ctx.app->engine_sample_path[target]),
+                std::snprintf(ctx.app->engine.engine_sample_path[target],
+                              sizeof(ctx.app->engine.engine_sample_path[target]),
                               "%s",
                               sd.paths[idx]);
                 ExtractBaseName(sd.paths[idx],
-                                ctx.app->engine_sample_name[target],
-                                sizeof(ctx.app->engine_sample_name[target]));
+                                ctx.app->engine.engine_sample_name[target],
+                                sizeof(ctx.app->engine.engine_sample_name[target]));
             }
             UiReq req{UiReqType::LoadWavIndex, idx, 0};
             UiReq_Push(*ctx.app, req);
             sd.load_in_progress = true;
             sd.load_progress = 0;
             SdBrowser_SetStatus(sd, "LOADING");
-            if(ctx.app->engine_load_from_perform)
-                UiNav_Pop(ctx.app->ui_nav);
-            ctx.app->ui_dirty = true;
+            if(ctx.app->engine.engine_load_from_perform)
+                UiNav_Pop(ctx.app->ui.ui_nav);
+            ctx.app->ui.ui_dirty = true;
         }
         return true;
     }
@@ -212,13 +212,13 @@ bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
     AppState& app = *ctx.app;
     SdBrowserState& sd = app.sd;
 
-    const uint16_t idx = app.sd_delete_index;
-    if(!app.sd_delete_mode || idx >= sd.wav_count || sd.scan_in_progress)
+    const uint16_t idx = app.shift.sd_delete_index;
+    if(!app.shift.sd_delete_mode || idx >= sd.wav_count || sd.scan_in_progress)
     {
         SdBrowser_SetStatus(sd, "DEL ERR");
-        UiNav_Pop(app.ui_nav);
-        app.sd_delete_mode = false;
-        app.ui_dirty = true;
+        UiNav_Pop(app.ui.ui_nav);
+        app.shift.sd_delete_mode = false;
+        app.ui.ui_dirty = true;
         return true;
     }
 
@@ -231,9 +231,9 @@ bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
     sd.scan_done = false;
     SdBrowser_SetStatus(sd, "DELETING");
 
-    app.sd_delete_mode = false;
-    UiNav_Pop(app.ui_nav);
-    app.ui_dirty = true;
+    app.shift.sd_delete_mode = false;
+    UiNav_Pop(app.ui.ui_nav);
+    app.ui.ui_dirty = true;
     return true;
 }
 
@@ -253,8 +253,8 @@ void SdDeleteConfirm_Render(UiScreenCtx& ctx)
 
     d.SetCursor(layout.x, layout.y_body);
     char namebuf[32];
-    if(app.sd_delete_name[0] != '\0')
-        std::snprintf(namebuf, sizeof(namebuf), "%s", app.sd_delete_name);
+    if(app.shift.sd_delete_name[0] != '\0')
+        std::snprintf(namebuf, sizeof(namebuf), "%s", app.shift.sd_delete_name);
     else
         std::snprintf(namebuf, sizeof(namebuf), "(no file)");
     d.WriteString(namebuf, Font_6x8, true);
@@ -332,17 +332,17 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                              : 1;
     EnsureSampleEditMenu(app, rows);
 
-    if(app.value_edit.active)
+    if(app.input.value_edit.active)
     {
         if(e.type == UiInputType::EncDelta && e.id == kUiEncExt)
         {
-            if(UiValueEdit_OnEnc(app.value_edit, e.value))
-                app.ui_dirty = true;
+            if(UiValueEdit_OnEnc(app.input.value_edit, e.value))
+                app.ui.ui_dirty = true;
             return true;
         }
         if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
         {
-            const int16_t v = app.value_edit.value_i;
+            const int16_t v = app.input.value_edit.value_i;
             const uint32_t v_ms = (v < 0) ? 0u : static_cast<uint32_t>(v);
             const uint32_t v_frames = MsToFrames(v_ms);
             switch(app.sample_edit_menu.cursor)
@@ -371,8 +371,8 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             app.sd_edit_slot.store(slot, std::memory_order_release);
             app.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
             app.sd_edit_ready.store(1, std::memory_order_release);
-            UiValueEdit_Commit(app.value_edit);
-            app.ui_dirty = true;
+            UiValueEdit_Commit(app.input.value_edit);
+            app.ui.ui_dirty = true;
             return true;
         }
         return false;
@@ -382,7 +382,7 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(UiListMenu_OnEnc(app.sample_edit_menu, e.value))
         {
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
             return true;
         }
         return false;
@@ -396,7 +396,7 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             UiReq req{UiReqType::NormalizeCurrent, 0, 0};
             UiReq_Push(app, req);
             SdBrowser_SetStatus(app.sd, "NORMALIZE");
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
             return true;
         }
         if(idx == SE_LoopFind)
@@ -404,7 +404,7 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             UiReq req{UiReqType::LoopFindCurrent, 0, 0};
             UiReq_Push(app, req);
             SdBrowser_SetStatus(app.sd, "LOOP FIND");
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
             return true;
         }
         if(idx == SE_SaveWav)
@@ -420,7 +420,7 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             {
                 SdBrowser_SetSaveStatus(app.sd, "SAVE ERR");
             }
-            app.ui_dirty = true;
+            app.ui.ui_dirty = true;
             return true;
         }
 
@@ -457,8 +457,8 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             default:
                 return false;
         }
-        UiValueEdit_Begin(app.value_edit, label, spec, start_i);
-        app.ui_dirty = true;
+        UiValueEdit_Begin(app.input.value_edit, label, spec, start_i);
+        app.ui.ui_dirty = true;
         return true;
     }
 
@@ -592,7 +592,7 @@ void SampleEdit_Render(UiScreenCtx& ctx)
                               || app.worker.ui_req_active == UiReqType::LoopFindCurrent
                               || app.worker.ui_req_active == UiReqType::SaveRenderedWavCurrent));
     const char* hint = busy ? "BUSY"
-                            : (app.value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
+                            : (app.input.value_edit.active ? "EXT:CHG EXT:OK P2:CANC"
                                                      : "A=SEL  B=BACK");
     UiDraw_Footer(d, layout, hint);
 }

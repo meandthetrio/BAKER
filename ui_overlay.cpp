@@ -74,8 +74,8 @@ void UiOverlay_Render(const AppState& app,
 
     oled.SetCursor(x, y);
     std::snprintf(buf, sizeof(buf), "U:%02lu C:%04lu CPU:%03lu",
-                  (unsigned long)app.ui_hz,
-                  (unsigned long)app.ctrl_hz,
+                  (unsigned long)app.input.ui_hz,
+                  (unsigned long)app.input.ctrl_hz,
                   (unsigned long)cpu_pct);
     oled.WriteString(buf, Font_6x8, true);
 

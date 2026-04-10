@@ -25,7 +25,7 @@ static void ProjectStatusDisplayText(const AppState& app, char* out, size_t n)
     if(!out || n == 0)
         return;
 
-    const char* msg = app.project_status;
+    const char* msg = app.project.project_status;
     if(msg[0] == '\0')
     {
         std::snprintf(out, n, "%s", "WAITING");
@@ -47,8 +47,8 @@ bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(UiNav_Pop(ctx.app->ui_nav))
-            ctx.app->ui_dirty = true;
+        if(UiNav_Pop(ctx.app->ui.ui_nav))
+            ctx.app->ui.ui_dirty = true;
         return true;
     }
 
@@ -74,11 +74,11 @@ void ProjectStatus_Render(UiScreenCtx& ctx)
     std::snprintf(buf,
                   sizeof(buf),
                   "PROJECT SLOT %02u",
-                  static_cast<unsigned>(app.project_action_slot + 1u));
+                  static_cast<unsigned>(app.project.project_action_slot + 1u));
     d.WriteString(buf, Font_6x8, true);
 
     d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    std::snprintf(buf, sizeof(buf), "ACTION: %s", ProjectActionLabel(app.project_action));
+    std::snprintf(buf, sizeof(buf), "ACTION: %s", ProjectActionLabel(app.project.project_action));
     d.WriteString(buf, Font_6x8, true);
 
     d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);

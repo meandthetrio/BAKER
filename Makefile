@@ -35,6 +35,7 @@ CPP_SOURCES += src/ui/ui_screen_perform_keyzone.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_adsr.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_emphasis.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_process.cpp
+CPP_SOURCES += src/ui/ui_screen_perform_process_draw.cpp
 CPP_SOURCES += src/ui/ui_screen_status.cpp
 CPP_SOURCES += src/ui/ui_screen_browser.cpp
 CPP_SOURCES += ui_list_menu.cpp

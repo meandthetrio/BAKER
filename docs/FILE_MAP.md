@@ -260,10 +260,17 @@
   - Milestones: TBD
 
 - src/ui/ui_screen_perform_process.cpp
-  - Purpose: Extracted Perform Process screen from `ui_screens.cpp`, including process lane/fx event handling, process-only volume formatting, FX detail subviews, and EQ graph rendering.
+  - Purpose: Extracted Perform Process screen from `ui_screens.cpp`, now owning PROCESS event routing, top-level render flow, layer-volume state sync, and the EQ graph screen coordinator.
   - Thread: [MAIN/UI]
-  - Key symbols: `PerformProcess_OnEvent`, `PerformProcess_Render`, `DrawFxDetailScreen`, `DrawEqGraphScreen`
-  - Notes: Shared engine publish/metadata helpers and generic draw primitives remain outside this file for the final leftover-helper pass.
+  - Key symbols: `PerformProcess_OnEvent`, `PerformProcess_Render`, `ProcessSyncLayerVolumeUiState`, `DrawEqGraphScreen`
+  - Notes: Shared engine publish/metadata helpers and generic draw primitives remain outside this file; rendering-heavy PROCESS draw helpers now live in `src/ui/ui_screen_perform_process_draw.cpp`.
+  - Milestones: TBD
+
+- src/ui/ui_screen_perform_process_draw.cpp
+  - Purpose: Companion PROCESS draw unit that owns rendering-heavy PROCESS helpers, including knob/value drawing, FX-detail rendering, and PROCESS reorder-overlay drawing.
+  - Thread: [MAIN/UI]
+  - Key symbols: `DrawProcessKnob`, `DrawProcessFxReorderOverlay`, `DrawFxDetailScreen`
+  - Notes: `PerformProcess_OnEvent`, `PerformProcess_Render`, and EQ graph coordination intentionally remain in `src/ui/ui_screen_perform_process.cpp` so the owner file stays readable as routing/layout code.
   - Milestones: TBD
 
 - src/ui/ui_screens_internal.h

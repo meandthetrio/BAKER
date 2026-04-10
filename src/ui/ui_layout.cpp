@@ -6,7 +6,7 @@
 #include <cstdio>
 
 using namespace daisy;
-// Keep the legacy global status string disabled so headers stay screen-specific by default.
+// Keep the global header text opt-in so screens own their visible status strings.
 static constexpr bool kShowGlobalStatus = false;
 
 UiLayout UiLayout_Default()

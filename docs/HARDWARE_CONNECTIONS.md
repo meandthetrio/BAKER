@@ -72,14 +72,14 @@ Source: `main.cpp`
 ## Record input source selection
 - The RECORD flow switches between `LINE IN` and `MICROPHONE` in UI/state code.
 - The repo documents the logical source selection, but it does not restate additional pin-level analog routing here.
-Source: `src/ui/ui_screen_record.cpp`, `main.cpp`
+Source: `src/ui/ui_screen_record.cpp`, `src/ui/ui_screen_record_event.cpp`, `main.cpp`
 
 ## SD card storage (used by code; pins not stated in repo)
 Used modules:
 - SDMMC (`per/sdmmc.h`), FatFS (`fatfs.h`, `ff.h`, `FatFSInterface`)
 Initialization behavior:
 - `SdmmcHandler::Config sd_cfg; sd_cfg.Defaults();`
-Source: `ui_worker.cpp` (`EnsureSdMounted`)
+Source: `src/worker/ui_worker.cpp` (`EnsureSdMounted`)
 > Note: SD pin mapping is not stated in this repo because SDMMC is initialized with libDaisy Defaults().
 
 ## Hardware reference (available on Daisy Pod)

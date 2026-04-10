@@ -8,7 +8,7 @@
 #include "plocks.h"
 #include "sample_edit.h"
 #include "sampler_sample.h"
-#include "sd_sample_pool.h"
+#include "storage_limits.h"
 
 /*
 `AppSharedState` is only for handoff-sensitive, publish/apply-boundary, or

@@ -2,7 +2,7 @@
 
 ## Notes
 - This file documents the CURRENT IMPLEMENTED PERFORM branch only.
-- Source of truth is current PERFORM code in `src/ui/ui_screen_perform_*.cpp`, `src/ui/ui_router.cpp`, `src/ui/ui_screen_registry.cpp`, `ui_logic.cpp`, and `app_state.h`.
+- Source of truth is current PERFORM code in `src/ui/ui_screen_perform_*.cpp`, `src/ui/ui_router.cpp`, `src/ui/ui_screen_registry.cpp`, `src/ui/ui_logic.cpp`, and `app_state.h`.
 - Includes PROCESS in-screen FX detail submenus.
 - LShift is a parent-preview modifier (not overlay toggle):
   - hold LShift to preview parent menu/process-main context
@@ -172,7 +172,7 @@
 - Entered by: PerformMenu `KEYZONE` + `kUiBtnExtEnc`.
 - Exited by:
   - `kUiBtnPodEnc` pop to PerformMenu.
-  - KEYZONE itself ignores `LShift`; shared parent-preview behavior remains owned by `ui_logic.cpp`.
+  - KEYZONE itself ignores `LShift`; shared parent-preview behavior remains owned by `src/ui/ui_logic.cpp`.
 
 #### Focusable Objects
 1. **Low note bound (`perform_keyzone_lo_note[layer]`)**

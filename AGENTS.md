@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Current task
-AppState header split only. Focus exclusively on the `app_state.h` extraction workflow driven by `docs/APP_STATE_HEADER_SPLIT_CHECKLIST.md`.
+Cleanup-loop preparation and execution only. Focus exclusively on the repo cleanup workflow driven by `docs/ADSR_V2_Cleanup_Concepts_Renumbered.md`.
 
 ## Hard rules
 - Audio callback is deterministic DSP only.
@@ -10,16 +10,21 @@ AppState header split only. Focus exclusively on the `app_state.h` extraction wo
 - Preserve the existing queue / shared-parameter / block-boundary handoff model.
 - Main loop owns UI, storage, and worker orchestration.
 - Prefer narrow diffs.
-- Do not change behavior, thread ownership, runtime model, project flow, or UI behavior.
-- Keep this pass extraction-only unless the selected checklist step explicitly allows more.
-- Prefer moving existing code and fields over rewriting logic.
+- Do not change behavior, thread ownership, runtime model, project flow, or UI behavior unless the selected checklist step explicitly requires a structural change.
+- Treat cleanup steps as boundary/ownership/layout work first, not as invitations for opportunistic rewrites.
+- Prefer moving existing code and ownership surfaces over rewriting logic.
 
-## AppState checklist loop rules
-- Use `docs/APP_STATE_HEADER_SPLIT_CHECKLIST.md` as the source of truth for next prompt order, scope, and writable checklist state.
-- Execute one checklist step at a time unless the user explicitly requests bounded multi-step continuation or continue-until-done execution.
-- In continue-until-done mode, complete one checklist step at a time, update `docs/APP_STATE_HEADER_SPLIT_CHECKLIST.md` after each completed step, then re-read it before selecting the next step.
-- Run `make -j4` after each AppState prompt.
-- If cleanliness verification does not pass after a prompt is executed, do another pass on that same prompt until cleanliness is approved.
+## Cleanup checklist loop rules
+- Use `docs/ADSR_V2_Cleanup_Concepts_Renumbered.md` as the source of truth for prompt order, scope, and writable checklist state.
+- Treat each top-level numbered item in that document as one checklist step. Treat the numbered substeps under each concept as scope guidance for that single step.
+- Unless the user explicitly requests bounded multi-step continuation or continue-until-done execution, execute exactly one top-level checklist step per run.
+- The default active step is the lowest-numbered top-level item that is not marked done in `docs/ADSR_V2_Cleanup_Concepts_Renumbered.md`.
+- Record checklist progress in `docs/ADSR_V2_Cleanup_Concepts_Renumbered.md` by appending a trailing status marker to the top-level step heading: `[in progress]` or `[done]`.
+- In continue-until-done mode, complete one top-level checklist step at a time, update `docs/ADSR_V2_Cleanup_Concepts_Renumbered.md` after each completed step, then re-read it before selecting the next step.
+- Run `make -j4` after each cleanup prompt.
+- If cleanliness verification does not pass after a prompt is executed, do another pass on that same step until cleanliness is approved.
+- When confronted with an ambiguity/risk boundary, stop and think through the correct, smart way to proceed before editing further. Prefer pausing or asking over guessing.
+- Update any docs named by the selected checklist step when the code change makes them stale.
 - Work deliberately and thoroughly. Favor careful inspection, conservative edits, and narrow reversible structural changes over speed.
 
 ## Validation

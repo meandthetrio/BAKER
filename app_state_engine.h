@@ -4,8 +4,7 @@
 
 #include "keygroups.h"
 #include "sample_edit.h"
-#include "sd_browser_state.h"
-#include "sd_sample_pool.h"
+#include "storage_limits.h"
 
 // App-owned engine/editor state and perform editing state.
 struct AppEngineState

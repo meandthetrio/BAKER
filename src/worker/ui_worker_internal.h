@@ -2,13 +2,14 @@
 
 #include <cstddef>
 
-#include "app_state.h"
 #include "project_manifest.h"
+#include "storage_limits.h"
 
 #include "fatfs.h"
 #include "ff.h"
 #include "per/sdmmc.h"
 
+struct AppState;
 class Params;
 
 enum class LoaderState : uint8_t
@@ -55,8 +56,21 @@ struct SdWorkerState
     char project_restore_path[kSdSampleSlots][kProjectPathMax] = {};
 };
 
+struct WavInfo
+{
+    uint16_t audio_format = 0;
+    uint16_t channels = 0;
+    uint32_t sample_rate = 0;
+    uint16_t bits_per_sample = 0;
+    uint32_t data_offset = 0;
+    uint32_t data_size = 0;
+};
+
 extern SdWorkerState s_sd;
 
+bool ParseWavHeader(FIL& file, WavInfo& info);
+bool WriteWavHeader(FIL& file, uint32_t frames);
+bool IsWavName(const char* name);
 bool MakePath(char* out, size_t n, const char* base, const char* name);
 void WorkerExtractBaseName(const char* path, char* out, size_t out_n);
 
@@ -68,5 +82,6 @@ void ClearProjectRestoreState(AppState& app);
 bool StartNextProjectRestoreLoad(AppState& app);
 bool StartLoadPath(AppState& app, const char* path, uint8_t target_slot);
 
+bool ReadProjectManifestFromFile(ProjectManifestV10& manifest);
 bool SaveProject(AppState& app, const Params& params);
 bool LoadProject(AppState& app, Params& params);

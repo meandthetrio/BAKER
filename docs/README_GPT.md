@@ -14,6 +14,7 @@ Use this document as a short working guide for repo analysis. It is intentionall
 - Detailed validation procedures. Use `TEST_MATRIX.md`.
 - Deep menu focus/navigation detail. Use the menu reference docs in `docs/`.
 - Current source-of-truth ownership always lives in `FILE_MAP.md`, not in this file.
+- For first-open entry points, start with `START_HERE.md`.
 
 ## Repo purpose
 ADSR_V2 is an embedded Daisy sampler/performer firmware repo. The codebase is organized around a strict split between deterministic audio-thread DSP and main-thread UI, storage, and orchestration.
@@ -56,7 +57,7 @@ ADSR_V2 is an embedded Daisy sampler/performer firmware repo. The codebase is or
   Start here for app startup, scheduler flow, and audio callback integration.
 - `app_state.h`
   Start here when trying to understand shared runtime state and handoff surfaces.
-- `ui_logic.cpp`, `ui_render.cpp`, `controls.cpp`
+- `src/ui/ui_logic.cpp`, `src/ui/ui_render.cpp`, `controls.cpp`
   Read these for control tick, UI tick, and render/update flow.
 - `src/ui/ui_router.cpp`, `src/ui/ui_screen_registry.cpp`, `src/ui/`
   Read these for current router/registry flow and split screen owners.
@@ -64,7 +65,7 @@ ADSR_V2 is an embedded Daisy sampler/performer firmware repo. The codebase is or
   Read this for the remaining shared UI helpers, not as the primary screen owner.
 - `voice_engine.cpp`, `voice_engine_*.cpp`, `audio_engine.cpp`
   Read these for audio-thread playback, voice lifecycle, render, and mix behavior.
-- `ui_worker.cpp`, `ui_worker_project.cpp`
+- `src/worker/ui_worker.cpp`, `src/worker/ui_worker_project.cpp`, `src/worker/ui_worker_project_manifest.cpp`
   Read these for background SD/filesystem/project work.
 
 ## Docs guide

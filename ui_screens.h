@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+// `ui_screens.cpp` is the intentionally small shared UI facade:
+// active-screen helpers plus cross-screen support that does not belong to one screen owner.
 struct AppState;
 class Params;
 class OledPager;

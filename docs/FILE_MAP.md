@@ -5,7 +5,7 @@
 - Use it to answer two questions quickly:
   - Which file owns a behavior?
   - Which thread is allowed to touch it?
-- Read `README_GPT.md` or `README.md` first if you are new to the repo.
+- Read `START_HERE.md` first if you are new to the repo, then use `README_GPT.md` and this file for deeper navigation.
 
 ## Architecture
 - `[AUDIO]` deterministic audio callback DSP only. No malloc, file I/O, logging, or UI work.
@@ -14,8 +14,10 @@
 - `[SHARED]` state and handoff structures touched across domains at explicit boundaries.
 
 ## Repo Layout
-- `/` main firmware source tree; most firmware `.cpp/.h` files still live at repo root.
-- `/src/ui` current UI screen owners, router/registry glue, draw helpers, and thin project UI helpers.
+- `/` main firmware source tree; entry points, shared state, controls, and engine/shared support still live at repo root.
+- `/src/ui` UI framework helpers, screen owners, router/registry glue, draw helpers, and thin project UI helpers.
+- `/src/worker` worker request handlers and project persistence internals.
+- `/src/storage` SD browser state and sample-pool storage helpers.
 - `/docs` project docs.
 - `/tools` helper scripts/tools.
 - `/build` generated output only.
@@ -49,22 +51,22 @@
 - `sample_edit.h` `[SHARED]` non-destructive trim/loop/gain edit metadata.
 
 ### UI Framework
-- `ui_logic.cpp` / `ui_logic.h` `[MAIN/UI]` control tick, UI tick, worker tick orchestration.
+- `src/ui/ui_logic.cpp` / `src/ui/ui_logic.h` `[MAIN/UI]` control tick, UI tick, worker tick orchestration.
 - `controls.cpp` / `controls.h` `[MAIN/UI]` hardware scan and debounce.
-- `ui_input.cpp` / `ui_input.h` `[MAIN/UI]` UI input queue from controls into UI logic.
-- `ui_render.cpp` / `ui_render.h` `[MAIN/UI]` OLED render tick and render-budget tracking.
-- `ui_layout.cpp` / `ui_layout.h` `[MAIN/UI]` common header/body/footer layout helpers.
-- `ui_overlay.cpp` / `ui_overlay.h` `[MAIN/UI]` diagnostics overlay.
-- `ui_list_menu.cpp` / `ui_list_menu.h` `[MAIN/UI]` list-menu widget.
-- `ui_value_edit.cpp` / `ui_value_edit.h` `[MAIN/UI]` value-edit widget.
-- `oled_pager.cpp` / `oled_pager.h` `[MAIN/UI]` paged OLED drawing helper.
-- `ui_screens.cpp` / `ui_screens.h` `[MAIN/UI]` small shared UI support only: active-screen lookup plus shared waveform/name/Perform helper functions.
+- `src/ui/ui_input.cpp` / `src/ui/ui_input.h` `[MAIN/UI]` UI input queue from controls into UI logic.
+- `src/ui/ui_render.cpp` / `src/ui/ui_render.h` `[MAIN/UI]` OLED render tick and render-budget tracking.
+- `src/ui/ui_layout.cpp` / `src/ui/ui_layout.h` `[MAIN/UI]` common header/body/footer layout helpers.
+- `src/ui/ui_overlay.cpp` / `src/ui/ui_overlay.h` `[MAIN/UI]` diagnostics overlay.
+- `src/ui/ui_list_menu.cpp` / `src/ui/ui_list_menu.h` `[MAIN/UI]` list-menu widget.
+- `src/ui/ui_value_edit.cpp` / `src/ui/ui_value_edit.h` `[MAIN/UI]` value-edit widget.
+- `src/ui/oled_pager.cpp` / `src/ui/oled_pager.h` `[MAIN/UI]` paged OLED drawing helper.
+- `ui_screens.cpp` / `ui_screens.h` `[MAIN/UI]` intentional small shared UI facade: active-screen lookup plus shared waveform/name/Perform helper functions that do not belong to one screen owner.
 - `src/ui/ui_router.cpp` `[MAIN/UI]` nav push/pop and central event/render dispatch.
 - `src/ui/ui_screen_registry.cpp` `[MAIN/UI]` `UiScreenId` to screen-function bindings.
 - `src/ui/ui_draw_text.cpp` / `src/ui/ui_draw_text.h` `[MAIN/UI]` shared text/font helpers.
 - `src/ui/ui_draw_shapes.cpp` / `src/ui/ui_draw_shapes.h` `[MAIN/UI]` shared primitive/shape helpers.
 - `src/ui/ui_draw_controls.cpp` / `src/ui/ui_draw_controls.h` `[MAIN/UI]` shared control-visual helpers.
-- `src/ui/ui_screens_internal.h` `[MAIN/UI]` cross-screen declarations and shared helper access for split screen units.
+- `src/ui/ui_screens_internal.h` `[MAIN/UI]` cross-screen declarations and shared helper access for split screen units while the shared facade stays intentionally small.
 
 ### UI Screens
 - `src/ui/ui_screen_main.cpp` `[MAIN/UI]` Start and Presets screens.
@@ -75,8 +77,11 @@
 - `src/ui/ui_screen_shift.cpp` `[MAIN/UI]` SHIFT/settings screen, including project slot UI.
 - `src/ui/project_actions.cpp` / `src/ui/project_actions.h` `[MAIN/UI]` project slot wrap plus save/load request triggering.
 - `src/ui/ui_screen_status.cpp` `[MAIN/UI]` project status screen.
-- `src/ui/ui_screen_browser.cpp` `[MAIN/UI]` SD browse, delete confirm, and sample-edit screens.
-- `src/ui/ui_screen_record.cpp` `[MAIN/UI]` record flow.
+- `src/ui/ui_screen_sd_browse.cpp` `[MAIN/UI]` SD browse screen.
+- `src/ui/ui_screen_sd_delete_confirm.cpp` `[MAIN/UI]` SD delete-confirm screen.
+- `src/ui/ui_screen_sample_edit.cpp` `[MAIN/UI]` sample-edit screen.
+- `src/ui/ui_screen_record.cpp` `[MAIN/UI]` record rendering and visual state presentation.
+- `src/ui/ui_screen_record_event.cpp` `[MAIN/UI]` record event handling and lifecycle transitions.
 - `src/ui/ui_screen_perform_menu.cpp` `[MAIN/UI]` Perform menu shell.
 - `src/ui/ui_screen_perform_engine.cpp` `[MAIN/UI]` Perform Engine screen.
 - `src/ui/ui_screen_perform_wave_edit.cpp` `[MAIN/UI]` Perform Wave Edit screen.
@@ -88,12 +93,15 @@
 
 ### Worker / Storage / Persistence
 - `ui_requests.cpp` / `ui_requests.h` `[MAIN/UI]` UI request queue into the worker.
-- `ui_worker.cpp` / `ui_worker.h` `[BG]` request dispatch, SD scan/load/save WAV, normalize, loop-find.
-- `ui_worker_project.cpp` `[BG]` project save/load I/O and project-restore sample handoff helpers.
-- `ui_worker_internal.h` `[BG]` internal worker declarations/state shared by split worker units.
-- `sd_browser_state.cpp` / `sd_browser_state.h` `[MAIN/UI]` browser list state and last-loaded metadata.
-- `sd_sample_pool.cpp` / `sd_sample_pool.h` `[SHARED]` SDRAM sample slot buffers.
-- `project_manifest.h` `[MAIN/UI]` on-disk project manifest structure.
+- `src/worker/ui_worker.cpp` / `src/worker/ui_worker.h` `[BG]` request dispatch plus worker-step orchestration.
+- `src/worker/ui_worker_project.cpp` `[BG]` project save/load orchestration plus project-restore sample handoff helpers.
+- `src/worker/ui_worker_project_manifest.cpp` `[BG]` versioned project manifest read/upgrade helpers.
+- `src/worker/ui_worker_wav.cpp` `[BG]` WAV header/path helpers shared by scan/load/save flows.
+- `src/worker/ui_worker_internal.h` `[BG]` internal worker declarations/state shared by split worker units.
+- `src/storage/storage_limits.h` `[SHARED]` shared SD path/name/slot constants used by state and storage surfaces.
+- `src/storage/sd_browser_state.cpp` / `src/storage/sd_browser_state.h` `[MAIN/UI]` browser list state and last-loaded metadata.
+- `src/storage/sd_sample_pool.cpp` / `src/storage/sd_sample_pool.h` `[SHARED]` SDRAM sample slot buffers.
+- `src/worker/project_manifest.h` `[BG]` on-disk project manifest structure.
 
 ## Cross-Thread Handoffs
 - Event queue: `event_queue.h`
@@ -102,13 +110,13 @@
   - MAIN edits/publishes targets, AUDIO consumes smoothed current values once per block.
 - UI request to worker: `ui_requests.*` -> `ui_worker.*`
   - UI enqueues requests, BG executes and updates `AppState`.
-- Sample publish/apply: `app_state.h` + `ui_worker.cpp` + `main.cpp`
+- Sample publish/apply: `app_state.h` + `src/worker/ui_worker.cpp` + `main.cpp`
   - BG publishes `sd_published_*`, AUDIO swaps samples at block boundaries in `AudioCallback`.
-- Edit publish/apply: `app_state.h` + `ui_worker.cpp` + `main.cpp` + `voice_engine.cpp`
+- Edit publish/apply: `app_state.h` + `src/worker/ui_worker.cpp` + `main.cpp` + `voice_engine.cpp`
   - MAIN/BG publish `sd_edit_*`, AUDIO applies `SetSampleEdit(...)` at block boundaries.
 
 ## Where To Look
-- App startup / scheduler: `main.cpp`, `ui_logic.cpp`
+- App startup / scheduler: `main.cpp`, `src/ui/ui_logic.cpp`
 - Central shared state: `app_state.h`
 - Audio FX/mix: `audio_engine.cpp`
 - Voice allocation / stealing: `voice_engine_voice_lifecycle.cpp`
@@ -119,15 +127,15 @@
 - Parameter smoothing/publish: `params.cpp`
 - Control scanning: `controls.cpp`
 - UI dispatch / active screen: `src/ui/ui_router.cpp`, `src/ui/ui_screen_registry.cpp`, `ui_screens.cpp`
-- Shared UI helpers: `ui_screens.cpp`, `src/ui/ui_draw_*.cpp`, `ui_layout.cpp`
+- Shared UI helpers: `ui_screens.cpp`, `src/ui/ui_draw_*.cpp`, `src/ui/ui_layout.cpp`
 - Start / Presets: `src/ui/ui_screen_main.cpp`
 - HUD: `src/ui/ui_screen_hud.cpp`
 - FX / MOD / MACRO: `src/ui/ui_screen_fx.cpp`, `src/ui/ui_screen_mod.cpp`, `src/ui/ui_screen_macro.cpp`
-- SD browse / sample edit: `src/ui/ui_screen_browser.cpp`, `sd_browser_state.cpp`, `ui_worker.cpp`
-- Record flow: `src/ui/ui_screen_record.cpp`
+- SD browse / sample edit: `src/ui/ui_screen_sd_browse.cpp`, `src/ui/ui_screen_sample_edit.cpp`, `src/storage/sd_browser_state.cpp`, `src/worker/ui_worker.cpp`
+- Record flow: `src/ui/ui_screen_record.cpp`, `src/ui/ui_screen_record_event.cpp`
 - Perform screens: `src/ui/ui_screen_perform_*.cpp`, plus shared helpers in `ui_screens.cpp`
 - Project slot UI: `src/ui/ui_screen_shift.cpp`, `src/ui/project_actions.cpp`, `src/ui/ui_screen_status.cpp`
-- Project save/load I/O: `ui_worker_project.cpp`, `project_manifest.h`
+- Project save/load I/O: `src/worker/ui_worker_project.cpp`, `src/worker/ui_worker_project_manifest.cpp`, `src/worker/project_manifest.h`
 
 ## Known Hotspots / Transitional Owners
 - `app_state.h`
@@ -136,8 +144,8 @@
   - Intentionally small, but still a shared helper hotspot for waveform preview, filename helpers, and shared Perform publish/metadata helpers.
 - `src/ui/ui_screens_internal.h`
   - Transitional coordination header for the split UI screen files. If ownership feels unclear across screen units, start here.
-- `ui_worker.cpp` and `ui_worker_project.cpp`
-  - Worker ownership is split cleanly by role, but request dispatch and project restore still span both files.
+- `src/worker/ui_worker.cpp`, `src/worker/ui_worker_project.cpp`, `src/worker/ui_worker_project_manifest.cpp`, and `src/worker/ui_worker_wav.cpp`
+  - Worker ownership is split by orchestration, project persistence, and WAV/path helper responsibilities.
 - `voice_engine.cpp` + `voice_engine_*.cpp`
   - Engine ownership is split by concern rather than collapsed into one file. Treat the set as one module with specialized owners, not as a monolith.
 
@@ -145,8 +153,8 @@
 - Current slot state lives in `app_state.h` as `current_project_slot`.
 - Slot UI lives in `src/ui/ui_screen_shift.cpp`.
 - Save/load request triggering lives in `src/ui/project_actions.cpp`.
-- Background project file I/O lives in `ui_worker_project.cpp`.
-- Manifest format lives in `project_manifest.h`.
+- Background project file I/O lives in `src/worker/ui_worker_project.cpp` and `src/worker/ui_worker_project_manifest.cpp`.
+- Manifest format lives in `src/worker/project_manifest.h`.
 - Project files are `PROJECT01.AKPRJ` through `PROJECT08.AKPRJ` at SD root.
 
 ## Notes

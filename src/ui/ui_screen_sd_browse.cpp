@@ -1,0 +1,204 @@
+#include "ui_screens_internal.h"
+
+#include "app_state.h"
+#include "ui_input.h"
+#include "ui_list_menu.h"
+#include "ui_value_edit.h"
+#include "ui_layout.h"
+#include "oled_pager.h"
+#include "ui_requests.h"
+#include "sd_browser_state.h"
+#include "sample_edit.h"
+
+#include <cstdio>
+#include <cstring>
+
+using namespace daisy;
+void SdBrowse_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.app)
+        return;
+
+    SdBrowserState& sd = ctx.app->ui.sd;
+    const UiLayout layout = UiLayout_Default();
+    const uint8_t rows = (layout.rows_body > 1) ? static_cast<uint8_t>(layout.rows_body - 1) : 1;
+    if(!sd.menu_inited || sd.menu_rows != rows)
+    {
+        sd.menu_rows = rows;
+        SdBrowser_RebuildMenu(sd);
+    }
+
+    if(!sd.scan_in_progress && !sd.scan_done)
+    {
+        UiReq req{UiReqType::ScanSdWavs, 0, 0};
+        UiReq_Push(*ctx.app, req);
+        sd.scan_in_progress = true;
+        SdBrowser_SetStatus(sd, "SCANNING");
+        ctx.app->ui.ui_dirty = true;
+    }
+}
+
+bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.app)
+        return false;
+
+    SdBrowserState& sd = ctx.app->ui.sd;
+    if(ctx.shift)
+        return false;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod)
+    {
+        if(UiListMenu_OnEnc(sd.menu, e.value))
+        {
+            ctx.app->ui.ui_dirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        if(sd.wav_count > 0 && !sd.scan_in_progress)
+        {
+            const uint16_t idx = sd.menu.cursor;
+
+            if(ctx.app->ui.sd_delete_mode)
+            {
+                ctx.app->ui.sd_delete_index = idx;
+                ExtractBaseName(sd.paths[idx],
+                                ctx.app->ui.sd_delete_name,
+                                sizeof(ctx.app->ui.sd_delete_name));
+                UiNav_Push(ctx.app->ui.ui_nav, UiScreenId::SdDeleteConfirm);
+                ctx.app->ui.ui_dirty = true;
+                return true;
+            }
+
+            const uint8_t layer_count = static_cast<uint8_t>(
+                sizeof(ctx.app->engine.engine_sample_path) / sizeof(ctx.app->engine.engine_sample_path[0]));
+            if(ctx.app->engine.engine_load_target_layer < layer_count)
+            {
+                const uint8_t target = ctx.app->engine.engine_load_target_layer & 1u;
+                ctx.app->shared.sd_current_slot.store(target ^ 1u, std::memory_order_release);
+                std::snprintf(ctx.app->engine.engine_sample_path[target],
+                              sizeof(ctx.app->engine.engine_sample_path[target]),
+                              "%s",
+                              sd.paths[idx]);
+                ExtractBaseName(sd.paths[idx],
+                                ctx.app->engine.engine_sample_name[target],
+                                sizeof(ctx.app->engine.engine_sample_name[target]));
+            }
+            UiReq req{UiReqType::LoadWavIndex, idx, 0};
+            UiReq_Push(*ctx.app, req);
+            sd.load_in_progress = true;
+            sd.load_progress = 0;
+            SdBrowser_SetStatus(sd, "LOADING");
+            if(ctx.app->engine.engine_load_from_perform)
+                UiNav_Pop(ctx.app->ui.ui_nav);
+            ctx.app->ui.ui_dirty = true;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+void SdBrowse_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.app || !ctx.display)
+        return;
+
+    SdBrowserState& sd = ctx.app->ui.sd;
+    const UiLayout layout = UiLayout_Default();
+    bool show_issue = false;
+    char issue_buf[24];
+    issue_buf[0] = '\0';
+    if(!sd.sd_ok)
+    {
+        show_issue = true;
+        std::snprintf(issue_buf, sizeof(issue_buf), "SD ERR");
+    }
+    else if(sd.scan_done && !sd.scan_in_progress && sd.wav_count == 0)
+    {
+        show_issue = true;
+        std::snprintf(issue_buf, sizeof(issue_buf), "NO WAV");
+    }
+    else if(sd.status[0] != '\0')
+    {
+        const bool noisy_ok = (std::strncmp(sd.status, "LOADED", 6) == 0)
+                           || (std::strncmp(sd.status, "LOADING", 7) == 0)
+                           || (std::strncmp(sd.status, "SCANNING", 8) == 0)
+                           || (std::strncmp(sd.status, "DELETED", 7) == 0)
+                           || (std::strncmp(sd.status, "READY", 5) == 0);
+        if(!noisy_ok)
+        {
+            show_issue = true;
+            std::snprintf(issue_buf, sizeof(issue_buf), "%s", sd.status);
+        }
+    }
+
+    uint8_t lines_used = static_cast<uint8_t>(1 + (show_issue ? 1 : 0));
+    if(lines_used >= layout.rows_body)
+        lines_used = layout.rows_body;
+
+    uint8_t menu_rows = (layout.rows_body > lines_used)
+                        ? static_cast<uint8_t>(layout.rows_body - lines_used)
+                        : 1;
+    if(!sd.menu_inited || sd.menu_rows != menu_rows)
+    {
+        sd.menu_rows = menu_rows;
+        SdBrowser_RebuildMenu(sd);
+    }
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    const char* header_label = "sd browse";
+    const int header_w = TinyStringWidth(header_label);
+    const int box_w = header_w + 2;
+    const int box_h = 9;
+    int box_x = 128 - box_w;
+    if(box_x < 0)
+        box_x = 0;
+    d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, true, true);
+    DrawTinyString(d, header_label, box_x + 1, 1, false);
+
+    if(show_issue && lines_used > 1)
+    {
+        d.SetCursor(layout.x, layout.y_body);
+        d.WriteString(issue_buf, Font_6x8, true);
+    }
+
+    const int menu_x = layout.x;
+    const int menu_y = layout.y_body + layout.line_h * lines_used;
+    const int arrow_x = menu_x + 4;
+    const int label_x = menu_x + 10;
+
+    auto draw_filled_right_triangle = [&](int cx, int cy)
+    {
+        for(int dx = 0; dx < 4; ++dx)
+        {
+            const int px = cx + dx;
+            const int half_h = dx;
+            for(int yy = cy - half_h; yy <= cy + half_h; ++yy)
+                d.DrawPixel(px, yy, true);
+        }
+    };
+
+    for(uint8_t row = 0; row < sd.menu.rows; ++row)
+    {
+        const uint8_t idx = static_cast<uint8_t>(sd.menu.scroll + row);
+        if(idx >= sd.menu.count || !sd.menu.items)
+            break;
+
+        const int row_y = menu_y + static_cast<int>(row) * layout.line_h;
+        if(idx == sd.menu.cursor)
+        {
+            const int arrow_cy = row_y + (layout.line_h / 2) - 1;
+            draw_filled_right_triangle(arrow_x, arrow_cy);
+        }
+
+        d.SetCursor(label_x, row_y);
+        d.WriteString(sd.menu.items[idx].label, Font_6x8, true);
+    }
+}

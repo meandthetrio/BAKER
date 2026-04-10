@@ -2,11 +2,10 @@
 
 #include <cstdint>
 
+#include "storage_limits.h"
 #include "ui_list_menu.h"
 
 static constexpr uint8_t kSdMaxFiles = 32;
-static constexpr uint8_t kSdNameMax = 24;
-static constexpr uint8_t kSdPathMax = 64;
 static constexpr uint8_t kSdStatusMax = 16;
 
 struct SdBrowserState

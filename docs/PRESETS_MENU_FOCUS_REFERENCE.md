@@ -2,7 +2,7 @@
 
 ## Notes
 - This file documents the CURRENT IMPLEMENTED PRESETS branch only.
-- Source of truth is code (`src/ui/ui_screen_main.cpp`, `src/ui/ui_screen_registry.cpp`, `src/ui/ui_router.cpp`, `ui_logic.cpp`, `app_state.h`).
+- Source of truth is code (`src/ui/ui_screen_main.cpp`, `src/ui/ui_screen_registry.cpp`, `src/ui/ui_router.cpp`, `src/ui/ui_logic.cpp`, `app_state.h`).
 - This branch currently contains a placeholder PRESETS screen.
 
 ## Screen Inventory

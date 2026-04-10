@@ -3,7 +3,7 @@
 #include <cstdint>
 
 #include "sample_edit.h"
-#include "sd_sample_pool.h"
+#include "storage_limits.h"
 
 enum class ProjectAction : uint8_t
 {

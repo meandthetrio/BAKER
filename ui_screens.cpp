@@ -1,45 +1,11 @@
 #include "ui_screens.h"
 #include "ui_screens_internal.h"
 #include "app_state.h"
-#include "keygroups.h"
 #include "params.h"
-#include "ui_input.h"
-#include "ui_list_menu.h"
-#include "ui_value_edit.h"
-#include "ui_layout.h"
 #include "oled_pager.h"
-#include "ui_requests.h"
-#include "sd_browser_state.h"
 #include "sample_edit.h"
-#include "tilt_eq.h"
 
-#include <cmath>
 #include <cstdio>
-#include <cstring>
-using namespace daisy;
-
-static float Clamp01(float x)
-{
-    if(x < 0.0f) return 0.0f;
-    if(x > 1.0f) return 1.0f;
-    return x;
-}
-
-static float UiAccelFromDtMs(uint32_t dt_ms)
-{
-    if(dt_ms <= 20u) return 8.0f;
-    if(dt_ms <= 40u) return 5.0f;
-    if(dt_ms <= 70u) return 3.0f;
-    if(dt_ms <= 120u) return 2.0f;
-    return 1.0f;
-}
-
-static float UiDeltaNormAccelerated(int enc_delta, uint32_t t_ms, uint32_t& last_t_ms, float base_step)
-{
-    const uint32_t dt_ms = (last_t_ms == 0u) ? 999u : (t_ms - last_t_ms);
-    last_t_ms = t_ms;
-    return static_cast<float>(enc_delta) * base_step * UiAccelFromDtMs(dt_ms);
-}
 
 static constexpr uint8_t kPerformLayerCount = 2;
 static constexpr uint16_t kPerformAdsrAttackReleaseMinMs = 1u;

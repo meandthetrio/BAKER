@@ -122,9 +122,9 @@
   - Milestones: TBD
 
 - ui_screens.cpp / ui_screens.h
-  - Purpose: Page stack active lookup plus shared helpers after the extracted screen split.
+  - Purpose: Small intentional shared-support unit after the screen extractions, keeping active-screen lookup plus shared waveform/name/Perform publish helpers.
   - Thread: [MAIN/UI]
-  - Key symbols: `UiNav_Active`, `DrawWaveformPreview`, `PublishEngineLayerParams`
+  - Key symbols: `UiNav_Active`, `DrawWaveformPreview`, `PublishEngineLayerParams`, `EngineRefreshLoadedMetadata`
   - Milestones: TBD
 
 - src/ui/ui_router.cpp

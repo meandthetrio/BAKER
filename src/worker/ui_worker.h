@@ -2,7 +2,19 @@
 
 #include <cstdint>
 
-struct AppState;
+struct AppEngineState;
+struct AppProjectState;
+struct AppSharedState;
+struct AppUiState;
+struct AppWorkerState;
 class Params;
 
-void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budget_us);
+// Top-level worker orchestration seam.
+void UiWorker_Tick(AppUiState& ui,
+                   AppProjectState& project,
+                   AppEngineState& engine,
+                   AppSharedState& shared,
+                   AppWorkerState& worker,
+                   Params& params,
+                   uint32_t now_ms,
+                   uint16_t budget_us);

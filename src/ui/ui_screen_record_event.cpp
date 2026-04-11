@@ -199,7 +199,7 @@ void Record_OnEnter(UiScreenCtx& ctx)
     recording.record_state = RecordUiState::SourceSelect;
     recording.record_source_index = 0;
     recording.record_target_index = 0;
-    recording.record_slot = engine.perform_layer & 1u;
+    recording.record_slot = engine.perform_nav.perform_layer & 1u;
     recording.record_anim_start_ms = -1.0;
     shared.recording.rec_source_sel.store(recording.record_source_index & 1u, std::memory_order_release);
     shared.recording.rec_monitor_enable.store(0, std::memory_order_release);

@@ -83,31 +83,32 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
     static uint32_t s_rec_pos = 0;
     static constexpr uint32_t kRecLiveWaveStride = 128u;
 
-    const uint8_t ready = g_app.shared.sample.sd_published_ready.load(std::memory_order_acquire);
-    const uint32_t pub_gen = g_app.shared.sample.sd_published_gen.load(std::memory_order_acquire);
-    const uint32_t applied_gen = g_app.shared.sample.sd_applied_gen.load(std::memory_order_acquire);
+    const uint8_t ready = g_app.shared.sample.publish.sd_published_ready.load(std::memory_order_acquire);
+    const uint32_t pub_gen = g_app.shared.sample.publish.sd_published_gen.load(std::memory_order_acquire);
+    const uint32_t applied_gen = g_app.shared.sample.publish.sd_applied_gen.load(std::memory_order_acquire);
     if(ready && pub_gen != applied_gen)
     {
-        uint8_t slot = g_app.shared.sample.sd_published_slot.load(std::memory_order_acquire);
+        uint8_t slot = g_app.shared.sample.publish.sd_published_slot.load(std::memory_order_acquire);
         if(slot >= kSdSampleSlots)
             slot = 0;
-        g_voice.SetSample(&g_app.shared.sample.sd_slots[slot]);
-        g_app.shared.sample.sd_applied_gen.store(pub_gen, std::memory_order_release);
-        g_app.shared.sample.sd_current_slot.store(slot, std::memory_order_release);
-        g_app.shared.sample.sd_published_ready.store(0, std::memory_order_release);
+        g_voice.SetSample(&g_app.shared.sample.publish.sd_slots[slot]);
+        g_app.shared.sample.publish.sd_applied_gen.store(pub_gen, std::memory_order_release);
+        g_app.shared.sample.publish.sd_current_slot.store(slot, std::memory_order_release);
+        g_app.shared.sample.publish.sd_published_ready.store(0, std::memory_order_release);
     }
 
-    const uint8_t edit_ready = g_app.shared.sample.sd_edit_ready.load(std::memory_order_acquire);
-    const uint32_t edit_gen = g_app.shared.sample.sd_edit_gen.load(std::memory_order_acquire);
-    const uint32_t edit_applied = g_app.shared.sample.sd_edit_applied_gen.load(std::memory_order_acquire);
+    const uint8_t edit_ready = g_app.shared.sample.edit.sd_edit_ready.load(std::memory_order_acquire);
+    const uint32_t edit_gen = g_app.shared.sample.edit.sd_edit_gen.load(std::memory_order_acquire);
+    const uint32_t edit_applied = g_app.shared.sample.edit.sd_edit_applied_gen.load(std::memory_order_acquire);
     if(edit_ready && edit_gen != edit_applied)
     {
-        uint8_t slot = g_app.shared.sample.sd_edit_slot.load(std::memory_order_acquire);
+        uint8_t slot = g_app.shared.sample.edit.sd_edit_slot.load(std::memory_order_acquire);
         if(slot >= kSdSampleSlots)
             slot = 0;
-        g_voice.SetSampleEdit(g_app.shared.sample.sd_edit_pending, &g_app.shared.sample.sd_slots[slot]);
-        g_app.shared.sample.sd_edit_applied_gen.store(edit_gen, std::memory_order_release);
-        g_app.shared.sample.sd_edit_ready.store(0, std::memory_order_release);
+        g_voice.SetSampleEdit(g_app.shared.sample.edit.sd_edit_pending,
+                              &g_app.shared.sample.publish.sd_slots[slot]);
+        g_app.shared.sample.edit.sd_edit_applied_gen.store(edit_gen, std::memory_order_release);
+        g_app.shared.sample.edit.sd_edit_ready.store(0, std::memory_order_release);
     }
 
     if(g_app.shared.recording.rec_start_req.exchange(0, std::memory_order_acq_rel) != 0)
@@ -195,11 +196,11 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
         Macros_InitState(s_macro_smoothed);
         s_macro_init = true;
     }
-    const uint32_t macro_gen = g_app.shared.performance.macro_gen.load(std::memory_order_acquire);
+    const uint32_t macro_gen = g_app.shared.performance.macros.macro_gen.load(std::memory_order_acquire);
     if(macro_gen != s_macro_gen_seen)
     {
-        const uint8_t sel = g_app.shared.performance.macro_sel.load(std::memory_order_acquire) & 1u;
-        s_active_macros = (sel == 0) ? g_app.shared.performance.macro_a : g_app.shared.performance.macro_b;
+        const uint8_t sel = g_app.shared.performance.macros.macro_sel.load(std::memory_order_acquire) & 1u;
+        s_active_macros = (sel == 0) ? g_app.shared.performance.macros.macro_a : g_app.shared.performance.macros.macro_b;
         s_macro_gen_seen = macro_gen;
     }
     const float dt_block_sec = static_cast<float>(size) / g_sample_rate_hz;
@@ -215,7 +216,7 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
                          g_params.current.env_attack_ms,
                          g_params.current.env_decay_ms,
                          g_params.current.env_amount);
-    g_voice.SetLfoWave(g_app.shared.performance.lfo_wave.load(std::memory_order_relaxed));
+    g_voice.SetLfoWave(g_app.shared.performance.modulation.lfo_wave.load(std::memory_order_relaxed));
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {
         g_voice.SetEngineTuneSemitones(layer, g_params.current.engine_tune_semitones[layer]);
@@ -340,7 +341,7 @@ static void HandleMidiNoteOn(const NoteOnEvent& note_on)
 
     for(uint8_t layer = 0; layer < 2; ++layer)
     {
-        const Sample& s = g_app.shared.sample.sd_slots[layer];
+        const Sample& s = g_app.shared.sample.publish.sd_slots[layer];
         if(s.pcm == nullptr || s.length == 0)
             continue;
         if(!LayerEligibleForNote(layer, note_on.note, note_on.velocity))
@@ -433,40 +434,42 @@ int main(void)
         t.engine_filter_resonance[1] = 0.0f;
         for(uint8_t layer = 0; layer < PerformParamsTargets::kLayerCount; ++layer)
         {
-            float loop_attack_ms = static_cast<float>(g_app.engine.perform_adsr_loop_attack[layer]);
+            float loop_attack_ms = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_attack[layer]);
             if(loop_attack_ms < 1.0f)
                 loop_attack_ms = 1.0f;
             if(loop_attack_ms > 1000.0f)
                 loop_attack_ms = 1000.0f;
-            float loop_release_ms = static_cast<float>(g_app.engine.perform_adsr_loop_release[layer]);
+            float loop_release_ms = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_release[layer]);
             if(loop_release_ms < 1.0f)
                 loop_release_ms = 1.0f;
             if(loop_release_ms > 1000.0f)
                 loop_release_ms = 1000.0f;
-            t.engine_drive_mode[layer] = g_app.engine.engine_drive_mode[layer] & 1u;
-            t.engine_loop_mode[layer] = (g_app.engine.engine_play_mode[layer] != 0);
+            t.engine_drive_mode[layer] = g_app.engine.layer.engine_drive_mode[layer] & 1u;
+            t.engine_loop_mode[layer] = (g_app.engine.layer.engine_play_mode[layer] != 0);
             t.engine_loop_attack_ms[layer] = loop_attack_ms;
-            t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.engine.perform_adsr_loop_decay[layer]);
+            t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_decay[layer]);
             t.engine_loop_sustain_level[layer]
-                = static_cast<float>(g_app.engine.perform_adsr_loop_sustain[layer]) * 0.01f;
+                = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_sustain[layer]) * 0.01f;
             t.engine_loop_release_ms[layer] = loop_release_ms;
-            t.engine_loop_crossfade_amount[layer] = g_app.engine.perform_adsr_loop_crossfade[layer];
-            t.engine_loop_crossfade_shape[layer] = g_app.engine.perform_adsr_loop_crossfade_shape[layer];
-            t.perform_keyzone_lo_note[layer] = g_app.engine.perform_keyzone_lo_note[layer];
-            t.perform_keyzone_hi_note[layer] = g_app.engine.perform_keyzone_hi_note[layer];
+            t.engine_loop_crossfade_amount[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade[layer];
+            t.engine_loop_crossfade_shape[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade_shape[layer];
+            t.perform_keyzone_lo_note[layer] = g_app.engine.keyzone.perform_keyzone_lo_note[layer];
+            t.perform_keyzone_hi_note[layer] = g_app.engine.keyzone.perform_keyzone_hi_note[layer];
         }
         g_params.PublishTargets();
     }
-    ModMatrix_InitDefaults(g_app.shared.performance.mod_matrix, g_app.shared.performance.mod_routes_ui);
-    g_app.shared.performance.mod_route_selected = 0;
-    Macros_InitState(g_app.shared.performance.macro_ui);
-    Macros_Publish(g_app, g_app.shared.performance.macro_ui);
-    g_app.shared.performance.seq_running = false;
-    g_app.shared.performance.plock_apply_enabled = false;
-    g_app.shared.performance.lfo_wave.store(0, std::memory_order_relaxed);
-    PLocks_InitPattern(g_app.shared.performance.plock_pattern);
-    if(g_app.shared.performance.plock_apply_enabled)
-        PLocks_PublishCurrentStep(g_app.shared.performance.plocks, g_app.shared.performance.plock_pattern);
+    ModMatrix_InitDefaults(g_app.shared.performance.modulation.mod_matrix,
+                           g_app.shared.performance.modulation.mod_routes_ui);
+    g_app.shared.performance.modulation.mod_route_selected = 0;
+    Macros_InitState(g_app.shared.performance.macros.macro_ui);
+    Macros_Publish(g_app, g_app.shared.performance.macros.macro_ui);
+    g_app.shared.performance.sequencer.seq_running = false;
+    g_app.shared.performance.plocks.plock_apply_enabled = false;
+    g_app.shared.performance.modulation.lfo_wave.store(0, std::memory_order_relaxed);
+    PLocks_InitPattern(g_app.shared.performance.plocks.plock_pattern);
+    if(g_app.shared.performance.plocks.plock_apply_enabled)
+        PLocks_PublishCurrentStep(g_app.shared.performance.plocks.plocks,
+                                  g_app.shared.performance.plocks.plock_pattern);
     g_audio.Init(hw.AudioSampleRate(), hw.AudioBlockSize());
     g_ui.Init(hw);
     g_render.Init(&display, hw);
@@ -475,12 +478,15 @@ int main(void)
     g_app.ui.ui_active_screen = UiScreenId::Start;
     hw.midi.StartReceive();
     g_voice.Init(g_sample_rate_hz, hw.AudioBlockSize());
-    g_voice.SetModMatrix(&g_app.shared.performance.mod_matrix);
-    g_voice.SetPLocks(&g_app.shared.performance.plocks);
-    g_voice.SetMacros(&g_app.shared.performance.macro_a, &g_app.shared.performance.macro_b, &g_app.shared.performance.macro_sel, &g_app.shared.performance.macro_gen);
-    const Sample* bank[2] = {&g_app.shared.sample.sd_slots[0], &g_app.shared.sample.sd_slots[1]};
+    g_voice.SetModMatrix(&g_app.shared.performance.modulation.mod_matrix);
+    g_voice.SetPLocks(&g_app.shared.performance.plocks.plocks);
+    g_voice.SetMacros(&g_app.shared.performance.macros.macro_a,
+                      &g_app.shared.performance.macros.macro_b,
+                      &g_app.shared.performance.macros.macro_sel,
+                      &g_app.shared.performance.macros.macro_gen);
+    const Sample* bank[2] = {&g_app.shared.sample.publish.sd_slots[0], &g_app.shared.sample.publish.sd_slots[1]};
     g_voice.SetSampleBank(bank, 2);
-    g_voice.SetSample(&g_app.shared.sample.sd_slots[0]);
+    g_voice.SetSample(&g_app.shared.sample.publish.sd_slots[0]);
     g_voice.BindDebug(&g_app.diag.events_popped,
                       &g_app.diag.voices_active,
                       &g_app.diag.voice_steals,

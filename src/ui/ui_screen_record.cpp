@@ -59,12 +59,12 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
     shared.recording.rec_length.store(0, std::memory_order_release);
     Record_ResetLiveWave(shared);
 
-    const uint8_t slot = engine.perform_layer & 1u;
+    const uint8_t slot = engine.perform_nav.perform_layer & 1u;
     recording.record_slot = slot;
     shared.recording.rec_slot_pending.store(slot, std::memory_order_release);
 
     // Reset target slot metadata so review/save reflects the fresh unsaved take.
-    Sample& s = shared.sample.sd_slots[slot];
+    Sample& s = shared.sample.publish.sd_slots[slot];
     s.pcm = nullptr;
     s.length = 0;
     s.sample_rate = 48000;
@@ -74,11 +74,11 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
     s.loop_enabled = false;
 
     SampleEdit edit = SampleEdit_Default(0);
-    shared.sample.sd_edit_slots[slot] = edit;
-    shared.sample.sd_edit_pending = edit;
-    shared.sample.sd_edit_slot.store(slot, std::memory_order_release);
-    shared.sample.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-    shared.sample.sd_edit_ready.store(1, std::memory_order_release);
+    shared.sample.edit.sd_edit_slots[slot] = edit;
+    shared.sample.edit.sd_edit_pending = edit;
+    shared.sample.edit.sd_edit_slot.store(slot, std::memory_order_release);
+    shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+    shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
 }
 
 static void Record_StartRecording(UiScreenCtx& ctx)
@@ -576,8 +576,8 @@ void Record_Render(UiScreenCtx& ctx)
         {
             UiDraw_Header(d, layout, "RECORDED PLAYBACK", status);
             const uint8_t slot = recording.record_slot & 1u;
-            const Sample& s = shared.sample.sd_slots[slot];
-            const SampleEdit* e = (s.length > 0) ? &shared.sample.sd_edit_slots[slot] : nullptr;
+            const Sample& s = shared.sample.publish.sd_slots[slot];
+            const SampleEdit* e = (s.length > 0) ? &shared.sample.edit.sd_edit_slots[slot] : nullptr;
             DrawWaveformPreview(d, s, e, 0, layout.y_body, 128, 50);
             if(s.length == 0)
             {
@@ -646,4 +646,3 @@ void Record_Render(UiScreenCtx& ctx)
 
     (void)rec_len;
 }
-

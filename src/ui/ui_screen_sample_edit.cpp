@@ -80,10 +80,10 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(ctx.shift)
         return false;
 
-    const uint8_t slot = shared.sample.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    SampleEdit edit = shared.sample.sd_edit_slots[slot];
-    const uint32_t frames = (slot < kSdSampleSlots && shared.sample.sd_slots[slot].length > 0)
-                            ? shared.sample.sd_slots[slot].length
+    const uint8_t slot = shared.sample.publish.sd_current_slot.load(std::memory_order_relaxed) & 1u;
+    SampleEdit edit = shared.sample.edit.sd_edit_slots[slot];
+    const uint32_t frames = (slot < kSdSampleSlots && shared.sample.publish.sd_slots[slot].length > 0)
+                            ? shared.sample.publish.sd_slots[slot].length
                             : 0;
 
     const UiLayout layout = UiLayout_Default();
@@ -127,11 +127,11 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                     break;
             }
             SampleEdit_Clamp(edit, frames);
-            shared.sample.sd_edit_slots[slot] = edit;
-            shared.sample.sd_edit_pending = edit;
-            shared.sample.sd_edit_slot.store(slot, std::memory_order_release);
-            shared.sample.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-            shared.sample.sd_edit_ready.store(1, std::memory_order_release);
+            shared.sample.edit.sd_edit_slots[slot] = edit;
+            shared.sample.edit.sd_edit_pending = edit;
+            shared.sample.edit.sd_edit_slot.store(slot, std::memory_order_release);
+            shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+            shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
             UiValueEdit_Commit(ui.value_edit);
             ui.ui_dirty = true;
             return true;
@@ -238,8 +238,8 @@ void SampleEdit_Render(UiScreenCtx& ctx)
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
-    const uint8_t slot = shared.sample.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const SampleEdit& edit = shared.sample.sd_edit_slots[slot];
+    const uint8_t slot = shared.sample.publish.sd_current_slot.load(std::memory_order_relaxed) & 1u;
+    const SampleEdit& edit = shared.sample.edit.sd_edit_slots[slot];
 
     OledPager& d = *ctx.display;
     d.Fill(false);

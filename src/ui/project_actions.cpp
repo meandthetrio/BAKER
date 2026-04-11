@@ -3,7 +3,6 @@
 #include "app_state_project.h"
 #include "app_state_ui.h"
 #include "app_state_worker.h"
-#include "app_state.h"
 #include "ui_requests.h"
 #include "ui_screens.h"
 
@@ -59,9 +58,4 @@ bool ProjectActions_TriggerRequest(AppUiState& ui,
         SetProjectStatusImmediate(project, slot, "ERR");
     ui.ui_dirty = true;
     return true;
-}
-
-bool ProjectActions_TriggerRequest(AppState& app, UiReqType req_type, uint8_t slot)
-{
-    return ProjectActions_TriggerRequest(app.ui, app.project, app.worker, req_type, slot);
 }

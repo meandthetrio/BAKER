@@ -3,6 +3,9 @@
 #include <cstdint>
 
 struct AppState;
+struct AppDiagnosticsState;
+struct AppUiState;
+struct AppWorkerState;
 class Params;
 struct UiLayout;
 class OledPager;
@@ -14,7 +17,9 @@ struct UiOverlayState
 };
 
 void UiOverlay_Update(UiOverlayState& o, uint32_t now_ms, bool shift_held, bool editing);
-void UiOverlay_Render(const AppState& app,
+void UiOverlay_Render(const AppUiState& ui,
+                      const AppDiagnosticsState& diag,
+                      const AppWorkerState& worker_state,
                       const Params& params,
                       const UiLayout& layout,
                       OledPager& oled);

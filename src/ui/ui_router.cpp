@@ -84,15 +84,15 @@ void UiRouter_Render(UiScreenCtx& ctx)
            && UiNav_Active(ctx.ui->ui_nav) == UiScreenId::PerformProcess)
         {
             // In-screen parent: PROCESS detail / EQ graph -> PROCESS main.
-            const bool saved_detail = ctx.engine->perform_process_detail_active;
-            const bool saved_eqg    = ctx.engine->perform_process_eq_graph_active;
-            ctx.engine->perform_process_detail_active  = false;
-            ctx.engine->perform_process_eq_graph_active = false;
+            const bool saved_detail = ctx.engine->process.perform_process_detail_active;
+            const bool saved_eqg    = ctx.engine->process.perform_process_eq_graph_active;
+            ctx.engine->process.perform_process_detail_active  = false;
+            ctx.engine->process.perform_process_eq_graph_active = false;
             const UiScreen& active = GetScreen(UiScreenId::PerformProcess);
             if(active.Render)
                 active.Render(ctx);
-            ctx.engine->perform_process_detail_active   = saved_detail;
-            ctx.engine->perform_process_eq_graph_active = saved_eqg;
+            ctx.engine->process.perform_process_detail_active   = saved_detail;
+            ctx.engine->process.perform_process_eq_graph_active = saved_eqg;
             return;
         }
 

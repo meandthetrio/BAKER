@@ -44,6 +44,7 @@ struct UiReqQueue
 
 bool UiReq_Push(AppUiState& ui, AppWorkerState& worker, const UiReq& r);
 bool UiReq_Push(AppState& app, const UiReq& r);
+bool UiReq_Pop(AppWorkerState& worker, UiReq& out);
 bool UiReq_Pop(AppState& app, UiReq& out);
 uint32_t UiReq_Dropped(const AppState& app);
 uint32_t UiReq_Fill(const AppState& app);

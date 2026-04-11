@@ -9,7 +9,12 @@
 #include "ff.h"
 #include "per/sdmmc.h"
 
-struct AppState;
+struct AppEngineState;
+struct AppProjectState;
+struct AppSharedState;
+struct AppUiState;
+struct AppWorkerState;
+struct SdBrowserState;
 class Params;
 
 enum class LoaderState : uint8_t
@@ -74,14 +79,27 @@ bool IsWavName(const char* name);
 bool MakePath(char* out, size_t n, const char* base, const char* name);
 void WorkerExtractBaseName(const char* path, char* out, size_t out_n);
 
-uint8_t RequestedProjectSlot(const AppState& app);
-void SetProjectSlotStatus(AppState& app, uint8_t slot, const char* msg);
+uint8_t RequestedProjectSlot(const AppWorkerState& worker);
+void SetProjectSlotStatus(AppProjectState& project, uint8_t slot, const char* msg);
 
-bool EnsureSdMounted(AppState& app);
-void ClearProjectRestoreState(AppState& app);
-bool StartNextProjectRestoreLoad(AppState& app);
-bool StartLoadPath(AppState& app, const char* path, uint8_t target_slot);
+bool EnsureSdMounted(AppUiState& ui);
+bool EnsureSdMountedInternal(SdBrowserState& sd);
+void ClearProjectRestoreState(AppWorkerState& worker);
+bool StartNextProjectRestoreLoad(AppUiState& ui,
+                                 AppEngineState& engine,
+                                 AppWorkerState& worker);
+bool StartLoadPath(AppUiState& ui, const char* path, uint8_t target_slot);
 
 bool ReadProjectManifestFromFile(ProjectManifestV10& manifest);
-bool SaveProject(AppState& app, const Params& params);
-bool LoadProject(AppState& app, Params& params);
+bool SaveProject(AppUiState& ui,
+                 AppProjectState& project,
+                 AppEngineState& engine,
+                 AppSharedState& shared,
+                 AppWorkerState& worker,
+                 const Params& params);
+bool LoadProject(AppUiState& ui,
+                 AppProjectState& project,
+                 AppEngineState& engine,
+                 AppSharedState& shared,
+                 AppWorkerState& worker,
+                 Params& params);

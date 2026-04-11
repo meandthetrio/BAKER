@@ -1,11 +1,16 @@
 #include "ui_worker.h"
 #include "ui_worker_internal.h"
+#include "ui_worker_sample_load.h"
+#include "ui_worker_sample_ops.h"
 
-#include "app_state.h"
+#include "app_state_engine.h"
+#include "app_state_project.h"
+#include "app_state_shared.h"
+#include "app_state_ui.h"
+#include "app_state_worker.h"
 #include "sd_browser_state.h"
 #include "sd_sample_pool.h"
 #include "ui_requests.h"
-#include "sample_edit.h"
 #include "params.h"
 
 #include "fatfs.h"
@@ -20,8 +25,8 @@ static volatile uint32_t s_work_sink = 0;
 
 SdWorkerState s_sd;
 
-// Shared SD worker lifecycle helpers
-static bool EnsureSdMountedInternal(SdBrowserState& sd)
+// --- SD mount and cancel hooks (shared with worker leaf modules)
+bool EnsureSdMountedInternal(SdBrowserState& sd)
 {
     if(!s_sd.inited)
     {
@@ -46,9 +51,9 @@ static bool EnsureSdMountedInternal(SdBrowserState& sd)
     return true;
 }
 
-bool EnsureSdMounted(AppState& app)
+bool EnsureSdMounted(AppUiState& ui)
 {
-    return EnsureSdMountedInternal(app.ui.sd);
+    return EnsureSdMountedInternal(ui.sd);
 }
 
 static void CancelScan(SdBrowserState& sd)
@@ -63,9 +68,9 @@ static void CancelScan(SdBrowserState& sd)
     sd.scan_done = true;
 }
 
-static void CancelLoad(AppState& app)
+static void CancelLoad(AppUiState& ui, AppWorkerState& worker)
 {
-    SdBrowserState& sd = app.ui.sd;
+    SdBrowserState& sd = ui.sd;
     if(s_sd.file_open)
     {
         f_close(&s_sd.file);
@@ -74,20 +79,10 @@ static void CancelLoad(AppState& app)
     s_sd.state = LoaderState::Idle;
     sd.load_in_progress = false;
     sd.load_progress = 0;
-    ClearProjectRestoreState(app);
+    ClearProjectRestoreState(worker);
 }
 
-static void FinishRequest(AppState& app)
-{
-    app.worker.ui_req_busy = false;
-    app.worker.ui_req_active = UiReqType::None;
-    app.worker.ui_req_progress = 100;
-    app.worker.ui_req_done_count++;
-    s_sd.state = LoaderState::Idle;
-    ClearProjectRestoreState(app);
-}
-
-// Scan flow
+// --- SD scan
 static bool StartScan(SdBrowserState& sd)
 {
     SdBrowser_ClearList(sd);
@@ -194,653 +189,11 @@ static bool ScanStep(SdBrowserState& sd)
     return false;
 }
 
-// Load and project-restore flow
-static bool FailLoadStart(SdBrowserState& sd, const char* status)
+// --- Request-local placeholder work
+static void StepFakeWork(AppWorkerState& worker, uint16_t budget_us)
 {
-    SdBrowser_SetStatus(sd, status);
-    sd.wav_err_count++;
-    return false;
-}
-
-static bool StartLoadFromPathInternal(SdBrowserState& sd,
-                                      const char* path,
-                                      uint8_t loading_slot,
-                                      uint16_t load_index)
-{
-    s_sd.state = LoaderState::Idle;
-    sd.load_pending = false;
-    if(!EnsureSdMountedInternal(sd))
-        return false;
-
-    if(f_open(&s_sd.file, path, FA_READ | FA_OPEN_EXISTING) != FR_OK)
-        return FailLoadStart(sd, "OPEN ERR");
-
-    WavInfo info;
-    if(!ParseWavHeader(s_sd.file, info))
-    {
-        f_close(&s_sd.file);
-        return FailLoadStart(sd, "BAD WAV");
-    }
-
-    if(info.audio_format != 1 || info.channels != 1 || info.bits_per_sample != 16
-       || info.sample_rate != 48000)
-    {
-        f_close(&s_sd.file);
-        return FailLoadStart(sd, "UNSUPPORTED");
-    }
-
-    const uint32_t frames = info.data_size / 2u;
-    if(frames == 0 || frames > SdSampleMaxFrames())
-    {
-        f_close(&s_sd.file);
-        return FailLoadStart(sd, "TOO LONG");
-    }
-
-    if(f_lseek(&s_sd.file, info.data_offset) != FR_OK)
-    {
-        f_close(&s_sd.file);
-        return FailLoadStart(sd, "SEEK ERR");
-    }
-
-    std::snprintf(sd.last_loaded_path, sizeof(sd.last_loaded_path), "%s", path);
-    s_sd.loading_slot = loading_slot & 1u;
-    s_sd.state = LoaderState::Load;
-    s_sd.file_open = true;
-    s_sd.data_size = info.data_size;
-    s_sd.bytes_loaded = 0;
-    s_sd.sample_frames = frames;
-    s_sd.load_index = load_index;
-
-    sd.load_in_progress = true;
-    sd.load_progress = 0;
-    SdBrowser_SetStatus(sd, "LOADING");
-
-    return true;
-}
-
-static bool StartLoadInternal(SdBrowserState& sd, AppSharedState& shared, uint16_t index)
-{
-    s_sd.state = LoaderState::Idle;
-    sd.load_pending = false;
-    if(index >= sd.wav_count)
-        return FailLoadStart(sd, "BAD IDX");
-
-    const uint8_t current_slot = shared.sample.sd_current_slot.load(std::memory_order_acquire);
-    const uint8_t next_slot = current_slot ^ 1u;
-    return StartLoadFromPathInternal(sd, sd.paths[index], next_slot, index);
-}
-
-bool StartLoadPath(AppState& app, const char* path, uint8_t target_slot)
-{
-    s_sd.state = LoaderState::Idle;
-    app.ui.sd.load_pending = false;
-    if(!path || path[0] == '\0')
-        return FailLoadStart(app.ui.sd, "BAD PATH");
-    return StartLoadFromPathInternal(app.ui.sd, path, target_slot, 0xFFFFu);
-}
-
-static void ClearProjectRestoreStateInternal(ProjectRestoreState& project_restore)
-{
-    s_sd.project_restore_pending_mask = 0;
-    project_restore.project_edit_pending_mask = 0;
-    for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
-        s_sd.project_restore_path[slot][0] = '\0';
-}
-
-void ClearProjectRestoreState(AppState& app)
-{
-    ClearProjectRestoreStateInternal(app.worker.project_restore);
-}
-
-static bool StartNextProjectRestoreLoadInternal(SdBrowserState& sd,
-                                                AppEngineState& engine,
-                                                ProjectRestoreState& project_restore)
-{
-    for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
-    {
-        const uint8_t bit = static_cast<uint8_t>(1u << slot);
-        if((s_sd.project_restore_pending_mask & bit) == 0u)
-            continue;
-        if(s_sd.project_restore_path[slot][0] == '\0')
-        {
-            s_sd.project_restore_pending_mask &= static_cast<uint8_t>(~bit);
-            project_restore.project_edit_pending_mask &= static_cast<uint8_t>(~bit);
-            continue;
-        }
-
-        engine.perform_layer = slot;
-        if(!StartLoadFromPathInternal(sd, s_sd.project_restore_path[slot], slot, 0xFFFFu))
-            return false;
-
-        s_sd.project_restore_pending_mask &= static_cast<uint8_t>(~bit);
-        return true;
-    }
-    return false;
-}
-
-bool StartNextProjectRestoreLoad(AppState& app)
-{
-    return StartNextProjectRestoreLoadInternal(app.ui.sd, app.engine, app.worker.project_restore);
-}
-
-static bool LoadStepInternal(SdBrowserState& sd,
-                             AppWorkerState& worker,
-                             AppEngineState& engine,
-                             AppSharedState& shared,
-                             ProjectRestoreState& project_restore,
-                             uint16_t budget)
-{
-    if(!s_sd.file_open)
-        return true;
-
-    const uint32_t bytes_left = (s_sd.data_size > s_sd.bytes_loaded)
-                                ? (s_sd.data_size - s_sd.bytes_loaded)
-                                : 0;
-    if(bytes_left == 0)
-        return true;
-
-    uint32_t bytes_to_read = bytes_left;
-    if(bytes_to_read > budget)
-        bytes_to_read = budget;
-    bytes_to_read &= ~1u;
-    if(bytes_to_read == 0)
-        bytes_to_read = (bytes_left >= 2) ? 2 : bytes_left;
-
-    UINT br = 0;
-    uint8_t* dst = reinterpret_cast<uint8_t*>(SdSampleBuffer(s_sd.loading_slot));
-    const FRESULT res = f_read(&s_sd.file, dst + s_sd.bytes_loaded, bytes_to_read, &br);
-    if(res != FR_OK || br == 0)
-    {
-        f_close(&s_sd.file);
-        s_sd.file_open = false;
-        s_sd.state = LoaderState::Idle;
-        sd.load_in_progress = false;
-        SdBrowser_SetStatus(sd, "READ ERR");
-        sd.wav_err_count++;
-        ClearProjectRestoreStateInternal(project_restore);
-        worker.ui_req_result = -1;
-        return true;
-    }
-
-    s_sd.bytes_loaded += br;
-    uint32_t pct = (s_sd.bytes_loaded * 100u) / s_sd.data_size;
-    if(pct > 100u)
-        pct = 100u;
-    sd.load_progress = static_cast<uint8_t>(pct);
-
-    if(s_sd.bytes_loaded >= s_sd.data_size)
-    {
-        f_close(&s_sd.file);
-        s_sd.file_open = false;
-
-        Sample& samp = shared.sample.sd_slots[s_sd.loading_slot];
-        samp.pcm = SdSampleBuffer(s_sd.loading_slot);
-        samp.length = s_sd.sample_frames;
-        samp.sample_rate = 48000;
-        samp.root_key = 60;
-        samp.loop_start = 0;
-        samp.loop_end = s_sd.sample_frames;
-        samp.loop_enabled = false;
-
-        SampleEdit edit = SampleEdit_Default(s_sd.sample_frames);
-        const uint8_t edit_bit = static_cast<uint8_t>(1u << (s_sd.loading_slot & 1u));
-        const bool is_project_restore_load = (project_restore.project_edit_pending_mask & edit_bit) != 0u;
-        if(is_project_restore_load)
-        {
-            edit = project_restore.project_pending_edit[s_sd.loading_slot & 1u];
-            SampleEdit_Clamp(edit, s_sd.sample_frames);
-            project_restore.project_edit_pending_mask &= static_cast<uint8_t>(~edit_bit);
-        }
-        shared.sample.sd_edit_slots[s_sd.loading_slot] = edit;
-        if(!is_project_restore_load)
-        {
-            engine.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
-            engine.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
-        }
-        shared.sample.sd_edit_pending = edit;
-        shared.sample.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);
-        shared.sample.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-        shared.sample.sd_edit_ready.store(1, std::memory_order_release);
-
-        const uint32_t next_gen = shared.sample.sd_published_gen.fetch_add(1, std::memory_order_acq_rel) + 1u;
-        (void)next_gen;
-        shared.sample.sd_published_slot.store(s_sd.loading_slot, std::memory_order_release);
-        shared.sample.sd_published_ready.store(1, std::memory_order_release);
-        s_sd.state = LoaderState::Idle;
-
-        sd.load_in_progress = false;
-        sd.load_progress = 100;
-        sd.last_loaded_index = s_sd.load_index;
-        SdBrowser_SetStatus(sd, "LOADED");
-        if(worker.ui_req_busy && worker.ui_req_active == UiReqType::LoadProject
-           && s_sd.project_restore_pending_mask != 0u)
-        {
-            if(StartNextProjectRestoreLoadInternal(sd, engine, project_restore))
-                return false;
-            ClearProjectRestoreStateInternal(project_restore);
-            worker.ui_req_result = -1;
-            return true;
-        }
-        return true;
-    }
-
-    return false;
-}
-
-// Sample analysis / edit helpers
-static bool StartNormalize(AppUiState& ui, AppSharedState& shared)
-{
-    const uint8_t slot = shared.sample.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const Sample& sample = shared.sample.sd_slots[slot];
-    if(sample.pcm == nullptr || sample.length == 0)
-    {
-        SdBrowser_SetStatus(ui.sd, "NO SAMPLE");
-        return false;
-    }
-
-    SampleEdit edit = shared.sample.sd_edit_slots[slot];
-    SampleEdit_Clamp(edit, sample.length);
-
-    s_sd.norm_active = true;
-    s_sd.norm_slot = slot;
-    s_sd.norm_start = edit.start_frame;
-    s_sd.norm_end = edit.end_frame;
-    s_sd.norm_pos = edit.start_frame;
-    s_sd.norm_peak = 0;
-    return true;
-}
-
-static bool NormalizeStep(AppUiState& ui, AppSharedState& shared, uint16_t budget_us)
-{
-    if(!s_sd.norm_active)
-        return true;
-
-    const uint8_t slot = s_sd.norm_slot;
-    const Sample& sample = shared.sample.sd_slots[slot];
-    if(sample.pcm == nullptr || sample.length == 0)
-    {
-        s_sd.norm_active = false;
-        return true;
-    }
-
-    uint32_t frames_left = (s_sd.norm_end > s_sd.norm_pos)
-                           ? (s_sd.norm_end - s_sd.norm_pos)
-                           : 0;
-    if(frames_left == 0)
-        return true;
-
-    uint32_t frames_budget = budget_us * 32u;
-    if(frames_budget < 256u)
-        frames_budget = 256u;
-    if(frames_budget > 4096u)
-        frames_budget = 4096u;
-    uint32_t frames_to_do = frames_left;
-    if(frames_to_do > frames_budget)
-        frames_to_do = frames_budget;
-
-    const int16_t* pcm = sample.pcm;
-    uint32_t pos = s_sd.norm_pos;
-    int32_t peak = s_sd.norm_peak;
-    for(uint32_t i = 0; i < frames_to_do; ++i)
-    {
-        const int16_t v = pcm[pos + i];
-        const int32_t av = (v < 0) ? -v : v;
-        if(av > peak)
-            peak = av;
-    }
-    s_sd.norm_peak = peak;
-    s_sd.norm_pos = pos + frames_to_do;
-
-    const uint32_t done = s_sd.norm_pos - s_sd.norm_start;
-    const uint32_t total = s_sd.norm_end - s_sd.norm_start;
-    if(total > 0)
-    {
-        uint32_t pct = (done * 100u) / total;
-        if(pct > 100u)
-            pct = 100u;
-        ui.sd.load_progress = static_cast<uint8_t>(pct);
-    }
-
-    if(s_sd.norm_pos >= s_sd.norm_end)
-    {
-        SampleEdit edit = shared.sample.sd_edit_slots[slot];
-        SampleEdit_Clamp(edit, sample.length);
-
-        const float target = 0.891f;
-        if(peak <= 0)
-            edit.gain = 1.0f;
-        else
-        {
-            const float peak_f = (float)peak / 32768.0f;
-            float gain = target / peak_f;
-            if(gain > 8.0f)
-                gain = 8.0f;
-            edit.gain = gain;
-        }
-
-        shared.sample.sd_edit_slots[slot] = edit;
-        shared.sample.sd_edit_pending = edit;
-        shared.sample.sd_edit_slot.store(slot, std::memory_order_release);
-        shared.sample.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-        shared.sample.sd_edit_ready.store(1, std::memory_order_release);
-        s_sd.norm_active = false;
-        SdBrowser_SetStatus(ui.sd, "NORM OK");
-        return true;
-    }
-
-    return false;
-}
-
-static uint32_t FindBestBoundary(const int16_t* pcm,
-                                 uint32_t start,
-                                 uint32_t end,
-                                 uint32_t center,
-                                 uint32_t window)
-{
-    if(end <= start + 1 || pcm == nullptr)
-        return start;
-    uint32_t lo = (center > window) ? (center - window) : (start + 1);
-    uint32_t hi = center + window;
-    if(lo < start + 1)
-        lo = start + 1;
-    if(hi >= end)
-        hi = end - 1;
-
-    uint32_t best = center;
-    uint32_t best_score = 0xFFFFFFFFu;
-    for(uint32_t i = lo; i <= hi; ++i)
-    {
-        const int16_t a = pcm[i - 1];
-        const int16_t b = pcm[i];
-        uint32_t score = (uint32_t)((a < 0 ? -a : a) + (b < 0 ? -b : b));
-        if(((a ^ b) < 0))
-            score >>= 1;
-        if(score < best_score)
-        {
-            best_score = score;
-            best = i;
-        }
-    }
-    return best;
-}
-
-static bool LoopFindCurrent(AppUiState& ui, AppSharedState& shared)
-{
-    const uint8_t slot = shared.sample.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const Sample& sample = shared.sample.sd_slots[slot];
-    if(sample.pcm == nullptr || sample.length == 0)
-    {
-        SdBrowser_SetStatus(ui.sd, "NO SAMPLE");
-        return false;
-    }
-
-    SampleEdit edit = shared.sample.sd_edit_slots[slot];
-    SampleEdit_Clamp(edit, sample.length);
-    const uint32_t start = edit.start_frame;
-    const uint32_t end = edit.end_frame;
-    if(end <= start + 1)
-        return false;
-
-    const uint32_t window = 2048u;
-    uint32_t ls = edit.loop_start;
-    uint32_t le = edit.loop_end;
-    if(ls < start || ls >= end)
-        ls = start;
-    if(le <= ls || le > end)
-        le = end;
-
-    ls = FindBestBoundary(sample.pcm, start, end, ls, window);
-    le = FindBestBoundary(sample.pcm, start, end, le, window);
-    if(le <= ls + 1)
-        le = (ls + 1 < end) ? (ls + 1) : end;
-
-    edit.loop_start = ls;
-    edit.loop_end = le;
-    shared.sample.sd_edit_slots[slot] = edit;
-    shared.sample.sd_edit_pending = edit;
-    shared.sample.sd_edit_slot.store(slot, std::memory_order_release);
-    shared.sample.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-    shared.sample.sd_edit_ready.store(1, std::memory_order_release);
-    SdBrowser_SetStatus(ui.sd, "LOOP OK");
-    return true;
-}
-
-// Rendered WAV save helpers
-static constexpr uint32_t kSaveChunkFrames = 2048;
-
-static bool StartSave(AppUiState& ui, AppSharedState& shared)
-{
-    SdBrowserState& sd = ui.sd;
-    sd.save_in_progress = false;
-    sd.save_progress = 0;
-    SdBrowser_SetSaveStatus(sd, "SAVING");
-    SdBrowser_SetSaveName(sd, "");
-
-    if(!EnsureSdMountedInternal(sd))
-    {
-        SdBrowser_SetSaveStatus(sd, "SD ERR");
-        return false;
-    }
-
-    const uint8_t slot = shared.sample.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const Sample& sample = shared.sample.sd_slots[slot];
-    if(sample.pcm == nullptr || sample.length == 0)
-    {
-        SdBrowser_SetSaveStatus(sd, "NO SAMPLE");
-        return false;
-    }
-
-    SampleEdit edit = shared.sample.sd_edit_slots[slot];
-    SampleEdit_Clamp(edit, sample.length);
-    if(edit.end_frame <= edit.start_frame || edit.end_frame > sample.length)
-    {
-        SdBrowser_SetSaveStatus(sd, "BAD RANGE");
-        return false;
-    }
-
-    s_sd.save_slot = slot;
-    s_sd.save_start = edit.start_frame;
-    s_sd.save_end = edit.end_frame;
-    s_sd.save_total = edit.end_frame - edit.start_frame;
-    s_sd.save_written = 0;
-    s_sd.save_gain = edit.gain;
-
-    const char* base = s_sd.fsi.GetSDPath();
-    std::snprintf(s_sd.save_dir, sizeof(s_sd.save_dir), "%s", base);
-
-    bool found = false;
-    for(uint16_t i = 1; i <= 9999u; ++i)
-    {
-        char name[kSdNameMax];
-        std::snprintf(name, sizeof(name), "REND%04u.WAV", static_cast<unsigned>(i));
-        if(!MakePath(s_sd.save_path, sizeof(s_sd.save_path), s_sd.save_dir, name))
-        {
-            SdBrowser_SetSaveStatus(sd, "PATH LONG");
-            return false;
-        }
-
-        FILINFO fno;
-        const FRESULT st = f_stat(s_sd.save_path, &fno);
-        if(st == FR_NO_FILE)
-        {
-            std::snprintf(s_sd.save_name, sizeof(s_sd.save_name), "%s", name);
-            found = true;
-            break;
-        }
-        if(st != FR_OK)
-        {
-            SdBrowser_SetSaveStatus(sd, "STAT ERR");
-            return false;
-        }
-    }
-
-    if(!found)
-    {
-        SdBrowser_SetSaveStatus(sd, "NO NAME");
-        return false;
-    }
-
-    if(f_open(&s_sd.file, s_sd.save_path, FA_WRITE | FA_CREATE_NEW) != FR_OK)
-    {
-        SdBrowser_SetSaveStatus(sd, "OPEN ERR");
-        return false;
-    }
-
-    s_sd.file_open = true;
-    if(!WriteWavHeader(s_sd.file, s_sd.save_total))
-    {
-        f_close(&s_sd.file);
-        s_sd.file_open = false;
-        SdBrowser_SetSaveStatus(sd, "WRITE ERR");
-        return false;
-    }
-
-    s_sd.save_active = true;
-    sd.save_in_progress = true;
-    sd.save_progress = 0;
-    SdBrowser_SetSaveStatus(sd, "SAVING");
-    SdBrowser_SetSaveName(sd, s_sd.save_name);
-    return true;
-}
-
-static bool SaveStep(SdBrowserState& sd,
-                     AppSharedState& shared,
-                     AppWorkerState& worker,
-                     uint16_t budget_us)
-{
-    if(!s_sd.save_active || !s_sd.file_open)
-        return true;
-
-    const Sample& sample = shared.sample.sd_slots[s_sd.save_slot];
-    if(sample.pcm == nullptr || s_sd.save_total == 0)
-    {
-        if(s_sd.file_open)
-        {
-            f_close(&s_sd.file);
-            s_sd.file_open = false;
-        }
-        s_sd.save_active = false;
-        sd.save_in_progress = false;
-        sd.save_progress = 0;
-        SdBrowser_SetSaveStatus(sd, "SAVE ERR");
-        worker.ui_req_result = -1;
-        return true;
-    }
-
-    const uint32_t remaining = (s_sd.save_total > s_sd.save_written)
-                               ? (s_sd.save_total - s_sd.save_written)
-                               : 0;
-    if(remaining == 0)
-        return true;
-
-    uint32_t max_frames = kSaveChunkFrames;
-    if(budget_us > 0)
-    {
-        uint32_t cap = budget_us / 2u;
-        if(cap < 128u)
-            cap = 128u;
-        if(cap > kSaveChunkFrames)
-            cap = kSaveChunkFrames;
-        max_frames = cap;
-    }
-    uint32_t frames_to_write = remaining;
-    if(frames_to_write > max_frames)
-        frames_to_write = max_frames;
-
-    static int16_t s_save_buf[kSaveChunkFrames];
-    const int16_t* src = sample.pcm + s_sd.save_start + s_sd.save_written;
-    const float gain = s_sd.save_gain;
-    const bool unity_gain = (gain > 0.9999f && gain < 1.0001f);
-    const void* write_ptr = s_save_buf;
-    if(unity_gain)
-    {
-        write_ptr = src;
-    }
-    else
-    {
-        for(uint32_t i = 0; i < frames_to_write; ++i)
-        {
-            float x = static_cast<float>(src[i]) * gain;
-            int32_t v = (x >= 0.0f) ? static_cast<int32_t>(x + 0.5f)
-                                    : static_cast<int32_t>(x - 0.5f);
-            if(v > 32767)
-                v = 32767;
-            else if(v < -32768)
-                v = -32768;
-            s_save_buf[i] = static_cast<int16_t>(v);
-        }
-    }
-
-    UINT bw = 0;
-    const uint32_t bytes = frames_to_write * 2u;
-    const FRESULT res = f_write(&s_sd.file, write_ptr, bytes, &bw);
-    if(res != FR_OK || bw != bytes)
-    {
-        f_close(&s_sd.file);
-        s_sd.file_open = false;
-        s_sd.save_active = false;
-        sd.save_in_progress = false;
-        sd.save_progress = 0;
-        SdBrowser_SetSaveStatus(sd, "SAVE ERR");
-        worker.ui_req_result = -1;
-        return true;
-    }
-
-    s_sd.save_written += frames_to_write;
-    uint32_t pct = (s_sd.save_written * 100u) / s_sd.save_total;
-    if(pct > 100u)
-        pct = 100u;
-    sd.save_progress = static_cast<uint8_t>(pct);
-
-    if(s_sd.save_written >= s_sd.save_total)
-    {
-        f_sync(&s_sd.file);
-        f_close(&s_sd.file);
-        s_sd.file_open = false;
-        s_sd.save_active = false;
-        sd.save_in_progress = false;
-        sd.save_progress = 100;
-        SdBrowser_SetSaveStatus(sd, "SAVED");
-        SdBrowser_SetSaveName(sd, s_sd.save_name);
-        return true;
-    }
-
-    return false;
-}
-
-static bool DeleteWavAtIndex(SdBrowserState& sd, uint16_t idx)
-{
-    if(!EnsureSdMountedInternal(sd))
-    {
-        SdBrowser_SetStatus(sd, "DEL ERR");
-        return false;
-    }
-    if(idx >= sd.wav_count)
-    {
-        SdBrowser_SetStatus(sd, "DEL ERR");
-        return false;
-    }
-    if(sd.paths[idx][0] == '\0')
-    {
-        SdBrowser_SetStatus(sd, "DEL ERR");
-        return false;
-    }
-
-    const FRESULT fr = f_unlink(sd.paths[idx]);
-    if(fr == FR_OK)
-    {
-        SdBrowser_SetStatus(sd, "DELETED");
-        return true;
-    }
-    SdBrowser_SetStatus(sd, "DEL ERR");
-    return false;
-}
-
-// Request-local placeholder work
-static void StepFakeWork(AppState& app, uint16_t budget_us)
-{
-    const uint32_t total = app.worker.ui_req_work_units_total;
-    uint32_t done = app.worker.ui_req_work_units_done;
+    const uint32_t total = worker.ui_req_work_units_total;
+    uint32_t done = worker.ui_req_work_units_done;
     if(done >= total)
         return;
 
@@ -854,247 +207,282 @@ static void StepFakeWork(AppState& app, uint16_t budget_us)
         s_work_sink += (i + done);
 
     done += units_to_do;
-    app.worker.ui_req_work_units_done = done;
+    worker.ui_req_work_units_done = done;
     uint32_t pct = (done * 100u) / total;
     if(pct > 100u)
         pct = 100u;
-    app.worker.ui_req_progress = static_cast<uint8_t>(pct);
+    worker.ui_req_progress = static_cast<uint8_t>(pct);
 }
 
-// UiWorker_Tick helpers
-static void BeginUiRequest(AppState& app, UiReqType type, uint16_t arg0)
+// --- UiWorker request queue: lifecycle, stepping, and tick entry
+static void FinishRequest(AppWorkerState& worker, ProjectRestoreState& project_restore)
 {
-    app.worker.ui_req_busy = true;
-    app.worker.ui_req_active = type;
-    app.worker.ui_req_progress = 0;
-    app.worker.ui_req_result = 0;
-    app.worker.ui_req_arg0 = arg0;
-    app.worker.ui_req_work_units_done = 0;
-    app.worker.ui_req_work_units_total = 0;
+    worker.ui_req_busy = false;
+    worker.ui_req_active = UiReqType::None;
+    worker.ui_req_progress = 100;
+    worker.ui_req_done_count++;
+    s_sd.state = LoaderState::Idle;
+    ClearProjectRestoreStateInternal(project_restore);
 }
 
-static void FailAndFinishUiRequest(AppState& app)
+static void BeginUiRequest(AppWorkerState& worker, UiReqType type, uint16_t arg0)
 {
-    app.worker.ui_req_result = -1;
-    FinishRequest(app);
+    worker.ui_req_busy = true;
+    worker.ui_req_active = type;
+    worker.ui_req_progress = 0;
+    worker.ui_req_result = 0;
+    worker.ui_req_arg0 = arg0;
+    worker.ui_req_work_units_done = 0;
+    worker.ui_req_work_units_total = 0;
 }
 
-static bool PendingLoadBlockedByActiveRequest(const AppState& app)
+static void FailAndFinishUiRequest(AppWorkerState& worker, ProjectRestoreState& project_restore)
 {
-    return app.worker.ui_req_busy
-           && (app.worker.ui_req_active == UiReqType::SaveRenderedWavCurrent
-               || app.worker.ui_req_active == UiReqType::LoadProject);
+    worker.ui_req_result = -1;
+    FinishRequest(worker, project_restore);
 }
 
-static void CancelForPendingLoad(AppState& app)
+static bool PendingLoadBlockedByActiveRequest(const AppWorkerState& worker)
 {
-    if(!app.worker.ui_req_busy)
+    return worker.ui_req_busy
+           && (worker.ui_req_active == UiReqType::SaveRenderedWavCurrent
+               || worker.ui_req_active == UiReqType::LoadProject);
+}
+
+static void CancelForPendingLoad(AppUiState& ui, AppWorkerState& worker)
+{
+    if(!worker.ui_req_busy)
         return;
 
-    if(app.worker.ui_req_active == UiReqType::ScanSdWavs)
-        CancelScan(app.ui.sd);
-    if(app.worker.ui_req_active == UiReqType::LoadWavIndex)
-        CancelLoad(app);
-    if(app.worker.ui_req_active == UiReqType::NormalizeCurrent)
+    if(worker.ui_req_active == UiReqType::ScanSdWavs)
+        CancelScan(ui.sd);
+    if(worker.ui_req_active == UiReqType::LoadWavIndex)
+        CancelLoad(ui, worker);
+    if(worker.ui_req_active == UiReqType::NormalizeCurrent)
     {
         s_sd.norm_active = false;
-        app.ui.sd.load_in_progress = false;
-        app.ui.sd.load_progress = 0;
+        ui.sd.load_in_progress = false;
+        ui.sd.load_progress = 0;
     }
 }
 
-static void MaybeHandlePendingLoad(AppState& app)
+static void MaybeHandlePendingLoad(AppUiState& ui, AppWorkerState& worker, AppSharedState& shared)
 {
-    if(!app.ui.sd.load_pending || PendingLoadBlockedByActiveRequest(app))
+    if(!ui.sd.load_pending || PendingLoadBlockedByActiveRequest(worker))
         return;
 
-    const uint16_t idx = app.ui.sd.load_pending_index;
-    app.ui.sd.load_pending = false;
-    CancelForPendingLoad(app);
-    BeginUiRequest(app, UiReqType::LoadWavIndex, idx);
-    if(!StartLoadInternal(app.ui.sd, app.shared, idx))
-        FailAndFinishUiRequest(app);
+    const uint16_t idx = ui.sd.load_pending_index;
+    ui.sd.load_pending = false;
+    CancelForPendingLoad(ui, worker);
+    BeginUiRequest(worker, UiReqType::LoadWavIndex, idx);
+    if(!StartLoadInternal(ui.sd, shared, idx))
+        FailAndFinishUiRequest(worker, worker.project_restore);
 }
 
-static void StartQueuedUiRequest(AppState& app, Params& params, const UiReq& req)
+static void StartQueuedUiRequest(AppUiState& ui,
+                                 AppProjectState& project,
+                                 AppEngineState& engine,
+                                 AppSharedState& shared,
+                                 AppWorkerState& worker,
+                                 Params& params,
+                                 const UiReq& req)
 {
-    BeginUiRequest(app, req.type, req.a);
+    BeginUiRequest(worker, req.type, req.a);
 
     switch(req.type)
     {
         case UiReqType::ScanSdWavs:
-            if(!StartScan(app.ui.sd))
-                FailAndFinishUiRequest(app);
+            if(!StartScan(ui.sd))
+                FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::LoadWavIndex:
-            if(!StartLoadInternal(app.ui.sd, app.shared, req.a))
+            if(!StartLoadInternal(ui.sd, shared, req.a))
             {
-                app.ui.sd.load_in_progress = false;
-                app.ui.sd.load_progress = 0;
-                FailAndFinishUiRequest(app);
+                ui.sd.load_in_progress = false;
+                ui.sd.load_progress = 0;
+                FailAndFinishUiRequest(worker, worker.project_restore);
             }
             break;
         case UiReqType::DeleteWavIndex:
-            if(!DeleteWavAtIndex(app.ui.sd, req.a))
-                app.worker.ui_req_result = -1;
-            FinishRequest(app);
+            if(!DeleteWavAtIndex(ui.sd, req.a))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::NormalizeCurrent:
-            if(!StartNormalize(app.ui, app.shared))
+            if(!StartNormalize(ui, shared))
             {
-                FailAndFinishUiRequest(app);
+                FailAndFinishUiRequest(worker, worker.project_restore);
             }
             else
             {
-                app.ui.sd.load_in_progress = true;
-                app.ui.sd.load_progress = 0;
+                ui.sd.load_in_progress = true;
+                ui.sd.load_progress = 0;
             }
             break;
         case UiReqType::LoopFindCurrent:
-            if(!LoopFindCurrent(app.ui, app.shared))
-                app.worker.ui_req_result = -1;
-            FinishRequest(app);
+            if(!LoopFindCurrent(ui, shared))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::SaveProject:
-            if(!SaveProject(app, params))
-                app.worker.ui_req_result = -1;
-            FinishRequest(app);
+            if(!SaveProject(ui, project, engine, shared, worker, params))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::LoadProject:
-            if(!LoadProject(app, params))
-                FailAndFinishUiRequest(app);
+            if(!LoadProject(ui, project, engine, shared, worker, params))
+                FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::SaveRenderedWavCurrent:
-            if(!StartSave(app.ui, app.shared))
-                FailAndFinishUiRequest(app);
+            if(!StartSave(ui, shared))
+                FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::RebuildCache:
         case UiReqType::LoadSample:
         case UiReqType::SavePreset:
-            app.worker.ui_req_work_units_total = (req.type == UiReqType::RebuildCache) ? 2000u
-                                                : (req.type == UiReqType::LoadSample)   ? 800u
-                                                                                        : 200u;
+            worker.ui_req_work_units_total = (req.type == UiReqType::RebuildCache) ? 2000u
+                                           : (req.type == UiReqType::LoadSample)   ? 800u
+                                                                                   : 200u;
             break;
         case UiReqType::None:
         default:
-            FinishRequest(app);
+            FinishRequest(worker, worker.project_restore);
             break;
     }
 }
 
-static void MaybeStartNextUiRequest(AppState& app, Params& params)
+static void MaybeStartNextUiRequest(AppUiState& ui,
+                                    AppProjectState& project,
+                                    AppEngineState& engine,
+                                    AppSharedState& shared,
+                                    AppWorkerState& worker,
+                                    Params& params)
 {
-    if(app.worker.ui_req_busy)
+    if(worker.ui_req_busy)
         return;
 
     UiReq req{};
-    if(!UiReq_Pop(app, req))
+    if(!UiReq_Pop(worker, req))
         return;
-    StartQueuedUiRequest(app, params, req);
+    StartQueuedUiRequest(ui, project, engine, shared, worker, params, req);
 }
 
-static void FinalizeLoadProjectRequest(AppState& app)
+static void FinalizeLoadProjectRequest(AppProjectState& project, AppWorkerState& worker)
 {
-    const uint8_t project_slot = RequestedProjectSlot(app);
-    if(app.worker.ui_req_result < 0)
-        SetProjectSlotStatus(app, project_slot, "ERR");
+    const uint8_t project_slot = RequestedProjectSlot(worker);
+    if(worker.ui_req_result < 0)
+        SetProjectSlotStatus(project, project_slot, "ERR");
     else
-        SetProjectSlotStatus(app, project_slot, "LOADED");
-    FinishRequest(app);
+        SetProjectSlotStatus(project, project_slot, "LOADED");
+    FinishRequest(worker, worker.project_restore);
 }
 
-static void StepActiveUiRequest(AppState& app, Params& params, uint16_t budget_us)
+static void StepActiveUiRequest(AppUiState& ui,
+                                AppProjectState& project,
+                                AppEngineState& engine,
+                                AppSharedState& shared,
+                                AppWorkerState& worker,
+                                Params& params,
+                                uint16_t budget_us)
 {
     bool done = false;
-    switch(app.worker.ui_req_active)
+    switch(worker.ui_req_active)
     {
         case UiReqType::ScanSdWavs:
-            done = ScanStep(app.ui.sd);
+            done = ScanStep(ui.sd);
             if(done)
             {
-                app.worker.ui_req_progress = 100;
-                FinishRequest(app);
+                worker.ui_req_progress = 100;
+                FinishRequest(worker, worker.project_restore);
             }
             break;
         case UiReqType::LoadWavIndex:
-            done = LoadStepInternal(app.ui.sd,
-                                    app.worker,
-                                    app.engine,
-                                    app.shared,
-                                    app.worker.project_restore,
+            done = LoadStepInternal(ui.sd,
+                                    worker,
+                                    engine,
+                                    shared,
+                                    worker.project_restore,
                                     budget_us * 2u);
-            app.worker.ui_req_progress = app.ui.sd.load_progress;
+            worker.ui_req_progress = ui.sd.load_progress;
             if(done)
-                FinishRequest(app);
+                FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::NormalizeCurrent:
-            done = NormalizeStep(app.ui, app.shared, budget_us);
-            app.worker.ui_req_progress = app.ui.sd.load_progress;
+            done = NormalizeStep(ui, shared, budget_us);
+            worker.ui_req_progress = ui.sd.load_progress;
             if(done)
             {
-                app.ui.sd.load_in_progress = false;
-                FinishRequest(app);
+                ui.sd.load_in_progress = false;
+                FinishRequest(worker, worker.project_restore);
             }
             break;
         case UiReqType::LoopFindCurrent:
-            FinishRequest(app);
+            FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::LoadProject:
-            done = LoadStepInternal(app.ui.sd,
-                                    app.worker,
-                                    app.engine,
-                                    app.shared,
-                                    app.worker.project_restore,
+            done = LoadStepInternal(ui.sd,
+                                    worker,
+                                    engine,
+                                    shared,
+                                    worker.project_restore,
                                     budget_us * 2u);
-            app.worker.ui_req_progress = app.ui.sd.load_progress;
+            worker.ui_req_progress = ui.sd.load_progress;
             if(done)
-                FinalizeLoadProjectRequest(app);
+                FinalizeLoadProjectRequest(project, worker);
             break;
         case UiReqType::SaveRenderedWavCurrent:
-            done = SaveStep(app.ui.sd, app.shared, app.worker, budget_us);
-            app.worker.ui_req_progress = app.ui.sd.save_progress;
+            done = SaveStep(ui.sd, shared, worker, budget_us);
+            worker.ui_req_progress = ui.sd.save_progress;
             if(done)
-                FinishRequest(app);
+                FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::RebuildCache:
         case UiReqType::LoadSample:
         case UiReqType::SavePreset:
-            StepFakeWork(app, budget_us);
-            if(app.worker.ui_req_work_units_done >= app.worker.ui_req_work_units_total)
-                FinishRequest(app);
+            StepFakeWork(worker, budget_us);
+            if(worker.ui_req_work_units_done >= worker.ui_req_work_units_total)
+                FinishRequest(worker, worker.project_restore);
             break;
         default:
-            FinishRequest(app);
+            FinishRequest(worker, worker.project_restore);
             break;
     }
 
     (void)params;
 }
 
-static void MarkUiWorkerStateDirtyIfNeeded(AppState& app,
+static void MarkUiWorkerStateDirtyIfNeeded(AppUiState& ui,
+                                           const AppWorkerState& worker,
                                            uint8_t prev_progress,
                                            bool prev_busy,
                                            UiReqType prev_active)
 {
-    if(app.worker.ui_req_progress != prev_progress || app.worker.ui_req_busy != prev_busy
-       || app.worker.ui_req_active != prev_active)
-        app.ui.ui_dirty = true;
+    if(worker.ui_req_progress != prev_progress || worker.ui_req_busy != prev_busy
+       || worker.ui_req_active != prev_active)
+        ui.ui_dirty = true;
 }
 
 // Top-level worker tick
-void UiWorker_Tick(AppState& app, Params& params, uint32_t now_ms, uint16_t budget_us)
+void UiWorker_Tick(AppUiState& ui,
+                   AppProjectState& project,
+                   AppEngineState& engine,
+                   AppSharedState& shared,
+                   AppWorkerState& worker,
+                   Params& params,
+                   uint32_t now_ms,
+                   uint16_t budget_us)
 {
     (void)now_ms;
-    const uint8_t prev_progress = app.worker.ui_req_progress;
-    const bool prev_busy = app.worker.ui_req_busy;
-    const UiReqType prev_active = app.worker.ui_req_active;
+    const uint8_t prev_progress = worker.ui_req_progress;
+    const bool prev_busy = worker.ui_req_busy;
+    const UiReqType prev_active = worker.ui_req_active;
 
-    MaybeHandlePendingLoad(app);
-    MaybeStartNextUiRequest(app, params);
+    MaybeHandlePendingLoad(ui, worker, shared);
+    MaybeStartNextUiRequest(ui, project, engine, shared, worker, params);
 
-    if(!app.worker.ui_req_busy)
+    if(!worker.ui_req_busy)
         return;
 
-    StepActiveUiRequest(app, params, budget_us);
-    MarkUiWorkerStateDirtyIfNeeded(app, prev_progress, prev_busy, prev_active);
+    StepActiveUiRequest(ui, project, engine, shared, worker, params, budget_us);
+    MarkUiWorkerStateDirtyIfNeeded(ui, worker, prev_progress, prev_busy, prev_active);
 }

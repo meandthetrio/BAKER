@@ -54,11 +54,11 @@ const MacroDef& Macros_GetDef(uint8_t idx)
 
 void Macros_Publish(AppSharedState& shared, const MacroState& state)
 {
-    const uint8_t sel = shared.performance.macro_sel.load(std::memory_order_relaxed) & 1u;
-    MacroState* dst = (sel == 0) ? &shared.performance.macro_b : &shared.performance.macro_a;
+    const uint8_t sel = shared.performance.macros.macro_sel.load(std::memory_order_relaxed) & 1u;
+    MacroState* dst = (sel == 0) ? &shared.performance.macros.macro_b : &shared.performance.macros.macro_a;
     *dst = state;
-    shared.performance.macro_sel.store(sel ^ 1u, std::memory_order_release);
-    shared.performance.macro_gen.fetch_add(1u, std::memory_order_release);
+    shared.performance.macros.macro_sel.store(sel ^ 1u, std::memory_order_release);
+    shared.performance.macros.macro_gen.fetch_add(1u, std::memory_order_release);
 }
 
 void Macros_Publish(AppState& app, const MacroState& state)

@@ -38,17 +38,22 @@ bool UiReq_Push(AppState& app, const UiReq& r)
     return UiReq_Push(app.ui, app.worker, r);
 }
 
-bool UiReq_Pop(AppState& app, UiReq& out)
+bool UiReq_Pop(AppWorkerState& worker, UiReq& out)
 {
-    UiReqQueue& q = app.worker.ui_req_q;
+    UiReqQueue& q = worker.ui_req_q;
     const uint32_t tail = q.tail;
     if(tail == q.head)
         return false;
 
     out = q.buffer[tail & (UiReqQueue::kCapacity - 1)];
     q.tail = tail + 1;
-    app.worker.ui_req_pop++;
+    worker.ui_req_pop++;
     return true;
+}
+
+bool UiReq_Pop(AppState& app, UiReq& out)
+{
+    return UiReq_Pop(app.worker, out);
 }
 
 uint32_t UiReq_Dropped(const AppState& app)

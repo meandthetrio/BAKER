@@ -51,20 +51,10 @@ void UIRender::Render(const AppState& app, const Params& params)
     UiScreenCtx ctx{};
     AppState& mutable_app = const_cast<AppState&>(app);
     Params& mutable_params = const_cast<Params&>(params);
-    UiAppAccess ctx_app{&mutable_app,
-                        mutable_app.ui,
-                        mutable_app.engine,
-                        mutable_app.recording,
-                        mutable_app.project,
-                        mutable_app.diag,
-                        mutable_app.shared,
-                        mutable_app.worker,
-                        mutable_params};
     UiSessionState ctx_session{&mutable_app.ui,
                                &mutable_app.engine,
                                &mutable_app.recording,
                                &mutable_app.project};
-    ctx.app = &ctx_app;
     UiScreenCtx_BindSession(ctx, ctx_session);
     ctx.diag = &mutable_app.diag;
     ctx.shared = &mutable_app.shared;
@@ -81,7 +71,7 @@ void UIRender::Render(const AppState& app, const Params& params)
     if(diag.overlay.visible)
     {
         const UiLayout layout = UiLayout_Default();
-        UiOverlay_Render(app, params, layout, oled_pager_);
+        UiOverlay_Render(app.ui, app.diag, app.worker, params, layout, oled_pager_);
         const char* hint = ui.value_edit.active ? "SHIFT:OVER P2:CANC"
                                                   : "SHIFT:OVER P2:BACK";
         UiDraw_Footer(oled_pager_, layout, hint);

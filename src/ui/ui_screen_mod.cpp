@@ -37,10 +37,10 @@ bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && !ctx.ui->value_edit.active)
     {
-        int next = static_cast<int>(ctx.engine->mod_field_cursor) + e.value;
+        int next = static_cast<int>(ctx.engine->process.mod_field_cursor) + e.value;
         while(next < 0) next += kModFieldCount;
         while(next >= kModFieldCount) next -= kModFieldCount;
-        ctx.engine->mod_field_cursor = static_cast<uint8_t>(next);
+        ctx.engine->process.mod_field_cursor = static_cast<uint8_t>(next);
         ctx.ui->ui_dirty = true;
         return true;
     }
@@ -49,12 +49,12 @@ bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(!ctx.ui->value_edit.active)
         {
-            const uint8_t r_idx = ctx.shared->mod_route_selected % kMaxModRoutes;
-            const ModRoute& r = ctx.shared->mod_routes_ui[r_idx];
+            const uint8_t r_idx = ctx.shared->performance.modulation.mod_route_selected % kMaxModRoutes;
+            const ModRoute& r = ctx.shared->performance.modulation.mod_routes_ui[r_idx];
             int16_t start_i = 0;
             UiValueSpec spec{};
             const char* label = "";
-            switch(ctx.engine->mod_field_cursor)
+            switch(ctx.engine->process.mod_field_cursor)
             {
                 case 0: // Route Select
                     label = "ROUTE";
@@ -85,14 +85,14 @@ bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         else
         {
             const int16_t v = ctx.ui->value_edit.value_i;
-            uint8_t r_idx = ctx.shared->mod_route_selected % kMaxModRoutes;
-            ModRoute& r = ctx.shared->mod_routes_ui[r_idx];
+            uint8_t r_idx = ctx.shared->performance.modulation.mod_route_selected % kMaxModRoutes;
+            ModRoute& r = ctx.shared->performance.modulation.mod_routes_ui[r_idx];
             bool publish = false;
 
-            switch(ctx.engine->mod_field_cursor)
+            switch(ctx.engine->process.mod_field_cursor)
             {
                 case 0:
-                    ctx.shared->mod_route_selected = (uint8_t)v % kMaxModRoutes;
+                    ctx.shared->performance.modulation.mod_route_selected = (uint8_t)v % kMaxModRoutes;
                     break;
                 case 1:
                     r.enabled = (v != 0) ? 1 : 0;
@@ -111,7 +111,8 @@ bool Mod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             }
 
             if(publish)
-                ModMatrix_Publish(ctx.shared->mod_matrix, ctx.shared->mod_routes_ui);
+                ModMatrix_Publish(ctx.shared->performance.modulation.mod_matrix,
+                                  ctx.shared->performance.modulation.mod_routes_ui);
             UiValueEdit_Commit(ctx.ui->value_edit);
             ctx.ui->ui_dirty = true;
         }
@@ -136,8 +137,8 @@ void Mod_Render(UiScreenCtx& ctx)
     if(!ctx.ui || !ctx.display)
         return;
 
-    const uint8_t r_idx = ctx.shared->mod_route_selected % kMaxModRoutes;
-    const ModRoute& r = ctx.shared->mod_routes_ui[r_idx];
+    const uint8_t r_idx = ctx.shared->performance.modulation.mod_route_selected % kMaxModRoutes;
+    const ModRoute& r = ctx.shared->performance.modulation.mod_routes_ui[r_idx];
     int amt = (int)(r.amount * 100.0f);
     if(amt > 99) amt = 99;
     if(amt < -99) amt = -99;
@@ -151,7 +152,7 @@ void Mod_Render(UiScreenCtx& ctx)
     UiDraw_Header(d, layout, "MOD", status);
 
     char buf[32];
-    const uint8_t cursor = ctx.engine->mod_field_cursor;
+    const uint8_t cursor = ctx.engine->process.mod_field_cursor;
     d.SetCursor(layout.x, layout.y_body);
     std::snprintf(buf, sizeof(buf), "%c R:%u",
                   (cursor == 0) ? '>' : ' ',

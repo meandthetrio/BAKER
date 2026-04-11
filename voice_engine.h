@@ -307,7 +307,22 @@ class VoiceEngine
     void AllNotesOff_();
     void RecomputeLayerEmphasisCoeffs_(uint8_t layer);
     float ProcessLayerBusSample_(uint8_t layer, float input);
-    struct RenderVoiceContext;
+
+    struct RenderVoiceContext
+    {
+        float* outL;
+        float* outR;
+        size_t size;
+        LoopMode loop_mode;
+        SampleEdit edit;
+        const Sample* edit_sample;
+        const float* engine_tune_scale;
+        const float* engine_voice_gain;
+        uint32_t* playhead_frame;
+        uint32_t* playhead_active;
+        float* playhead_metric;
+    };
+
     void SnapshotMacroState_();
     void SnapshotPLockState_();
     void SnapshotRenderEditState_(SampleEdit& edit, const Sample*& edit_sample) const;
@@ -339,6 +354,7 @@ class VoiceEngine
                             int32_t& stop_fade_remaining,
                             float& stop_fade_level,
                             float& stop_fade_step);
+    void RenderBlockMixLayers_(float* outL, float* outR, size_t size, float mix_scale, uint32_t& clip_block);
 
     static uint32_t PackVoiceDebug_(uint8_t idx, uint8_t note, uint8_t vel);
 };

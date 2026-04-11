@@ -4,7 +4,6 @@
 
 // `ui_screens.cpp` is the intentionally small shared UI facade:
 // active-screen helpers plus cross-screen support that does not belong to one screen owner.
-struct AppState;
 struct AppUiState;
 struct AppEngineState;
 struct AppRecordingState;
@@ -40,22 +39,6 @@ enum class UiScreenId : uint8_t
     COUNT
 };
 
-struct UiAppAccess
-{
-    AppState* root = nullptr;
-    AppUiState& ui;
-    AppEngineState& engine;
-    AppRecordingState& recording;
-    AppProjectState& project;
-    AppDiagnosticsState& diag;
-    AppSharedState& shared;
-    AppWorkerState& worker;
-    Params& params;
-
-    operator AppState&() const { return *root; }
-    AppState* operator->() const { return root; }
-};
-
 struct UiSessionState
 {
     AppUiState* ui = nullptr;
@@ -66,7 +49,6 @@ struct UiSessionState
 
 struct UiScreenCtx
 {
-    UiAppAccess* app = nullptr;
     UiSessionState* session = nullptr;
     AppUiState* ui = nullptr;
     AppEngineState* engine = nullptr;

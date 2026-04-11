@@ -41,10 +41,10 @@ bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && !ctx.ui->value_edit.active)
     {
-        int next = static_cast<int>(ctx.engine->fx_field_cursor) + e.value;
+        int next = static_cast<int>(ctx.engine->process.fx_field_cursor) + e.value;
         while(next < 0) next += kFxFieldCount;
         while(next >= kFxFieldCount) next -= kFxFieldCount;
-        ctx.engine->fx_field_cursor = static_cast<uint8_t>(next);
+        ctx.engine->process.fx_field_cursor = static_cast<uint8_t>(next);
         ctx.ui->ui_dirty = true;
         return true;
     }
@@ -57,7 +57,7 @@ bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             int16_t start_i = 0;
             UiValueSpec spec{};
             const char* label = "";
-            switch(ctx.engine->fx_field_cursor)
+            switch(ctx.engine->process.fx_field_cursor)
             {
                 case 0: // Delay On
                     label = "DLY";
@@ -95,7 +95,7 @@ bool Fx_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             PerformParamsTargets& t = ctx.params->EditTargets();
             const int16_t v = ctx.ui->value_edit.value_i;
-            switch(ctx.engine->fx_field_cursor)
+            switch(ctx.engine->process.fx_field_cursor)
             {
                 case 0:
                     t.delay_on = (v != 0);
@@ -158,7 +158,7 @@ void Fx_Render(UiScreenCtx& ctx)
     else
         std::snprintf(lpf_buf, sizeof(lpf_buf), "%3lu", (unsigned long)lpf_hz);
 
-    const uint8_t cursor = ctx.engine->fx_field_cursor;
+    const uint8_t cursor = ctx.engine->process.fx_field_cursor;
     d.SetCursor(layout.x, layout.y_body);
     std::snprintf(buf, sizeof(buf), "%c DLY:%c", (cursor == 0) ? '>' : ' ',
                   t.delay_on ? '1' : '0');

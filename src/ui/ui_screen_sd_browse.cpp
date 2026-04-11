@@ -81,25 +81,25 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             }
 
             const uint8_t layer_count = static_cast<uint8_t>(
-                sizeof(ctx.engine->engine_sample_path) / sizeof(ctx.engine->engine_sample_path[0]));
-            if(ctx.engine->engine_load_target_layer < layer_count)
+                sizeof(ctx.engine->layer.engine_sample_path) / sizeof(ctx.engine->layer.engine_sample_path[0]));
+            if(ctx.engine->layer.engine_load_target_layer < layer_count)
             {
-                const uint8_t target = ctx.engine->engine_load_target_layer & 1u;
-                ctx.shared->sd_current_slot.store(target ^ 1u, std::memory_order_release);
-                std::snprintf(ctx.engine->engine_sample_path[target],
-                              sizeof(ctx.engine->engine_sample_path[target]),
+                const uint8_t target = ctx.engine->layer.engine_load_target_layer & 1u;
+                ctx.shared->sample.publish.sd_current_slot.store(target ^ 1u, std::memory_order_release);
+                std::snprintf(ctx.engine->layer.engine_sample_path[target],
+                              sizeof(ctx.engine->layer.engine_sample_path[target]),
                               "%s",
                               sd.paths[idx]);
                 ExtractBaseName(sd.paths[idx],
-                                ctx.engine->engine_sample_name[target],
-                                sizeof(ctx.engine->engine_sample_name[target]));
+                                ctx.engine->layer.engine_sample_name[target],
+                                sizeof(ctx.engine->layer.engine_sample_name[target]));
             }
             UiReq req{UiReqType::LoadWavIndex, idx, 0};
             UiReq_Push(*ctx.ui, *ctx.worker, req);
             sd.load_in_progress = true;
             sd.load_progress = 0;
             SdBrowser_SetStatus(sd, "LOADING");
-            if(ctx.engine->engine_load_from_perform)
+            if(ctx.engine->layer.engine_load_from_perform)
                 UiNav_Pop(ctx.ui->ui_nav);
             ctx.ui->ui_dirty = true;
         }

@@ -292,15 +292,15 @@ void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
         return;
 
     EngineRefreshLoadedMetadata(*ctx.ui, *ctx.engine, *ctx.shared);
-    const bool pending_engine_load = ctx.engine->engine_load_from_perform
-                                     && (ctx.engine->engine_load_target_layer < kPerformLayerCount);
-    const uint8_t layer = ctx.engine->perform_layer & 1u;
+    const bool pending_engine_load = ctx.engine->layer.engine_load_from_perform
+                                     && (ctx.engine->layer.engine_load_target_layer < kPerformLayerCount);
+    const uint8_t layer = ctx.engine->perform_nav.perform_layer & 1u;
     if(!pending_engine_load)
-        ctx.shared->sd_current_slot.store(layer, std::memory_order_release);
+        ctx.shared->sample.publish.sd_current_slot.store(layer, std::memory_order_release);
 
-    ctx.engine->engine_load_from_perform = false;
-    ctx.engine->engine_load_target_layer = 0xFFu;
-    ctx.engine->perform_engine_row = static_cast<uint8_t>(kEngineRowLoad);
+    ctx.engine->layer.engine_load_from_perform = false;
+    ctx.engine->layer.engine_load_target_layer = 0xFFu;
+    ctx.engine->perform_nav.perform_engine_row = static_cast<uint8_t>(kEngineRowLoad);
     PublishEngineLayerParams(ctx);
     ctx.ui->ui_dirty = true;
 }
@@ -310,14 +310,14 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
     if(!ctx.ui)
         return false;
 
-    const uint8_t row = ctx.engine->perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+    const uint8_t row = ctx.engine->perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
     if(row == kEngineRowWave)
         return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformWaveEdit);
     if(row != kEngineRowLoad)
         return false;
 
-    ctx.engine->engine_load_target_layer = ctx.engine->perform_layer & 1u;
-    ctx.engine->engine_load_from_perform = true;
+    ctx.engine->layer.engine_load_target_layer = ctx.engine->perform_nav.perform_layer & 1u;
+    ctx.engine->layer.engine_load_from_perform = true;
     return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
 }
 
@@ -339,10 +339,10 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        engine.perform_layer ^= 1u;
-        const uint8_t layer = engine.perform_layer & 1u;
-        shared.sample.sd_current_slot.store(layer, std::memory_order_release);
-        engine.engine_header_invert_until_ms = e.t_ms + 250u;
+        engine.perform_nav.perform_layer ^= 1u;
+        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+        shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
+        engine.layer.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
         ui.ui_dirty = true;
         return true;
@@ -350,30 +350,30 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        int row = static_cast<int>(engine.perform_engine_row);
+        int row = static_cast<int>(engine.perform_nav.perform_engine_row);
         row += e.value;
         while(row < 0)
             row += kEngineRowCount;
         while(row >= kEngineRowCount)
             row -= kEngineRowCount;
-        engine.perform_engine_row = static_cast<uint8_t>(row);
+        engine.perform_nav.perform_engine_row = static_cast<uint8_t>(row);
         ui.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
-        const uint8_t layer = engine.perform_layer & 1u;
-        const uint8_t row = engine.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+        const uint8_t row = engine.perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
         bool changed = false;
         if(row == kEngineRowTune)
         {
-            int v = static_cast<int>(engine.engine_tune_semitones[layer]) + e.value;
+            int v = static_cast<int>(engine.layer.engine_tune_semitones[layer]) + e.value;
             v = ClampInt(v, -24, 24);
             const int8_t vv = static_cast<int8_t>(v);
-            if(vv != engine.engine_tune_semitones[layer])
+            if(vv != engine.layer.engine_tune_semitones[layer])
             {
-                engine.engine_tune_semitones[layer] = vv;
+                engine.layer.engine_tune_semitones[layer] = vv;
                 changed = true;
             }
         }
@@ -406,10 +406,10 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const uint8_t layer = engine.perform_layer & 1u;
-    const Sample& sample = shared.sample.sd_slots[layer];
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    const Sample& sample = shared.sample.publish.sd_slots[layer];
     const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
-    const SampleEdit* edit = sample_loaded ? &shared.sample.sd_edit_slots[layer] : nullptr;
+    const SampleEdit* edit = sample_loaded ? &shared.sample.edit.sd_edit_slots[layer] : nullptr;
 
     const UiLayout layout = UiLayout_Default();
     char header_label[16] = {};
@@ -421,7 +421,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     if(box_x < 0)
         box_x = 0;
     const bool header_invert_flash
-        = static_cast<int32_t>(engine.engine_header_invert_until_ms - ctx.now_ms) > 0;
+        = static_cast<int32_t>(engine.layer.engine_header_invert_until_ms - ctx.now_ms) > 0;
     if(header_invert_flash)
     {
         // Inverted phase: dark fill with white text/border.
@@ -445,7 +445,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     }
     else
     {
-        const char* name = engine.engine_sample_name[layer];
+        const char* name = engine.layer.engine_sample_name[layer];
         if(name == nullptr)
             name = "";
         char name_buf[40];
@@ -482,7 +482,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
         kFooterY += (footer_region_h - Font5x7::H) / 2;
 
     DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true);
-    const uint8_t row = engine.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+    const uint8_t row = engine.perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
     if(row == kEngineRowWave)
     {
         // Invert full waveform preview region to signal enterable deep menu.
@@ -524,7 +524,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     if(row == kEngineRowTune)
     {
         DrawDottedRect(d, tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true);
-        const int semitones = static_cast<int>(engine.engine_tune_semitones[layer]);
+        const int semitones = static_cast<int>(engine.layer.engine_tune_semitones[layer]);
         const int val_w = SignedSemitoneTextWidth(semitones);
         int val_x = tune_x + (tune_w - val_w) / 2;
         if(val_x < tune_x)

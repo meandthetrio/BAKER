@@ -1,6 +1,8 @@
 #include "ui_overlay.h"
 
-#include "app_state.h"
+#include "app_state_diagnostics.h"
+#include "app_state_ui.h"
+#include "app_state_worker.h"
 #include "params.h"
 #include "ui_layout.h"
 #include "oled_pager.h"
@@ -20,14 +22,13 @@ void UiOverlay_Update(UiOverlayState& o, uint32_t now_ms, bool shift_held, bool 
     o.visible = want;
 }
 
-void UiOverlay_Render(const AppState& app,
+void UiOverlay_Render(const AppUiState& ui,
+                      const AppDiagnosticsState& diag,
+                      const AppWorkerState& worker_state,
                       const Params& params,
                       const UiLayout& layout,
                       OledPager& oled)
 {
-    const AppUiState& ui = app.ui;
-    const AppDiagnosticsState& diag = app.diag;
-    const AppWorkerState& worker_state = app.worker;
     const uint32_t peak_cycles   = diag.audio_cycles_peak.load(std::memory_order_relaxed);
     const uint32_t budget_cycles = diag.audio_budget_cycles.load(std::memory_order_relaxed);
     uint32_t cpu_pct = 0;

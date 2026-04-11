@@ -27,11 +27,11 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     EngineRefreshLoadedMetadata(ui, engine, shared);
-    const uint8_t layer = engine.perform_layer & 1u;
-    shared.sample.sd_current_slot.store(layer, std::memory_order_release);
-    const Sample& sample = shared.sample.sd_slots[layer];
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
+    const Sample& sample = shared.sample.publish.sd_slots[layer];
     const bool sample_loaded = (sample.pcm != nullptr && sample.length > 0);
-    SampleEdit edit = shared.sample.sd_edit_slots[layer];
+    SampleEdit edit = shared.sample.edit.sd_edit_slots[layer];
     SampleEdit_Clamp(edit, sample.length);
 
     const int wave_x = 0;
@@ -196,8 +196,8 @@ void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
-        engine.perform_wave_edit_entry[slot] = shared.sample.sd_edit_slots[slot];
-    engine.perform_wave_edit_has_entry = true;
+        engine.wave_edit.perform_wave_edit_entry[slot] = shared.sample.edit.sd_edit_slots[slot];
+    engine.wave_edit.perform_wave_edit_has_entry = true;
     ui.ui_dirty = true;
 }
 
@@ -213,16 +213,16 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
-    const uint8_t layer = engine.perform_layer & 1u;
-    SampleEdit edit = shared.sample.sd_edit_slots[layer];
-    const Sample& sample = shared.sample.sd_slots[layer];
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    SampleEdit edit = shared.sample.edit.sd_edit_slots[layer];
+    const Sample& sample = shared.sample.publish.sd_slots[layer];
     SampleEdit_Clamp(edit, sample.length);
-    shared.sample.sd_edit_slots[layer] = edit;
-    shared.sample.sd_edit_pending = edit;
-    shared.sample.sd_edit_slot.store(layer, std::memory_order_release);
-    shared.sample.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-    shared.sample.sd_edit_ready.store(1, std::memory_order_release);
-    engine.perform_wave_edit_has_entry = false;
+    shared.sample.edit.sd_edit_slots[layer] = edit;
+    shared.sample.edit.sd_edit_pending = edit;
+    shared.sample.edit.sd_edit_slot.store(layer, std::memory_order_release);
+    shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+    shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
+    engine.wave_edit.perform_wave_edit_has_entry = false;
     UiNav_Pop(ui.ui_nav);
     ui.ui_dirty = true;
     return true;
@@ -240,17 +240,17 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
-    const uint8_t layer = engine.perform_layer & 1u;
-    shared.sample.sd_current_slot.store(layer, std::memory_order_release);
-    Sample& sample = shared.sample.sd_slots[layer];
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
+    Sample& sample = shared.sample.publish.sd_slots[layer];
     if(sample.pcm == nullptr || sample.length == 0)
         return false;
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        engine.perform_layer ^= 1u;
-        const uint8_t next = engine.perform_layer & 1u;
-        shared.sample.sd_current_slot.store(next, std::memory_order_release);
+        engine.perform_nav.perform_layer ^= 1u;
+        const uint8_t next = engine.perform_nav.perform_layer & 1u;
+        shared.sample.publish.sd_current_slot.store(next, std::memory_order_release);
         ui.ui_dirty = true;
         return true;
     }
@@ -258,11 +258,11 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // Cancel trim edit session: restore entry snapshot and return.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
-        if(engine.perform_wave_edit_has_entry)
+        if(engine.wave_edit.perform_wave_edit_has_entry)
         {
             for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
-                shared.sample.sd_edit_slots[slot] = engine.perform_wave_edit_entry[slot];
-            engine.perform_wave_edit_has_entry = false;
+                shared.sample.edit.sd_edit_slots[slot] = engine.wave_edit.perform_wave_edit_entry[slot];
+            engine.wave_edit.perform_wave_edit_has_entry = false;
         }
         UiNav_Pop(ui.ui_nav);
         ui.ui_dirty = true;
@@ -273,7 +273,7 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
        && (e.id == kUiEncPod || e.id == kUiEncExt)
        && e.value != 0)
     {
-        SampleEdit edit = shared.sample.sd_edit_slots[layer];
+        SampleEdit edit = shared.sample.edit.sd_edit_slots[layer];
         SampleEdit_Clamp(edit, sample.length);
 
         const uint32_t frames = sample.length;
@@ -332,7 +332,7 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         edit.end_frame = end_frame;
 
         SampleEdit_Clamp(edit, frames);
-        shared.sample.sd_edit_slots[layer] = edit;
+        shared.sample.edit.sd_edit_slots[layer] = edit;
         ui.ui_dirty = true;
         return true;
     }

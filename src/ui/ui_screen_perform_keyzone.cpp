@@ -93,11 +93,11 @@ static void DrawKeyzoneUiRangeTemplate(OledPager& d,
         }
     }
 
-    const uint8_t lo_note = engine.perform_keyzone_lo_note[layer & 1u];
-    const uint8_t hi_note = engine.perform_keyzone_hi_note[layer & 1u];
-    const uint8_t focused_marker = engine.perform_keyzone_marker_focus & 1u; // 0=LO, 1=HI
+    const uint8_t lo_note = engine.keyzone.perform_keyzone_lo_note[layer & 1u];
+    const uint8_t hi_note = engine.keyzone.perform_keyzone_hi_note[layer & 1u];
+    const uint8_t focused_marker = engine.keyzone.perform_keyzone_marker_focus & 1u; // 0=LO, 1=HI
     const uint8_t focus_note = (focused_marker == 0u) ? lo_note : hi_note;
-    int window_octave = static_cast<int>(engine.perform_keyzone_window_octave[layer & 1u]);
+    int window_octave = static_cast<int>(engine.keyzone.perform_keyzone_window_octave[layer & 1u]);
     window_octave = ClampInt(window_octave, 0, kPageCount - kVisibleOctaves);
     int page_start = 12 * (window_octave + 1); // Cn MIDI note
     int page_end = page_start + (12 * kVisibleOctaves) - 1;
@@ -116,7 +116,7 @@ static void DrawKeyzoneUiRangeTemplate(OledPager& d,
         page_start = 12 * (window_octave + 1);
         page_end = page_start + (12 * kVisibleOctaves) - 1;
     }
-    engine.perform_keyzone_window_octave[layer & 1u] = static_cast<uint8_t>(window_octave);
+    engine.keyzone.perform_keyzone_window_octave[layer & 1u] = static_cast<uint8_t>(window_octave);
     auto white_idx_from_semitone_in_oct = [](int semi_in_oct) -> int
     {
         switch(semi_in_oct)
@@ -269,11 +269,11 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // POD2 toggles layer and keeps focus on the BACK (start) marker.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        engine.perform_layer ^= 1u;
-        const uint8_t layer = engine.perform_layer & 1u;
-        engine.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u);
-        shared.sample.sd_current_slot.store(layer, std::memory_order_release);
-        engine.engine_header_invert_until_ms = e.t_ms + 250u;
+        engine.perform_nav.perform_layer ^= 1u;
+        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+        engine.keyzone.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u);
+        shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
+        engine.layer.engine_header_invert_until_ms = e.t_ms + 250u;
         PublishEngineLayerParams(ctx);
         ui.ui_dirty = true;
         return true;
@@ -281,23 +281,23 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(ctx.rshift && e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        const bool full_a = engine.perform_keyzone_lo_note[0] == kPerformKeyzoneMinNote
-                            && engine.perform_keyzone_hi_note[0] == kPerformKeyzoneMaxNote;
-        const bool full_b = engine.perform_keyzone_lo_note[1] == kPerformKeyzoneMinNote
-                            && engine.perform_keyzone_hi_note[1] == kPerformKeyzoneMaxNote;
+        const bool full_a = engine.keyzone.perform_keyzone_lo_note[0] == kPerformKeyzoneMinNote
+                            && engine.keyzone.perform_keyzone_hi_note[0] == kPerformKeyzoneMaxNote;
+        const bool full_b = engine.keyzone.perform_keyzone_lo_note[1] == kPerformKeyzoneMinNote
+                            && engine.keyzone.perform_keyzone_hi_note[1] == kPerformKeyzoneMaxNote;
         if(full_a && full_b)
         {
-            engine.perform_keyzone_lo_note[0] = kPerformKeyzoneMinNote;
-            engine.perform_keyzone_hi_note[0] = kPerformKeyzoneDefaultSplitAHi;
-            engine.perform_keyzone_lo_note[1] = kPerformKeyzoneDefaultSplitBLo;
-            engine.perform_keyzone_hi_note[1] = kPerformKeyzoneMaxNote;
+            engine.keyzone.perform_keyzone_lo_note[0] = kPerformKeyzoneMinNote;
+            engine.keyzone.perform_keyzone_hi_note[0] = kPerformKeyzoneDefaultSplitAHi;
+            engine.keyzone.perform_keyzone_lo_note[1] = kPerformKeyzoneDefaultSplitBLo;
+            engine.keyzone.perform_keyzone_hi_note[1] = kPerformKeyzoneMaxNote;
         }
         else
         {
             for(uint8_t i = 0; i < kPerformLayerCount; ++i)
             {
-                engine.perform_keyzone_lo_note[i] = kPerformKeyzoneMinNote;
-                engine.perform_keyzone_hi_note[i] = kPerformKeyzoneMaxNote;
+                engine.keyzone.perform_keyzone_lo_note[i] = kPerformKeyzoneMinNote;
+                engine.keyzone.perform_keyzone_hi_note[i] = kPerformKeyzoneMaxNote;
             }
         }
         PublishEngineLayerParams(ctx);
@@ -307,21 +307,21 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.value != 0)
     {
-        const uint8_t layer = engine.perform_layer & 1u;
+        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
         if(ctx.rshift)
         {
             if(e.id != kUiEncPod && e.id != kUiEncExt)
                 return false;
             const int dir = (e.value < 0) ? -1 : 1;
-            const int lo = static_cast<int>(engine.perform_keyzone_lo_note[layer]);
-            const int hi = static_cast<int>(engine.perform_keyzone_hi_note[layer]);
+            const int lo = static_cast<int>(engine.keyzone.perform_keyzone_lo_note[layer]);
+            const int hi = static_cast<int>(engine.keyzone.perform_keyzone_hi_note[layer]);
             const int delta_min = static_cast<int>(kPerformKeyzoneMinNote) - lo;
             const int delta_max = static_cast<int>(kPerformKeyzoneMaxNote) - hi;
             const int applied = ClampInt(dir, delta_min, delta_max);
             if(applied == 0)
                 return false;
-            engine.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(lo + applied);
-            engine.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(hi + applied);
+            engine.keyzone.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(lo + applied);
+            engine.keyzone.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(hi + applied);
             PublishEngineLayerParams(ctx);
             ui.ui_dirty = true;
             return true;
@@ -329,13 +329,13 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(e.id == kUiEncPod)
         {
-            const int next_lo = ClampInt(static_cast<int>(engine.perform_keyzone_lo_note[layer]) + e.value,
+            const int next_lo = ClampInt(static_cast<int>(engine.keyzone.perform_keyzone_lo_note[layer]) + e.value,
                                          static_cast<int>(kPerformKeyzoneMinNote),
-                                         static_cast<int>(engine.perform_keyzone_hi_note[layer]));
-            if(next_lo == static_cast<int>(engine.perform_keyzone_lo_note[layer]))
+                                         static_cast<int>(engine.keyzone.perform_keyzone_hi_note[layer]));
+            if(next_lo == static_cast<int>(engine.keyzone.perform_keyzone_lo_note[layer]))
                 return false;
-            engine.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(next_lo);
-            engine.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u); // back marker
+            engine.keyzone.perform_keyzone_lo_note[layer] = static_cast<uint8_t>(next_lo);
+            engine.keyzone.perform_keyzone_marker_focus = static_cast<uint8_t>(layer * 2u); // back marker
             ui.ui_dirty = true;
             PublishEngineLayerParams(ctx);
             return true;
@@ -343,13 +343,13 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(e.id == kUiEncExt)
         {
-            const int next_hi = ClampInt(static_cast<int>(engine.perform_keyzone_hi_note[layer]) + e.value,
-                                         static_cast<int>(engine.perform_keyzone_lo_note[layer]),
+            const int next_hi = ClampInt(static_cast<int>(engine.keyzone.perform_keyzone_hi_note[layer]) + e.value,
+                                         static_cast<int>(engine.keyzone.perform_keyzone_lo_note[layer]),
                                          static_cast<int>(kPerformKeyzoneMaxNote));
-            if(next_hi == static_cast<int>(engine.perform_keyzone_hi_note[layer]))
+            if(next_hi == static_cast<int>(engine.keyzone.perform_keyzone_hi_note[layer]))
                 return false;
-            engine.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(next_hi);
-            engine.perform_keyzone_marker_focus = static_cast<uint8_t>((layer * 2u) + 1u); // forward marker
+            engine.keyzone.perform_keyzone_hi_note[layer] = static_cast<uint8_t>(next_hi);
+            engine.keyzone.perform_keyzone_marker_focus = static_cast<uint8_t>((layer * 2u) + 1u); // forward marker
             PublishEngineLayerParams(ctx);
             ui.ui_dirty = true;
             return true;
@@ -376,7 +376,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const uint8_t layer = engine.perform_layer & 1u;
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
 
     char header_label[16] = {};
     std::snprintf(header_label, sizeof(header_label), "kyzn %c", layer == 0 ? 'a' : 'b');
@@ -387,7 +387,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     if(box_x < 0)
         box_x = 0;
     const bool header_invert_flash
-        = static_cast<int32_t>(engine.engine_header_invert_until_ms - ctx.now_ms) > 0;
+        = static_cast<int32_t>(engine.layer.engine_header_invert_until_ms - ctx.now_ms) > 0;
     if(header_invert_flash)
     {
         d.DrawRect(box_x, 0, box_x + box_w - 1, box_h - 1, false, true);
@@ -405,8 +405,8 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     char hi_note[8] = {};
     char lo_text[16] = {};
     char hi_text[16] = {};
-    FormatMidiNoteName(engine.perform_keyzone_lo_note[layer], lo_note, sizeof(lo_note));
-    FormatMidiNoteName(engine.perform_keyzone_hi_note[layer], hi_note, sizeof(hi_note));
+    FormatMidiNoteName(engine.keyzone.perform_keyzone_lo_note[layer], lo_note, sizeof(lo_note));
+    FormatMidiNoteName(engine.keyzone.perform_keyzone_hi_note[layer], hi_note, sizeof(hi_note));
     std::snprintf(lo_text, sizeof(lo_text), "Lo:%s", lo_note);
     std::snprintf(hi_text, sizeof(hi_text), "Hi:%s", hi_note);
 

@@ -2,13 +2,17 @@
 
 #include "oled_pager.h"
 #include "app_state_shared.h"
-#include "app_state.h"
 
 #include <cstdio>
 
 using namespace daisy;
 // Keep the global header text opt-in so screens own their visible status strings.
 static constexpr bool kShowGlobalStatus = false;
+
+static const char* LayoutWaveChar(uint8_t w)
+{
+    return (w == 0) ? "S" : "P";
+}
 
 UiLayout UiLayout_Default()
 {
@@ -50,13 +54,8 @@ void BuildStatus(const AppSharedState& shared, char* out, size_t n)
         out[0] = '\0';
         return;
     }
-    const char seq = shared.performance.seq_running ? '1' : '0';
-    const char plk = shared.performance.plock_apply_enabled ? '1' : '0';
-    const char* lfo = WaveChar(shared.performance.lfo_wave.load(std::memory_order_relaxed));
+    const char seq = shared.performance.sequencer.seq_running ? '1' : '0';
+    const char plk = shared.performance.plocks.plock_apply_enabled ? '1' : '0';
+    const char* lfo = LayoutWaveChar(shared.performance.modulation.lfo_wave.load(std::memory_order_relaxed));
     std::snprintf(out, n, "S%c P%c L:%s", seq, plk, lfo);
-}
-
-void BuildStatus(const AppState& app, char* out, size_t n)
-{
-    BuildStatus(app.shared, out, n);
 }

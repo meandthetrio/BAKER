@@ -74,6 +74,11 @@ inline void UiScreenCtx_BindSession(UiScreenCtx& ctx, UiSessionState& session)
     ctx.project = session.project;
 }
 
+// Navigation vs external-encoder enter: `OnEnter`/`OnExit` run when the UI router
+// pushes/pops a screen (stack transitions). `on_enter` is an optional hook invoked on
+// external-encoder focus (see `PerformEngine` in `src/ui/ui_screen_registry.cpp`, where
+// `PerformEngine_OnScreenEnter` wires to `OnEnter` and `PerformEngine_OnEnter` to
+// `on_enter`). Do not merge these slots without updating `UILogic` / router call order.
 struct UiScreen
 {
     UiScreenId id;

@@ -67,7 +67,7 @@ void SetProjectSlotStatus(AppProjectState& project, uint8_t slot, const char* ms
     SetProjectStatus(project, status);
 }
 
-bool ProjectManifestHasLayer(const ProjectManifestV10& m, uint8_t layer)
+bool ProjectManifestHasLayer(const ProjectManifestV11& m, uint8_t layer)
 {
     if(layer >= kProjectSampleLayerCount)
         return false;
@@ -198,6 +198,25 @@ void ClampProjectSatState(ProjectSatState& sat)
     sat.sat_bit_smpl = clamp01(sat.sat_bit_smpl);
 }
 
+void ClampProjectDelayState(ProjectDelayState& delay)
+{
+    delay.delay_on = (delay.delay_on != 0u) ? 1u : 0u;
+    delay.delay_mix = ClampProjectFloat(delay.delay_mix, 0.0f, 1.0f);
+    delay.delay_time_l = ClampProjectFloat(delay.delay_time_l, 0.0f, 1.0f);
+    delay.delay_time_r = ClampProjectFloat(delay.delay_time_r, 0.0f, 1.0f);
+    delay.delay_feedback = ClampProjectFloat(delay.delay_feedback, 0.0f, 1.0f);
+}
+
+void ClampProjectReverbState(ProjectReverbState& reverb)
+{
+    reverb.reverb_on = (reverb.reverb_on != 0u) ? 1u : 0u;
+    reverb.reverb_mix = ClampProjectFloat(reverb.reverb_mix, 0.0f, 1.0f);
+    reverb.reverb_pre = ClampProjectFloat(reverb.reverb_pre, 0.0f, 1.0f);
+    reverb.reverb_damp = ClampProjectFloat(reverb.reverb_damp, 0.0f, 1.0f);
+    reverb.reverb_decay = ClampProjectFloat(reverb.reverb_decay, 0.0f, 1.0f);
+    reverb.reverb_mod = ClampProjectFloat(reverb.reverb_mod, 0.0f, 1.0f);
+}
+
 void ClampProjectEqState(ProjectEqState& eq)
 {
     auto clamp01 = [](float value) -> float
@@ -256,7 +275,7 @@ void SanitizeProjectFxOrder(uint8_t* fx_order)
     }
 }
 
-static void CollectProjectLayerState(ProjectManifestV10& manifest,
+static void CollectProjectLayerState(ProjectManifestV11& manifest,
                                      const AppEngineState& engine,
                                      const AppSharedState& shared,
                                      const PerformParamsTargets& targets)
@@ -339,7 +358,7 @@ static void CollectProjectLayerState(ProjectManifestV10& manifest,
     }
 }
 
-static void CollectProjectGlobalState(ProjectManifestV10& manifest,
+static void CollectProjectGlobalState(ProjectManifestV11& manifest,
                                       const AppSharedState& shared,
                                       const PerformParamsTargets& targets)
 {
@@ -361,6 +380,19 @@ static void CollectProjectGlobalState(ProjectManifestV10& manifest,
     manifest.eq.eq_q = targets.eq_q;
     ClampProjectEqState(manifest.eq);
 
+    manifest.delay.delay_on = targets.delay_on ? 1u : 0u;
+    manifest.delay.delay_mix = targets.delay_mix;
+    manifest.delay.delay_time_l = targets.delay_time_l;
+    manifest.delay.delay_time_r = targets.delay_time_r;
+    manifest.delay.delay_feedback = targets.delay_feedback;
+    ClampProjectDelayState(manifest.delay);
+    manifest.reverb.reverb_on = targets.reverb_on ? 1u : 0u;
+    manifest.reverb.reverb_mix = targets.reverb_mix;
+    manifest.reverb.reverb_pre = targets.reverb_pre;
+    manifest.reverb.reverb_damp = targets.reverb_damp;
+    manifest.reverb.reverb_decay = targets.reverb_decay;
+    manifest.reverb.reverb_mod = targets.reverb_mod;
+    ClampProjectReverbState(manifest.reverb);
     manifest.seq_running = shared.performance.sequencer.seq_running ? 1 : 0;
     manifest.plock_apply_enabled = shared.performance.plocks.plock_apply_enabled ? 1 : 0;
     manifest.lfo_wave = shared.performance.modulation.lfo_wave.load(std::memory_order_relaxed);
@@ -372,7 +404,7 @@ static void CollectProjectGlobalState(ProjectManifestV10& manifest,
     manifest.mod_route_selected = shared.performance.modulation.mod_route_selected;
 }
 
-static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifestV10& manifest)
+static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifestV11& manifest)
 {
     char tmp_path[kProjectPathMax];
     char prj_path[kProjectPathMax];
@@ -421,7 +453,7 @@ static bool EnsureProjectSaveMounted(AppUiState& ui, AppProjectState& project, u
     return false;
 }
 
-static void CollectProjectSaveManifest(ProjectManifestV10& manifest,
+static void CollectProjectSaveManifest(ProjectManifestV11& manifest,
                                        AppEngineState& engine,
                                        AppSharedState& shared,
                                        const Params& params)
@@ -433,7 +465,7 @@ static void CollectProjectSaveManifest(ProjectManifestV10& manifest,
 
 static bool ValidateProjectSaveManifest(AppProjectState& project,
                                         uint8_t project_slot,
-                                        const ProjectManifestV10& manifest)
+                                        const ProjectManifestV11& manifest)
 {
     if(manifest.sample_present_mask != 0u)
         return true;
@@ -444,7 +476,7 @@ static bool ValidateProjectSaveManifest(AppProjectState& project,
 
 static bool WriteProjectSaveManifest(AppProjectState& project,
                                      uint8_t project_slot,
-                                     const ProjectManifestV10& manifest)
+                                     const ProjectManifestV11& manifest)
 {
     if(!WriteProjectManifestFile(project_slot, manifest))
     {
@@ -467,7 +499,7 @@ bool SaveProject(AppUiState& ui,
     if(!EnsureProjectSaveMounted(ui, project, project_slot))
         return false;
 
-    ProjectManifestV10 manifest{};
+    ProjectManifestV11 manifest{};
     CollectProjectSaveManifest(manifest, engine, shared, params);
     if(!ValidateProjectSaveManifest(project, project_slot, manifest))
         return false;
@@ -490,7 +522,7 @@ bool LoadProject(AppUiState& ui,
                  Params& params)
 {
     const uint8_t project_slot = BeginProjectLoad(project, worker);
-    ProjectManifestV10 manifest{};
+    ProjectManifestV11 manifest{};
     if(!ReadProjectLoadManifest(ui, project, project_slot, manifest))
         return false;
 

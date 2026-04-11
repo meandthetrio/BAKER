@@ -29,22 +29,24 @@ float ClampProjectFilterCutoffHz(float value);
 void SanitizeProjectFxOrder(uint8_t* fx_order);
 void ClampProjectSatState(ProjectSatState& sat);
 void ClampProjectEqState(ProjectEqState& eq);
+void ClampProjectDelayState(ProjectDelayState& delay);
+void ClampProjectReverbState(ProjectReverbState& reverb);
 bool MakeProjectSlotPath(char* out, size_t n, const char* base, uint8_t slot, const char* ext);
-bool ProjectManifestHasLayer(const ProjectManifestV10& m, uint8_t layer);
+bool ProjectManifestHasLayer(const ProjectManifestV11& m, uint8_t layer);
 
 // Project load subflow (ui_worker_project_load.cpp).
 bool ReadProjectLoadManifest(AppUiState& ui,
                              AppProjectState& project,
                              uint8_t project_slot,
-                             ProjectManifestV10& manifest);
-void PrepareProjectLoadManifest(ProjectManifestV10& manifest);
+                             ProjectManifestV11& manifest);
+void PrepareProjectLoadManifest(ProjectManifestV11& manifest);
 void ApplyProjectLoadState(AppEngineState& engine,
                            AppSharedState& shared,
                            Params& params,
-                           const ProjectManifestV10& manifest);
+                           const ProjectManifestV11& manifest);
 void SetupProjectRestoreState(AppWorkerState& worker,
                               AppEngineState& engine,
-                              const ProjectManifestV10& manifest);
+                              const ProjectManifestV11& manifest);
 bool BeginProjectRestoreLoad(AppUiState& ui,
                              AppProjectState& project,
                              AppEngineState& engine,

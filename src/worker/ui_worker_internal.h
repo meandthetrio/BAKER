@@ -84,13 +84,19 @@ void SetProjectSlotStatus(AppProjectState& project, uint8_t slot, const char* ms
 
 bool EnsureSdMounted(AppUiState& ui);
 bool EnsureSdMountedInternal(SdBrowserState& sd);
+void CancelLoad(AppUiState& ui, AppWorkerState& worker);
+
+// SD WAV scan (implemented in ui_worker_sd_scan.cpp; uses `s_sd`)
+bool StartScan(SdBrowserState& sd);
+bool ScanStep(SdBrowserState& sd);
+void CancelScan(SdBrowserState& sd);
 void ClearProjectRestoreState(AppWorkerState& worker);
 bool StartNextProjectRestoreLoad(AppUiState& ui,
                                  AppEngineState& engine,
                                  AppWorkerState& worker);
 bool StartLoadPath(AppUiState& ui, const char* path, uint8_t target_slot);
 
-bool ReadProjectManifestFromFile(ProjectManifestV10& manifest);
+bool ReadProjectManifestFromFile(ProjectManifestV11& manifest);
 bool SaveProject(AppUiState& ui,
                  AppProjectState& project,
                  AppEngineState& engine,

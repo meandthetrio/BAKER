@@ -323,6 +323,134 @@ class VoiceEngine
         float* playhead_metric;
     };
 
+    struct RenderNormalVoicePerBlockSetup
+    {
+        uint32_t start;
+        uint32_t end;
+        float    length_f;
+        float    ls;
+        float    le;
+        uint32_t ls_i;
+        uint32_t le_i;
+        bool     loop_enabled;
+        bool     loop_voice;
+        uint32_t seam_frames;
+        LoopMode voice_loop_mode;
+        uint8_t  source_layer;
+        float    gain;
+        bool     use_edit;
+        float    ratio;
+        float    fade_step;
+        float    env_a_step;
+        float    env_d_step;
+        float    env_sustain;
+    };
+
+    struct RenderStealXFadeSetup
+    {
+        uint32_t start;
+        uint32_t end;
+        uint32_t ls_i;
+        uint32_t le_i;
+        bool     use_edit;
+        float    edit_gain;
+        uint8_t  old_layer;
+        uint8_t  new_layer;
+        bool     old_loop_enabled;
+        bool     new_loop_enabled;
+        bool     loop_voice;
+        bool     new_loop_voice;
+        float    length_f;
+        float    ls;
+        float    le;
+        float    old_ratio;
+        float    new_ratio;
+        float    old_gain;
+        float    new_gain;
+        uint32_t old_seam_frames;
+        uint32_t new_seam_frames;
+        LoopMode old_loop_mode;
+        LoopMode new_loop_mode;
+        float    x_step;
+        float    new_fade_step;
+        float    new_env_a_step;
+        float    new_env_d_step;
+        float    new_env_sustain;
+    };
+
+    struct StopFadeState
+    {
+        bool     active;
+        int32_t  remaining;
+        float    level;
+        float    step;
+    };
+
+    struct RenderStealXFadeLoopState
+    {
+        float    old_pos;
+        float    new_pos;
+        bool     old_gate;
+        bool     new_gate;
+        int8_t   old_dir;
+        int8_t   new_dir;
+        float    xfade_pos;
+        float    new_fade_in;
+        EnvStage new_env_stage;
+        float    new_env_level;
+        float    new_env_r_step;
+        StopFadeState stop_fade;
+    };
+
+    struct EffectivePlaybackRegion
+    {
+        uint32_t start;
+        uint32_t end;
+        uint32_t ls_i;
+        uint32_t le_i;
+        float    edit_gain;
+        bool     use_edit;
+    };
+
+    void ResolveEffectivePlaybackRegion_(const Voice& v,
+                                         const RenderVoiceContext& ctx,
+                                         EffectivePlaybackRegion& out,
+                                         bool& loop_enabled_base);
+
+    bool StopFade_AdvanceAndFinishIfDone_(Voice& v, StopFadeState& sf);
+    void BeginStopFadeOnStreamEnd_(Voice& v, StopFadeState& sf);
+    void CompleteStealXFade_(Voice& v);
+
+    struct RenderNormalVoiceLoopState
+    {
+        float    pos;
+        bool     gate;
+        int8_t   dir;
+        float    fade;
+        EnvStage env_stage;
+        float    env_level;
+        float    env_r_step;
+        StopFadeState stop_fade;
+    };
+
+    void CommitNormalVoiceLoopState_(Voice& v, const RenderNormalVoiceLoopState& st);
+    void VoiceRender_PlayheadMetricIfAudible_(const Voice& v,
+                                              const RenderVoiceContext& ctx,
+                                              uint8_t ui_layer,
+                                              float pos,
+                                              float env_level);
+
+    bool RenderNormalVoice_ProcessOneSample_(Voice& v,
+                                             const RenderVoiceContext& ctx,
+                                             const RenderNormalVoicePerBlockSetup& setup,
+                                             size_t i,
+                                             RenderNormalVoiceLoopState& st);
+    bool RenderStealXFade_ProcessOneSample_(Voice& v,
+                                            const RenderVoiceContext& ctx,
+                                            const RenderStealXFadeSetup& setup,
+                                            size_t i,
+                                            RenderStealXFadeLoopState& st);
+
     void SnapshotMacroState_();
     void SnapshotPLockState_();
     void SnapshotRenderEditState_(SampleEdit& edit, const Sample*& edit_sample) const;
@@ -343,17 +471,11 @@ class VoiceEngine
     void RenderStealXFadeVoice_(Voice& v,
                                 const RenderVoiceContext& ctx,
                                 float pitch_scale,
-                                bool& stop_fade_active,
-                                int32_t& stop_fade_remaining,
-                                float& stop_fade_level,
-                                float& stop_fade_step);
+                                StopFadeState& stop_fade);
     void RenderNormalVoice_(Voice& v,
                             const RenderVoiceContext& ctx,
                             float pitch_scale,
-                            bool& stop_fade_active,
-                            int32_t& stop_fade_remaining,
-                            float& stop_fade_level,
-                            float& stop_fade_step);
+                            StopFadeState& stop_fade);
     void RenderBlockMixLayers_(float* outL, float* outR, size_t size, float mix_scale, uint32_t& clip_block);
 
     static uint32_t PackVoiceDebug_(uint8_t idx, uint8_t note, uint8_t vel);

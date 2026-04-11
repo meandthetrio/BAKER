@@ -3,70 +3,71 @@
 #include <cstdio>
 #include <cstring>
 
-// Manifest validity helpers
+// Manifest validity helpers (single magic/version check)
+static bool ManifestMagicVersionOk(const char (&magic)[4], uint16_t version, uint16_t expected)
+{
+    return std::memcmp(magic, "AKPJ", 4) == 0 && version == expected;
+}
+
 static bool ProjectManifestValid(const ProjectManifestV1& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 1u;
+    return ManifestMagicVersionOk(m.magic, m.version, 1u);
 }
 
 static bool ProjectManifestValid(const ProjectManifest& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 2u;
+    return ManifestMagicVersionOk(m.magic, m.version, 2u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV3& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 3u;
+    return ManifestMagicVersionOk(m.magic, m.version, 3u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV4& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0 && m.version == 4u;
+    return ManifestMagicVersionOk(m.magic, m.version, 4u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV5& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0
-           && m.version == 5u;
+    return ManifestMagicVersionOk(m.magic, m.version, 5u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV6& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0
-           && m.version == 6u;
+    return ManifestMagicVersionOk(m.magic, m.version, 6u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV7& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0
-           && m.version == 7u;
+    return ManifestMagicVersionOk(m.magic, m.version, 7u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV8& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0
-           && m.version == 8u;
+    return ManifestMagicVersionOk(m.magic, m.version, 8u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV9& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0
-           && m.version == 9u;
+    return ManifestMagicVersionOk(m.magic, m.version, 9u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV10& m)
 {
-    return std::memcmp(m.magic, "AKPJ", 4) == 0
-           && m.version == kProjectManifestVersion;
+    return ManifestMagicVersionOk(m.magic, m.version, 10u);
 }
 
-// Manifest upgrade helpers
-static void ProjectManifestUpgrade(ProjectManifest& dst, const ProjectManifestV1& src)
+static bool ProjectManifestValid(const ProjectManifestV11& m)
 {
-    dst = ProjectManifest{};
-    std::snprintf(dst.wav_path[0], sizeof(dst.wav_path[0]), "%s", src.wav_path);
-    dst.edit[0] = src.edit;
-    dst.sample_present_mask = (src.wav_path[0] != '\0') ? 0x01u : 0u;
+    return ManifestMagicVersionOk(m.magic, m.version, kProjectManifestVersion);
+}
+
+// Copies shared sequencer / modulation tail fields where struct layouts match.
+template<typename TDst, typename TSrc>
+static void CopySharedSeqModTail(TDst& dst, const TSrc& src)
+{
     dst.seq_running = src.seq_running;
     dst.plock_apply_enabled = src.plock_apply_enabled;
     dst.lfo_wave = src.lfo_wave;
@@ -76,6 +77,16 @@ static void ProjectManifestUpgrade(ProjectManifest& dst, const ProjectManifestV1
     for(size_t i = 0; i < kMaxModRoutes; ++i)
         dst.mod_routes[i] = src.mod_routes[i];
     dst.mod_route_selected = src.mod_route_selected;
+}
+
+// Manifest upgrade helpers
+static void ProjectManifestUpgrade(ProjectManifest& dst, const ProjectManifestV1& src)
+{
+    dst = ProjectManifest{};
+    std::snprintf(dst.wav_path[0], sizeof(dst.wav_path[0]), "%s", src.wav_path);
+    dst.edit[0] = src.edit;
+    dst.sample_present_mask = (src.wav_path[0] != '\0') ? 0x01u : 0u;
+    CopySharedSeqModTail(dst, src);
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV3& dst, const ProjectManifest& src)
@@ -88,15 +99,7 @@ static void ProjectManifestUpgrade(ProjectManifestV3& dst, const ProjectManifest
         dst.edit[slot] = src.edit[slot];
         dst.engine_tune_semitones[slot] = 0;
     }
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
+    CopySharedSeqModTail(dst, src);
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV4& dst, const ProjectManifestV3& src)
@@ -111,15 +114,7 @@ static void ProjectManifestUpgrade(ProjectManifestV4& dst, const ProjectManifest
         dst.perform_keyzone_lo_note[slot] = 48u;
         dst.perform_keyzone_hi_note[slot] = 60u;
     }
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
+    CopySharedSeqModTail(dst, src);
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV5& dst, const ProjectManifestV4& src)
@@ -146,15 +141,7 @@ static void ProjectManifestUpgrade(ProjectManifestV5& dst, const ProjectManifest
         dst.perform_adsr_env_r_x[slot] = 89u;
         dst.perform_adsr_env_s_level[slot] = 50u;
     }
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
+    CopySharedSeqModTail(dst, src);
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV6& dst, const ProjectManifestV5& src)
@@ -185,15 +172,7 @@ static void ProjectManifestUpgrade(ProjectManifestV6& dst, const ProjectManifest
         dst.engine_filter_cutoff_hz[slot] = 20000.0f;
         dst.engine_filter_resonance[slot] = 0.0f;
     }
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
+    CopySharedSeqModTail(dst, src);
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV7& dst, const ProjectManifestV6& src)
@@ -225,15 +204,7 @@ static void ProjectManifestUpgrade(ProjectManifestV7& dst, const ProjectManifest
         dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
         dst.engine_layer_master_level[slot] = 1.0f;
     }
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
+    CopySharedSeqModTail(dst, src);
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV8& dst, const ProjectManifestV7& src)
@@ -265,17 +236,9 @@ static void ProjectManifestUpgrade(ProjectManifestV8& dst, const ProjectManifest
         dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
         dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
     }
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
+    CopySharedSeqModTail(dst, src);
     for(size_t i = 0; i < 4; ++i)
         dst.fx_order[i] = static_cast<uint8_t>(i);
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV9& dst, const ProjectManifestV8& src)
@@ -309,15 +272,44 @@ static void ProjectManifestUpgrade(ProjectManifestV9& dst, const ProjectManifest
     }
     for(size_t i = 0; i < 4; ++i)
         dst.fx_order[i] = src.fx_order[i];
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
+    CopySharedSeqModTail(dst, src);
+}
+
+static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifestV10& src)
+{
+    dst = ProjectManifestV11{};
+    dst.sample_present_mask = src.sample_present_mask;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
+        dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
+        dst.perform_adsr_row[slot] = src.perform_adsr_row[slot];
+        dst.engine_play_mode[slot] = src.engine_play_mode[slot];
+        dst.perform_adsr_loop_attack[slot] = src.perform_adsr_loop_attack[slot];
+        dst.perform_adsr_loop_decay[slot] = src.perform_adsr_loop_decay[slot];
+        dst.perform_adsr_loop_sustain[slot] = src.perform_adsr_loop_sustain[slot];
+        dst.perform_adsr_loop_release[slot] = src.perform_adsr_loop_release[slot];
+        dst.perform_adsr_loop_crossfade[slot] = src.perform_adsr_loop_crossfade[slot];
+        dst.perform_adsr_loop_crossfade_shape[slot] = src.perform_adsr_loop_crossfade_shape[slot];
+        dst.perform_adsr_env_a_x[slot] = src.perform_adsr_env_a_x[slot];
+        dst.perform_adsr_env_d_x[slot] = src.perform_adsr_env_d_x[slot];
+        dst.perform_adsr_env_r_x[slot] = src.perform_adsr_env_r_x[slot];
+        dst.perform_adsr_env_s_level[slot] = src.perform_adsr_env_s_level[slot];
+        dst.engine_gain_db[slot] = src.engine_gain_db[slot];
+        dst.engine_drive_mode[slot] = src.engine_drive_mode[slot];
+        dst.engine_filter_cutoff_hz[slot] = src.engine_filter_cutoff_hz[slot];
+        dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
+        dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
+    }
+    for(size_t i = 0; i < 4; ++i)
+        dst.fx_order[i] = src.fx_order[i];
+    dst.sat = src.sat;
+    dst.eq = src.eq;
+    // delay and reverb default-constructed (off, all params at defaults)
+    CopySharedSeqModTail(dst, src);
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV10& dst, const ProjectManifestV9& src)
@@ -352,32 +344,37 @@ static void ProjectManifestUpgrade(ProjectManifestV10& dst, const ProjectManifes
     for(size_t i = 0; i < 4; ++i)
         dst.fx_order[i] = src.fx_order[i];
     dst.sat = src.sat;
-    dst.seq_running = src.seq_running;
-    dst.plock_apply_enabled = src.plock_apply_enabled;
-    dst.lfo_wave = src.lfo_wave;
-    dst.macro_sel = src.macro_sel;
-    dst.seq_bpm = src.seq_bpm;
-    dst.macro_ui = src.macro_ui;
-    for(size_t i = 0; i < kMaxModRoutes; ++i)
-        dst.mod_routes[i] = src.mod_routes[i];
-    dst.mod_route_selected = src.mod_route_selected;
+    CopySharedSeqModTail(dst, src);
 }
 
-bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
+bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
 {
     const FSIZE_t manifest_size = f_size(&s_sd.file);
     UINT br = 0;
     FRESULT rd = FR_INT_ERR;
-    if(manifest_size == sizeof(ProjectManifestV10))
+    if(manifest_size == sizeof(ProjectManifestV11))
     {
         rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifestV10))
+    {
+        ProjectManifestV10 legacy_v10{};
+        rd = f_read(&s_sd.file, &legacy_v10, sizeof(legacy_v10), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v10) && ProjectManifestValid(legacy_v10))
+            ProjectManifestUpgrade(manifest, legacy_v10);
+        else
+            rd = FR_INVALID_OBJECT;
     }
     else if(manifest_size == sizeof(ProjectManifestV9))
     {
         ProjectManifestV9 legacy_v9{};
         rd = f_read(&s_sd.file, &legacy_v9, sizeof(legacy_v9), &br);
         if(rd == FR_OK && br == sizeof(legacy_v9) && ProjectManifestValid(legacy_v9))
-            ProjectManifestUpgrade(manifest, legacy_v9);
+        {
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
+        }
         else
             rd = FR_INVALID_OBJECT;
     }
@@ -389,7 +386,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
         {
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -404,7 +403,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
             ProjectManifestUpgrade(legacy_v8, legacy_v7);
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -421,7 +422,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
             ProjectManifestUpgrade(legacy_v8, legacy_v7);
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -440,7 +443,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
             ProjectManifestUpgrade(legacy_v8, legacy_v7);
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -461,7 +466,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
             ProjectManifestUpgrade(legacy_v8, legacy_v7);
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -484,7 +491,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
             ProjectManifestUpgrade(legacy_v8, legacy_v7);
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -509,7 +518,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
             ProjectManifestUpgrade(legacy_v8, legacy_v7);
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -536,7 +547,9 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
             ProjectManifestUpgrade(legacy_v8, legacy_v7);
             ProjectManifestV9 legacy_v9{};
             ProjectManifestUpgrade(legacy_v9, legacy_v8);
-            ProjectManifestUpgrade(manifest, legacy_v9);
+            ProjectManifestV10 legacy_v10{};
+            ProjectManifestUpgrade(legacy_v10, legacy_v9);
+            ProjectManifestUpgrade(manifest, legacy_v10);
         }
         else
             rd = FR_INVALID_OBJECT;
@@ -545,8 +558,10 @@ bool ReadProjectManifestFromFile(ProjectManifestV10& manifest)
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
         manifest.wav_path[slot][sizeof(manifest.wav_path[slot]) - 1] = '\0';
 
-    return (manifest_size == sizeof(ProjectManifestV10) && rd == FR_OK && br == sizeof(manifest)
+    return (manifest_size == sizeof(ProjectManifestV11) && rd == FR_OK && br == sizeof(manifest)
             && ProjectManifestValid(manifest))
+           || (manifest_size == sizeof(ProjectManifestV10) && rd == FR_OK
+               && br == sizeof(ProjectManifestV10))
            || (manifest_size == sizeof(ProjectManifestV9) && rd == FR_OK
                && br == sizeof(ProjectManifestV9))
            || (manifest_size == sizeof(ProjectManifestV8) && rd == FR_OK

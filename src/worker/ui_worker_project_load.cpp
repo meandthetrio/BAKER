@@ -26,6 +26,8 @@ static void PublishProjectPerformParams(Params& params,
                                         const uint8_t* process_fx_order,
                                         const ProjectSatState* process_sat_state,
                                         const ProjectEqState* process_eq_state,
+                                        const ProjectDelayState* process_delay_state,
+                                        const ProjectReverbState* process_reverb_state,
                                         const float* emphasis_cutoff_hz,
                                         const float* emphasis_resonance)
 {
@@ -63,6 +65,23 @@ static void PublishProjectPerformParams(Params& params,
             t.eq_q = kTiltEqQMax;
         else
             t.eq_q = process_eq_state->eq_q;
+    }
+    if(process_delay_state)
+    {
+        t.delay_on = (process_delay_state->delay_on != 0u);
+        t.delay_mix = ClampProjectFloat(process_delay_state->delay_mix, 0.0f, 1.0f);
+        t.delay_time_l = ClampProjectFloat(process_delay_state->delay_time_l, 0.0f, 1.0f);
+        t.delay_time_r = ClampProjectFloat(process_delay_state->delay_time_r, 0.0f, 1.0f);
+        t.delay_feedback = ClampProjectFloat(process_delay_state->delay_feedback, 0.0f, 1.0f);
+    }
+    if(process_reverb_state)
+    {
+        t.reverb_on = (process_reverb_state->reverb_on != 0u);
+        t.reverb_mix = ClampProjectFloat(process_reverb_state->reverb_mix, 0.0f, 1.0f);
+        t.reverb_pre = ClampProjectFloat(process_reverb_state->reverb_pre, 0.0f, 1.0f);
+        t.reverb_damp = ClampProjectFloat(process_reverb_state->reverb_damp, 0.0f, 1.0f);
+        t.reverb_decay = ClampProjectFloat(process_reverb_state->reverb_decay, 0.0f, 1.0f);
+        t.reverb_mod = ClampProjectFloat(process_reverb_state->reverb_mod, 0.0f, 1.0f);
     }
     for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
     {
@@ -116,7 +135,7 @@ static void SyncProjectProcessFxOrderUiState(AppEngineState& engine, const uint8
     SanitizeProjectFxOrder(engine.process.perform_process_fx_order);
 }
 
-static void ApplyProjectManifestGlobalState(AppSharedState& shared, const ProjectManifestV10& manifest)
+static void ApplyProjectManifestGlobalState(AppSharedState& shared, const ProjectManifestV11& manifest)
 {
     shared.performance.sequencer.seq_running = (manifest.seq_running != 0);
     shared.performance.plocks.plock_apply_enabled = (manifest.plock_apply_enabled != 0);
@@ -134,7 +153,7 @@ static void ApplyProjectManifestGlobalState(AppSharedState& shared, const Projec
                       shared.performance.modulation.mod_routes_ui);
 }
 
-static void ApplyProjectManifestLayerState(AppEngineState& engine, const ProjectManifestV10& manifest)
+static void ApplyProjectManifestLayerState(AppEngineState& engine, const ProjectManifestV11& manifest)
 {
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
     {
@@ -183,7 +202,7 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
 void ApplyProjectLoadState(AppEngineState& engine,
                            AppSharedState& shared,
                            Params& params,
-                           const ProjectManifestV10& manifest)
+                           const ProjectManifestV11& manifest)
 {
     ApplyProjectManifestGlobalState(shared, manifest);
     ApplyProjectManifestLayerState(engine, manifest);
@@ -193,6 +212,8 @@ void ApplyProjectLoadState(AppEngineState& engine,
                                 manifest.fx_order,
                                 &manifest.sat,
                                 &manifest.eq,
+                                &manifest.delay,
+                                &manifest.reverb,
                                 manifest.engine_filter_cutoff_hz,
                                 manifest.engine_filter_resonance);
     SyncProjectProcessVolumeUiState(engine, manifest.engine_layer_master_level);
@@ -201,7 +222,7 @@ void ApplyProjectLoadState(AppEngineState& engine,
 
 void SetupProjectRestoreState(AppWorkerState& worker,
                               AppEngineState& engine,
-                              const ProjectManifestV10& manifest)
+                              const ProjectManifestV11& manifest)
 {
     ClearProjectRestoreState(worker);
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
@@ -230,7 +251,7 @@ void SetupProjectRestoreState(AppWorkerState& worker,
 bool ReadProjectLoadManifest(AppUiState& ui,
                              AppProjectState& project,
                              uint8_t project_slot,
-                             ProjectManifestV10& manifest)
+                             ProjectManifestV11& manifest)
 {
     if(!EnsureSdMounted(ui))
     {
@@ -265,11 +286,13 @@ bool ReadProjectLoadManifest(AppUiState& ui,
     return true;
 }
 
-void PrepareProjectLoadManifest(ProjectManifestV10& manifest)
+void PrepareProjectLoadManifest(ProjectManifestV11& manifest)
 {
     SanitizeProjectFxOrder(manifest.fx_order);
     ClampProjectSatState(manifest.sat);
     ClampProjectEqState(manifest.eq);
+    ClampProjectDelayState(manifest.delay);
+    ClampProjectReverbState(manifest.reverb);
 }
 
 bool BeginProjectRestoreLoad(AppUiState& ui,

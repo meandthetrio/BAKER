@@ -249,10 +249,11 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         if(v.state == VoiceState::Idle)
             continue;
 
-        bool     stop_fade_active = v.stop_fade_active;
-        int32_t  stop_fade_remaining = v.stop_fade_samples_remaining;
-        float    stop_fade_level = v.stop_fade_level;
-        float    stop_fade_step = v.stop_fade_step;
+        StopFadeState stop_fade{};
+        stop_fade.active = v.stop_fade_active;
+        stop_fade.remaining = v.stop_fade_samples_remaining;
+        stop_fade.level = v.stop_fade_level;
+        stop_fade.step = v.stop_fade_step;
 
         active++;
 
@@ -288,21 +289,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         const float pitch_scale = std::pow(2.0f, (mod_pitch * kPitchModSemitones) / 12.0f);
 
         if(v.state == VoiceState::StealXFade)
-            RenderStealXFadeVoice_(v,
-                                   render_ctx,
-                                   pitch_scale,
-                                   stop_fade_active,
-                                   stop_fade_remaining,
-                                   stop_fade_level,
-                                   stop_fade_step);
+            RenderStealXFadeVoice_(v, render_ctx, pitch_scale, stop_fade);
         else
-            RenderNormalVoice_(v,
-                               render_ctx,
-                               pitch_scale,
-                               stop_fade_active,
-                               stop_fade_remaining,
-                               stop_fade_level,
-                               stop_fade_step);
+            RenderNormalVoice_(v, render_ctx, pitch_scale, stop_fade);
     }
 
     RenderBlockMixLayers_(outL, outR, size, mix_scale, clip_block);

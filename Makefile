@@ -10,6 +10,7 @@ C_INCLUDES += -I./src/storage
 
 # Sources
 CPP_SOURCES = main.cpp
+CPP_SOURCES += audio_callback.cpp
 CPP_SOURCES += params.cpp
 CPP_SOURCES += tilt_eq.cpp
 CPP_SOURCES += audio_engine.cpp
@@ -53,7 +54,9 @@ CPP_SOURCES += src/ui/ui_layout.cpp
 CPP_SOURCES += src/ui/ui_overlay.cpp
 CPP_SOURCES += ui_requests.cpp
 CPP_SOURCES += src/ui/project_actions.cpp
+CPP_SOURCES += src/worker/ui_worker_sd_lifecycle.cpp
 CPP_SOURCES += src/worker/ui_worker.cpp
+CPP_SOURCES += src/worker/ui_worker_sd_scan.cpp
 CPP_SOURCES += src/worker/ui_worker_sample_load.cpp
 CPP_SOURCES += src/worker/ui_worker_sample_ops.cpp
 CPP_SOURCES += src/worker/ui_worker_project.cpp

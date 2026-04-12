@@ -2,6 +2,14 @@
 
 #include <cmath>
 
+static float s_sqrt_lut[256] = {};
+
+void VoiceRenderFetch_InitSqrtLut()
+{
+    for(int i = 0; i < 256; ++i)
+        s_sqrt_lut[i] = std::sqrt(static_cast<float>(i) / 255.0f);
+}
+
 float SampleAtLinear(const Sample* s, float pos, bool wrap_end)
 {
     if(s == nullptr || s->pcm == nullptr || s->length == 0)
@@ -85,7 +93,9 @@ float ComputeLoopSeamCrossfadeWeight(float mix, float shape, bool fade_in)
         shape = 1.0f;
 
     const float linear = fade_in ? mix : (1.0f - mix);
-    const float equal_power = fade_in ? std::sqrt(mix) : std::sqrt(1.0f - mix);
+    const float lut_in = fade_in ? mix : (1.0f - mix);
+    const int lut_idx  = static_cast<int>(lut_in * 255.0f + 0.5f);
+    const float equal_power = s_sqrt_lut[lut_idx < 255 ? lut_idx : 255];
     return linear + (equal_power - linear) * shape;
 }
 

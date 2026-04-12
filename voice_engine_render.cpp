@@ -6,7 +6,7 @@
 #include <cstring>
 
 static constexpr float kReleaseTauSec      = 0.030f;
-static constexpr float kPitchModSemitones  = 2.0f;
+static constexpr float kPitchModSemitones  = 1.0f;
 static constexpr float kMacroSmoothSec     = 0.005f;
 static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
@@ -219,8 +219,14 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     std::memset(outL, 0, sizeof(float) * size);
     std::memset(outR, 0, sizeof(float) * size);
 
-    RecomputeLayerEmphasisCoeffs_(0u);
-    RecomputeLayerEmphasisCoeffs_(1u);
+    for(uint8_t layer = 0u; layer < kEngineLayerCount; ++layer)
+    {
+        if(emphasis_dirty_[layer])
+        {
+            RecomputeLayerEmphasisCoeffs_(layer);
+            emphasis_dirty_[layer] = false;
+        }
+    }
 
     uint32_t active = 0;
     uint32_t clip_block = 0;
@@ -286,7 +292,14 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             mod_pitch = 1.0f;
         if(mod_pitch < -1.0f)
             mod_pitch = -1.0f;
-        const float pitch_scale = std::pow(2.0f, (mod_pitch * kPitchModSemitones) / 12.0f);
+        float pitch_scale = 1.0f;
+        if(mod_pitch != 0.0f)
+        {
+            int lut_idx = static_cast<int>((mod_pitch + 1.0f) * 127.5f);
+            if(lut_idx < 0)   lut_idx = 0;
+            if(lut_idx > 255) lut_idx = 255;
+            pitch_scale = pitch_mod_lut_[lut_idx];
+        }
 
         if(v.state == VoiceState::StealXFade)
             RenderStealXFadeVoice_(v, render_ctx, pitch_scale, stop_fade);

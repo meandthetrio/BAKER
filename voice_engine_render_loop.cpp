@@ -1,5 +1,7 @@
 #include "voice_engine_render_internal.h"
 
+#include <cmath>
+
 bool AdvancePos(float& pos,
                 int8_t& dir,
                 float ratio,
@@ -30,9 +32,8 @@ bool AdvancePos(float& pos,
         pos += ratio;
         if(pos >= le)
         {
-            pos = ls + seam_offset + (pos - le);
-            while(pos >= le)
-                pos = ls + seam_offset + (pos - le);
+            const float effective_span = loop_span - seam_offset;
+            pos = ls + seam_offset + std::fmod(pos - le, effective_span);
         }
     }
     else

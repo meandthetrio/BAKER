@@ -249,6 +249,8 @@ class VoiceEngine
     float engine_filter_resonance_[kEngineLayerCount] = {0.0f, 0.0f};
     LayerBusState layer_bus_state_[kEngineLayerCount]{};
     LayerEmphasisCoeffs emphasis_coeff_[kEngineLayerCount]{};
+    bool emphasis_dirty_[kEngineLayerCount] = {true, true};
+    float pitch_mod_lut_[256] = {};
     bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};
     float loop_env_attack_ms_[kEngineLayerCount] = {5.0f, 5.0f};
     float loop_env_decay_ms_[kEngineLayerCount] = {20.0f, 20.0f};

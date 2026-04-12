@@ -1,4 +1,5 @@
 #include "voice_engine_internal.h"
+#include "voice_engine_render_internal.h"
 
 #include "build_config.h"
 #include "mem_regions.h"
@@ -124,12 +125,14 @@ void VoiceEngine::SetEngineGainDb(uint8_t layer, float db)
     if(db > kEngineGainMaxDb)
         db = kEngineGainMaxDb;
     engine_gain_linear_[layer] = std::pow(10.0f, db / 20.0f);
+    emphasis_dirty_[layer] = true;
 }
 
 void VoiceEngine::SetEngineDriveMode(uint8_t layer, uint8_t mode)
 {
     layer &= 1u;
     engine_drive_mode_[layer] = (mode == 0u) ? 0u : 1u;
+    emphasis_dirty_[layer] = true;
 }
 
 void VoiceEngine::SetEngineLayerScale(uint8_t layer, float scale)
@@ -151,6 +154,7 @@ void VoiceEngine::SetEngineFilterCutoffHz(uint8_t layer, float hz)
     if(hz > 20000.0f)
         hz = 20000.0f;
     engine_filter_cutoff_hz_[layer] = hz;
+    emphasis_dirty_[layer] = true;
 }
 
 void VoiceEngine::SetEngineFilterResonance(uint8_t layer, float resonance)
@@ -161,6 +165,7 @@ void VoiceEngine::SetEngineFilterResonance(uint8_t layer, float resonance)
     if(resonance > 1.0f)
         resonance = 1.0f;
     engine_filter_resonance_[layer] = resonance;
+    emphasis_dirty_[layer] = true;
 }
 
 void VoiceEngine::SetEngineLoopEnabled(uint8_t layer, bool enabled)
@@ -242,6 +247,16 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
     if(fade_samples < 1)
         fade_samples = 1;
     stop_fade_samples_ = fade_samples;
+
+    VoiceRenderFetch_InitSqrtLut();
+
+    // Precompute pitch mod LUT: mod_pitch [-1,1] -> pow(2, mod_pitch / 12) [±1 semitone]
+    for(int i = 0; i < 256; ++i)
+    {
+        const float t = (static_cast<float>(i) / 255.0f) * 2.0f - 1.0f;
+        pitch_mod_lut_[i] = std::pow(2.0f, t / 12.0f);
+    }
+
     lfo_.Init(sample_rate_);
     sweep_phase_rate_  = 0.0f;
     sweep_dir_rate_    = 1.0f;

@@ -278,6 +278,8 @@ void DattorroReverb::StateVariable::SetSampleRate(float value)
 
 void DattorroReverb::StateVariable::Frequency(float value)
 {
+    if(value == frequency)
+        return;
     frequency = value;
     UpdateCoefficient();
 }

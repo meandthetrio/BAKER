@@ -61,6 +61,7 @@ float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
                                               float sample_rate);
 
 // Sample fetch / interpolation (voice_engine_render_fetch.cpp).
+void  VoiceRenderFetch_InitSqrtLut();
 float SampleAtLinear(const Sample* s, float pos, bool wrap_end);
 float SampleAtLinearRegion(const Sample* s,
                            float pos,

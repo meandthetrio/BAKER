@@ -5,6 +5,12 @@
 static constexpr float kTwoPi = 6.2831853071795864769f;
 static constexpr float kEmphasisDriveUiMaxLinear = 1.995262315f;
 
+static inline float FastTanh(float x)
+{
+    const float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+}
+
 static inline float Clamp01(float value)
 {
     if(value < 0.0f)
@@ -71,14 +77,14 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
     float driven = 0.0f;
     if(c.odd_drive)
     {
-        const float odd_core = std::tanh(input * c.pre_gain);
+        const float odd_core = FastTanh(input * c.pre_gain);
         const float odd_shaped = input + ((odd_core - input) * c.shape_blend);
         driven = odd_shaped * c.base_makeup;
     }
     else
     {
-        const float pos_core = (input > 0.0f) ? std::tanh(input * c.positive_drive) : 0.0f;
-        const float neg_core = (input < 0.0f) ? -std::tanh((-input) * c.negative_drive) : 0.0f;
+        const float pos_core = (input > 0.0f) ? FastTanh(input * c.positive_drive) : 0.0f;
+        const float neg_core = (input < 0.0f) ? -FastTanh((-input) * c.negative_drive) : 0.0f;
         const float asym_core = pos_core + neg_core;
         const float even_shaped = input + ((asym_core - input) * c.shape_blend);
         const float asym = even_shaped * c.even_makeup;
@@ -89,7 +95,7 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
     }
 
     float ladder_in = driven - c.feedback * (state.pole4 - (0.12f * state.pole3));
-    ladder_in = std::tanh(ladder_in);
+    ladder_in = FastTanh(ladder_in);
 
     state.pole1 += c.g * (ladder_in - state.pole1);
     state.pole2 += c.g * (state.pole1 - state.pole2);
@@ -97,6 +103,6 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
     state.pole4 += c.g * (state.pole3 - state.pole4);
 
     float out = state.pole4 * c.pole4_linear_scale;
-    out = std::tanh(out * c.tanh_input_scale);
+    out = FastTanh(out * c.tanh_input_scale);
     return out * 0.97f;
 }

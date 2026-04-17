@@ -42,11 +42,20 @@ struct AppEngineState
 
     struct PerformKeyzoneState
     {
-        uint8_t perform_keyzone_lo_note[2] = {48u, 48u};
-        uint8_t perform_keyzone_hi_note[2] = {60u, 60u};
-        uint8_t perform_keyzone_marker_focus = 0;
-        uint8_t perform_keyzone_window_octave[2] = {2u, 2u};
+        uint8_t perform_keyzone_lo_note[2] = {12u, 12u};   // C0 — full range default
+        uint8_t perform_keyzone_hi_note[2] = {108u, 108u}; // C8 — full range default
+        bool    perform_keyzone_is_split = false;
     } keyzone{};
+
+    // Velocity-mod / mod-block UI (ported from oled_ui_sim). Audio routing TBD.
+    struct PerformVelModState
+    {
+        uint8_t threshold[2]   = {64u, 64u}; // 0..127
+        uint8_t send_amount[2] = {0u, 0u};   // 0..20
+        uint8_t target_idx[2]  = {0u, 0u};   // index into per-screen target list
+        bool    threshold_linked = false;    // when true, threshold edits apply to both lanes
+        bool    modblock_threshold_off[2] = {false, false};
+    } velmod{};
 
     struct PerformAdsrState
     {

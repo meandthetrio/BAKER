@@ -44,6 +44,7 @@ class UIRender
     uint32_t    last_sample_index_   = 0;
     uint32_t    last_fadeouts_started_ = 0;
     uint32_t    last_vel_layer_      = 0;
+    uint32_t    last_velocity_monitor_ = 0;
     int32_t     last_lfo_            = 0;
     int32_t     last_env_            = 0;
     uint32_t    last_lfo_rate_dbg_   = 0;

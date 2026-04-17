@@ -34,6 +34,7 @@ void UIRender::Init(PodDisplay* display, DaisyPod& hw)
     last_sample_index_    = 0;
     last_fadeouts_started_ = 0;
     last_vel_layer_       = 0;
+    last_velocity_monitor_ = 0;
     last_lfo_             = 0;
     last_env_             = 0;
     last_lfo_rate_dbg_    = 0;
@@ -119,6 +120,20 @@ void UIRender::Tick(AppState& app, const Params& params)
                 ui.ui_dirty = true;
                 last_playhead_frame_[layer] = frame;
                 last_playhead_active_[layer] = active;
+            }
+        }
+    }
+
+    {
+        const UiScreenId active = UiNav_Active(ui.ui_nav);
+        if(active == UiScreenId::VelocityMod || active == UiScreenId::VelocityMod2
+           || active == UiScreenId::ModBlockA || active == UiScreenId::ModBlockB)
+        {
+            const uint32_t v = diag.last_velocity.load(std::memory_order_relaxed);
+            if(v != last_velocity_monitor_)
+            {
+                ui.ui_dirty = true;
+                last_velocity_monitor_ = v;
             }
         }
     }

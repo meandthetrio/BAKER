@@ -34,6 +34,8 @@ struct AppUiState
     bool ui_btn1_held = false;
     bool ui_btn2_held = false;
     uint8_t main_menu_index = 0;
+    uint8_t perform_keyzone_focus = 0; // 0=FULL/SPLIT btn, 1=vel Mod / split pt, 2=mod block A, 3=mod block B
+    uint8_t velmod_focus[2] = {2u, 2u}; // 1=threshold 2=send 3=target (default send_amount; matches sim)
 
     // Input queues and helper widgets used entirely on the main/UI thread.
     uint32_t last_input_ms = 0;

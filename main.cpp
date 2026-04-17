@@ -333,6 +333,10 @@ int main(void)
         const bool perform_ab_active
             = (g_app.ui.ui_active_screen == UiScreenId::PerformEngine)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformKeyzone)
+              || (g_app.ui.ui_active_screen == UiScreenId::VelocityMod)
+              || (g_app.ui.ui_active_screen == UiScreenId::VelocityMod2)
+              || (g_app.ui.ui_active_screen == UiScreenId::ModBlockA)
+              || (g_app.ui.ui_active_screen == UiScreenId::ModBlockB)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis);
 

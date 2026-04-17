@@ -18,7 +18,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                             PerformWaveEdit_OnEvent,
                                             PerformWaveEdit_Render,
                                             PerformWaveEdit_OnEnter};
-    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render};
+    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render, PerformKeyzone_OnEnter};
+    static const UiScreen vel_mod{UiScreenId::VelocityMod, nullptr, nullptr, VelocityMod_OnEvent, VelocityMod_Render};
+    static const UiScreen vel_mod2{UiScreenId::VelocityMod2, nullptr, nullptr, VelocityMod2_OnEvent, VelocityMod2_Render};
+    static const UiScreen mod_block_a{UiScreenId::ModBlockA, nullptr, nullptr, ModBlockA_OnEvent, ModBlockA_Render};
+    static const UiScreen mod_block_b{UiScreenId::ModBlockB, nullptr, nullptr, ModBlockB_OnEvent, ModBlockB_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr,
                                        PerformAdsr_OnScreenEnter,
                                        nullptr,
@@ -69,6 +73,14 @@ const UiScreen& GetScreen(UiScreenId id)
             return perform_wave_edit;
         case UiScreenId::PerformKeyzone:
             return perform_keyzone;
+        case UiScreenId::VelocityMod:
+            return vel_mod;
+        case UiScreenId::VelocityMod2:
+            return vel_mod2;
+        case UiScreenId::ModBlockA:
+            return mod_block_a;
+        case UiScreenId::ModBlockB:
+            return mod_block_b;
         case UiScreenId::PerformAdsr:
             return perform_adsr;
         case UiScreenId::PerformEmphasis:

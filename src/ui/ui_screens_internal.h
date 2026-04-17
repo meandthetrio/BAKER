@@ -74,8 +74,18 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx);
 bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformWaveEdit_Render(UiScreenCtx& ctx);
 
+bool PerformKeyzone_OnEnter(UiScreenCtx& ctx);
 bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformKeyzone_Render(UiScreenCtx& ctx);
+
+bool VelocityMod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void VelocityMod_Render(UiScreenCtx& ctx);
+bool VelocityMod2_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void VelocityMod2_Render(UiScreenCtx& ctx);
+bool ModBlockA_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void ModBlockA_Render(UiScreenCtx& ctx);
+bool ModBlockB_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void ModBlockB_Render(UiScreenCtx& ctx);
 
 void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx);
 bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

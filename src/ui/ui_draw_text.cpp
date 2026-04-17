@@ -346,6 +346,8 @@ static void GetMini3x5Glyph(char c, uint8_t out_rows[kMini3x5H])
         case 'd': out_rows[0] = 0b001; out_rows[1] = 0b001; out_rows[2] = 0b011; out_rows[3] = 0b101; out_rows[4] = 0b011; return;
         case 'e': out_rows[0] = 0b111; out_rows[1] = 0b100; out_rows[2] = 0b110; out_rows[3] = 0b100; out_rows[4] = 0b111; return;
         case 'h': out_rows[0] = 0b100; out_rows[1] = 0b100; out_rows[2] = 0b110; out_rows[3] = 0b101; out_rows[4] = 0b101; return;
+        case 'i': out_rows[0] = 0b010; out_rows[1] = 0b000; out_rows[2] = 0b010; out_rows[3] = 0b010; out_rows[4] = 0b010; return;
+        case 'k': out_rows[0] = 0b100; out_rows[1] = 0b101; out_rows[2] = 0b110; out_rows[3] = 0b101; out_rows[4] = 0b101; return;
         case 'l': out_rows[0] = 0b110; out_rows[1] = 0b010; out_rows[2] = 0b010; out_rows[3] = 0b010; out_rows[4] = 0b111; return;
         case 'n': out_rows[0] = 0b110; out_rows[1] = 0b101; out_rows[2] = 0b101; out_rows[3] = 0b101; out_rows[4] = 0b101; return;
         case 'o': out_rows[0] = 0b010; out_rows[1] = 0b101; out_rows[2] = 0b101; out_rows[3] = 0b101; out_rows[4] = 0b010; return;
@@ -444,15 +446,29 @@ static void GetMicroGlyph(char c, uint8_t out_rows[kMicroH])
     uint8_t rows5[Font5x7::H] = {};
     Font5x7::GetGlyphRows(c, rows5);
 
+    // 5x7 glyphs into 6 micro rows: use font rows 0..4 as-is, then fold font rows 5+6
+    // into the last micro row (OR per column) so digits keep both the top curve and bottom.
     constexpr int col_map[kMicroW] = {0, 1, 3, 4};
+    const bool      digit           = (c >= '0' && c <= '9');
     for(int yy = 0; yy < kMicroH; ++yy)
     {
         uint8_t bits = 0;
-        const uint8_t src = rows5[yy];
         for(int xx = 0; xx < kMicroW; ++xx)
         {
             const int src_col = col_map[xx];
-            const bool on = ((src >> (Font5x7::W - 1 - src_col)) & 1u) != 0;
+            bool      on      = false;
+            if(digit && yy == kMicroH - 1)
+            {
+                const uint8_t r5 = rows5[5];
+                const uint8_t r6 = rows5[6];
+                on = (((r5 >> (Font5x7::W - 1 - src_col)) & 1u) != 0)
+                     || (((r6 >> (Font5x7::W - 1 - src_col)) & 1u) != 0);
+            }
+            else
+            {
+                const uint8_t src = rows5[yy];
+                on                = ((src >> (Font5x7::W - 1 - src_col)) & 1u) != 0;
+            }
             if(on)
                 bits |= static_cast<uint8_t>(1u << (kMicroW - 1 - xx));
         }

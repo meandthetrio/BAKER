@@ -1,4 +1,5 @@
 #include "ui_worker_internal.h"
+#include "app_state_shared.h"
 #include "sd_browser_state.h"
 #include "storage_limits.h"
 
@@ -21,7 +22,7 @@ void CancelScan(SdBrowserState& sd)
     sd.scan_done = true;
 }
 
-bool StartScan(SdBrowserState& sd)
+bool StartScan(SdBrowserState& sd, AppSharedState& shared)
 {
     SdBrowser_ClearList(sd);
     sd.scan_in_progress = true;
@@ -29,6 +30,7 @@ bool StartScan(SdBrowserState& sd)
     SdBrowser_SetStatus(sd, "SCANNING");
     sd.load_progress = 0;
     sd.load_in_progress = false;
+    SdWavLoad_SetBusy(shared, sd, false);
     s_sd.state = LoaderState::Scan;
 
     if(!EnsureSdMountedInternal(sd))

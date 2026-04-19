@@ -199,7 +199,9 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     float drive = fx_params.sat_drive;
     Macros_Apply(g_voice.SmoothedMacros(), nullptr, nullptr, nullptr, nullptr, &drive);
     fx_params.sat_drive = drive;
-    g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params);
+    const bool sd_wav_load_busy
+        = (g_app.shared.sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0);
+    g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy);
 
     const bool monitor_on = (g_app.shared.recording.rec_monitor_enable.load(std::memory_order_acquire) != 0);
     if(monitor_on)

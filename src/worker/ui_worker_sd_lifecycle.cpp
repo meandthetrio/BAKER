@@ -1,6 +1,7 @@
 #include "ui_worker.h"
 #include "ui_worker_internal.h"
 
+#include "app_state_shared.h"
 #include "app_state_ui.h"
 #include "app_state_worker.h"
 #include "sd_browser_state.h"
@@ -43,7 +44,7 @@ bool EnsureSdMounted(AppUiState& ui)
     return EnsureSdMountedInternal(ui.sd);
 }
 
-void CancelLoad(AppUiState& ui, AppWorkerState& worker)
+void CancelLoad(AppUiState& ui, AppWorkerState& worker, AppSharedState& shared)
 {
     SdBrowserState& sd = ui.sd;
     if(s_sd.file_open)
@@ -54,5 +55,6 @@ void CancelLoad(AppUiState& ui, AppWorkerState& worker)
     s_sd.state = LoaderState::Idle;
     sd.load_in_progress = false;
     sd.load_progress = 0;
+    SdWavLoad_SetBusy(shared, sd, false);
     ClearProjectRestoreState(worker);
 }

@@ -481,13 +481,22 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     if(footer_region_h > Font5x7::H)
         kFooterY += (footer_region_h - Font5x7::H) / 2;
 
-    DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true);
     const uint8_t row = engine.perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
-    if(row == kEngineRowWave)
+    if(ui.sd.sd_wav_load_busy)
     {
-        // Invert full waveform preview region to signal enterable deep menu.
-        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, true);
-        DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, false);
+        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, false);
+        if(row == kEngineRowWave)
+            d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, true);
+    }
+    else
+    {
+        DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true);
+        if(row == kEngineRowWave)
+        {
+            // Invert full waveform preview region to signal enterable deep menu.
+            d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, true);
+            DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, false);
+        }
     }
 
     const int load_w = LoadWordmarkWidth();

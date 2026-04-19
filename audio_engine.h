@@ -21,7 +21,8 @@ class AudioEngine
                       float* outL,
                       float* outR,
                       size_t size,
-                      const PerformParamsCurrent& p);
+                      const PerformParamsCurrent& p,
+                      bool sd_wav_load_busy = false);
 
   private:
     float  sample_rate_ = 48000.0f;

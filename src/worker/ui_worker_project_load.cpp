@@ -298,6 +298,7 @@ void PrepareProjectLoadManifest(ProjectManifestV11& manifest)
 bool BeginProjectRestoreLoad(AppUiState& ui,
                              AppProjectState& project,
                              AppEngineState& engine,
+                             AppSharedState& shared,
                              AppWorkerState& worker,
                              uint8_t project_slot)
 {
@@ -307,7 +308,7 @@ bool BeginProjectRestoreLoad(AppUiState& ui,
         return true;
     }
 
-    if(!StartNextProjectRestoreLoad(ui, engine, worker))
+    if(!StartNextProjectRestoreLoad(ui, engine, worker, shared))
     {
         ClearProjectRestoreState(worker);
         SetProjectSlotStatus(project, project_slot, "ERR");

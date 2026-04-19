@@ -79,7 +79,7 @@ static bool PendingLoadBlockedByActiveRequest(const AppWorkerState& worker)
                || worker.ui_req_active == UiReqType::LoadProject);
 }
 
-static void CancelForPendingLoad(AppUiState& ui, AppWorkerState& worker)
+static void CancelForPendingLoad(AppUiState& ui, AppWorkerState& worker, AppSharedState& shared)
 {
     if(!worker.ui_req_busy)
         return;
@@ -87,7 +87,7 @@ static void CancelForPendingLoad(AppUiState& ui, AppWorkerState& worker)
     if(worker.ui_req_active == UiReqType::ScanSdWavs)
         CancelScan(ui.sd);
     if(worker.ui_req_active == UiReqType::LoadWavIndex)
-        CancelLoad(ui, worker);
+        CancelLoad(ui, worker, shared);
     if(worker.ui_req_active == UiReqType::NormalizeCurrent)
     {
         s_sd.norm_active = false;
@@ -103,10 +103,13 @@ static void MaybeHandlePendingLoad(AppUiState& ui, AppWorkerState& worker, AppSh
 
     const uint16_t idx = ui.sd.load_pending_index;
     ui.sd.load_pending = false;
-    CancelForPendingLoad(ui, worker);
+    CancelForPendingLoad(ui, worker, shared);
     BeginUiRequest(worker, UiReqType::LoadWavIndex, idx);
     if(!StartLoadInternal(ui.sd, shared, idx))
+    {
+        SdWavLoad_SetBusy(shared, ui.sd, false);
         FailAndFinishUiRequest(worker, worker.project_restore);
+    }
 }
 
 static void StartQueuedUiRequest(AppUiState& ui,
@@ -122,7 +125,7 @@ static void StartQueuedUiRequest(AppUiState& ui,
     switch(req.type)
     {
         case UiReqType::ScanSdWavs:
-            if(!StartScan(ui.sd))
+            if(!StartScan(ui.sd, shared))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::LoadWavIndex:
@@ -130,6 +133,7 @@ static void StartQueuedUiRequest(AppUiState& ui,
             {
                 ui.sd.load_in_progress = false;
                 ui.sd.load_progress = 0;
+                SdWavLoad_SetBusy(shared, ui.sd, false);
                 FailAndFinishUiRequest(worker, worker.project_restore);
             }
             break;

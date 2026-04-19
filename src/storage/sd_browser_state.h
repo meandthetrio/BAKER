@@ -8,6 +8,11 @@
 static constexpr uint8_t kSdMaxFiles = 32;
 static constexpr uint8_t kSdStatusMax = 16;
 
+struct AppSharedState;
+struct SdBrowserState;
+
+void SdWavLoad_SetBusy(AppSharedState& shared, SdBrowserState& sd, bool busy);
+
 struct SdBrowserState
 {
     bool sd_inited = false;
@@ -24,6 +29,8 @@ struct SdBrowserState
     char status[kSdStatusMax] = {};
     uint8_t load_progress = 0;
     bool load_in_progress = false;
+    /// Mirror of `shared.sample.publish.sd_wav_load_busy` for UI render (WAV load only).
+    bool sd_wav_load_busy = false;
     uint16_t last_loaded_index = 0xFFFFu;
     char last_loaded_path[kSdPathMax] = {};
     bool load_pending = false;

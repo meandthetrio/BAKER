@@ -38,6 +38,8 @@ struct AppSharedState
             std::atomic<uint8_t> sd_published_ready{0};
             std::atomic<uint32_t> sd_published_gen{0};
             std::atomic<uint32_t> sd_applied_gen{0};
+            /// Set during SDRAM WAV `f_read` load only (not normalize). Audio/UI read for gating.
+            std::atomic<uint8_t> sd_wav_load_busy{0};
         } publish{};
 
         struct EditState

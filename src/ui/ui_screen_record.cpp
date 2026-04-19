@@ -578,7 +578,14 @@ void Record_Render(UiScreenCtx& ctx)
             const uint8_t slot = recording.record_slot & 1u;
             const Sample& s = shared.sample.publish.sd_slots[slot];
             const SampleEdit* e = (s.length > 0) ? &shared.sample.edit.sd_edit_slots[slot] : nullptr;
-            DrawWaveformPreview(d, s, e, 0, layout.y_body, 128, 50);
+            if(ctx.ui && ctx.ui->sd.sd_wav_load_busy)
+            {
+                d.DrawRect(0, layout.y_body, 127, layout.y_body + 49, true, false);
+            }
+            else
+            {
+                DrawWaveformPreview(d, s, e, 0, layout.y_body, 128, 50);
+            }
             if(s.length == 0)
             {
                 d.SetCursor(42, 34);

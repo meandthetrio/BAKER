@@ -24,7 +24,7 @@ static constexpr float kLoopEnvReleaseMinMs       = 1.0f;
 static constexpr float kLoopEnvAttackReleaseMaxMs = 1000.0f;
 
 // Voice pool lives in fast RAM (DTCM). Uses `mem_regions.h` section macro.
-ADSR2_SECTION(".dtcmram") static Voice g_voice_pool[VoiceEngine::kMaxVoices];
+ADSR2_SECTION(".dtcmram_bss") static Voice g_voice_pool[VoiceEngine::kMaxVoices];
 
 void VoiceEngine::BindDebug(std::atomic<uint32_t>* events_popped,
                             std::atomic<uint32_t>* voices_active,

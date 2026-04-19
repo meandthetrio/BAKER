@@ -1,7 +1,34 @@
 #include "DattorroReverb.h"
+#include "mem_regions.h"
 
 #include <cmath>
 #include <cstring>
+
+namespace
+{
+// Sizes must match `DattorroReverb.h` input + tank allpass buffer constants.
+static constexpr size_t kDtcInputAp1Max = 230;
+static constexpr size_t kDtcInputAp2Max = 172;
+static constexpr size_t kDtcInputAp3Max = 609;
+static constexpr size_t kDtcInputAp4Max = 446;
+static constexpr size_t kDtcTankAp1Max  = 960;
+static constexpr size_t kDtcTankAp2Max  = 2880;
+static constexpr size_t kDtcTankAp3Max  = 1440;
+static constexpr size_t kDtcTankAp4Max  = 4272;
+
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap1_buf[kDtcInputAp1Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap2_buf[kDtcInputAp2Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap3_buf[kDtcInputAp3Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap4_buf[kDtcInputAp4Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap1_r_buf[kDtcInputAp1Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap2_r_buf[kDtcInputAp2Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap3_r_buf[kDtcInputAp3Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_input_ap4_r_buf[kDtcInputAp4Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap1_buf[kDtcTankAp1Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap2_buf[kDtcTankAp2Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap3_buf[kDtcTankAp3Max];
+ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap4_buf[kDtcTankAp4Max];
+} // namespace
 
 float DattorroReverb::Clamp01_(float value)
 {
@@ -475,18 +502,18 @@ void DattorroReverb::Init()
 {
     sample_rate_ = kSampleRate;
 
-    allpass_[0].Init(input_ap1_buf_, kInputAp1Max);
-    allpass_[1].Init(input_ap2_buf_, kInputAp2Max);
-    allpass_[2].Init(input_ap3_buf_, kInputAp3Max);
-    allpass_[3].Init(input_ap4_buf_, kInputAp4Max);
-    allpass_r_[0].Init(input_ap1_r_buf_, kInputAp1Max);
-    allpass_r_[1].Init(input_ap2_r_buf_, kInputAp2Max);
-    allpass_r_[2].Init(input_ap3_r_buf_, kInputAp3Max);
-    allpass_r_[3].Init(input_ap4_r_buf_, kInputAp4Max);
-    tank_allpass_[0].Init(tank_ap1_buf_, kTankAp1Max);
-    tank_allpass_[1].Init(tank_ap2_buf_, kTankAp2Max);
-    tank_allpass_[2].Init(tank_ap3_buf_, kTankAp3Max);
-    tank_allpass_[3].Init(tank_ap4_buf_, kTankAp4Max);
+    allpass_[0].Init(g_dattorro_input_ap1_buf, kInputAp1Max);
+    allpass_[1].Init(g_dattorro_input_ap2_buf, kInputAp2Max);
+    allpass_[2].Init(g_dattorro_input_ap3_buf, kInputAp3Max);
+    allpass_[3].Init(g_dattorro_input_ap4_buf, kInputAp4Max);
+    allpass_r_[0].Init(g_dattorro_input_ap1_r_buf, kInputAp1Max);
+    allpass_r_[1].Init(g_dattorro_input_ap2_r_buf, kInputAp2Max);
+    allpass_r_[2].Init(g_dattorro_input_ap3_r_buf, kInputAp3Max);
+    allpass_r_[3].Init(g_dattorro_input_ap4_r_buf, kInputAp4Max);
+    tank_allpass_[0].Init(g_dattorro_tank_ap1_buf, kTankAp1Max);
+    tank_allpass_[1].Init(g_dattorro_tank_ap2_buf, kTankAp2Max);
+    tank_allpass_[2].Init(g_dattorro_tank_ap3_buf, kTankAp3Max);
+    tank_allpass_[3].Init(g_dattorro_tank_ap4_buf, kTankAp4Max);
     tank_delay_[0].Init(tank_delay1_buf_, kTankDelay1Max);
     tank_delay_[1].Init(tank_delay2_buf_, kTankDelay2Max);
     tank_delay_[2].Init(tank_delay3_buf_, kTankDelay3Max);

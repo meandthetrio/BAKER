@@ -50,5 +50,6 @@ void SetupProjectRestoreState(AppWorkerState& worker,
 bool BeginProjectRestoreLoad(AppUiState& ui,
                              AppProjectState& project,
                              AppEngineState& engine,
+                             AppSharedState& shared,
                              AppWorkerState& worker,
                              uint8_t project_slot);

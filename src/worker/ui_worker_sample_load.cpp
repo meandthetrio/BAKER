@@ -27,6 +27,7 @@ static bool FailLoadStart(SdBrowserState& sd, const char* status)
 }
 
 static bool StartLoadFromPathInternal(SdBrowserState& sd,
+                                      AppSharedState& shared,
                                       const char* path,
                                       uint8_t loading_slot,
                                       uint16_t load_index)
@@ -78,6 +79,7 @@ static bool StartLoadFromPathInternal(SdBrowserState& sd,
     sd.load_in_progress = true;
     sd.load_progress = 0;
     SdBrowser_SetStatus(sd, "LOADING");
+    SdWavLoad_SetBusy(shared, sd, true);
 
     return true;
 }
@@ -91,16 +93,16 @@ bool StartLoadInternal(SdBrowserState& sd, AppSharedState& shared, uint16_t inde
 
     const uint8_t current_slot = shared.sample.publish.sd_current_slot.load(std::memory_order_acquire);
     const uint8_t next_slot = current_slot ^ 1u;
-    return StartLoadFromPathInternal(sd, sd.paths[index], next_slot, index);
+    return StartLoadFromPathInternal(sd, shared, sd.paths[index], next_slot, index);
 }
 
-bool StartLoadPath(AppUiState& ui, const char* path, uint8_t target_slot)
+bool StartLoadPath(AppUiState& ui, AppSharedState& shared, const char* path, uint8_t target_slot)
 {
     s_sd.state = LoaderState::Idle;
     ui.sd.load_pending = false;
     if(!path || path[0] == '\0')
         return FailLoadStart(ui.sd, "BAD PATH");
-    return StartLoadFromPathInternal(ui.sd, path, target_slot, 0xFFFFu);
+    return StartLoadFromPathInternal(ui.sd, shared, path, target_slot, 0xFFFFu);
 }
 
 void ClearProjectRestoreStateInternal(ProjectRestoreState& project_restore)
@@ -118,7 +120,8 @@ void ClearProjectRestoreState(AppWorkerState& worker)
 
 static bool StartNextProjectRestoreLoadInternal(SdBrowserState& sd,
                                                 AppEngineState& engine,
-                                                ProjectRestoreState& project_restore)
+                                                ProjectRestoreState& project_restore,
+                                                AppSharedState& shared)
 {
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
     {
@@ -133,7 +136,7 @@ static bool StartNextProjectRestoreLoadInternal(SdBrowserState& sd,
         }
 
         engine.perform_nav.perform_layer = slot;
-        if(!StartLoadFromPathInternal(sd, s_sd.project_restore_path[slot], slot, 0xFFFFu))
+        if(!StartLoadFromPathInternal(sd, shared, s_sd.project_restore_path[slot], slot, 0xFFFFu))
             return false;
 
         s_sd.project_restore_pending_mask &= static_cast<uint8_t>(~bit);
@@ -144,9 +147,10 @@ static bool StartNextProjectRestoreLoadInternal(SdBrowserState& sd,
 
 bool StartNextProjectRestoreLoad(AppUiState& ui,
                                  AppEngineState& engine,
-                                 AppWorkerState& worker)
+                                 AppWorkerState& worker,
+                                 AppSharedState& shared)
 {
-    return StartNextProjectRestoreLoadInternal(ui.sd, engine, worker.project_restore);
+    return StartNextProjectRestoreLoadInternal(ui.sd, engine, worker.project_restore, shared);
 }
 
 bool LoadStepInternal(SdBrowserState& sd,
@@ -181,6 +185,7 @@ bool LoadStepInternal(SdBrowserState& sd,
         s_sd.file_open = false;
         s_sd.state = LoaderState::Idle;
         sd.load_in_progress = false;
+        SdWavLoad_SetBusy(shared, sd, false);
         SdBrowser_SetStatus(sd, "READ ERR");
         sd.wav_err_count++;
         ClearProjectRestoreStateInternal(project_restore);
@@ -235,13 +240,14 @@ bool LoadStepInternal(SdBrowserState& sd,
         s_sd.state = LoaderState::Idle;
 
         sd.load_in_progress = false;
+        SdWavLoad_SetBusy(shared, sd, false);
         sd.load_progress = 100;
         sd.last_loaded_index = s_sd.load_index;
         SdBrowser_SetStatus(sd, "LOADED");
         if(worker.ui_req_busy && worker.ui_req_active == UiReqType::LoadProject
            && s_sd.project_restore_pending_mask != 0u)
         {
-            if(StartNextProjectRestoreLoadInternal(sd, engine, project_restore))
+            if(StartNextProjectRestoreLoadInternal(sd, engine, project_restore, shared))
                 return false;
             ClearProjectRestoreStateInternal(project_restore);
             worker.ui_req_result = -1;

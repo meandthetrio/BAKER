@@ -246,7 +246,8 @@ void AudioEngine::ProcessBlock(const float* inL,
                                float* outL,
                                float* outR,
                                size_t size,
-                               const PerformParamsCurrent& p)
+                               const PerformParamsCurrent& p,
+                               bool sd_wav_load_busy)
 {
     // Master level can exceed unity for user "BOOST" (e.g. 0..2.0).
     // Clamp here as a last line of defense (UI/params should also clamp).
@@ -316,7 +317,8 @@ void AudioEngine::ProcessBlock(const float* inL,
     const bool  sat_run = (p.sat_on && p.sat_drive >= 0.0001f);
     const float pre     = 1.0f + p.sat_drive * 10.0f;
 
-    ReverbUpdateParamsDattorro_(p);
+    if(!sd_wav_load_busy)
+        ReverbUpdateParamsDattorro_(p);
 
     const bool eq_run = (p.eq_on && p.eq_mix > 1e-5f);
     if(eq_run && !eq_run_prev_)
@@ -387,11 +389,11 @@ void AudioEngine::ProcessBlock(const float* inL,
                     ProcessEqBlock_(outL, outR, size, p.eq_mix);
                 break;
             case 2:
-                if(delay_active_ || delay_tailing_)
+                if(!sd_wav_load_busy && (delay_active_ || delay_tailing_))
                     ProcessDelayBlock_(outL, outR, size, p, len_l, len_r, delay_fb, delay_wet_peak);
                 break;
             case 3:
-                if(reverb_active_ || reverb_tailing_)
+                if(!sd_wav_load_busy && (reverb_active_ || reverb_tailing_))
                     ProcessReverbBlock_(outL, outR, size, p, reverb_wet_peak);
                 break;
             default:
@@ -402,43 +404,48 @@ void AudioEngine::ProcessBlock(const float* inL,
     // Final gain stage (and soft-clip safety when BOOST is engaged).
     ApplyMasterBlock_(outL, outR, size, level, bypass_comp);
 
-    // ---- Delay tail bookkeeping ----
-    if(delay_tailing_)
+    // During SDRAM WAV load, delay/reverb stages are skipped; freeze tail bookkeeping too
+    // (otherwise wet_peak stays 0 and tails collapse incorrectly).
+    if(!sd_wav_load_busy)
     {
-        if(delay_wet_peak < kTailSilenceThresh) delay_quiet_blocks_++;
-        else delay_quiet_blocks_ = 0;
-
-        if(delay_tail_blocks_left_ > 0) delay_tail_blocks_left_--;
-
-        if(delay_tail_blocks_left_ == 0 || delay_quiet_blocks_ >= kQuietBlocksToStop)
+        // ---- Delay tail bookkeeping ----
+        if(delay_tailing_)
         {
-            delay_tailing_ = false;
-            delay_active_  = false;
-            DelayClear_();
+            if(delay_wet_peak < kTailSilenceThresh) delay_quiet_blocks_++;
+            else delay_quiet_blocks_ = 0;
+
+            if(delay_tail_blocks_left_ > 0) delay_tail_blocks_left_--;
+
+            if(delay_tail_blocks_left_ == 0 || delay_quiet_blocks_ >= kQuietBlocksToStop)
+            {
+                delay_tailing_ = false;
+                delay_active_  = false;
+                DelayClear_();
+            }
         }
-    }
-    else if(!p.delay_on)
-    {
-        delay_active_ = false;
-    }
-
-    // ---- Reverb tail bookkeeping ----
-    if(reverb_tailing_)
-    {
-        if(reverb_wet_peak < kTailSilenceThresh) reverb_quiet_blocks_++;
-        else reverb_quiet_blocks_ = 0;
-
-        if(reverb_tail_blocks_left_ > 0) reverb_tail_blocks_left_--;
-
-        if(reverb_tail_blocks_left_ == 0 || reverb_quiet_blocks_ >= kQuietBlocksToStop)
+        else if(!p.delay_on)
         {
-            reverb_tailing_ = false;
-            reverb_active_  = false;
-            ReverbClear_();
+            delay_active_ = false;
         }
-    }
-    else if(!p.reverb_on)
-    {
-        reverb_active_ = false;
+
+        // ---- Reverb tail bookkeeping ----
+        if(reverb_tailing_)
+        {
+            if(reverb_wet_peak < kTailSilenceThresh) reverb_quiet_blocks_++;
+            else reverb_quiet_blocks_ = 0;
+
+            if(reverb_tail_blocks_left_ > 0) reverb_tail_blocks_left_--;
+
+            if(reverb_tail_blocks_left_ == 0 || reverb_quiet_blocks_ >= kQuietBlocksToStop)
+            {
+                reverb_tailing_ = false;
+                reverb_active_  = false;
+                ReverbClear_();
+            }
+        }
+        else if(!p.reverb_on)
+        {
+            reverb_active_ = false;
+        }
     }
 }

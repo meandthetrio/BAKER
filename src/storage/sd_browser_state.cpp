@@ -1,7 +1,15 @@
 #include "sd_browser_state.h"
 
+#include "app_state_shared.h"
+
 #include <cstdio>
 #include <cstring>
+
+void SdWavLoad_SetBusy(AppSharedState& shared, SdBrowserState& sd, bool busy)
+{
+    shared.sample.publish.sd_wav_load_busy.store(busy ? 1u : 0u, std::memory_order_release);
+    sd.sd_wav_load_busy = busy;
+}
 
 void SdBrowser_ClearList(SdBrowserState& s)
 {

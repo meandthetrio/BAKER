@@ -172,8 +172,15 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
     const bool adsr_mode
         = (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowAdsr);
 
-    DrawWaveformPreview(
-        d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true, adsr_mode, wave_focused);
+    if(ctx.ui && ctx.ui->sd.sd_wav_load_busy)
+    {
+        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, false);
+    }
+    else
+    {
+        DrawWaveformPreview(
+            d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true, adsr_mode, wave_focused);
+    }
 
     static const char* kBottomLetters[4] = {"a", "d", "s", "r"};
     const int bottom_y = kWaveBottomY + 2;

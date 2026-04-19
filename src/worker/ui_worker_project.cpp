@@ -530,5 +530,5 @@ bool LoadProject(AppUiState& ui,
     ApplyProjectLoadState(engine, shared, params, manifest);
 
     SetupProjectRestoreState(worker, engine, manifest);
-    return BeginProjectRestoreLoad(ui, project, engine, worker, project_slot);
+    return BeginProjectRestoreLoad(ui, project, engine, shared, worker, project_slot);
 }

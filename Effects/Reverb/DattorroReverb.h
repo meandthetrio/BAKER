@@ -202,18 +202,6 @@ class DattorroReverb
     float previous_left_tank_  = 0.0f;
     float previous_right_tank_ = 0.0f;
 
-    ADSR2_ALIGN32 float input_ap1_buf_[kInputAp1Max];
-    ADSR2_ALIGN32 float input_ap2_buf_[kInputAp2Max];
-    ADSR2_ALIGN32 float input_ap3_buf_[kInputAp3Max];
-    ADSR2_ALIGN32 float input_ap4_buf_[kInputAp4Max];
-    ADSR2_ALIGN32 float input_ap1_r_buf_[kInputAp1Max];
-    ADSR2_ALIGN32 float input_ap2_r_buf_[kInputAp2Max];
-    ADSR2_ALIGN32 float input_ap3_r_buf_[kInputAp3Max];
-    ADSR2_ALIGN32 float input_ap4_r_buf_[kInputAp4Max];
-    ADSR2_ALIGN32 float tank_ap1_buf_[kTankAp1Max];
-    ADSR2_ALIGN32 float tank_ap2_buf_[kTankAp2Max];
-    ADSR2_ALIGN32 float tank_ap3_buf_[kTankAp3Max];
-    ADSR2_ALIGN32 float tank_ap4_buf_[kTankAp4Max];
     ADSR2_ALIGN32 float tank_delay1_buf_[kTankDelay1Max];
     ADSR2_ALIGN32 float tank_delay2_buf_[kTankDelay2Max];
     ADSR2_ALIGN32 float tank_delay3_buf_[kTankDelay3Max];

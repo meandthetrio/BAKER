@@ -272,7 +272,9 @@ void DattorroReverb::StateVariable::Reset()
 
 void DattorroReverb::StateVariable::SetSampleRate(float value)
 {
-    sample_rate = value * 4.0f;
+    // 2x internal oversampling. The loop count in Process() must match this factor
+    // so that UpdateCoefficient()'s f = 2*sin(pi*freq/sample_rate) maps correctly.
+    sample_rate = value * 2.0f;
     UpdateCoefficient();
 }
 
@@ -296,7 +298,8 @@ void DattorroReverb::StateVariable::Type(FilterType value)
 
 float DattorroReverb::StateVariable::Process(float input)
 {
-    for(int i = 0; i < 4; ++i)
+    // Internal oversampling factor (paired with SetSampleRate multiplier).
+    for(int i = 0; i < 2; ++i)
     {
         low += static_cast<float>(f * band + 1e-25f);
         high = input - low - q * band;
@@ -448,6 +451,16 @@ void DattorroReverb::Clear_()
 
     previous_left_tank_  = 0.0f;
     previous_right_tank_ = 0.0f;
+
+    // P3: ensure cached feedback params are in sync with current `decay_` on
+    // Clear_, in case the reverb is re-prepared mid-session (rather than only
+    // via Init). Clear_ is also called from Init so this mirrors the Init seed.
+    current_decay_    = (0.7995f * decay_) + 0.005f;
+    current_density2_ = current_decay_ + 0.15f;
+    if(current_density2_ > 0.5f)
+        current_density2_ = 0.5f;
+    if(current_density2_ < 0.25f)
+        current_density2_ = 0.25f;
 }
 
 float DattorroReverb::ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line,
@@ -511,6 +524,18 @@ void DattorroReverb::Init()
     SetDecay(1.0f);
     SetWetDry(0.5f);
     SetMod(0.0f);
+
+    // P3: seed cached feedback params from `decay_` so the first block's
+    // per-sample reads have correct values before the first control-rate
+    // update fires (which won't happen until control_rate_counter_ reaches
+    // control_rate_, i.e. sample 48).
+    current_decay_    = (0.7995f * decay_) + 0.005f;
+    current_density2_ = current_decay_ + 0.15f;
+    if(current_density2_ > 0.5f)
+        current_density2_ = 0.5f;
+    if(current_density2_ < 0.25f)
+        current_density2_ = 0.25f;
+
     Clear_();
     SetPredelay(0.0f);
 }
@@ -556,18 +581,29 @@ void DattorroReverb::Process(const float inL,
     const float left  = inL;
     const float right = inR;
 
-    const float damping_param   = damping_;
-    const float bandwidth_param = 1.0f - damping_;
-    const float decay = (0.7995f * decay_) + 0.005f;
-    float density2 = decay + 0.15f;
-    if(density2 > 0.5f)
-        density2 = 0.5f;
-    if(density2 < 0.25f)
-        density2 = 0.25f;
-
     if(control_rate_counter_ >= control_rate_)
     {
         control_rate_counter_ = 0;
+
+        // P3: hoist decay/density2/tank-feedback updates to the 1 kHz
+        // control-rate block. These depend only on `damping_` and `decay_`,
+        // which are already smoothed once per audio block (~1 kHz) by the
+        // engine, so updating feedback at 1 kHz rather than 48 kHz is
+        // sonically transparent while removing 48x redundant work per block.
+        const float damping_param   = damping_;
+        const float bandwidth_param = 1.0f - damping_;
+        current_decay_    = (0.7995f * decay_) + 0.005f;
+        current_density2_ = current_decay_ + 0.15f;
+        if(current_density2_ > 0.5f)
+            current_density2_ = 0.5f;
+        if(current_density2_ < 0.25f)
+            current_density2_ = 0.25f;
+
+        tank_allpass_[0].SetFeedback(kDensity);
+        tank_allpass_[1].SetFeedback(current_density2_);
+        tank_allpass_[2].SetFeedback(kDensity);
+        tank_allpass_[3].SetFeedback(current_density2_);
+
         bandwidth_filter_[0].Frequency((bandwidth_param * 18400.0f) + 100.0f);
         bandwidth_filter_[1].Frequency((bandwidth_param * 18400.0f) + 100.0f);
         damping_filter_[0].Frequency(((1.0f - damping_param) * 18400.0f) + 100.0f);
@@ -593,11 +629,6 @@ void DattorroReverb::Process(const float inL,
         predelay_r_.SetDelay(d);
     }
     ++control_rate_counter_;
-
-    tank_allpass_[0].SetFeedback(kDensity);
-    tank_allpass_[1].SetFeedback(density2);
-    tank_allpass_[2].SetFeedback(kDensity);
-    tank_allpass_[3].SetFeedback(density2);
 
     const float bandwidthLeft  = bandwidth_filter_[0].Process(left);
     const float bandwidthRight = bandwidth_filter_[1].Process(right);
@@ -645,8 +676,8 @@ void DattorroReverb::Process(const float inL,
     rightTank = tank_allpass_[3].Process(rightTank);
     rightTank = tank_delay_[3].Process(rightTank);
 
-    previous_left_tank_  = leftTank * decay;
-    previous_right_tank_ = rightTank * decay;
+    previous_left_tank_  = leftTank * current_decay_;
+    previous_right_tank_ = rightTank * current_decay_;
 
     float accumulatorL = static_cast<float>((0.6f * tank_delay_[2].GetIndex(1))
                                           + (0.6f * tank_delay_[2].GetIndex(2))
@@ -684,4 +715,160 @@ void DattorroReverb::Process(const float inL,
 
     outL = inL + wetL * out_gain_;
     outR = inR + wetR * out_gain_;
+}
+
+void DattorroReverb::ProcessBlock(const float* inL,
+                                  const float* inR,
+                                  float*       outL,
+                                  float*       outR,
+                                  size_t       n)
+{
+    // ---- Block-constant scalars (hoisted out of the inner loop) ----
+    const float damping_param   = damping_;
+    const float bandwidth_param = 1.0f - damping_;
+    const float decay           = (0.7995f * decay_) + 0.005f;
+    float       density2_tmp    = decay + 0.15f;
+    if(density2_tmp > 0.5f)
+        density2_tmp = 0.5f;
+    if(density2_tmp < 0.25f)
+        density2_tmp = 0.25f;
+    const float    density2      = density2_tmp;
+    const float    out_gain      = out_gain_;
+    const float    mod_val       = mod_;
+    const uint32_t crate         = control_rate_;
+    const size_t   predelay_base = predelay_base_samples_;
+
+    // ---- Lift redundant per-sample tank-allpass SetFeedback calls ----
+    // `kDensity` is a compile-time constant, and `density2` is derived from
+    // the block-constant `decay`, so feedback only needs to be written once
+    // per block. The per-sample versions in Process() repeat the same stores
+    // 48 times per block; here we write them once.
+    tank_allpass_[0].SetFeedback(kDensity);
+    tank_allpass_[1].SetFeedback(density2);
+    tank_allpass_[2].SetFeedback(kDensity);
+    tank_allpass_[3].SetFeedback(density2);
+
+    // ---- Hoisted per-block state (written back to members once at the end) ----
+    uint32_t ctr        = control_rate_counter_;
+    float    prev_left  = previous_left_tank_;
+    float    prev_right = previous_right_tank_;
+
+    for(size_t i = 0; i < n; ++i)
+    {
+        const float left  = inL[i];
+        const float right = inR[i];
+
+        if(ctr >= crate)
+        {
+            ctr = 0;
+            bandwidth_filter_[0].Frequency((bandwidth_param * 18400.0f) + 100.0f);
+            bandwidth_filter_[1].Frequency((bandwidth_param * 18400.0f) + 100.0f);
+            damping_filter_[0].Frequency(((1.0f - damping_param) * 18400.0f) + 100.0f);
+            damping_filter_[1].Frequency(((1.0f - damping_param) * 18400.0f) + 100.0f);
+
+            const float hz = 0.6f;
+            oscillator_.SetFreq(hz * static_cast<float>(crate));
+
+            constexpr float kPredelayModDepthSamples = 5.0f;
+            const float     m         = oscillator_.Process();
+            const int32_t   mod_samps = static_cast<int32_t>(m * kPredelayModDepthSamples);
+            int32_t         want      = static_cast<int32_t>(predelay_base) + mod_samps;
+            if(want < 0)
+                want = 0;
+            if(want >= static_cast<int32_t>(kPredelayMax - 1))
+                want = static_cast<int32_t>(kPredelayMax - 1);
+            const size_t d = static_cast<size_t>(want);
+            predelay_.SetDelay(d);
+            predelay_r_.SetDelay(d);
+        }
+        ++ctr;
+
+        const float bandwidthLeft  = bandwidth_filter_[0].Process(left);
+        const float bandwidthRight = bandwidth_filter_[1].Process(right);
+
+        const float earlyReflectionsL =
+            static_cast<float>(early_delay_[0].Process(bandwidthLeft * 0.5f + bandwidthRight * 0.3f)
+                             + early_delay_[0].GetIndex(2) * 0.6f
+                             + early_delay_[0].GetIndex(3) * 0.4f
+                             + early_delay_[0].GetIndex(4) * 0.3f
+                             + early_delay_[0].GetIndex(5) * 0.3f
+                             + early_delay_[0].GetIndex(6) * 0.1f
+                             + early_delay_[0].GetIndex(7) * 0.1f
+                             + (bandwidthLeft * 0.4f + bandwidthRight * 0.2f) * 0.5f);
+
+        const float earlyReflectionsR =
+            static_cast<float>(early_delay_[1].Process(bandwidthLeft * 0.3f + bandwidthRight * 0.5f)
+                             + early_delay_[1].GetIndex(2) * 0.6f
+                             + early_delay_[1].GetIndex(3) * 0.4f
+                             + early_delay_[1].GetIndex(4) * 0.3f
+                             + early_delay_[1].GetIndex(5) * 0.3f
+                             + early_delay_[1].GetIndex(6) * 0.1f
+                             + early_delay_[1].GetIndex(7) * 0.1f
+                             + (bandwidthLeft * 0.2f + bandwidthRight * 0.4f) * 0.5f);
+
+        float smearedL = ProcessPredelayLine_(predelay_, bandwidthLeft);
+        float smearedR = ProcessPredelayLine_(predelay_r_, bandwidthRight);
+        for(int j = 0; j < 4; ++j)
+            smearedL = allpass_[j].Process(smearedL);
+        for(int j = 0; j < 4; ++j)
+            smearedR = allpass_r_[j].Process(smearedR);
+
+        const float tankInL = smearedL;
+        const float tankInR = smearedR;
+
+        float leftTank = tank_allpass_[0].Process(tankInL + prev_right);
+        leftTank       = tank_delay_[0].Process(leftTank);
+        leftTank       = damping_filter_[0].Process(leftTank);
+        leftTank       = tank_allpass_[1].Process(leftTank);
+        leftTank       = tank_delay_[1].Process(leftTank);
+
+        float rightTank = tank_allpass_[2].Process(tankInR + prev_left);
+        rightTank       = tank_delay_[2].Process(rightTank);
+        rightTank       = damping_filter_[1].Process(rightTank);
+        rightTank       = tank_allpass_[3].Process(rightTank);
+        rightTank       = tank_delay_[3].Process(rightTank);
+
+        prev_left  = leftTank * decay;
+        prev_right = rightTank * decay;
+
+        float accumulatorL = static_cast<float>((0.6f * tank_delay_[2].GetIndex(1))
+                                              + (0.6f * tank_delay_[2].GetIndex(2))
+                                              - (0.6f * tank_allpass_[3].GetIndex(1))
+                                              + (0.6f * tank_delay_[3].GetIndex(1))
+                                              - (0.6f * tank_delay_[0].GetIndex(1))
+                                              - (0.6f * tank_allpass_[1].GetIndex(1))
+                                              - (0.6f * tank_delay_[1].GetIndex(1)));
+
+        float accumulatorR = static_cast<float>((0.6f * tank_delay_[0].GetIndex(2))
+                                              + (0.6f * tank_delay_[0].GetIndex(3))
+                                              - (0.6f * tank_allpass_[1].GetIndex(2))
+                                              + (0.6f * tank_delay_[1].GetIndex(2))
+                                              - (0.6f * tank_delay_[2].GetIndex(3))
+                                              - (0.6f * tank_allpass_[3].GetIndex(2))
+                                              - (0.6f * tank_delay_[3].GetIndex(2)));
+
+        accumulatorL = (accumulatorL * kEarlyMix)
+                     + ((1.0f - kEarlyMix) * earlyReflectionsL);
+        accumulatorR = (accumulatorR * kEarlyMix)
+                     + ((1.0f - kEarlyMix) * earlyReflectionsR);
+
+        float wetL = accumulatorL * kGain;
+        float wetR = accumulatorR * kGain;
+
+        constexpr float kWetSideMaxExtra = 1.5f;
+        const float     wetMid           = 0.5f * (wetL + wetR);
+        const float     wetSide          = 0.5f * (wetL - wetR);
+        const float     widthCurve       = mod_val * mod_val;
+        const float     sideBoost        = 1.0f + widthCurve * kWetSideMaxExtra;
+        const float     wetSideW         = wetSide * sideBoost;
+        wetL                             = wetMid + wetSideW;
+        wetR                             = wetMid - wetSideW;
+
+        outL[i] = left + wetL * out_gain;
+        outR[i] = right + wetR * out_gain;
+    }
+
+    control_rate_counter_ = ctr;
+    previous_left_tank_   = prev_left;
+    previous_right_tank_  = prev_right;
 }

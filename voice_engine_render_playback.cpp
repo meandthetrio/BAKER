@@ -1,32 +1,20 @@
 #include "voice_engine_render_internal.h"
 
-void VoicePlayback_NormalizeStealXFadePositions(float length_f,
-                                                float ls,
-                                                uint32_t start,
-                                                bool old_loop_enabled,
-                                                bool new_loop_enabled,
-                                                float& old_pos,
-                                                float& new_pos,
-                                                bool& old_gate,
-                                                bool& new_gate)
+void VoicePlayback_NormalizeStealFadeOutPositions(float length_f,
+                                                  float ls,
+                                                  uint32_t start,
+                                                  bool loop_enabled,
+                                                  float& pos,
+                                                  bool& gate)
 {
-    if(old_loop_enabled && old_pos >= length_f)
-        old_pos = ls + (old_pos - length_f);
-    if(new_loop_enabled && new_pos >= length_f)
-        new_pos = ls + (new_pos - length_f);
-    if(old_pos < static_cast<float>(start))
-        old_pos = static_cast<float>(start);
-    if(new_pos < static_cast<float>(start))
-        new_pos = static_cast<float>(start);
-    if(!old_loop_enabled && old_pos >= length_f && length_f > 0.0f)
+    if(loop_enabled && pos >= length_f)
+        pos = ls + (pos - length_f);
+    if(pos < static_cast<float>(start))
+        pos = static_cast<float>(start);
+    if(!loop_enabled && pos >= length_f && length_f > 0.0f)
     {
-        old_gate = false;
-        old_pos = length_f - 1.0f;
-    }
-    if(!new_loop_enabled && new_pos >= length_f && length_f > 0.0f)
-    {
-        new_gate = false;
-        new_pos = length_f - 1.0f;
+        gate = false;
+        pos  = length_f - 1.0f;
     }
 }
 

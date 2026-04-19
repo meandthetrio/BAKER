@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 
 // Two-band tilt: peaking lows at f0/sqrt(2), peaking highs at f0*sqrt(2) => f_high = 2*f_low.
 // Q is shared by both bells (RBJ peaking / bell), typically 0.5..1.7.
@@ -70,4 +71,9 @@ struct TiltEqStereo
     void Reset();
     void SetFromParams(float center_hz, float tilt_db, float sample_rate, float Q);
     void ProcessSample(float& l, float& r, float dry_wet /*0..1*/);
+    // Block variant: hoists biquad coefficients and z1/z2 state into stack
+    // locals for the duration of the block, writes them back once at the end.
+    // Produces the same sequence of operations as calling ProcessSample n
+    // times, with fewer member-through-this loads/stores in the hot loop.
+    void ProcessBlock(float* L, float* R, size_t n, float dry_wet /*0..1*/);
 };

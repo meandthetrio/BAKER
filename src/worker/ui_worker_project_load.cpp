@@ -165,8 +165,8 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
         engine.adsr.perform_adsr_row[slot] = ClampProjectAdsrRow(manifest.perform_adsr_row[slot]);
         engine.layer.engine_play_mode[slot] = ClampProjectPlayMode(manifest.engine_play_mode[slot]);
         engine.adsr.perform_adsr_loop_attack[slot] = manifest.perform_adsr_loop_attack[slot];
-        if(engine.adsr.perform_adsr_loop_attack[slot] < 1u)
-            engine.adsr.perform_adsr_loop_attack[slot] = 1u;
+        if(engine.adsr.perform_adsr_loop_attack[slot] < 2u)
+            engine.adsr.perform_adsr_loop_attack[slot] = 2u;
         if(engine.adsr.perform_adsr_loop_attack[slot] > 1000u)
             engine.adsr.perform_adsr_loop_attack[slot] = 1000u;
         engine.adsr.perform_adsr_loop_decay[slot] = manifest.perform_adsr_loop_decay[slot];

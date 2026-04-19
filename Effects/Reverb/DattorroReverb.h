@@ -11,6 +11,12 @@ class DattorroReverb
   public:
     void Init();
     void Process(const float inL, const float inR, float& outL, float& outR);
+    // Block variant: hoists scalar parameter/state members (damping/decay/
+    // out_gain/control_rate_counter/previous_*_tank) into stack locals and
+    // lifts the redundant per-sample tank-allpass SetFeedback calls outside
+    // the hot loop. Produces `outL[i] = inL[i] + wetL*out_gain` just like the
+    // per-sample Process, so callers can subtract input to extract wet-only.
+    void ProcessBlock(const float* inL, const float* inR, float* outL, float* outR, size_t n);
 
     void SetPredelay(float ms);
     void SetDamping(float value);
@@ -169,6 +175,17 @@ class DattorroReverb
 
     uint32_t control_rate_         = 48;
     uint32_t control_rate_counter_ = 0;
+
+    // P3: cached per-sample reverb feedback parameters, recomputed inside the
+    // 1 kHz control-rate block. `current_decay_` mirrors `(0.7995 * decay_) +
+    // 0.005` and `current_density2_` mirrors the clamped `current_decay_ +
+    // 0.15` at the last control update. Per-sample reads these directly
+    // instead of recomputing every sample, and `tank_allpass_[].SetFeedback`
+    // is updated alongside them. Default values match Init's post-SetDecay
+    // state so the first block has valid feedback until the first control
+    // update lands at sample 48.
+    float current_decay_    = 0.005f;
+    float current_density2_ = 0.25f;
 
     daisysp::Oscillator                      oscillator_;
     daisysp::DelayLine<float, kPredelayMax> predelay_;

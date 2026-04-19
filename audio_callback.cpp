@@ -25,8 +25,6 @@ extern float g_sample_rate_hz;
 
 namespace
 {
-constexpr float kMacroSmoothSec = 0.005f;
-
 void AudioCallback_ApplySdSampleHandoffs(VoiceEngine& voice, AppSharedState& shared)
 {
     const uint8_t ready = shared.sample.publish.sd_published_ready.load(std::memory_order_acquire);
@@ -150,30 +148,9 @@ void AudioCallback(AudioHandle::InputBuffer  in,
 
     g_params.AudioBlockTick(g_sample_rate_hz, size);
 
-    static MacroState s_active_macros{};
-    static MacroState s_macro_smoothed{};
-    static uint32_t   s_macro_gen_seen = 0;
-    static bool       s_macro_init = false;
-    if(!s_macro_init)
-    {
-        Macros_InitState(s_active_macros);
-        Macros_InitState(s_macro_smoothed);
-        s_macro_init = true;
-    }
-    const uint32_t macro_gen = g_app.shared.performance.macros.macro_gen.load(std::memory_order_acquire);
-    if(macro_gen != s_macro_gen_seen)
-    {
-        const uint8_t sel = g_app.shared.performance.macros.macro_sel.load(std::memory_order_acquire) & 1u;
-        s_active_macros = (sel == 0) ? g_app.shared.performance.macros.macro_a : g_app.shared.performance.macros.macro_b;
-        s_macro_gen_seen = macro_gen;
-    }
-    const float dt_block_sec = static_cast<float>(size) / g_sample_rate_hz;
-    float macro_coeff = 1.0f - std::exp(-dt_block_sec / kMacroSmoothSec);
-    if(macro_coeff < 0.0f)
-        macro_coeff = 0.0f;
-    if(macro_coeff > 1.0f)
-        macro_coeff = 1.0f;
-    Macros_Smooth(s_macro_smoothed, s_active_macros, macro_coeff);
+    // Macro snapshot + smoothing is owned by VoiceEngine; its RenderBlock
+    // below updates g_voice.SmoothedMacros() for this block. Reading that
+    // after RenderBlock is the single source of truth on the audio thread.
 
     g_voice.SetModParams(g_params.current.lfo_rate_hz,
                          g_params.current.lfo_depth,
@@ -220,7 +197,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
 
     PerformParamsCurrent fx_params = g_params.current;
     float drive = fx_params.sat_drive;
-    Macros_Apply(s_macro_smoothed, nullptr, nullptr, nullptr, nullptr, &drive);
+    Macros_Apply(g_voice.SmoothedMacros(), nullptr, nullptr, nullptr, nullptr, &drive);
     fx_params.sat_drive = drive;
     g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params);
 

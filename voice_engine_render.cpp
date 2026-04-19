@@ -11,6 +11,22 @@ static constexpr float kMacroSmoothSec     = 0.005f;
 static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
 
+// P1: threshold below which the emphasis ladder/DC-blocker state is considered
+// inaudibly decayed (summed |state| across the four ladder poles + the DC
+// blocker output). ~1e-5 ≈ -100 dB full-scale, well below the noise floor of
+// any downstream stage. Paired with layer activity tracking to avoid clicks
+// when a new voice engages after a skip.
+static constexpr float kEmphasisStateEpsilon = 1e-5f;
+
+static inline float LayerBusState_StateMagnitude(const LayerBusState& s)
+{
+    // drive_dc_x is "previous input"; once input is zero for one sample it's
+    // also zero, so it does not need to participate in the magnitude check.
+    return std::fabs(s.pole1) + std::fabs(s.pole2)
+         + std::fabs(s.pole3) + std::fabs(s.pole4)
+         + std::fabs(s.drive_dc_y);
+}
+
 void VoiceEngine::SnapshotMacroState_()
 {
     if(macro_gen_ && macro_sel_ && macro_a_ && macro_b_)
@@ -64,12 +80,20 @@ void VoiceEngine::PrepareRenderScalars_(float (&engine_tune_scale)[kEngineLayerC
 {
     for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
     {
-        float tune = engine_tune_semitones_[layer];
-        if(tune < kEngineTuneMinSemitones)
-            tune = kEngineTuneMinSemitones;
-        if(tune > kEngineTuneMaxSemitones)
-            tune = kEngineTuneMaxSemitones;
-        engine_tune_scale[layer] = std::pow(2.0f, tune / 12.0f);
+        // Recompute pow(2, semitones/12) only when the per-layer tune target
+        // actually changed (via SetEngineTuneSemitones). Steady-state reads
+        // hit the cached scale and avoid the std::pow on the audio thread.
+        if(engine_tune_dirty_[layer])
+        {
+            float tune = engine_tune_semitones_[layer];
+            if(tune < kEngineTuneMinSemitones)
+                tune = kEngineTuneMinSemitones;
+            if(tune > kEngineTuneMaxSemitones)
+                tune = kEngineTuneMaxSemitones;
+            engine_tune_scale_[layer] = std::pow(2.0f, tune / 12.0f);
+            engine_tune_dirty_[layer] = false;
+        }
+        engine_tune_scale[layer] = engine_tune_scale_[layer];
 
         float gain = engine_layer_scale_[layer];
         if(gain < 0.0f)
@@ -235,6 +259,10 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     uint32_t playhead_frame[2] = {0u, 0u};
     uint32_t playhead_active[2] = {0u, 0u};
     float playhead_metric[2] = {-1.0f, -1.0f};
+    // P1: true for any layer a voice writes to this block (normal voice writes
+    // its source_layer; StealFadeOut writes only the victim/old layer until
+    // fade completes).
+    bool layer_active[2] = {false, false};
     const RenderVoiceContext render_ctx{
         outL,
         outR,
@@ -301,13 +329,30 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             pitch_scale = pitch_mod_lut_[lut_idx];
         }
 
-        if(v.state == VoiceState::StealXFade)
-            RenderStealXFadeVoice_(v, render_ctx, pitch_scale, stop_fade);
+        if(v.state == VoiceState::StealFadeOut)
+        {
+            layer_active[v.old_source_layer & 1u] = true;
+            RenderStealFadeOutVoice_(v, render_ctx, pitch_scale, stop_fade);
+        }
         else
+        {
+            layer_active[v.source_layer & 1u] = true;
             RenderNormalVoice_(v, render_ctx, pitch_scale, stop_fade);
+        }
     }
 
-    RenderBlockMixLayers_(outL, outR, size, mix_scale, clip_block);
+    // P1: skip per-sample emphasis for layers that (a) had no voice writing to
+    // them this block AND (b) whose ladder/DC-blocker state has decayed below
+    // an inaudible epsilon. Either condition alone would risk a click when a
+    // new voice engages — the gate combines both so fresh input always
+    // traverses (already-settled) state.
+    const float state_mag_a = LayerBusState_StateMagnitude(layer_bus_state_[0]);
+    const float state_mag_b = LayerBusState_StateMagnitude(layer_bus_state_[1]);
+    const bool layer_skip[2] = {
+        !layer_active[0] && state_mag_a < kEmphasisStateEpsilon,
+        !layer_active[1] && state_mag_b < kEmphasisStateEpsilon,
+    };
+    RenderBlockMixLayers_(outL, outR, size, mix_scale, clip_block, layer_skip);
 
     WriteRenderDebug_(clip_block,
                       rate_hz,

@@ -73,3 +73,23 @@ float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
         s *= ComputeLoopBoundaryFade(pos, start, end, sample_rate);
     return s;
 }
+
+float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
+                                              bool loop_voice,
+                                              uint32_t seam_frames,
+                                              bool used_seam_xfade,
+                                              float pos,
+                                              float fade_start_threshold,
+                                              float fade_end_threshold,
+                                              uint32_t start,
+                                              uint32_t end,
+                                              float sample_rate)
+{
+    if(!loop_voice || seam_frames != 0u || used_seam_xfade)
+        return s;
+    // Fast-path: positions strictly inside the loop interior have a fade
+    // coefficient of 1.0 so we can skip ComputeLoopBoundaryFade entirely.
+    if(pos >= fade_start_threshold && pos <= fade_end_threshold)
+        return s;
+    return s * ComputeLoopBoundaryFade(pos, start, end, sample_rate);
+}

@@ -171,3 +171,73 @@ float VoiceRenderFetch_VoiceStream(const Sample* sample,
         = VoiceRenderLoop_FullSampleWrapGate(sample, region_loop_enabled, gate_for_wrap);
     return SampleAtLinear(sample, pos, wrap_end) * gain;
 }
+
+size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
+                                         float& pos,
+                                         int8_t& dir,
+                                         bool& gate,
+                                         size_t count,
+                                         float* out_buf)
+{
+    size_t eos_idx = count;
+    const float seam_offset
+        = p.layer_loop_voice ? static_cast<float>(p.seam_frames) : 0.0f;
+
+    for(size_t i = 0; i < count; ++i)
+    {
+        bool used_seam_xfade = false;
+        float s = VoiceRenderFetch_VoiceStream(p.sample,
+                                               pos,
+                                               p.gain,
+                                               p.layer_loop_voice,
+                                               p.start,
+                                               p.end,
+                                               p.seam_frames,
+                                               p.loop_shape,
+                                               p.sample_rate,
+                                               used_seam_xfade,
+                                               p.use_edit,
+                                               p.region_loop_enabled,
+                                               p.ls_i,
+                                               p.le_i,
+                                               gate);
+        s = VoiceRenderLoop_ApplyBoundaryFadeNoSeam(s,
+                                                    p.layer_loop_voice,
+                                                    p.seam_frames,
+                                                    used_seam_xfade,
+                                                    pos,
+                                                    p.fade_start_threshold,
+                                                    p.fade_end_threshold,
+                                                    p.start,
+                                                    p.end,
+                                                    p.sample_rate);
+        out_buf[i] = s;
+
+        // Pos advance only happens while the stream is still live. Once eos
+        // has been hit earlier in this batch, pos stays clamped at length-1
+        // and subsequent fetches re-read the boundary frame, which matches
+        // the per-sample ClampPosToLastFrameIfValid behaviour that repeats
+        // for each post-eos sample.
+        if(eos_idx == count)
+        {
+            if(!AdvancePos(pos,
+                           dir,
+                           p.ratio,
+                           p.length_f,
+                           p.ls,
+                           p.le,
+                           p.loop_enabled,
+                           gate,
+                           p.voice_loop_mode,
+                           seam_offset))
+            {
+                eos_idx = i;
+                gate    = false;
+                if(p.length_f > 0.0f)
+                    pos = p.length_f - 1.0f;
+            }
+        }
+    }
+
+    return eos_idx;
+}

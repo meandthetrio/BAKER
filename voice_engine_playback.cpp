@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-static constexpr float kFadeInMs = 3.0f;
+static constexpr float kMinEnvAttackMs = 2.0f;
 static constexpr float kLoopBoundaryFadeMs = 1.0f;
 static constexpr float kMinRatio = 0.25f;
 static constexpr float kMaxRatio = 4.0f;
@@ -28,11 +28,6 @@ float ComputeFadeStepMs(float sample_rate, float fade_ms)
     return 1.0f / static_cast<float>(fade_samples);
 }
 
-float ComputeFadeStep(float sample_rate)
-{
-    return ComputeFadeStepMs(sample_rate, kFadeInMs);
-}
-
 void InitEnvelope(EnvStage& stage,
                   float&    level,
                   float&    a_step,
@@ -47,6 +42,8 @@ void InitEnvelope(EnvStage& stage,
 {
     if(attack_ms < 0.0f)
         attack_ms = 0.0f;
+    if(attack_ms < kMinEnvAttackMs)
+        attack_ms = kMinEnvAttackMs;
     if(decay_ms < 0.0f)
         decay_ms = 0.0f;
     if(release_ms < 0.0f)

@@ -19,7 +19,8 @@ static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
 static constexpr float kEngineGainMinDb = -48.0f;
 static constexpr float kEngineGainMaxDb = 12.0f;
-static constexpr float kLoopEnvAttackReleaseMinMs = 1.0f;
+static constexpr float kLoopEnvAttackMinMs        = 2.0f;
+static constexpr float kLoopEnvReleaseMinMs       = 1.0f;
 static constexpr float kLoopEnvAttackReleaseMaxMs = 1000.0f;
 
 // Voice pool lives in fast RAM (DTCM). Uses `mem_regions.h` section macro.
@@ -87,6 +88,8 @@ void VoiceEngine::SetModParams(float lfo_rate_hz,
         lfo_depth = 1.0f;
     if(env_attack_ms < 0.0f)
         env_attack_ms = 0.0f;
+    if(env_attack_ms < kLoopEnvAttackMinMs)
+        env_attack_ms = kLoopEnvAttackMinMs;
     if(env_decay_ms < 0.0f)
         env_decay_ms = 0.0f;
     if(env_amount < 0.0f)
@@ -113,7 +116,11 @@ void VoiceEngine::SetEngineTuneSemitones(uint8_t layer, float semitones)
         semitones = kEngineTuneMinSemitones;
     if(semitones > kEngineTuneMaxSemitones)
         semitones = kEngineTuneMaxSemitones;
-    engine_tune_semitones_[layer] = semitones;
+    if(engine_tune_semitones_[layer] != semitones)
+    {
+        engine_tune_semitones_[layer] = semitones;
+        engine_tune_dirty_[layer]     = true;
+    }
 }
 
 void VoiceEngine::SetEngineGainDb(uint8_t layer, float db)
@@ -180,8 +187,8 @@ void VoiceEngine::SetLoopEnvelopeParams(uint8_t layer,
                                         float release_ms)
 {
     layer &= 1u;
-    if(attack_ms < kLoopEnvAttackReleaseMinMs)
-        attack_ms = kLoopEnvAttackReleaseMinMs;
+    if(attack_ms < kLoopEnvAttackMinMs)
+        attack_ms = kLoopEnvAttackMinMs;
     if(attack_ms > kLoopEnvAttackReleaseMaxMs)
         attack_ms = kLoopEnvAttackReleaseMaxMs;
     if(decay_ms < 0.0f)
@@ -190,8 +197,8 @@ void VoiceEngine::SetLoopEnvelopeParams(uint8_t layer,
         sustain_level = 0.0f;
     if(sustain_level > 1.0f)
         sustain_level = 1.0f;
-    if(release_ms < kLoopEnvAttackReleaseMinMs)
-        release_ms = kLoopEnvAttackReleaseMinMs;
+    if(release_ms < kLoopEnvReleaseMinMs)
+        release_ms = kLoopEnvReleaseMinMs;
     if(release_ms > kLoopEnvAttackReleaseMaxMs)
         release_ms = kLoopEnvAttackReleaseMaxMs;
 

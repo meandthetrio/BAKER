@@ -20,7 +20,7 @@ enum class VoiceState : uint8_t
     Idle = 0,
     Playing,
     Releasing,
-    StealXFade,
+    StealFadeOut,
 };
 
 enum class EnvStage : uint8_t
@@ -83,8 +83,6 @@ struct Voice
     float new_ratio = 1.0f;
     float new_gain  = 0.0f;
     uint8_t new_source_layer = 0;
-    float new_fade_in = 0.0f; // 0..1 for new head
-    float new_fade_in_step = 0.0f; // per-sample increment for new head
     EnvStage new_env_stage = EnvStage::Off;
     float    new_env_level = 0.0f;
     float    new_env_a_step = 0.0f;
@@ -94,8 +92,9 @@ struct Voice
     bool     new_gate = false;
     bool     new_loop_voice = false;
     int8_t   new_dir  = 1;
-    float xfade_pos  = 0.0f; // 0..1
-    float xfade_step = 0.0f; // per-sample increment
+    // Victim-only linear fade during steal (no dual-stream crossfade).
+    float steal_fade_level = 1.0f;
+    float steal_fade_step  = 0.0f;
 };
 
 struct LayerBusState
@@ -181,6 +180,12 @@ class VoiceEngine
         macro_sel_ = sel;
         macro_gen_ = gen;
     }
+
+    // AUDIO THREAD ONLY. Returns the smoothed macro state maintained
+    // internally during RenderBlock; call this after RenderBlock to read
+    // the up-to-date smoothed values. Avoids duplicating snapshot+smooth
+    // state in the caller.
+    const MacroState& SmoothedMacros() const { return macro_smoothed_; }
     void SetModParams(float lfo_rate_hz,
                       float lfo_depth,
                       float env_attack_ms,
@@ -242,6 +247,10 @@ class VoiceEngine
     static constexpr uint8_t kEngineLayerCount = 2;
     static constexpr uint8_t kMaxVoicesPerLayer = 5;
     float engine_tune_semitones_[kEngineLayerCount] = {0.0f, 0.0f};
+    // Cache of pow(2, semitones/12) per layer; populated lazily from inside
+    // PrepareRenderScalars_ (const) when the dirty flag is set.
+    mutable float engine_tune_scale_[kEngineLayerCount] = {1.0f, 1.0f};
+    mutable bool  engine_tune_dirty_[kEngineLayerCount] = {true, true};
     float engine_gain_linear_[kEngineLayerCount]    = {1.0f, 1.0f};
     uint8_t engine_drive_mode_[kEngineLayerCount]   = {0u, 0u};
     float engine_layer_scale_[kEngineLayerCount]    = {1.0f, 1.0f};
@@ -346,9 +355,21 @@ class VoiceEngine
         float    env_a_step;
         float    env_d_step;
         float    env_sustain;
+        // P6: precomputed loop-boundary fade thresholds. When pos sits in
+        // [loop_fade_start_threshold, loop_fade_end_threshold] we skip the
+        // per-sample ComputeLoopBoundaryFade math entirely.
+        float    loop_fade_frames;
+        float    loop_fade_start_threshold;
+        float    loop_fade_end_threshold;
+        // P5: when true, the per-sample loop linearly ramps env_level by
+        // env_per_sample_delta instead of running StepEnvelope every sample.
+        // Decided at block start by RenderNormalVoice_ based on whether all
+        // envelope stages are slow enough (>= 5 ms ≈ step ≤ 1/240).
+        bool     block_rate_env;
+        float    env_per_sample_delta;
     };
 
-    struct RenderStealXFadeSetup
+    struct RenderStealFadeOutSetup
     {
         uint32_t start;
         uint32_t end;
@@ -357,27 +378,19 @@ class VoiceEngine
         bool     use_edit;
         float    edit_gain;
         uint8_t  old_layer;
-        uint8_t  new_layer;
         bool     old_loop_enabled;
-        bool     new_loop_enabled;
         bool     loop_voice;
-        bool     new_loop_voice;
         float    length_f;
         float    ls;
         float    le;
         float    old_ratio;
-        float    new_ratio;
         float    old_gain;
-        float    new_gain;
         uint32_t old_seam_frames;
-        uint32_t new_seam_frames;
         LoopMode old_loop_mode;
-        LoopMode new_loop_mode;
-        float    x_step;
-        float    new_fade_step;
-        float    new_env_a_step;
-        float    new_env_d_step;
-        float    new_env_sustain;
+        float    loop_fade_frames;
+        float    loop_fade_start_threshold;
+        float    loop_fade_end_threshold;
+        float    steal_fade_step;
     };
 
     struct StopFadeState
@@ -388,19 +401,12 @@ class VoiceEngine
         float    step;
     };
 
-    struct RenderStealXFadeLoopState
+    struct RenderStealFadeOutLoopState
     {
         float    old_pos;
-        float    new_pos;
         bool     old_gate;
-        bool     new_gate;
         int8_t   old_dir;
-        int8_t   new_dir;
-        float    xfade_pos;
-        float    new_fade_in;
-        EnvStage new_env_stage;
-        float    new_env_level;
-        float    new_env_r_step;
+        float    steal_fade_level;
         StopFadeState stop_fade;
     };
 
@@ -421,7 +427,7 @@ class VoiceEngine
 
     bool StopFade_AdvanceAndFinishIfDone_(Voice& v, StopFadeState& sf);
     void BeginStopFadeOnStreamEnd_(Voice& v, StopFadeState& sf);
-    void CompleteStealXFade_(Voice& v);
+    void CompleteStealFadeOut_(Voice& v);
 
     struct RenderNormalVoiceLoopState
     {
@@ -447,11 +453,21 @@ class VoiceEngine
                                              const RenderNormalVoicePerBlockSetup& setup,
                                              size_t i,
                                              RenderNormalVoiceLoopState& st);
-    bool RenderStealXFade_ProcessOneSample_(Voice& v,
-                                            const RenderVoiceContext& ctx,
-                                            const RenderStealXFadeSetup& setup,
-                                            size_t i,
-                                            RenderStealXFadeLoopState& st);
+    // P2: batched render path for NormalVoice when block_rate_env is active.
+    // Separates fetch + boundary-fade (Phase 1) from ramp + mix (Phase 2) so
+    // the mix loop reduces to a tight multiply-add. Preserves the per-sample
+    // ordering of stop-fade activation on end-of-stream. Caller is responsible
+    // for pre-block setup (including block-rate env pre-simulation) and
+    // post-loop state finalize/commit.
+    void RenderNormalVoice_Batched_(Voice& v,
+                                    const RenderVoiceContext& ctx,
+                                    const RenderNormalVoicePerBlockSetup& setup,
+                                    RenderNormalVoiceLoopState& st);
+    bool RenderStealFadeOut_ProcessOneSample_(Voice& v,
+                                              const RenderVoiceContext& ctx,
+                                              const RenderStealFadeOutSetup& setup,
+                                              size_t i,
+                                              RenderStealFadeOutLoopState& st);
 
     void SnapshotMacroState_();
     void SnapshotPLockState_();
@@ -470,15 +486,20 @@ class VoiceEngine
                            uint32_t active,
                            const uint32_t (&playhead_frame)[2],
                            const uint32_t (&playhead_active)[2]);
-    void RenderStealXFadeVoice_(Voice& v,
-                                const RenderVoiceContext& ctx,
-                                float pitch_scale,
-                                StopFadeState& stop_fade);
+    void RenderStealFadeOutVoice_(Voice& v,
+                                  const RenderVoiceContext& ctx,
+                                  float pitch_scale,
+                                  StopFadeState& stop_fade);
     void RenderNormalVoice_(Voice& v,
                             const RenderVoiceContext& ctx,
                             float pitch_scale,
                             StopFadeState& stop_fade);
-    void RenderBlockMixLayers_(float* outL, float* outR, size_t size, float mix_scale, uint32_t& clip_block);
+    void RenderBlockMixLayers_(float* outL,
+                               float* outR,
+                               size_t size,
+                               float mix_scale,
+                               uint32_t& clip_block,
+                               const bool (&layer_skip)[2]);
 
     static uint32_t PackVoiceDebug_(uint8_t idx, uint8_t note, uint8_t vel);
 };

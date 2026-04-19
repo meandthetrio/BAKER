@@ -137,6 +137,12 @@ class Params
     std::atomic<uint8_t> published_idx_{0};
     uint8_t              write_idx_ = 1;
 
+    // Cached one-pole smoothing coefficient. AudioBlockTick recomputes only
+    // when block_size or sample_rate changes, avoiding a per-block std::exp.
+    float  cached_smooth_coeff_ = 0.0f;
+    size_t cached_block_size_   = 0;
+    float  cached_sample_rate_  = 0.0f;
+
     // Helper: one-pole smoothing toward target
     static float SmoothToward(float current, float target, float coeff);
 };

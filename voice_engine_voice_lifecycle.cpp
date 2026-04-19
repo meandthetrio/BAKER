@@ -1,7 +1,6 @@
 #include "voice_engine_internal.h"
 
 static constexpr float kVoiceAmpScale      = 0.15f; // keep headroom for 10 voices + FX
-static constexpr float kLoopBoundaryFadeMs = 1.0f;
 static constexpr float kDefaultEnvAttackMs = 5.0f;
 static constexpr float kDefaultEnvDecayMs  = 60.0f;
 static constexpr float kDefaultEnvSustainLevel = 0.70f;
@@ -9,7 +8,7 @@ static constexpr float kDefaultEnvReleaseMs = 30.0f;
 
 static inline uint8_t VoiceLayerForAllocation(const Voice& v)
 {
-    if(v.state == VoiceState::StealXFade)
+    if(v.state == VoiceState::StealFadeOut)
         return v.new_source_layer & 1u;
     return v.source_layer & 1u;
 }
@@ -59,8 +58,6 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.new_gain = 0.0f;
     v.old_source_layer = 0;
     v.new_source_layer = 0;
-    v.new_fade_in = 0.0f;
-    v.new_fade_in_step = 0.0f;
     v.new_env_stage = EnvStage::Off;
     v.new_env_level = 0.0f;
     v.new_gate = false;
@@ -123,9 +120,9 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.gate = true;
     v.loop_voice = engine_loop_enabled_[v.source_layer];
     v.dir  = 1;
-    v.fade_in = 0.0f;
-    v.fade_in_step = v.loop_voice ? ComputeFadeStepMs(sample_rate_, kLoopBoundaryFadeMs)
-                                  : ComputeFadeStep(sample_rate_);
+    // Amplitude ramp is ADSR attack only (InitEnvelope); no separate fade_in.
+    v.fade_in      = 1.0f;
+    v.fade_in_step = 0.0f;
     v.stop_fade_active = false;
     v.stop_fade_samples_remaining = 0;
     v.stop_fade_level = 0.0f;
@@ -176,14 +173,59 @@ int VoiceEngine::AllocateVoice_(uint8_t source_layer,
 
     size_t   best_idx = 0;
     uint32_t best_start_id = 0xFFFFFFFFu;
+
+    // Steal victim policy (same layer, same polyphony cap): avoid interrupting
+    // StealFadeOut when other voices exist on the layer; prefer releasing notes
+    // (already dying); else oldest start_id among eligible voices (avoids
+    // stealing low-env attack notes that "quietest" would wrongly prefer).
+    bool non_xf_on_layer = false;
     for(size_t i = 0; i < kMaxVoices; i++)
     {
-        if(voices_[i].state != VoiceState::Idle
-           && VoiceLayerForAllocation(voices_[i]) == source_layer
-           && voices_[i].start_id < best_start_id)
+        if(voices_[i].state == VoiceState::Idle)
+            continue;
+        if(VoiceLayerForAllocation(voices_[i]) != source_layer)
+            continue;
+        if(voices_[i].state != VoiceState::StealFadeOut)
+        {
+            non_xf_on_layer = true;
+            break;
+        }
+    }
+
+    auto victim_ok = [&](size_t i) -> bool {
+        if(voices_[i].state == VoiceState::Idle)
+            return false;
+        if(VoiceLayerForAllocation(voices_[i]) != source_layer)
+            return false;
+        if(voices_[i].state == VoiceState::StealFadeOut && non_xf_on_layer)
+            return false;
+        return true;
+    };
+
+    for(size_t i = 0; i < kMaxVoices; i++)
+    {
+        if(!victim_ok(i))
+            continue;
+        if(voices_[i].state != VoiceState::Releasing)
+            continue;
+        if(voices_[i].start_id < best_start_id)
         {
             best_start_id = voices_[i].start_id;
-            best_idx = i;
+            best_idx      = i;
+        }
+    }
+
+    if(best_start_id == 0xFFFFFFFFu)
+    {
+        for(size_t i = 0; i < kMaxVoices; i++)
+        {
+            if(!victim_ok(i))
+                continue;
+            if(voices_[i].start_id < best_start_id)
+            {
+                best_start_id = voices_[i].start_id;
+                best_idx      = i;
+            }
         }
     }
 
@@ -245,7 +287,7 @@ void VoiceEngine::NoteOff_(uint8_t note)
                 v.gate = false;
             v.dir  = 1;
         }
-        else if(v.state == VoiceState::StealXFade)
+        else if(v.state == VoiceState::StealFadeOut)
         {
             if(v.new_loop_voice)
             {
@@ -264,8 +306,8 @@ void VoiceEngine::NoteOff_(uint8_t note)
                 v.gain  = v.new_gain;
                 v.ratio = v.new_ratio;
                 v.source_layer = v.new_source_layer;
-                v.fade_in = v.new_fade_in;
-                v.fade_in_step = v.new_fade_in_step;
+                v.fade_in      = 1.0f;
+                v.fade_in_step = 0.0f;
                 v.loop_voice = v.new_loop_voice;
                 SetEnvelopeRelease(v.new_env_stage,
                                    v.new_env_level,

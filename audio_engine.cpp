@@ -20,26 +20,6 @@ void AudioEngine::DelayClear_()
     delay_wr_ = 0;
 }
 
-void AudioEngine::DelayProcess_(float dryL, float dryR, float mix, bool feed_input, size_t len_l,
-                                size_t len_r, float fb, float& outL, float& outR)
-{
-    const float inL = feed_input ? dryL : 0.0f;
-    const float inR = feed_input ? dryR : 0.0f;
-
-    const size_t wr  = delay_wr_;
-    const size_t rdL = (wr + kDelayMaxSamples - len_l) % kDelayMaxSamples;
-    const size_t rdR = (wr + kDelayMaxSamples - len_r) % kDelayMaxSamples;
-    const float  dL  = g_delay_buf_L[rdL];
-    const float  dR  = g_delay_buf_R[rdR];
-
-    g_delay_buf_L[wr] = inL + dL * fb;
-    g_delay_buf_R[wr] = inR + dR * fb;
-    delay_wr_         = (wr + 1) % kDelayMaxSamples;
-
-    outL = dryL + dL * mix;
-    outR = dryR + dR * mix;
-}
-
 void AudioEngine::ReverbClear_()
 {
     dattorro_.Init();
@@ -79,23 +59,158 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
     dattorro_.SetMod(mod);
 }
 
-void AudioEngine::ReverbProcessDattorro_(float inL, float inR, bool feed_input,
-                                        float& wetL, float& wetR)
+// ---- Per-block FX processors ----
+//
+// Each of these walks the whole block in place. The per-sample dispatch cost
+// (switch on fx_order[stage]) from the old ProcessBlock is now paid once per
+// stage per block instead of once per sample per stage. DSP is identical.
+
+void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n, float pre)
 {
-    float outL = 0.0f;
-    float outR = 0.0f;
-    if(feed_input)
+    for(size_t i = 0; i < n; ++i)
     {
-        dattorro_.Process(inL, inR, outL, outR);
-        wetL = outL - inL;
-        wetR = outR - inR;
+        L[i] = SoftClip(L[i] * pre);
+        R[i] = SoftClip(R[i] * pre);
+    }
+}
+
+void AudioEngine::ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix)
+{
+    tilt_eq_.ProcessBlock(L, R, n, eq_mix);
+}
+
+void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
+                                     const PerformParamsCurrent& p,
+                                     size_t len_l, size_t len_r, float fb,
+                                     float& wet_peak)
+{
+    const bool  feed = p.delay_on;
+    const float mix  = p.delay_on ? p.delay_mix : delay_tail_mix_;
+    float       peak = wet_peak;
+
+    // Hoist the write index into a local for the duration of the block so the
+    // compiler can keep it in a register; write it back to the member once.
+    // Modulo arithmetic preserved exactly.
+    size_t wr = delay_wr_;
+    for(size_t i = 0; i < n; ++i)
+    {
+        const float l   = L[i];
+        const float r   = R[i];
+        const float inL = feed ? l : 0.0f;
+        const float inR = feed ? r : 0.0f;
+
+        const size_t rdL = (wr + kDelayMaxSamples - len_l) % kDelayMaxSamples;
+        const size_t rdR = (wr + kDelayMaxSamples - len_r) % kDelayMaxSamples;
+        const float  dL  = g_delay_buf_L[rdL];
+        const float  dR  = g_delay_buf_R[rdR];
+
+        g_delay_buf_L[wr] = inL + dL * fb;
+        g_delay_buf_R[wr] = inR + dR * fb;
+        wr                = (wr + 1) % kDelayMaxSamples;
+
+        const float dl_out = l + dL * mix;
+        const float dr_out = r + dR * mix;
+
+        const float abs_dl = std::fabs(dl_out - l);
+        const float abs_dr = std::fabs(dr_out - r);
+        if(abs_dl > peak) peak = abs_dl;
+        if(abs_dr > peak) peak = abs_dr;
+
+        L[i] = dl_out;
+        R[i] = dr_out;
+    }
+    delay_wr_ = wr;
+    wet_peak  = peak;
+}
+
+void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
+                                      const PerformParamsCurrent& p,
+                                      float& wet_peak)
+{
+    const bool  feed = p.reverb_on;
+    const float mix  = p.reverb_on ? p.reverb_mix : reverb_tail_mix_;
+    float       peak = wet_peak;
+
+    // Fixed-size stack scratch buffers sized to the hardware audio block
+    // (48 samples on this target). 2 buffers * 48 floats = 384 bytes total.
+    constexpr size_t kReverbScratchMax = 48;
+    float            tmpL[kReverbScratchMax];
+    float            tmpR[kReverbScratchMax];
+
+    if(feed)
+    {
+        // Live input path: DattorroReverb::ProcessBlock writes in + wet*out_gain,
+        // so wet = out - in (matches the old per-sample ReverbProcessDattorro_).
+        dattorro_.ProcessBlock(L, R, tmpL, tmpR, n);
+        for(size_t i = 0; i < n; ++i)
+        {
+            const float l    = L[i];
+            const float r    = R[i];
+            const float wetL = tmpL[i] - l;
+            const float wetR = tmpR[i] - r;
+
+            const float rl = l + wetL * mix;
+            const float rr = r + wetR * mix;
+
+            const float abs_rl = std::fabs(rl - l);
+            const float abs_rr = std::fabs(rr - r);
+            if(abs_rl > peak) peak = abs_rl;
+            if(abs_rr > peak) peak = abs_rr;
+
+            L[i] = rl;
+            R[i] = rr;
+        }
     }
     else
     {
-        // Tail: keep processing with zero input to let the internal tank decay.
-        dattorro_.Process(0.0f, 0.0f, outL, outR);
-        wetL = outL;
-        wetR = outR;
+        // Tail path: feed zeros to let the tank decay. Matches the old
+        // ReverbProcessDattorro_ behavior when feed_input == false, where
+        // outL/outR are the full wet output (no dry component).
+        float zL[kReverbScratchMax] = {0.0f};
+        float zR[kReverbScratchMax] = {0.0f};
+        dattorro_.ProcessBlock(zL, zR, tmpL, tmpR, n);
+        for(size_t i = 0; i < n; ++i)
+        {
+            const float l    = L[i];
+            const float r    = R[i];
+            const float wetL = tmpL[i];
+            const float wetR = tmpR[i];
+
+            const float rl = l + wetL * mix;
+            const float rr = r + wetR * mix;
+
+            const float abs_rl = std::fabs(rl - l);
+            const float abs_rr = std::fabs(rr - r);
+            if(abs_rl > peak) peak = abs_rl;
+            if(abs_rr > peak) peak = abs_rr;
+
+            L[i] = rl;
+            R[i] = rr;
+        }
+    }
+    wet_peak = peak;
+}
+
+void AudioEngine::ApplyMasterBlock_(float* L, float* R, size_t n,
+                                    float level, float bypass_comp)
+{
+    const float g       = level * bypass_comp;
+    const bool  boosted = (level > 1.0001f);
+    if(boosted)
+    {
+        for(size_t i = 0; i < n; ++i)
+        {
+            L[i] = SoftClip(L[i] * g);
+            R[i] = SoftClip(R[i] * g);
+        }
+    }
+    else
+    {
+        for(size_t i = 0; i < n; ++i)
+        {
+            L[i] = L[i] * g;
+            R[i] = R[i] * g;
+        }
     }
 }
 
@@ -201,9 +316,6 @@ void AudioEngine::ProcessBlock(const float* inL,
     const bool  sat_run = (p.sat_on && p.sat_drive >= 0.0001f);
     const float pre     = 1.0f + p.sat_drive * 10.0f;
 
-    const float delay_mix_on  = p.delay_mix;
-    const float reverb_mix_on = p.reverb_mix;
-
     ReverbUpdateParamsDattorro_(p);
 
     const bool eq_run = (p.eq_on && p.eq_mix > 1e-5f);
@@ -251,81 +363,44 @@ void AudioEngine::ProcessBlock(const float* inL,
     float delay_wet_peak  = 0.0f;
     float reverb_wet_peak = 0.0f;
 
-    for(size_t i = 0; i < size; i++)
+    // Load dry input into outL/outR once. If the caller passed the same buffer
+    // for input and output (in-place, the common case for AudioCallback), the
+    // memcpy is skipped. Per-stage processors below then operate on outL/outR
+    // in place, preserving the original per-sample semantics of feeding the
+    // output of each stage into the next.
+    if(outL != inL)
+        std::memcpy(outL, inL, size * sizeof(float));
+    if(outR != inR)
+        std::memcpy(outR, inR, size * sizeof(float));
+
+    for(uint8_t stage_idx = 0; stage_idx < 4; ++stage_idx)
     {
-        float l = inL[i];
-        float r = inR[i];
-
-        for(uint8_t stage_idx = 0; stage_idx < 4; ++stage_idx)
+        const uint8_t fx = p.fx_order[stage_idx];
+        switch(fx)
         {
-            const uint8_t fx = p.fx_order[stage_idx];
-            switch(fx)
-            {
-                case 0: // SAT
-                    if(sat_run)
-                    {
-                        l = SoftClip(l * pre);
-                        r = SoftClip(r * pre);
-                    }
-                    break;
-                case 1: // EQ (tilt peaking bells)
-                    if(eq_run)
-                        tilt_eq_.ProcessSample(l, r, p.eq_mix);
-                    break;
-                case 2: // DELAY
-                    if(delay_active_ || delay_tailing_)
-                    {
-                        const bool  feed = p.delay_on;
-                        const float mix  = p.delay_on ? delay_mix_on : delay_tail_mix_;
-
-                        float dl, dr;
-                        DelayProcess_(l, r, mix, feed, len_l, len_r, delay_fb, dl, dr);
-
-                        delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dl - l));
-                        delay_wet_peak = std::fmax(delay_wet_peak, std::fabs(dr - r));
-
-                        l = dl;
-                        r = dr;
-                    }
-                    break;
-                case 3: // REVERB
-                    if(reverb_active_ || reverb_tailing_)
-                    {
-                        const bool  feed = p.reverb_on;
-                        const float mix  = p.reverb_on ? reverb_mix_on : reverb_tail_mix_;
-
-                        float wetL, wetR;
-                        ReverbProcessDattorro_(l, r, feed, wetL, wetR);
-
-                        const float rl = l + wetL * mix;
-                        const float rr = r + wetR * mix;
-
-                        reverb_wet_peak = std::fmax(reverb_wet_peak, std::fabs(rl - l));
-                        reverb_wet_peak = std::fmax(reverb_wet_peak, std::fabs(rr - r));
-
-                        l = rl;
-                        r = rr;
-                    }
-                    break;
-                default:
-                    break;
-            }
+            case 0:
+                if(sat_run)
+                    ProcessSatBlock_(outL, outR, size, pre);
+                break;
+            case 1:
+                if(eq_run)
+                    ProcessEqBlock_(outL, outR, size, p.eq_mix);
+                break;
+            case 2:
+                if(delay_active_ || delay_tailing_)
+                    ProcessDelayBlock_(outL, outR, size, p, len_l, len_r, delay_fb, delay_wet_peak);
+                break;
+            case 3:
+                if(reverb_active_ || reverb_tailing_)
+                    ProcessReverbBlock_(outL, outR, size, p, reverb_wet_peak);
+                break;
+            default:
+                break;
         }
-
-        // Apply master level, then (only when BOOST is in play) soft-clip at the very end
-        // to avoid hard digital clipping.
-        float ol = l * level * bypass_comp;
-        float or_ = r * level * bypass_comp;
-
-        // Final safety: once we are boosting, prevent hard digital clipping at the DAC
-        if(level > 1.0001f)
-        {
-            ol  = SoftClip(ol);
-            or_ = SoftClip(or_);
-        }
-        outL[i] = ol;
-        outR[i] = or_;
     }
+
+    // Final gain stage (and soft-clip safety when BOOST is engaged).
+    ApplyMasterBlock_(outL, outR, size, level, bypass_comp);
 
     // ---- Delay tail bookkeeping ----
     if(delay_tailing_)

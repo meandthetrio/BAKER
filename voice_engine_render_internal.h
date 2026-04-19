@@ -6,15 +6,12 @@
 
 // Block-start / stepping helpers (voice_engine_render_playback.cpp). Used by
 // voice_engine_render_voice.cpp only; keep render TU thin on playback math.
-void VoicePlayback_NormalizeStealXFadePositions(float length_f,
-                                                float ls,
-                                                uint32_t start,
-                                                bool old_loop_enabled,
-                                                bool new_loop_enabled,
-                                                float& old_pos,
-                                                float& new_pos,
-                                                bool& old_gate,
-                                                bool& new_gate);
+void VoicePlayback_NormalizeStealFadeOutPositions(float length_f,
+                                                  float ls,
+                                                  uint32_t start,
+                                                  bool loop_enabled,
+                                                  float& pos,
+                                                  bool& gate);
 
 void VoicePlayback_NormalizeVoiceBlockStart(float length_f,
                                             float ls,
@@ -60,6 +57,21 @@ float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
                                               uint32_t end,
                                               float sample_rate);
 
+// P6 fast-path overload. Uses precomputed fade thresholds (populated once per
+// block per voice) to short-circuit the ComputeLoopBoundaryFade call for
+// samples sitting inside the loop interior. Falls through to the full fade
+// math only when pos is within [start, start+fade_frames] or [end-fade_frames, end].
+float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
+                                              bool loop_voice,
+                                              uint32_t seam_frames,
+                                              bool used_seam_xfade,
+                                              float pos,
+                                              float fade_start_threshold,
+                                              float fade_end_threshold,
+                                              uint32_t start,
+                                              uint32_t end,
+                                              float sample_rate);
+
 // Sample fetch / interpolation (voice_engine_render_fetch.cpp).
 void  VoiceRenderFetch_InitSqrtLut();
 float SampleAtLinear(const Sample* s, float pos, bool wrap_end);
@@ -97,3 +109,68 @@ float VoiceRenderFetch_VoiceStream(const Sample* sample,
                                    uint32_t ls_i,
                                    uint32_t le_i,
                                    bool gate_for_wrap);
+
+// Per-voice, per-block fetch parameters used by the batched NormalVoice
+// pipeline. Mirrors the arguments currently threaded through the per-sample
+// VoiceRenderFetch_VoiceStream + VoiceRenderLoop_ApplyBoundaryFadeNoSeam +
+// AdvancePos calls; all fields are block-scoped (set once by
+// RenderNormalVoice_ before the inner loop).
+struct VoiceBatchFetchParams
+{
+    const Sample* sample;
+    uint32_t      start;
+    uint32_t      end;
+    uint32_t      ls_i;
+    uint32_t      le_i;
+    float         length_f;
+    float         ls;
+    float         le;
+    bool          use_edit;
+    bool          region_loop_enabled;
+    bool          loop_enabled;
+    LoopMode      voice_loop_mode;
+    bool          layer_loop_voice;
+    uint32_t      seam_frames;
+    float         loop_shape;
+    float         sample_rate;
+    float         ratio;
+    float         gain;
+    float         fade_start_threshold;
+    float         fade_end_threshold;
+};
+
+// Block-rate ramp state for RenderNormalVoice_'s batched pipeline. Holds
+// running env / fade-in / stop-fade values so the inner mix loop reduces to
+// a tight multiply-add over the batched fetch buffer.
+struct BatchRampState
+{
+    float    env_level;
+    float    env_per_sample_delta;
+
+    float    fade;
+    float    fade_step;
+
+    bool     sf_active;
+    float    sf_level;
+    float    sf_step;
+    int32_t  sf_remaining;
+};
+
+// Fetches `count` samples starting at `pos`, applying gain + boundary fade.
+// Advances `pos` in-place per sample. On end-of-stream mid-batch, sets
+// `gate=false`, clamps pos to length-1, and continues filling the buffer with
+// reads from the clamped boundary frame (matching the per-sample post-eos
+// behaviour in RenderNormalVoice_ProcessOneSample_). Seam-crossfade and
+// non-seam paths are both handled via the existing per-sample
+// VoiceRenderFetch_VoiceStream + ApplyBoundaryFadeNoSeam helpers; the win
+// comes from decoupling fetch from the ramp/mix state machine so the ramp
+// loop becomes vectorisable.
+//
+// Returns the index of the first sample where AdvancePos failed (end of
+// stream), or `count` if no end-of-stream occurred.
+size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
+                                         float& pos,
+                                         int8_t& dir,
+                                         bool& gate,
+                                         size_t count,
+                                         float* out_buf);

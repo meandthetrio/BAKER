@@ -4,7 +4,6 @@
 
 float ComputeRatio(uint8_t note, uint8_t root_key);
 float ComputeFadeStepMs(float sample_rate, float fade_ms);
-float ComputeFadeStep(float sample_rate);
 
 void InitEnvelope(EnvStage& stage,
                   float&    level,

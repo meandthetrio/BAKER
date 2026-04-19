@@ -8,7 +8,8 @@
 #include <cstdio>
 
 static constexpr uint8_t kPerformLayerCount = 2;
-static constexpr uint16_t kPerformAdsrAttackReleaseMinMs = 1u;
+static constexpr uint16_t kPerformAdsrAttackMinMs   = 2u;
+static constexpr uint16_t kPerformAdsrReleaseMinMs  = 1u;
 static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 1000u;
 static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
 static constexpr uint16_t kPerformAdsrSustainMax = 100u;
@@ -61,11 +62,11 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
     {
         const uint16_t clamped_attack = static_cast<uint16_t>(
             ClampInt(static_cast<int>(engine.adsr.perform_adsr_loop_attack[i]),
-                     static_cast<int>(kPerformAdsrAttackReleaseMinMs),
+                     static_cast<int>(kPerformAdsrAttackMinMs),
                      static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
         const uint16_t clamped_release = static_cast<uint16_t>(
             ClampInt(static_cast<int>(engine.adsr.perform_adsr_loop_release[i]),
-                     static_cast<int>(kPerformAdsrAttackReleaseMinMs),
+                     static_cast<int>(kPerformAdsrReleaseMinMs),
                      static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
         const uint8_t clamped_decay = static_cast<uint8_t>(
             ClampInt(static_cast<int>(engine.adsr.perform_adsr_loop_decay[i]), 1, static_cast<int>(kPerformAdsrDecayMaxMs)));

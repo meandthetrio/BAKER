@@ -22,7 +22,8 @@ static constexpr float kPerformLoopCrossfadeStep = 1.0f / 128.0f;
 static constexpr float kPerformLoopCrossfadeShapeMin = 0.0f;
 static constexpr float kPerformLoopCrossfadeShapeMax = 1.0f;
 static constexpr float kPerformLoopCrossfadeShapeStep = 1.0f / 64.0f;
-static constexpr uint16_t kPerformAdsrAttackReleaseMinMs = 1u;
+static constexpr uint16_t kPerformAdsrAttackMinMs  = 2u;
+static constexpr uint16_t kPerformAdsrReleaseMinMs = 1u;
 static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 1000u;
 static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
 static constexpr uint16_t kPerformAdsrSustainMax = 100u;
@@ -58,9 +59,15 @@ static void SetPerformAdsrStageValue(AppEngineState& engine, uint8_t layer, uint
 
 static int PerformAdsrStageMin(uint8_t stage)
 {
-    return (stage % static_cast<uint8_t>(kAdsrStageCount)) == 2u
-               ? 0
-               : static_cast<int>(kPerformAdsrAttackReleaseMinMs);
+    const uint8_t s = stage % static_cast<uint8_t>(kAdsrStageCount);
+    if(s == 2u)
+        return 0;
+    if(s == 0u)
+        return static_cast<int>(kPerformAdsrAttackMinMs);
+    if(s == 3u)
+        return static_cast<int>(kPerformAdsrReleaseMinMs);
+    // decay (stage 1): same 1 ms floor as release
+    return static_cast<int>(kPerformAdsrReleaseMinMs);
 }
 
 static int PerformAdsrStageMax(uint8_t stage)

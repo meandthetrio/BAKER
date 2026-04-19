@@ -1,7 +1,7 @@
 #include "voice_engine_internal.h"
 
 static constexpr float kVoiceAmpScale      = 0.15f; // keep headroom for 10 voices + FX
-static constexpr float kStealXfadeSec      = 0.001f;
+static constexpr float kStealFadeOutMs     = 1.25f;
 static constexpr float kLoopBoundaryFadeMs = 1.0f;
 static constexpr float kDefaultEnvAttackMs = 5.0f;
 static constexpr float kDefaultEnvDecayMs  = 60.0f;
@@ -49,22 +49,29 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                     {
                         const float vel01 = (vel > 127) ? 1.0f : ((float)vel / 127.0f);
 
-                        v.sample  = sample;
-                        v.vel_layer = vel_layer;
+                        const bool already_fading = (v.state == VoiceState::StealFadeOut);
+
+                        v.sample       = sample;
+                        v.vel_layer    = vel_layer;
                         v.vel_brightness = vel_brightness;
                         v.mod_env.Trigger(env_attack_ms_, env_decay_ms_);
                         v.stop_fade_active = false;
                         v.stop_fade_samples_remaining = 0;
                         v.stop_fade_level = 0.0f;
                         v.stop_fade_step = 0.0f;
-                        v.old_pos = v.pos;
-                        v.old_ratio = v.ratio;
-                        const float old_fin = (v.fade_in < 1.0f) ? v.fade_in : 1.0f;
-                        const float old_env = (v.env_level < 1.0f) ? v.env_level : 1.0f;
-                        v.old_gain = v.gain * old_fin * old_env;
-                        v.old_source_layer = v.source_layer;
-                        v.old_gate = v.gate;
-                        v.old_dir  = v.dir;
+
+                        // Second steal while fading: keep victim tail; replace pending new only.
+                        if(!already_fading)
+                        {
+                            v.old_pos          = v.pos;
+                            v.old_ratio        = v.ratio;
+                            const float old_fin = (v.fade_in < 1.0f) ? v.fade_in : 1.0f;
+                            const float old_env = (v.env_level < 1.0f) ? v.env_level : 1.0f;
+                            v.old_gain         = v.gain * old_fin * old_env;
+                            v.old_source_layer = v.source_layer;
+                            v.old_gate         = v.gate;
+                            v.old_dir          = v.dir;
+                        }
 
                         v.new_pos = 0.0f;
                         if(edit_sample_ == sample)
@@ -77,10 +84,6 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                         v.new_gain = vel01 * kVoiceAmpScale;
                         v.new_source_layer = source_layer;
                         v.new_loop_voice = engine_loop_enabled_[source_layer];
-                        v.new_fade_in = 0.0f;
-                        v.new_fade_in_step
-                            = v.new_loop_voice ? ComputeFadeStepMs(sample_rate_, kLoopBoundaryFadeMs)
-                                               : ComputeFadeStep(sample_rate_);
                         v.new_gate = true;
                         v.new_dir  = 1;
                         InitEnvelope(v.new_env_stage,
@@ -99,16 +102,16 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                                                       : kDefaultEnvReleaseMs,
                                      sample_rate_);
 
-                        int xfade_samples = (int)(sample_rate_ * kStealXfadeSec);
-                        if(xfade_samples < 16)
-                            xfade_samples = 16;
-                        if(xfade_samples > 128)
-                            xfade_samples = 128;
+                        if(!already_fading)
+                        {
+                            int n = static_cast<int>(sample_rate_ * 0.001f * kStealFadeOutMs);
+                            if(n < 1)
+                                n = 1;
+                            v.steal_fade_level = 1.0f;
+                            v.steal_fade_step  = 1.0f / static_cast<float>(n);
+                        }
 
-                        v.xfade_pos  = 0.0f;
-                        v.xfade_step = 1.0f / (float)xfade_samples;
-
-                        v.state    = VoiceState::StealXFade;
+                        v.state    = VoiceState::StealFadeOut;
                         v.note     = note;
                         v.velocity = vel;
                         v.start_id = start_id;

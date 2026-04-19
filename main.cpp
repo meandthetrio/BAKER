@@ -211,8 +211,8 @@ int main(void)
         for(uint8_t layer = 0; layer < PerformParamsTargets::kLayerCount; ++layer)
         {
             float loop_attack_ms = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_attack[layer]);
-            if(loop_attack_ms < 1.0f)
-                loop_attack_ms = 1.0f;
+            if(loop_attack_ms < 2.0f)
+                loop_attack_ms = 2.0f;
             if(loop_attack_ms > 1000.0f)
                 loop_attack_ms = 1000.0f;
             float loop_release_ms = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_release[layer]);

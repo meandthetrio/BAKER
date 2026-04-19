@@ -54,15 +54,23 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         return;
 
     constexpr float smoothing_time_sec = 0.005f; // 5ms shared smoothing time
-    const float     dt_block_sec       = (float)block_size / sample_rate;
 
-    // Exponential (RC-style) one-pole:
-    // coeff = 1 - exp(-dt / tau)
-    float coeff = 1.0f - std::exp(-dt_block_sec / smoothing_time_sec);
-    if(coeff < 0.0f)
-        coeff = 0.0f;
-    else if(coeff > 1.0f)
-        coeff = 1.0f;
+    // Recompute the exponential one-pole coefficient only when the audio
+    // block size or sample rate changes. In steady state this avoids a
+    // std::exp on the audio thread every block.
+    if(block_size != cached_block_size_ || sample_rate != cached_sample_rate_)
+    {
+        const float dt_block_sec = (float)block_size / sample_rate;
+        float coeff = 1.0f - std::exp(-dt_block_sec / smoothing_time_sec);
+        if(coeff < 0.0f)
+            coeff = 0.0f;
+        else if(coeff > 1.0f)
+            coeff = 1.0f;
+        cached_smooth_coeff_ = coeff;
+        cached_block_size_   = block_size;
+        cached_sample_rate_  = sample_rate;
+    }
+    const float coeff = cached_smooth_coeff_;
 
     const uint8_t idx = published_idx_.load(std::memory_order_acquire);
     const auto&   t   = targets_buf_[idx & 1];

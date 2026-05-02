@@ -1,6 +1,7 @@
 #include "ui_list_menu.h"
 
 #include "oled_pager.h"
+#include "ui_draw_controls.h"
 
 #include <cstdio>
 
@@ -55,9 +56,16 @@ void UiListMenu_Render(const UiListMenu& menu, OledPager& oled, int x, int y, in
         if(idx >= menu.count)
             break;
 
-        const char prefix = (idx == menu.cursor) ? '>' : ' ';
-        std::snprintf(buf, sizeof(buf), "%c %s", prefix, menu.items[idx].label);
-        oled.SetCursor(x, y + static_cast<int>(row) * line_h);
-        oled.WriteString(buf, Font_6x8, true);
+        const int row_y = y + static_cast<int>(row) * line_h;
+        std::snprintf(buf, sizeof(buf), "%s", menu.items[idx].label);
+        if(idx == menu.cursor)
+        {
+            DrawRencFocusString6x8(oled, buf, x + 6, row_y);
+        }
+        else
+        {
+            oled.SetCursor(x + 6, row_y);
+            oled.WriteString(buf, Font_6x8, true);
+        }
     }
 }

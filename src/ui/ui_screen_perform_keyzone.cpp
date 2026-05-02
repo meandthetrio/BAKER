@@ -6,6 +6,7 @@
 #include "app_state_engine.h"
 #include "app_state_shared.h"
 #include "oled_pager.h"
+#include "ui_draw_controls.h"
 #include "ui_input.h"
 
 // Keyboard background bitmap: 128 wide x 13 rows rendered, 16-byte stride.
@@ -232,8 +233,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     }
     else
     {
-        d.DrawRect(mode_tx - 3, mode_ty - 3, mode_tx + mode_w + 2, mode_ty + Font5x7::H + 2, true, false);
-        d.DrawRect(mode_tx - 1, mode_ty - 1, mode_tx + mode_w,     mode_ty + Font5x7::H,     true, true);
+        DrawRencFocusFrame(d, mode_tx, mode_ty, mode_w, Font5x7::H);
         draw_mode_str(mode_str, mode_tx, mode_ty, false);
     }
 
@@ -252,10 +252,9 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
         const bool split_focused = (ui.perform_keyzone_focus == 1);
         if(split_focused)
         {
-            d.DrawRect(split_x - 2, status_y - 2,
-                       split_x + split_w + 1, status_y + Font5x7::H + 1, true, false);
+            DrawRencFocusFrame(d, split_x, status_y, split_w, Font5x7::H);
         }
-        DrawTinyStringCaseSensitive(d, split_text, split_x, status_y, true);
+        DrawTinyStringCaseSensitive(d, split_text, split_x, status_y, !split_focused);
     }
 
     auto keyzone_left_x = [&](uint8_t midi_note)
@@ -409,8 +408,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
         const int vel_ty = bottom_y0 + (64 - bottom_y0 - Font5x7::H) / 2;
         if(ui.perform_keyzone_focus == 1)
         {
-            d.DrawRect(vel_tx - 3, vel_ty - 3, vel_tx + vel_w + 2, vel_ty + Font5x7::H + 2, true, false);
-            d.DrawRect(vel_tx - 1, vel_ty - 1, vel_tx + vel_w,     vel_ty + Font5x7::H,     true, true);
+            DrawRencFocusFrame(d, vel_tx, vel_ty, vel_w, Font5x7::H);
             draw_mode_str(kVelModLabel, vel_tx, vel_ty, false);
         }
         else

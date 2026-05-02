@@ -2,6 +2,11 @@
 
 class OledPager;
 
+void DrawRencFocusFrame(OledPager& d, int x, int y, int w, int h);
+void DrawRencFocusTinyString(OledPager& d, const char* str, int x, int y);
+void DrawRencFocusMicroString(OledPager& d, const char* str, int x, int y);
+void DrawRencFocusString6x8(OledPager& d, const char* str, int x, int y);
+
 void DrawVerticalFadersInRect(OledPager& d,
                               int x,
                               int y,

@@ -153,29 +153,25 @@ void Mod_Render(UiScreenCtx& ctx)
 
     char buf[32];
     const uint8_t cursor = ctx.engine->process.mod_field_cursor;
-    d.SetCursor(layout.x, layout.y_body);
-    std::snprintf(buf, sizeof(buf), "%c R:%u",
-                  (cursor == 0) ? '>' : ' ',
-                  (unsigned)r_idx);
-    d.WriteString(buf, Font_6x8, true);
+    auto draw_row = [&](uint8_t idx, const char* text) {
+        const int y = layout.y_body + layout.line_h * idx;
+        if(cursor == idx)
+            DrawRencFocusString6x8(d, text, layout.x + 6, y);
+        else
+        {
+            d.SetCursor(layout.x + 6, y);
+            d.WriteString(text, Font_6x8, true);
+        }
+    };
 
-    d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    std::snprintf(buf, sizeof(buf), "%c EN:%c",
-                  (cursor == 1) ? '>' : ' ',
-                  r.enabled ? '1' : '0');
-    d.WriteString(buf, Font_6x8, true);
-
-    d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);
-    std::snprintf(buf, sizeof(buf), "%c AMT:%+03d",
-                  (cursor == 2) ? '>' : ' ',
-                  amt);
-    d.WriteString(buf, Font_6x8, true);
-
-    d.SetCursor(layout.x, layout.y_body + layout.line_h * 3);
-    std::snprintf(buf, sizeof(buf), "%c DST:%c",
-                  (cursor == 3) ? '>' : ' ',
-                  DstChar(r.dst));
-    d.WriteString(buf, Font_6x8, true);
+    std::snprintf(buf, sizeof(buf), "R:%u", (unsigned)r_idx);
+    draw_row(0, buf);
+    std::snprintf(buf, sizeof(buf), "EN:%c", r.enabled ? '1' : '0');
+    draw_row(1, buf);
+    std::snprintf(buf, sizeof(buf), "AMT:%+03d", amt);
+    draw_row(2, buf);
+    std::snprintf(buf, sizeof(buf), "DST:%c", DstChar(r.dst));
+    draw_row(3, buf);
 
     UiValueEdit_Render(ctx.ui->value_edit, d, layout.x, layout.y_body + layout.line_h * 4);
 

@@ -10,12 +10,12 @@
 #include "oled_pager.h"
 #include "ui_input.h"
 
-static constexpr int32_t kPerformMenuCount = 5;
-static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS", "PROCESS"};
+static constexpr int32_t kPerformMenuCount = 6;
+static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS", "EXPRESS", "PROCESS"};
 
 static int32_t NextPerformMenuIndex(int32_t current, int32_t delta)
 {
-    static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3, 4};
+    static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3, 4, 5};
     int32_t pos = 0;
     for(int32_t i = 0; i < kPerformMenuCount; ++i)
     {
@@ -197,12 +197,24 @@ static const uint8_t kIconPerformProcess61x29[kIconH * kIconStride] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+static void DrawPerformExpressIcon(OledPager& d, int x, int y)
+{
+    for(int i = 0; i < 3; ++i)
+    {
+        const int cy = y + 6 + i * 9;
+        d.DrawLine(x + 2, cy, x + 17, cy, true);
+        d.DrawLine(x + 43, cy, x + 58, cy, true);
+        d.DrawRect(x + 19, cy - 3, x + 41, cy + 3, true, false);
+    }
+    d.DrawLine(x + 30, y + 2, x + 30, y + 26, true);
+}
+
 static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
 {
     constexpr int kDisplayW = 128;
     constexpr int kDisplayH = 64;
     constexpr int kListLeftX = 2;
-    constexpr int kListGapY = 6;
+    constexpr int kListGapY = 4;
 
     d.Fill(false);
 
@@ -228,17 +240,7 @@ static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
         const int text_y = start_y + i * (text_h + kListGapY);
         if(is_selected)
         {
-            const int pad = 1;
-            int rect_x0 = text_x - pad;
-            int rect_y0 = text_y - pad;
-            int rect_x1 = text_x + list_w + pad;
-            int rect_y1 = text_y + text_h + pad;
-            if(rect_x0 < 0) rect_x0 = 0;
-            if(rect_y0 < 0) rect_y0 = 0;
-            if(rect_x1 >= kDisplayW) rect_x1 = kDisplayW - 1;
-            if(rect_y1 >= kDisplayH) rect_y1 = kDisplayH - 1;
-            d.DrawRect(rect_x0, rect_y0, rect_x1, rect_y1, true, true);
-            DrawTinyString(d, label, text_x, text_y, false);
+            DrawRencFocusTinyString(d, label, text_x, text_y);
         }
         else
         {
@@ -280,6 +282,15 @@ static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
                 icon_stride = kIconStride;
             }
             else if(i == 4)
+            {
+                icon_w = kIconW;
+                icon_h = kIconH;
+                const int icon_x = icon_area_x + (icon_area_w - icon_w) / 2;
+                const int icon_y = (kDisplayH - icon_h) / 2;
+                DrawPerformExpressIcon(d, icon_x, icon_y);
+                continue;
+            }
+            else if(i == 5)
             {
                 icon = kIconPerformProcess61x29;
                 icon_w = kIconW;
@@ -331,6 +342,8 @@ bool PerformMenu_OnEnter(UiScreenCtx& ctx)
         case 3:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformEmphasis);
         case 4:
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformExpress);
+        case 5:
         default:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformProcess);
     }

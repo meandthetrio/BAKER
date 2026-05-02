@@ -159,25 +159,25 @@ void Fx_Render(UiScreenCtx& ctx)
         std::snprintf(lpf_buf, sizeof(lpf_buf), "%3lu", (unsigned long)lpf_hz);
 
     const uint8_t cursor = ctx.engine->process.fx_field_cursor;
-    d.SetCursor(layout.x, layout.y_body);
-    std::snprintf(buf, sizeof(buf), "%c DLY:%c", (cursor == 0) ? '>' : ' ',
-                  t.delay_on ? '1' : '0');
-    d.WriteString(buf, Font_6x8, true);
+    auto draw_row = [&](uint8_t idx, const char* text) {
+        const int y = layout.y_body + layout.line_h * idx;
+        if(cursor == idx)
+            DrawRencFocusString6x8(d, text, layout.x + 6, y);
+        else
+        {
+            d.SetCursor(layout.x + 6, y);
+            d.WriteString(text, Font_6x8, true);
+        }
+    };
 
-    d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    std::snprintf(buf, sizeof(buf), "%c MIX:%03d", (cursor == 1) ? '>' : ' ',
-                  ToPct01(t.delay_mix));
-    d.WriteString(buf, Font_6x8, true);
-
-    d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);
-    std::snprintf(buf, sizeof(buf), "%c SAT:%c", (cursor == 2) ? '>' : ' ',
-                  t.sat_on ? '1' : '0');
-    d.WriteString(buf, Font_6x8, true);
-
-    d.SetCursor(layout.x, layout.y_body + layout.line_h * 3);
-    std::snprintf(buf, sizeof(buf), "%c LPF:%s", (cursor == 3) ? '>' : ' ',
-                  lpf_buf);
-    d.WriteString(buf, Font_6x8, true);
+    std::snprintf(buf, sizeof(buf), "DLY:%c", t.delay_on ? '1' : '0');
+    draw_row(0, buf);
+    std::snprintf(buf, sizeof(buf), "MIX:%03d", ToPct01(t.delay_mix));
+    draw_row(1, buf);
+    std::snprintf(buf, sizeof(buf), "SAT:%c", t.sat_on ? '1' : '0');
+    draw_row(2, buf);
+    std::snprintf(buf, sizeof(buf), "LPF:%s", lpf_buf);
+    draw_row(3, buf);
 
     UiValueEdit_Render(ctx.ui->value_edit, d, layout.x, layout.y_body + layout.line_h * 4);
 

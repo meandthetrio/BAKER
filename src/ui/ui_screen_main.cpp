@@ -165,17 +165,7 @@ static void DrawMainMenuFriendStyle(OledPager& d, int selected)
         const int text_y = start_y + i * (text_h + kListGapY);
         if(is_selected)
         {
-            const int pad = 1;
-            int rect_x0 = text_x - pad;
-            int rect_y0 = text_y - pad;
-            int rect_x1 = text_x + list_w + pad;
-            int rect_y1 = text_y + text_h + pad;
-            if(rect_x0 < 0) rect_x0 = 0;
-            if(rect_y0 < 0) rect_y0 = 0;
-            if(rect_x1 >= kDisplayW) rect_x1 = kDisplayW - 1;
-            if(rect_y1 >= kDisplayH) rect_y1 = kDisplayH - 1;
-            d.DrawRect(rect_x0, rect_y0, rect_x1, rect_y1, true, true);
-            DrawTinyString(d, label, text_x, text_y, false);
+            DrawRencFocusTinyString(d, label, text_x, text_y);
         }
         else
         {

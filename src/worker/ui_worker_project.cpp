@@ -217,6 +217,56 @@ void ClampProjectReverbState(ProjectReverbState& reverb)
     reverb.reverb_mod = ClampProjectFloat(reverb.reverb_mod, 0.0f, 1.0f);
 }
 
+static uint8_t ClampProjectExpressTarget(int target)
+{
+    if(target < 0)
+        return 0u;
+    if(target > 6)
+        return 0u;
+    return static_cast<uint8_t>(target);
+}
+
+static uint16_t ProjectExpressMinForTarget(uint8_t target)
+{
+    switch(ClampProjectExpressTarget(target))
+    {
+        case 0: return 20u;
+        case 3: return 2u;
+        case 5: return 1u;
+        default: return 0u;
+    }
+}
+
+static uint16_t ProjectExpressMaxForTarget(uint8_t target)
+{
+    switch(ClampProjectExpressTarget(target))
+    {
+        case 0: return 20000u;
+        case 1: return 60u;
+        case 3: return 1000u;
+        case 5: return 1000u;
+        default: return 100u;
+    }
+}
+
+static void ClampProjectExpressRow(uint8_t& target, uint16_t& min_value, uint16_t& max_value)
+{
+    target = ClampProjectExpressTarget(target);
+    const uint16_t lo = ProjectExpressMinForTarget(target);
+    const uint16_t hi = ProjectExpressMaxForTarget(target);
+    min_value = static_cast<uint16_t>(ClampProjectFloat(static_cast<float>(min_value),
+                                                        static_cast<float>(lo),
+                                                        static_cast<float>(hi)));
+    max_value = static_cast<uint16_t>(ClampProjectFloat(static_cast<float>(max_value),
+                                                        static_cast<float>(lo),
+                                                        static_cast<float>(hi)));
+    if(min_value > max_value)
+    {
+        min_value = lo;
+        max_value = hi;
+    }
+}
+
 void ClampProjectEqState(ProjectEqState& eq)
 {
     auto clamp01 = [](float value) -> float
@@ -355,6 +405,15 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
             = ClampProjectFilterCutoffHz(manifest.engine_filter_cutoff_hz[slot]);
         manifest.engine_filter_resonance[slot]
             = ClampProjectFloat(manifest.engine_filter_resonance[slot], 0.0f, 1.0f);
+        for(uint8_t row = 0; row < ProjectExpressState::kRowCount; ++row)
+        {
+            manifest.express.target[slot][row] = engine.express.target[slot][row];
+            manifest.express.min_value[slot][row] = engine.express.min_value[slot][row];
+            manifest.express.max_value[slot][row] = engine.express.max_value[slot][row];
+            ClampProjectExpressRow(manifest.express.target[slot][row],
+                                   manifest.express.min_value[slot][row],
+                                   manifest.express.max_value[slot][row]);
+        }
     }
 }
 

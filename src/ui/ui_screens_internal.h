@@ -95,6 +95,10 @@ void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx);
 bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformEmphasis_Render(UiScreenCtx& ctx);
 
+void PerformExpress_OnScreenEnter(UiScreenCtx& ctx);
+bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void PerformExpress_Render(UiScreenCtx& ctx);
+
 bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformProcess_Render(UiScreenCtx& ctx);
 

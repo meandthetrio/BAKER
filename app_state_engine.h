@@ -31,6 +31,7 @@ struct AppEngineState
         uint8_t perform_layer = 0;
         uint8_t perform_engine_row = 0;
         uint8_t perform_emphasis_row = 0;
+        uint8_t perform_express_focus = 1;
     } perform_nav{};
 
     struct PerformWaveEditState
@@ -74,6 +75,17 @@ struct AppEngineState
         uint8_t perform_adsr_env_r_x[2] = {89u, 89u};
         uint8_t perform_adsr_env_s_level[2] = {50u, 50u};
     } adsr{};
+
+    struct PerformExpressState
+    {
+        static constexpr uint8_t kLayerCount = 2;
+        static constexpr uint8_t kRowCount = 3;
+
+        // 0=CUTOFF, 1=DRIVE, 2=RESONANCE, 3=ATTACK, 4=SUSTAIN, 5=RELEASE, 6=REVERB.
+        uint8_t  target[kLayerCount][kRowCount] = {{0u, 1u, 6u}, {0u, 1u, 6u}};
+        uint16_t min_value[kLayerCount][kRowCount] = {{20u, 0u, 0u}, {20u, 0u, 0u}};
+        uint16_t max_value[kLayerCount][kRowCount] = {{20000u, 60u, 100u}, {20000u, 60u, 100u}};
+    } express{};
 
     struct PerformProcessState
     {

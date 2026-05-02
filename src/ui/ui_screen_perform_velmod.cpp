@@ -237,7 +237,6 @@ static void ModBlock_RenderCommon(OledPager& d,
     {
         constexpr int kCx = 30, kY = 48;
         const bool    focused = (focus == 1);
-        constexpr int kNumH   = Font5x7::H;
         if(engine.velmod.modblock_threshold_off[idx])
         {
             static const char kOff[] = "off";
@@ -245,8 +244,7 @@ static void ModBlock_RenderCommon(OledPager& d,
             const int         x = ClampInt(kCx - w / 2, 1, 127 - w);
             if(focused)
             {
-                d.DrawRect(x - 2, kY - 2, x + w + 1, kY + kNumH + 1, true, true);
-                DrawTinyString(d, kOff, x, kY, false);
+                DrawRencFocusTinyString(d, kOff, x, kY);
             }
             else
             {
@@ -262,9 +260,7 @@ static void ModBlock_RenderCommon(OledPager& d,
             const bool inverted = focused && rshift;
             if(inverted)
             {
-                d.DrawRect(x - 2, kY - 2, x + w + 1, kY + kNumH + 1, true, true);
-                DrawDottedRect(d, x - 2, kY - 2, x + w + 1, kY + kNumH + 1);
-                DrawTinyString(d, buf, x, kY, false);
+                DrawRencFocusTinyString(d, buf, x, kY);
             }
             else
             {
@@ -303,7 +299,6 @@ static void VelocityMod_RenderCommon(OledPager& d,
 
     {
         constexpr int kCx = 48, kY = 48;
-        constexpr int kNumH = Font5x7::H;
         char          buf[4] = {};
         std::snprintf(buf, sizeof(buf), "%u", engine.velmod.threshold[idx]);
         const int  w        = TinyStringWidth(buf);
@@ -312,9 +307,7 @@ static void VelocityMod_RenderCommon(OledPager& d,
         const bool inverted = focused && rshift;
         if(inverted)
         {
-            d.DrawRect(x - 2, kY - 2, x + w + 1, kY + kNumH + 1, true, true);
-            DrawDottedRect(d, x - 2, kY - 2, x + w + 1, kY + kNumH + 1);
-            DrawTinyString(d, buf, x, kY, false);
+            DrawRencFocusTinyString(d, buf, x, kY);
         }
         else
         {

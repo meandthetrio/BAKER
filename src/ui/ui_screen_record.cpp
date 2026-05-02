@@ -447,9 +447,14 @@ void Record_Render(UiScreenCtx& ctx)
                 const int y = y0 + i * line_h;
                 const bool sel = (static_cast<uint8_t>(i) == recording.record_source_index);
                 if(sel)
-                    d.DrawRect(0, y, 127, y + line_h - 1, true, true);
-                d.SetCursor(2, y + 1);
-                d.WriteString(names[i], Font_6x8, !sel);
+                {
+                    DrawRencFocusString6x8(d, names[i], 2, y + 1);
+                }
+                else
+                {
+                    d.SetCursor(2, y + 1);
+                    d.WriteString(names[i], Font_6x8, true);
+                }
             }
         }
         break;

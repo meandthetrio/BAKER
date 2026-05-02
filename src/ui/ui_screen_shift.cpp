@@ -230,22 +230,26 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         const bool sel = (ui.shift_menu_cursor == (uint8_t)i);
         const int y = row_y0 + i * row_h;
         const int x0 = layout.x;
-        const int y1 = y + row_h - 1;
-
-        // Highlight only the label area (not the numeric value).
-        const int label_x1 = ((x0 + 60) < (screen_w - 1)) ? (x0 + 60) : (screen_w - 1);
-        if(sel)
-            d.DrawRect(x0, y, label_x1, y1, true, true);
-
-        d.SetCursor(x0 + 1, y + 1);
+        const int label_x = x0 + 1;
+        const int label_y = y + 1;
         if(i == ShiftDelete)
         {
-            d.WriteString("DELETE", Font_6x8, !sel);
+            if(sel) DrawRencFocusString6x8(d, "DELETE", label_x, label_y);
+            else
+            {
+                d.SetCursor(label_x, label_y);
+                d.WriteString("DELETE", Font_6x8, true);
+            }
         }
         else if(i == ShiftVolume)
         {
             const char* label = ui.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
-            d.WriteString(label, Font_6x8, !sel);
+            if(sel) DrawRencFocusString6x8(d, label, label_x, label_y);
+            else
+            {
+                d.SetCursor(label_x, label_y);
+                d.WriteString(label, Font_6x8, true);
+            }
 
             // Right-aligned value.
             char buf[8];
@@ -272,7 +276,12 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else if(i == ShiftProjectSlot)
         {
-            d.WriteString("PROJECT SLOT", Font_6x8, !sel);
+            if(sel) DrawRencFocusString6x8(d, "PROJECT SLOT", label_x, label_y);
+            else
+            {
+                d.SetCursor(label_x, label_y);
+                d.WriteString("PROJECT SLOT", Font_6x8, true);
+            }
 
             char buf[8];
             std::snprintf(buf,
@@ -284,11 +293,21 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else if(i == ShiftSaveProject)
         {
-            d.WriteString("SAVE PROJECT", Font_6x8, !sel);
+            if(sel) DrawRencFocusString6x8(d, "SAVE PROJECT", label_x, label_y);
+            else
+            {
+                d.SetCursor(label_x, label_y);
+                d.WriteString("SAVE PROJECT", Font_6x8, true);
+            }
         }
         else if(i == ShiftLoadProject)
         {
-            d.WriteString("LOAD PROJECT", Font_6x8, !sel);
+            if(sel) DrawRencFocusString6x8(d, "LOAD PROJECT", label_x, label_y);
+            else
+            {
+                d.SetCursor(label_x, label_y);
+                d.WriteString("LOAD PROJECT", Font_6x8, true);
+            }
         }
     }
 

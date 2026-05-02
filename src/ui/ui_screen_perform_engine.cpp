@@ -522,7 +522,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
 
     if(row == kEngineRowLoad)
     {
-        d.DrawRect(load_x - 2, kFooterY - 2, load_x + load_w + 1, kFooterY + Font5x7::H + 1, true, true);
+        DrawRencFocusFrame(d, load_x, kFooterY, load_w, Font5x7::H);
         DrawLoadWordmark(d, load_x, kFooterY, false);
     }
     else

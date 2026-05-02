@@ -1,6 +1,7 @@
 #include "ui_value_edit.h"
 
 #include "oled_pager.h"
+#include "ui_draw_controls.h"
 
 #include <cstdio>
 
@@ -90,7 +91,6 @@ void UiValueEdit_Render(const UiValueEdit& edit, OledPager& oled, int x, int y)
             break;
     }
 
-    oled.SetCursor(x, y + 8);
     std::snprintf(buf, sizeof(buf), "VAL:%s", text ? text : "");
-    oled.WriteString(buf, Font_6x8, true);
+    DrawRencFocusString6x8(oled, buf, x, y + 8);
 }

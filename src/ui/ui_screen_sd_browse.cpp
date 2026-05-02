@@ -177,19 +177,7 @@ void SdBrowse_Render(UiScreenCtx& ctx)
 
     const int menu_x = layout.x;
     const int menu_y = layout.y_body + layout.line_h * lines_used;
-    const int arrow_x = menu_x + 4;
     const int label_x = menu_x + 10;
-
-    auto draw_filled_right_triangle = [&](int cx, int cy)
-    {
-        for(int dx = 0; dx < 4; ++dx)
-        {
-            const int px = cx + dx;
-            const int half_h = dx;
-            for(int yy = cy - half_h; yy <= cy + half_h; ++yy)
-                d.DrawPixel(px, yy, true);
-        }
-    };
 
     for(uint8_t row = 0; row < sd.menu.rows; ++row)
     {
@@ -200,8 +188,8 @@ void SdBrowse_Render(UiScreenCtx& ctx)
         const int row_y = menu_y + static_cast<int>(row) * layout.line_h;
         if(idx == sd.menu.cursor)
         {
-            const int arrow_cy = row_y + (layout.line_h / 2) - 1;
-            draw_filled_right_triangle(arrow_x, arrow_cy);
+            DrawRencFocusString6x8(d, sd.menu.items[idx].label, label_x, row_y);
+            continue;
         }
 
         d.SetCursor(label_x, row_y);

@@ -311,46 +311,46 @@ void SampleEdit_Render(UiScreenCtx& ctx)
             break;
 
         char buf[32];
-        const char prefix = (idx == ui.sample_edit_menu.cursor) ? '>' : ' ';
+        const bool selected = (idx == ui.sample_edit_menu.cursor);
         switch(idx)
         {
             case SE_TrimStart:
-                std::snprintf(buf, sizeof(buf), "%c TRIM S:%04lu",
-                              prefix, (unsigned long)start_ms);
+                std::snprintf(buf, sizeof(buf), "TRIM S:%04lu", (unsigned long)start_ms);
                 break;
             case SE_TrimEnd:
-                std::snprintf(buf, sizeof(buf), "%c TRIM E:%04lu",
-                              prefix, (unsigned long)end_ms);
+                std::snprintf(buf, sizeof(buf), "TRIM E:%04lu", (unsigned long)end_ms);
                 break;
             case SE_LoopEnable:
-                std::snprintf(buf, sizeof(buf), "%c LOOP EN:%c",
-                              prefix, edit.loop_enable ? '1' : '0');
+                std::snprintf(buf, sizeof(buf), "LOOP EN:%c", edit.loop_enable ? '1' : '0');
                 break;
             case SE_LoopStart:
-                std::snprintf(buf, sizeof(buf), "%c LOOP S:%04lu",
-                              prefix, (unsigned long)loop_s_ms);
+                std::snprintf(buf, sizeof(buf), "LOOP S:%04lu", (unsigned long)loop_s_ms);
                 break;
             case SE_LoopEnd:
-                std::snprintf(buf, sizeof(buf), "%c LOOP E:%04lu",
-                              prefix, (unsigned long)loop_e_ms);
+                std::snprintf(buf, sizeof(buf), "LOOP E:%04lu", (unsigned long)loop_e_ms);
                 break;
             case SE_Normalize:
-                std::snprintf(buf, sizeof(buf), "%c NORMALIZE", prefix);
+                std::snprintf(buf, sizeof(buf), "NORMALIZE");
                 break;
             case SE_LoopFind:
-                std::snprintf(buf, sizeof(buf), "%c LOOP FIND", prefix);
+                std::snprintf(buf, sizeof(buf), "LOOP FIND");
                 break;
             case SE_SaveWav:
-                std::snprintf(buf, sizeof(buf), "%c SAVE WAV", prefix);
+                std::snprintf(buf, sizeof(buf), "SAVE WAV");
                 break;
             default:
-                std::snprintf(buf, sizeof(buf), "%c -", prefix);
+                std::snprintf(buf, sizeof(buf), "-");
                 break;
         }
 
-        d.SetCursor(layout.x,
-                    layout.y_body + static_cast<int>(row + info_lines) * layout.line_h);
-        d.WriteString(buf, Font_6x8, true);
+        const int row_y = layout.y_body + static_cast<int>(row + info_lines) * layout.line_h;
+        if(selected)
+            DrawRencFocusString6x8(d, buf, layout.x + 6, row_y);
+        else
+        {
+            d.SetCursor(layout.x + 6, row_y);
+            d.WriteString(buf, Font_6x8, true);
+        }
     }
 
     const bool busy = ui.sd.save_in_progress

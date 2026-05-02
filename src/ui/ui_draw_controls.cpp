@@ -5,6 +5,61 @@
 
 #include <cstring>
 
+using namespace daisy;
+
+static int ClampCoord(int v, int lo, int hi)
+{
+    if(v < lo)
+        return lo;
+    if(v > hi)
+        return hi;
+    return v;
+}
+
+void DrawRencFocusFrame(OledPager& d, int x, int y, int w, int h)
+{
+    if(w <= 0 || h <= 0)
+        return;
+
+    const int ox0 = ClampCoord(x - 3, 0, 127);
+    const int oy0 = ClampCoord(y - 3, 0, 63);
+    const int ox1 = ClampCoord(x + w + 2, 0, 127);
+    const int oy1 = ClampCoord(y + h + 2, 0, 63);
+    const int ix0 = ClampCoord(x - 1, 0, 127);
+    const int iy0 = ClampCoord(y - 1, 0, 63);
+    const int ix1 = ClampCoord(x + w, 0, 127);
+    const int iy1 = ClampCoord(y + h, 0, 63);
+
+    d.DrawRect(ox0, oy0, ox1, oy1, true, false);
+    d.DrawRect(ix0, iy0, ix1, iy1, true, true);
+}
+
+void DrawRencFocusTinyString(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    DrawRencFocusFrame(d, x, y, TinyStringWidth(str), Font5x7::H);
+    DrawTinyString(d, str, x, y, false);
+}
+
+void DrawRencFocusMicroString(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    DrawRencFocusFrame(d, x, y, MicroStringWidth(str), kMicroH);
+    DrawMicroString(d, str, x, y, false);
+}
+
+void DrawRencFocusString6x8(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = static_cast<int>(std::strlen(str)) * 6;
+    DrawRencFocusFrame(d, x, y, w, 8);
+    d.SetCursor(x, y);
+    d.WriteString(str, Font_6x8, false);
+}
+
 void DrawVerticalFadersInRect(OledPager& d,
                               int x,
                               int y,
@@ -147,20 +202,7 @@ void DrawVerticalFadersInRect(OledPager& d,
         {
             if(selected)
             {
-                int lx0 = label_x - 1;
-                int lx1 = label_x + label_w;
-                int ly0 = label_y - 1 + selected_label_box_y_offset;
-                int ly1 = label_y + Font5x7::H + selected_label_box_y_offset
-                          + selected_label_box_extra_bottom;
-                int ly1_max = y + h - 2 + selected_label_box_bottom_clip_extra;
-                if(ly1_max > y + h - 1)
-                    ly1_max = y + h - 1;
-                if(lx0 < x + 1) lx0 = x + 1;
-                if(lx1 > x + w - 2) lx1 = x + w - 2;
-                if(ly0 < y + 1) ly0 = y + 1;
-                if(ly1 > ly1_max) ly1 = ly1_max;
-                d.DrawRect(lx0, ly0, lx1, ly1, true, true);
-                DrawTinyString(d, label, label_x, label_y, false);
+                DrawRencFocusTinyString(d, label, label_x, label_y);
             }
             else
             {

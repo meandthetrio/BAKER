@@ -4,6 +4,7 @@
 
 #include "oled_pager.h"
 #include "params.h"
+#include "ui_draw_controls.h"
 
 static int ProcessValueAdvance(char ch, char next_ch)
 {
@@ -84,13 +85,11 @@ void DrawProcessKnob(OledPager& d,
     d.DrawLine(cx, cy, hx, hy, true);
 
     char side_text[2] = {side_letter, '\0'};
-    const int label_w = TinyStringWidth(side_text);
     const int label_x = cx - radius - 9;
     const int label_y = cy - (Font5x7::H / 2);
     if(focused)
     {
-        d.DrawRect(label_x - 3, label_y - 2, label_x + label_w + 2, label_y + Font5x7::H + 1, true, false);
-        DrawTinyString(d, side_text, label_x, label_y, true);
+        DrawRencFocusTinyString(d, side_text, label_x, label_y);
     }
     else
     {
@@ -199,8 +198,6 @@ static void DrawProcessSatDetail(OledPager& d,
     const bool tape_selected = (t.sat_mode == 0);
     const bool bit_selected = (t.sat_mode == 1);
     const bool mode_select_active = (selected_param == 3);
-    if(mode_select_active)
-        d.DrawRect(block_x - 1, block_y - 1, block_x + block_w, block_y + block_h, true, false);
     d.DrawRect(block_x, block_y, block_x + block_w - 1, block_y + box_h - 1, true, tape_selected);
     d.DrawRect(block_x,
                block_y + box_h + kGap,
@@ -216,8 +213,14 @@ static void DrawProcessSatDetail(OledPager& d,
     int label_x2 = block_x + (block_w - label_w2) / 2;
     if(label_x1 < block_x + 1) label_x1 = block_x + 1;
     if(label_x2 < block_x + 1) label_x2 = block_x + 1;
-    DrawTinyString(d, "TAPE", label_x1, label_y1, !tape_selected);
-    DrawTinyString(d, "BIT", label_x2, label_y2, !bit_selected);
+    if(mode_select_active && tape_selected)
+        DrawRencFocusTinyString(d, "TAPE", label_x1, label_y1);
+    else
+        DrawTinyString(d, "TAPE", label_x1, label_y1, !tape_selected);
+    if(mode_select_active && bit_selected)
+        DrawRencFocusTinyString(d, "BIT", label_x2, label_y2);
+    else
+        DrawTinyString(d, "BIT", label_x2, label_y2, !bit_selected);
 
     const int fader_offset = 8;
     const int fader_x = block_x + block_w + kGap + fader_offset;
@@ -285,13 +288,7 @@ static void DrawProcessSatDetail(OledPager& d,
             const bool is_selected = (i == cur_idx);
             if(is_selected)
             {
-                d.DrawRect(bits_x - 1,
-                           bits_y - 1,
-                           bits_x + bits_w,
-                           bits_y + Font5x7::H,
-                           true,
-                           true);
-                DrawTinyString(d, bits_label, bits_x, bits_y, false);
+                DrawRencFocusTinyString(d, bits_label, bits_x, bits_y);
             }
             else
             {

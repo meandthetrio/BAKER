@@ -41,6 +41,7 @@ CPP_SOURCES += src/ui/ui_screen_perform_adsr.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_adsr_edit.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_adsr_render.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_emphasis.cpp
+CPP_SOURCES += src/ui/ui_screen_perform_express.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_process.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_process_edit.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_process_render.cpp

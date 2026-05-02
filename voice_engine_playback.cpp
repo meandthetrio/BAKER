@@ -4,8 +4,8 @@
 
 static constexpr float kMinEnvAttackMs = 2.0f;
 static constexpr float kLoopBoundaryFadeMs = 1.0f;
-static constexpr float kMinRatio = 0.25f;
-static constexpr float kMaxRatio = 4.0f;
+static constexpr float kMinRatio = 0.125f;
+static constexpr float kMaxRatio = 16.0f;
 
 float ComputeRatio(uint8_t note, uint8_t root_key)
 {

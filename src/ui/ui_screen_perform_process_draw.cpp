@@ -68,6 +68,43 @@ static void DrawProcessPlusGlyph(OledPager& d, int x, int y)
     d.DrawLine(x, y + 3, x + 4, y + 3, true);
 }
 
+static void DrawLockedVerticalFaderLabel(OledPager& d,
+                                         int x,
+                                         int y,
+                                         int w,
+                                         int h,
+                                         int count,
+                                         int index,
+                                         const char* label,
+                                         const int* x_offsets = nullptr)
+{
+    if(index < 0 || index >= count || label == nullptr || label[0] == '\0' || w <= 2 || h <= 2)
+        return;
+
+    const int label_y = y + h - Font5x7::H - 1;
+    int fader_left = x + 4;
+    int fader_right = x + w - 5;
+    if(fader_right <= fader_left)
+        return;
+    const int span_x = fader_right - fader_left;
+
+    int line_x = fader_left;
+    if(count > 1 && span_x > 0)
+        line_x = fader_left + (span_x * index) / (count - 1);
+    if(x_offsets != nullptr)
+        line_x += x_offsets[index];
+
+    const int label_w = TinyStringWidth(label);
+    int label_x = line_x - (label_w / 2);
+    if(label_x < x + 1)
+        label_x = x + 1;
+    if(label_x + label_w > x + w - 2)
+        label_x = x + w - 2 - label_w;
+
+    d.DrawRect(label_x - 2, label_y - 1, label_x + label_w + 1, label_y + Font5x7::H, true, true);
+    DrawTinyString(d, label, label_x, label_y, false);
+}
+
 void DrawProcessKnob(OledPager& d,
                      int cx,
                      int cy,
@@ -371,7 +408,9 @@ static void DrawProcessDelayDetail(OledPager& d,
 
 static void DrawProcessReverbDetail(OledPager& d,
                                     const PerformParamsTargets& t,
-                                    uint8_t selected_param)
+                                    uint8_t selected_param,
+                                    int locked_param,
+                                    bool flash_locked)
 {
     constexpr int kDisplayW = 128;
     constexpr int kDisplayH = 64;
@@ -409,6 +448,16 @@ static void DrawProcessReverbDetail(OledPager& d,
                              nullptr,
                              hide_rails,
                              hide_handles);
+    if(flash_locked && locked_param >= 0 && locked_param < kReverbFaderCount)
+        DrawLockedVerticalFaderLabel(d,
+                                     fader_x,
+                                     block_y,
+                                     fader_w,
+                                     block_h,
+                                     kReverbFaderCount,
+                                     locked_param,
+                                     fader_labels[locked_param],
+                                     fader_offsets);
 }
 
 void DrawFxDetailScreen(OledPager& d,
@@ -416,7 +465,9 @@ void DrawFxDetailScreen(OledPager& d,
                         uint8_t fx_id,
                         uint8_t selected_param,
                         uint32_t now_ms,
-                        bool rshift_held)
+                        bool rshift_held,
+                        int locked_param,
+                        bool flash_locked)
 {
     constexpr int kDisplayW = 128;
     constexpr int kPerformFaderCount = 4;
@@ -452,7 +503,7 @@ void DrawFxDetailScreen(OledPager& d,
         case 0: DrawProcessSatDetail(d, t, selected_param); break;
         case 1: DrawProcessEqDetailPlaceholder(d); break;
         case 2: DrawProcessDelayDetail(d, t, selected_param, now_ms, rshift_held); break;
-        case 3: DrawProcessReverbDetail(d, t, selected_param); break;
+        case 3: DrawProcessReverbDetail(d, t, selected_param, locked_param, flash_locked); break;
         default: break;
     }
 }

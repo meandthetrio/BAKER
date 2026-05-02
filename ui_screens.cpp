@@ -1,6 +1,7 @@
 #include "ui_screens.h"
 #include "ui_screens_internal.h"
 #include "app_state.h"
+#include "express_state.h"
 #include "params.h"
 #include "oled_pager.h"
 #include "sample_edit.h"
@@ -85,8 +86,39 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         t.engine_loop_release_ms[i] = static_cast<float>(clamped_release);
         t.engine_loop_crossfade_amount[i] = engine.adsr.perform_adsr_loop_crossfade[i];
         t.engine_loop_crossfade_shape[i] = engine.adsr.perform_adsr_loop_crossfade_shape[i];
+        for(uint8_t row = 0; row < kExpressRowCount; ++row)
+        {
+            t.express_target[i][row] = engine.express.target[i][row];
+            t.express_min_value[i][row] = engine.express.min_value[i][row];
+            t.express_max_value[i][row] = engine.express.max_value[i][row];
+            ExpressClampRow(t.express_target[i][row],
+                            t.express_min_value[i][row],
+                            t.express_max_value[i][row]);
+        }
     }
     ctx.params->PublishTargets();
+}
+
+bool ExpressUiEnabled(const AppSharedState& shared)
+{
+    return shared.performance.express.enabled.load(std::memory_order_acquire) != 0u;
+}
+
+bool ExpressUiFlashLocked(uint32_t now_ms)
+{
+    return (now_ms % 1000u) < 160u;
+}
+
+bool ExpressUiTargetLocked(const AppSharedState& shared,
+                           const AppEngineState& engine,
+                           uint8_t layer,
+                           uint8_t target)
+{
+    if(!ExpressUiEnabled(shared))
+        return false;
+    if(ExpressTargetIsGlobal(target))
+        return ExpressAnyLayerOwnsTarget(engine.express.target, target);
+    return ExpressLayerOwnsTarget(engine.express.target, layer, target);
 }
 
 void EngineRefreshLoadedMetadata(AppUiState& ui, AppEngineState& engine, AppSharedState& shared)

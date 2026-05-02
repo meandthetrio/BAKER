@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "express_state.h"
 #include "keygroups.h"
 
 struct PerformParamsTargets
@@ -56,6 +57,13 @@ struct PerformParamsTargets
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
+    uint8_t express_target[kLayerCount][kExpressRowCount]
+        = {{kExpressCutoff, kExpressDrive, kExpressReverb},
+           {kExpressCutoff, kExpressDrive, kExpressReverb}};
+    uint16_t express_min_value[kLayerCount][kExpressRowCount]
+        = {{20u, 0u, 0u}, {20u, 0u, 0u}};
+    uint16_t express_max_value[kLayerCount][kExpressRowCount]
+        = {{20000u, 60u, 100u}, {20000u, 60u, 100u}};
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 
@@ -110,6 +118,13 @@ struct PerformParamsCurrent
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
+    uint8_t express_target[kLayerCount][kExpressRowCount]
+        = {{kExpressCutoff, kExpressDrive, kExpressReverb},
+           {kExpressCutoff, kExpressDrive, kExpressReverb}};
+    uint16_t express_min_value[kLayerCount][kExpressRowCount]
+        = {{20u, 0u, 0u}, {20u, 0u, 0u}};
+    uint16_t express_max_value[kLayerCount][kExpressRowCount]
+        = {{20000u, 60u, 100u}, {20000u, 60u, 100u}};
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 

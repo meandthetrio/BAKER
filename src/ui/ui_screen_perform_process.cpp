@@ -10,10 +10,86 @@
 #include "app_state_diagnostics.h"
 #include "app_state_shared.h"
 #include "app_state_worker.h"
+#include "express_state.h"
 #include "oled_pager.h"
 #include "params.h"
 #include "ui_input.h"
 #include "ui_layout.h"
+
+namespace
+{
+static bool ProcessMainCursorLocked(const AppSharedState& shared,
+                                    const AppEngineState& engine,
+                                    uint8_t layer,
+                                    uint8_t main_cursor)
+{
+    if(main_cursor < 2u)
+        return false;
+    const uint8_t lane = static_cast<uint8_t>((main_cursor - 2u) & 0x03u);
+    return engine.process.perform_process_fx_order[lane] == 3u
+           && ExpressUiTargetLocked(shared, engine, layer, kExpressReverb);
+}
+
+static void ProcessEnsureValidMainCursor(const AppSharedState& shared,
+                                         AppEngineState& engine,
+                                         uint8_t layer)
+{
+    engine.process.perform_process_main_cursor %= 6u;
+    if(!ProcessMainCursorLocked(shared, engine, layer, engine.process.perform_process_main_cursor))
+        return;
+
+    for(uint8_t step = 1; step < 6u; ++step)
+    {
+        const uint8_t next = static_cast<uint8_t>((engine.process.perform_process_main_cursor + step) % 6u);
+        if(!ProcessMainCursorLocked(shared, engine, layer, next))
+        {
+            engine.process.perform_process_main_cursor = next;
+            if(next >= 2u)
+                engine.process.perform_process_fx_cursor = static_cast<uint8_t>((next - 2u) & 0x03u);
+            return;
+        }
+    }
+}
+
+static bool ProcessDetailParamLocked(const AppSharedState& shared,
+                                     const AppEngineState& engine,
+                                     uint8_t layer,
+                                     uint8_t fx_id,
+                                     uint8_t param)
+{
+    return fx_id == 3u && param == 4u
+           && ExpressUiTargetLocked(shared, engine, layer, kExpressReverb);
+}
+
+static void ProcessEnsureValidDetailParam(const AppSharedState& shared,
+                                          AppEngineState& engine,
+                                          uint8_t layer,
+                                          uint8_t fx_cursor)
+{
+    const uint8_t cursor = fx_cursor & 0x03u;
+    const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
+    const uint8_t count = ProcessDetailParamCount(fx_id);
+    if(count == 0u)
+        return;
+
+    engine.process.perform_process_detail_param[cursor] %= count;
+    if(!ProcessDetailParamLocked(shared,
+                                 engine,
+                                 layer,
+                                 fx_id,
+                                 engine.process.perform_process_detail_param[cursor]))
+        return;
+
+    for(uint8_t next = 0; next < count; ++next)
+    {
+        if(!ProcessDetailParamLocked(shared, engine, layer, fx_id, next))
+        {
+            engine.process.perform_process_detail_param[cursor] = next;
+            return;
+        }
+    }
+}
+} // namespace
 
 bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
@@ -29,6 +105,9 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    ProcessEnsureValidMainCursor(shared, engine, layer);
+    ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor);
     const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 6u);
     const bool main_selects_fx = (main_cursor >= 2u);
     const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 2u) & 0x03u)
@@ -105,20 +184,32 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             int idx = static_cast<int>(engine.process.perform_process_detail_param[cursor]) + e.value;
             const int count = static_cast<int>(ProcessDetailParamCount(fx_id));
-            while(idx < 0)
-                idx += count;
-            while(idx >= count)
-                idx -= count;
-            engine.process.perform_process_detail_param[cursor] = static_cast<uint8_t>(idx);
+            do
+            {
+                while(idx < 0)
+                    idx += count;
+                while(idx >= count)
+                    idx -= count;
+                engine.process.perform_process_detail_param[cursor] = static_cast<uint8_t>(idx);
+                idx += (e.value < 0) ? -1 : 1;
+            } while(ProcessDetailParamLocked(shared,
+                                             engine,
+                                             layer,
+                                             fx_id,
+                                             engine.process.perform_process_detail_param[cursor]));
             ui.ui_dirty = true;
             return true;
         }
         int idx = static_cast<int>(main_cursor) + e.value;
-        while(idx < 0)
-            idx += 6;
-        while(idx >= 6)
-            idx -= 6;
-        engine.process.perform_process_main_cursor = static_cast<uint8_t>(idx);
+        do
+        {
+            while(idx < 0)
+                idx += 6;
+            while(idx >= 6)
+                idx -= 6;
+            engine.process.perform_process_main_cursor = static_cast<uint8_t>(idx);
+            idx += (e.value < 0) ? -1 : 1;
+        } while(ProcessMainCursorLocked(shared, engine, layer, engine.process.perform_process_main_cursor));
         if(engine.process.perform_process_main_cursor >= 2u)
             engine.process.perform_process_fx_cursor = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 2u) & 0x03u);
         ui.ui_dirty = true;
@@ -139,6 +230,11 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(engine.process.perform_process_detail_active)
         {
             const uint8_t pidx = engine.process.perform_process_detail_param[cursor];
+            if(ProcessDetailParamLocked(shared, engine, layer, fx_id, pidx))
+            {
+                ui.ui_dirty = true;
+                return true;
+            }
             const bool changed = ProcessEditFxDetail(ctx, e, fx_id, pidx, delta);
             if(changed)
                 ctx.params->PublishTargets();
@@ -200,6 +296,11 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 break;
             case 3: // R = reverb wet
             default:
+                if(ProcessMainCursorLocked(shared, engine, layer, main_cursor))
+                {
+                    ui.ui_dirty = true;
+                    return true;
+                }
                 t.reverb_mix = Clamp01(t.reverb_mix + delta);
                 t.reverb_on = (t.reverb_mix > 0.001f);
                 break;
@@ -227,6 +328,9 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    ProcessEnsureValidMainCursor(shared, engine, layer);
+    ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor);
     EngineRefreshLoadedMetadata(ui, engine, shared);
 
     OledPager& d = *ctx.display;
@@ -251,7 +355,10 @@ void PerformProcess_Render(UiScreenCtx& ctx)
         const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
         const uint8_t pidx = engine.process.perform_process_detail_param[cursor];
         const PerformParamsTargets& t = ctx.params->TargetsForUI();
-        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift);
+        const bool flash_locked = ExpressUiFlashLocked(ctx.now_ms)
+                                  && ProcessDetailParamLocked(shared, engine, layer, fx_id, 4u);
+        const int locked_param = (fx_id == 3u && flash_locked) ? 4 : -1;
+        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift, locked_param, flash_locked);
         return;
     }
 
@@ -335,5 +442,36 @@ void PerformProcess_Render(UiScreenCtx& ctx)
                                  1);
 
         DrawProcessFxReorderOverlay(d, fader_x, fader_y, fader_w, fader_h, selected_index, ctx.rshift);
+        if(ExpressUiFlashLocked(ctx.now_ms))
+        {
+            for(int i = 0; i < 4; ++i)
+            {
+                if(engine.process.perform_process_fx_order[i] != 3u
+                   || !ExpressUiTargetLocked(shared, engine, layer, kExpressReverb))
+                    continue;
+
+                const int label_y = fader_y + fader_h - Font5x7::H - 1;
+                int fader_left = fader_x + 4;
+                int fader_right = fader_x + fader_w - 5;
+                if(fader_right <= fader_left)
+                    break;
+                const int span_x = fader_right - fader_left;
+                int line_x = fader_left + (span_x * i) / 3;
+                const char* label = labels[i];
+                const int label_w = TinyStringWidth(label);
+                int label_x = line_x - (label_w / 2);
+                if(label_x < fader_x + 1)
+                    label_x = fader_x + 1;
+                if(label_x + label_w > fader_x + fader_w - 2)
+                    label_x = fader_x + fader_w - 2 - label_w;
+                d.DrawRect(label_x - 2,
+                           label_y - 1,
+                           label_x + label_w + 1,
+                           label_y + Font5x7::H,
+                           true,
+                           true);
+                DrawTinyString(d, label, label_x, label_y, false);
+            }
+        }
     }
 }

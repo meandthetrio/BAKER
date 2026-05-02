@@ -9,26 +9,14 @@
 #include "app_state_shared.h"
 #include "app_state_ui.h"
 #include "app_state_worker.h"
+#include "express_state.h"
 #include "oled_pager.h"
 #include "ui_draw_controls.h"
 #include "ui_input.h"
 
 namespace
 {
-static constexpr uint8_t kExpressRows = AppEngineState::PerformExpressState::kRowCount;
-static constexpr uint8_t kExpressFocusCount = kExpressRows * 3u;
-
-enum ExpressTarget : uint8_t
-{
-    kExpressCutoff = 0,
-    kExpressDrive,
-    kExpressResonance,
-    kExpressAttack,
-    kExpressSustain,
-    kExpressRelease,
-    kExpressReverb,
-    kExpressTargetCount,
-};
+static constexpr uint8_t kExpressRows = kExpressRowCount;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -39,71 +27,9 @@ static int ClampInt(int v, int lo, int hi)
     return v;
 }
 
-static uint8_t ClampTarget(uint8_t target)
-{
-    return (target < kExpressTargetCount) ? target : kExpressCutoff;
-}
-
-static const char* TargetLabel(uint8_t target)
-{
-    switch(ClampTarget(target))
-    {
-        case kExpressCutoff: return "cutoff";
-        case kExpressDrive: return "drive";
-        case kExpressResonance: return "reso";
-        case kExpressAttack: return "attack";
-        case kExpressSustain: return "sustain";
-        case kExpressRelease: return "release";
-        case kExpressReverb: return "reverb";
-        default: return "cutoff";
-    }
-}
-
-static uint16_t TargetMin(uint8_t target)
-{
-    switch(ClampTarget(target))
-    {
-        case kExpressCutoff: return 20u;
-        case kExpressDrive: return 0u;
-        case kExpressResonance: return 0u;
-        case kExpressAttack: return 2u;
-        case kExpressSustain: return 0u;
-        case kExpressRelease: return 1u;
-        case kExpressReverb: return 0u;
-        default: return 0u;
-    }
-}
-
-static uint16_t TargetMax(uint8_t target)
-{
-    switch(ClampTarget(target))
-    {
-        case kExpressCutoff: return 20000u;
-        case kExpressDrive: return 60u;
-        case kExpressResonance: return 100u;
-        case kExpressAttack: return 1000u;
-        case kExpressSustain: return 100u;
-        case kExpressRelease: return 1000u;
-        case kExpressReverb: return 100u;
-        default: return 100u;
-    }
-}
-
-static int TargetStep(uint8_t target)
-{
-    switch(ClampTarget(target))
-    {
-        case kExpressCutoff: return 100;
-        case kExpressDrive: return 1;
-        case kExpressAttack: return 5;
-        case kExpressRelease: return 5;
-        default: return 1;
-    }
-}
-
 static void FormatTargetValue(uint8_t target, uint16_t value, char* out, size_t out_n)
 {
-    switch(ClampTarget(target))
+    switch(ExpressClampTarget(target))
     {
         case kExpressCutoff:
         {
@@ -148,27 +74,16 @@ static void NormalizeRow(AppEngineState::PerformExpressState& express, uint8_t l
     layer &= 1u;
     row %= kExpressRows;
     uint8_t& target = express.target[layer][row];
-    target = ClampTarget(target);
-
-    const uint16_t lo = TargetMin(target);
-    const uint16_t hi = TargetMax(target);
     uint16_t& min_v = express.min_value[layer][row];
     uint16_t& max_v = express.max_value[layer][row];
-
-    min_v = static_cast<uint16_t>(ClampInt(static_cast<int>(min_v), lo, hi));
-    max_v = static_cast<uint16_t>(ClampInt(static_cast<int>(max_v), lo, hi));
-    if(min_v > max_v)
-    {
-        min_v = lo;
-        max_v = hi;
-    }
+    ExpressClampRow(target, min_v, max_v);
 }
 
 static void SetTarget(AppEngineState::PerformExpressState& express, uint8_t layer, uint8_t row, uint8_t next_target)
 {
     layer &= 1u;
     row %= kExpressRows;
-    express.target[layer][row] = ClampTarget(next_target);
+    express.target[layer][row] = ExpressClampTarget(next_target);
     NormalizeRow(express, layer, row);
 }
 
@@ -207,8 +122,28 @@ static void DrawCenteredMicroInRect(OledPager& d, const char* str, int x0, int y
 static void DrawLayerBadge(OledPager& d, uint8_t layer, bool inverted)
 {
     const char* label = (layer & 1u) ? "B" : "A";
-    d.DrawRect(0, 0, 10, 10, true, inverted);
-    DrawTinyString(d, label, 3, 2, !inverted);
+    d.DrawRect(28, 0, 38, 10, true, inverted);
+    DrawTinyString(d, label, 31, 2, !inverted);
+}
+
+static void NormalizeExpressState(AppEngineState::PerformExpressState& express)
+{
+    ExpressNormalizeAssignments(express.target, express.min_value, express.max_value);
+}
+
+static void DrawBypassButton(OledPager& d, bool enabled, bool focused)
+{
+    const char* label = enabled ? "on" : "off";
+    const int x = 2;
+    const int y = 2;
+    const int w = MicroStringWidth(label);
+    if(focused)
+        DrawRencFocusMicroString(d, label, x, y);
+    else
+    {
+        d.DrawRect(0, 0, x + w + 1, y + kMicroH + 1, true, false);
+        DrawMicroString(d, label, x, y, true);
+    }
 }
 } // namespace
 
@@ -218,11 +153,7 @@ void PerformExpress_OnScreenEnter(UiScreenCtx& ctx)
         return;
 
     AppEngineState& engine = *ctx.engine;
-    for(uint8_t layer = 0; layer < AppEngineState::PerformExpressState::kLayerCount; ++layer)
-    {
-        for(uint8_t row = 0; row < kExpressRows; ++row)
-            NormalizeRow(engine.express, layer, row);
-    }
+    NormalizeExpressState(engine.express);
     engine.perform_nav.perform_express_focus %= kExpressFocusCount;
     ctx.ui->ui_dirty = true;
 }
@@ -240,8 +171,9 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     uint8_t& focus = engine.perform_nav.perform_express_focus;
     focus %= kExpressFocusCount;
-    const uint8_t row = focus / 3u;
-    const uint8_t col = focus % 3u;
+    const bool bypass_focus = (focus == 0u);
+    const uint8_t row = bypass_focus ? 0u : static_cast<uint8_t>((focus - 1u) / 3u);
+    const uint8_t col = bypass_focus ? 0u : static_cast<uint8_t>((focus - 1u) % 3u);
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
@@ -257,23 +189,29 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
+        if(bypass_focus)
+            return false;
+
         if(col == 1u)
         {
-            int next = static_cast<int>(engine.express.target[layer][row]) + e.value;
-            while(next < 0)
-                next += kExpressTargetCount;
-            while(next >= kExpressTargetCount)
-                next -= kExpressTargetCount;
-            SetTarget(engine.express, layer, row, static_cast<uint8_t>(next));
+            const uint8_t next
+                = ExpressAdvanceSelectableTarget(engine.express.target,
+                                                layer,
+                                                row,
+                                                engine.express.target[layer][row],
+                                                e.value);
+            SetTarget(engine.express, layer, row, next);
+            NormalizeExpressState(engine.express);
+            PublishEngineLayerParams(ctx);
             ui.ui_dirty = true;
             return true;
         }
 
         NormalizeRow(engine.express, layer, row);
         const uint8_t target = engine.express.target[layer][row];
-        const int lo = static_cast<int>(TargetMin(target));
-        const int hi = static_cast<int>(TargetMax(target));
-        const int delta = e.value * TargetStep(target);
+        const int lo = static_cast<int>(ExpressTargetMin(target));
+        const int hi = static_cast<int>(ExpressTargetMax(target));
+        const int delta = e.value * ExpressTargetStep(target);
 
         if(col == 0u)
         {
@@ -287,6 +225,15 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             next = ClampInt(next, static_cast<int>(engine.express.min_value[layer][row]), hi);
             engine.express.max_value[layer][row] = static_cast<uint16_t>(next);
         }
+        PublishEngineLayerParams(ctx);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && bypass_focus)
+    {
+        const uint8_t next = shared.performance.express.enabled.load(std::memory_order_acquire) ? 0u : 1u;
+        shared.performance.express.enabled.store(next, std::memory_order_release);
         ui.ui_dirty = true;
         return true;
     }
@@ -312,11 +259,14 @@ void PerformExpress_Render(UiScreenCtx& ctx)
     AppEngineState& engine = *ctx.engine;
     OledPager& d = *ctx.display;
     DrawHeader(d, "express");
+    const bool express_enabled = ctx.shared->performance.express.enabled.load(std::memory_order_acquire) != 0u;
+    DrawBypassButton(d, express_enabled, engine.perform_nav.perform_express_focus == 0u);
 
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     const bool badge_invert = ctx.now_ms < engine.layer.engine_header_invert_until_ms;
     DrawLayerBadge(d, layer, badge_invert);
 
+    NormalizeExpressState(engine.express);
     engine.perform_nav.perform_express_focus %= kExpressFocusCount;
     const uint8_t focus = engine.perform_nav.perform_express_focus;
 
@@ -334,7 +284,7 @@ void PerformExpress_Render(UiScreenCtx& ctx)
         const int cy = kTopY + row * kGapY;
         const int y0 = cy - 5;
         const int y1 = cy + 5;
-        const uint8_t base_focus = row * 3u;
+        const uint8_t base_focus = static_cast<uint8_t>(1u + row * 3u);
 
         char min_buf[12] = {};
         char max_buf[12] = {};
@@ -343,7 +293,7 @@ void PerformExpress_Render(UiScreenCtx& ctx)
 
         DrawCenteredTiny(d, min_buf, kValueLeftCx, cy - 3, focus == base_focus);
         DrawCenteredMicroInRect(d,
-                                TargetLabel(target),
+                                ExpressTargetLabel(target),
                                 kRectX0,
                                 y0,
                                 kRectX1,

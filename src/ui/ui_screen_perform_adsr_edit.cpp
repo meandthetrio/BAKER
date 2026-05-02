@@ -144,7 +144,7 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
             engine.layer.engine_play_mode[layer] = next_mode;
             PublishEngineLayerParams(ctx);
         }
-        PerformAdsrEnsureValidFocus(engine, layer);
+        PerformAdsrEnsureValidFocus(engine, shared, layer);
         ui.ui_dirty = true;
         return true;
     }
@@ -220,6 +220,11 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
     }
 
     const uint8_t stage = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+    if(!PerformAdsrStageFocusable(shared, engine, layer, adsr_row, stage))
+    {
+        ui.ui_dirty = true;
+        return true;
+    }
     const uint16_t value = PerformAdsrStageValue(engine, layer, stage);
     const int min_value = PerformAdsrStageMin(stage);
     const int max_value = PerformAdsrStageMax(stage);

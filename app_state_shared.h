@@ -102,6 +102,13 @@ struct AppSharedState
             std::atomic<uint8_t> macro_sel{0};
             std::atomic<uint32_t> macro_gen{0};
         } macros{};
+
+        struct ExpressRuntimeState
+        {
+            std::atomic<uint8_t> enabled{0};
+            std::atomic<uint8_t> cc11_seen{0};
+            std::atomic<uint8_t> cc11_value{0};
+        } express{};
     } performance{};
 
     AppSharedState()

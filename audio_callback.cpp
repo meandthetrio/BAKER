@@ -10,6 +10,7 @@
 #include "mod_matrix.h"
 #include "plocks.h"
 #include "macros.h"
+#include "express_state.h"
 #include "sd_sample_pool.h"
 
 #include <cmath>
@@ -25,6 +26,72 @@ extern float g_sample_rate_hz;
 
 namespace
 {
+static float Clamp01(float value)
+{
+    if(value < 0.0f)
+        return 0.0f;
+    if(value > 1.0f)
+        return 1.0f;
+    return value;
+}
+
+static float ExpressMapRangeFloat(float min_value, float max_value, float norm)
+{
+    return min_value + (max_value - min_value) * norm;
+}
+
+static void AudioCallback_ApplyExpressOverlay(const AppSharedState& shared,
+                                              PerformParamsCurrent& params)
+{
+    const bool enabled = shared.performance.express.enabled.load(std::memory_order_acquire) != 0u;
+    const bool cc11_seen = shared.performance.express.cc11_seen.load(std::memory_order_acquire) != 0u;
+    if(!enabled || !cc11_seen)
+        return;
+
+    uint8_t cc11_value = shared.performance.express.cc11_value.load(std::memory_order_acquire);
+    if(cc11_value > 127u)
+        cc11_value = 127u;
+    const float norm = static_cast<float>(cc11_value) / 127.0f;
+
+    for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
+    {
+        for(uint8_t row = 0; row < kExpressRowCount; ++row)
+        {
+            const uint8_t target = ExpressClampTarget(params.express_target[layer][row]);
+            const float mapped = ExpressMapRangeFloat(static_cast<float>(params.express_min_value[layer][row]),
+                                                     static_cast<float>(params.express_max_value[layer][row]),
+                                                     norm);
+            switch(target)
+            {
+                case kExpressCutoff:
+                    params.engine_filter_cutoff_hz[layer] = mapped;
+                    break;
+                case kExpressDrive:
+                    params.engine_gain_db[layer] = mapped;
+                    break;
+                case kExpressResonance:
+                    params.engine_filter_resonance[layer] = Clamp01(mapped * 0.01f);
+                    break;
+                case kExpressAttack:
+                    params.engine_loop_attack_ms[layer] = mapped;
+                    break;
+                case kExpressSustain:
+                    params.engine_loop_sustain_level[layer] = Clamp01(mapped * 0.01f);
+                    break;
+                case kExpressRelease:
+                    params.engine_loop_release_ms[layer] = mapped;
+                    break;
+                case kExpressReverb:
+                    params.reverb_mix = Clamp01(mapped * 0.01f);
+                    params.reverb_on = (params.reverb_mix > 0.001f);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
 void AudioCallback_ApplySdSampleHandoffs(VoiceEngine& voice, AppSharedState& shared)
 {
     const uint8_t ready = shared.sample.publish.sd_published_ready.load(std::memory_order_acquire);
@@ -158,12 +225,14 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                          g_params.current.env_decay_ms,
                          g_params.current.env_amount);
     g_voice.SetLfoWave(g_app.shared.performance.modulation.lfo_wave.load(std::memory_order_relaxed));
+    PerformParamsCurrent voice_params = g_params.current;
+    AudioCallback_ApplyExpressOverlay(g_app.shared, voice_params);
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {
-        g_voice.SetEngineTuneSemitones(layer, g_params.current.engine_tune_semitones[layer]);
-        g_voice.SetEngineGainDb(layer, g_params.current.engine_gain_db[layer]);
-        g_voice.SetEngineDriveMode(layer, g_params.current.engine_drive_mode[layer]);
-        float layer_level = g_params.current.engine_layer_master_level[layer];
+        g_voice.SetEngineTuneSemitones(layer, voice_params.engine_tune_semitones[layer]);
+        g_voice.SetEngineGainDb(layer, voice_params.engine_gain_db[layer]);
+        g_voice.SetEngineDriveMode(layer, voice_params.engine_drive_mode[layer]);
+        float layer_level = voice_params.engine_layer_master_level[layer];
         if(layer_level < 0.0f)
             layer_level = 0.0f;
         if(layer_level > 2.0f)
@@ -181,21 +250,21 @@ void AudioCallback(AudioHandle::InputBuffer  in,
         }
         const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
         g_voice.SetEngineLayerScale(layer, layer_level * bypass_comp);
-        g_voice.SetEngineFilterCutoffHz(layer, g_params.current.engine_filter_cutoff_hz[layer]);
-        g_voice.SetEngineFilterResonance(layer, g_params.current.engine_filter_resonance[layer]);
-        g_voice.SetEngineLoopEnabled(layer, g_params.current.engine_loop_mode[layer]);
+        g_voice.SetEngineFilterCutoffHz(layer, voice_params.engine_filter_cutoff_hz[layer]);
+        g_voice.SetEngineFilterResonance(layer, voice_params.engine_filter_resonance[layer]);
+        g_voice.SetEngineLoopEnabled(layer, voice_params.engine_loop_mode[layer]);
         g_voice.SetLoopEnvelopeParams(layer,
-                                      g_params.current.engine_loop_attack_ms[layer],
-                                      g_params.current.engine_loop_decay_ms[layer],
-                                      g_params.current.engine_loop_sustain_level[layer],
-                                      g_params.current.engine_loop_release_ms[layer]);
-        g_voice.SetLoopCrossfadeAmount(layer, g_params.current.engine_loop_crossfade_amount[layer]);
-        g_voice.SetLoopCrossfadeShape(layer, g_params.current.engine_loop_crossfade_shape[layer]);
+                                      voice_params.engine_loop_attack_ms[layer],
+                                      voice_params.engine_loop_decay_ms[layer],
+                                      voice_params.engine_loop_sustain_level[layer],
+                                      voice_params.engine_loop_release_ms[layer]);
+        g_voice.SetLoopCrossfadeAmount(layer, voice_params.engine_loop_crossfade_amount[layer]);
+        g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
     }
     g_voice.ProcessEvents(g_evtq);
     g_voice.RenderBlock(out[0], out[1], size);
 
-    PerformParamsCurrent fx_params = g_params.current;
+    PerformParamsCurrent fx_params = voice_params;
     float drive = fx_params.sat_drive;
     Macros_Apply(g_voice.SmoothedMacros(), nullptr, nullptr, nullptr, nullptr, &drive);
     fx_params.sat_drive = drive;

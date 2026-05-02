@@ -19,6 +19,7 @@
 #include "mod_matrix.h"
 #include "plocks.h"
 #include "macros.h"
+#include "express_state.h"
 #include "embedded_sample.h"
 #include "embedded_long_sample.h"
 #include "sd_sample_pool.h"
@@ -137,6 +138,18 @@ static void HandleMidiNoteOff(const NoteOffEvent& note_off)
     PushAudioEventFromMain(Event::NoteOffEvent(note_off.note));
 }
 
+static void HandleMidiControlChange(const ControlChangeEvent& cc)
+{
+    if(cc.control_number != 11u)
+        return;
+
+    uint8_t value = cc.value;
+    if(value > 127u)
+        value = 127u;
+    g_app.shared.performance.express.cc11_value.store(value, std::memory_order_release);
+    g_app.shared.performance.express.cc11_seen.store(1u, std::memory_order_release);
+}
+
 static bool DrainMidiInput(uint32_t now_ms)
 {
     bool midi_activity = false;
@@ -151,6 +164,8 @@ static bool DrainMidiInput(uint32_t now_ms)
             HandleMidiNoteOn(msg.AsNoteOn());
         else if(msg.type == MidiMessageType::NoteOff)
             HandleMidiNoteOff(msg.AsNoteOff());
+        else if(msg.type == MidiMessageType::ControlChange)
+            HandleMidiControlChange(msg.AsControlChange());
     }
     if(midi_activity)
         g_app.ui.last_input_ms = now_ms;
@@ -231,6 +246,15 @@ int main(void)
             t.engine_loop_crossfade_shape[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade_shape[layer];
             t.perform_keyzone_lo_note[layer] = g_app.engine.keyzone.perform_keyzone_lo_note[layer];
             t.perform_keyzone_hi_note[layer] = g_app.engine.keyzone.perform_keyzone_hi_note[layer];
+            for(uint8_t row = 0; row < kExpressRowCount; ++row)
+            {
+                t.express_target[layer][row] = g_app.engine.express.target[layer][row];
+                t.express_min_value[layer][row] = g_app.engine.express.min_value[layer][row];
+                t.express_max_value[layer][row] = g_app.engine.express.max_value[layer][row];
+                ExpressClampRow(t.express_target[layer][row],
+                                t.express_min_value[layer][row],
+                                t.express_max_value[layer][row]);
+            }
         }
         g_params.PublishTargets();
     }

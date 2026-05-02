@@ -145,5 +145,11 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.engine_drive_mode[layer] = t.engine_drive_mode[layer];
         current.perform_keyzone_lo_note[layer] = t.perform_keyzone_lo_note[layer];
         current.perform_keyzone_hi_note[layer] = t.perform_keyzone_hi_note[layer];
+        for(uint8_t row = 0; row < kExpressRowCount; ++row)
+        {
+            current.express_target[layer][row] = t.express_target[layer][row];
+            current.express_min_value[layer][row] = t.express_min_value[layer][row];
+            current.express_max_value[layer][row] = t.express_max_value[layer][row];
+        }
     }
 }

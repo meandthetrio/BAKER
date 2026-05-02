@@ -10,6 +10,7 @@
 #include "app_state_diagnostics.h"
 #include "app_state_shared.h"
 #include "app_state_worker.h"
+#include "express_state.h"
 #include "oled_pager.h"
 #include "sample_edit.h"
 #include "ui_input.h"
@@ -61,6 +62,33 @@ bool PerformAdsrWaveFocusable(uint8_t adsr_row)
     return (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop);
 }
 
+bool PerformAdsrLoopStageLocked(const AppSharedState& shared,
+                                const AppEngineState& engine,
+                                uint8_t layer,
+                                uint8_t stage)
+{
+    switch(stage % static_cast<uint8_t>(kAdsrStageCount))
+    {
+        case 0: return ExpressUiTargetLocked(shared, engine, layer, kExpressAttack);
+        case 2: return ExpressUiTargetLocked(shared, engine, layer, kExpressSustain);
+        case 3: return ExpressUiTargetLocked(shared, engine, layer, kExpressRelease);
+        default: return false;
+    }
+}
+
+bool PerformAdsrStageFocusable(const AppSharedState& shared,
+                               const AppEngineState& engine,
+                               uint8_t layer,
+                               uint8_t adsr_row,
+                               uint8_t stage)
+{
+    if(!PerformAdsrStageEnabled(adsr_row, stage))
+        return false;
+    if((adsr_row % static_cast<uint8_t>(kAdsrRowCount)) != static_cast<uint8_t>(kAdsrRowLoop))
+        return true;
+    return !PerformAdsrLoopStageLocked(shared, engine, layer, stage);
+}
+
 static int PerformAdsrFocusIndex(const AppEngineState& engine, uint8_t layer)
 {
     if(engine.adsr.perform_adsr_type_focus)
@@ -98,7 +126,7 @@ static void PerformAdsrSetFocusIndex(AppEngineState& engine, uint8_t layer, int 
         = static_cast<uint8_t>(ClampInt(idx - stage_base, 0, kAdsrStageCount - 1));
 }
 
-void PerformAdsrEnsureValidFocus(AppEngineState& engine, uint8_t layer)
+void PerformAdsrEnsureValidFocus(AppEngineState& engine, const AppSharedState& shared, uint8_t layer)
 {
     const uint8_t adsr_row = PerformAdsrRow(engine, layer);
     if(engine.adsr.perform_adsr_type_focus)
@@ -113,10 +141,17 @@ void PerformAdsrEnsureValidFocus(AppEngineState& engine, uint8_t layer)
         return;
 
     const uint8_t stage = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
-    if(PerformAdsrStageEnabled(adsr_row, stage))
+    if(PerformAdsrStageFocusable(shared, engine, layer, adsr_row, stage))
         return;
 
-    engine.adsr.perform_adsr_stage_focus = (stage <= 1u) ? 0u : 3u;
+    for(uint8_t next = 0; next < static_cast<uint8_t>(kAdsrStageCount); ++next)
+    {
+        if(PerformAdsrStageFocusable(shared, engine, layer, adsr_row, next))
+        {
+            engine.adsr.perform_adsr_stage_focus = next;
+            return;
+        }
+    }
 }
 
 bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -140,7 +175,7 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         const uint8_t layer = engine.perform_nav.perform_layer & 1u;
         shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
         engine.layer.engine_header_invert_until_ms = e.t_ms + 250u;
-        PerformAdsrEnsureValidFocus(engine, layer);
+        PerformAdsrEnsureValidFocus(engine, shared, layer);
         PublishEngineLayerParams(ctx);
         ui.ui_dirty = true;
         return true;
@@ -166,8 +201,11 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 while(idx >= focus_count)
                     idx -= focus_count;
             } while(idx >= stage_base
-                    && !PerformAdsrStageEnabled(adsr_row,
-                                                static_cast<uint8_t>(idx - stage_base)));
+                    && !PerformAdsrStageFocusable(shared,
+                                                  engine,
+                                                  layer,
+                                                  adsr_row,
+                                                  static_cast<uint8_t>(idx - stage_base)));
         }
 
         PerformAdsrSetFocusIndex(engine, layer, idx);
@@ -199,7 +237,7 @@ void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
     uint8_t& adsr_row = PerformAdsrRow(engine, layer);
     if(adsr_row >= static_cast<uint8_t>(kAdsrRowCount))
         adsr_row = (engine.layer.engine_play_mode[layer] & 1u) ? kAdsrRowLoop : kAdsrRowOneShot;
-    PerformAdsrEnsureValidFocus(engine, layer);
+    PerformAdsrEnsureValidFocus(engine, shared, layer);
     ui.ui_dirty = true;
 }
 

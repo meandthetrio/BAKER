@@ -30,6 +30,12 @@ void DrawWaveformPreview(OledPager& d,
                          bool dotted_border = false);
 void PublishEngineLayerParams(UiScreenCtx& ctx);
 void EngineRefreshLoadedMetadata(AppUiState& ui, AppEngineState& engine, AppSharedState& shared);
+bool ExpressUiEnabled(const AppSharedState& shared);
+bool ExpressUiFlashLocked(uint32_t now_ms);
+bool ExpressUiTargetLocked(const AppSharedState& shared,
+                           const AppEngineState& engine,
+                           uint8_t layer,
+                           uint8_t target);
 
 // Already-extracted screens.
 bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

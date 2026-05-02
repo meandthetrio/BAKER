@@ -10,6 +10,7 @@
 #include "app_state_diagnostics.h"
 #include "app_state_shared.h"
 #include "app_state_worker.h"
+#include "express_state.h"
 #include "oled_pager.h"
 #include "params.h"
 #include "ui_input.h"
@@ -86,6 +87,53 @@ static const char* DriveModeLabel(uint8_t mode)
     return (ClampDriveModeLocal(static_cast<int>(mode)) == 0u) ? "odd" : "even";
 }
 
+static bool PerformEmphasisRowLocked(const AppSharedState& shared,
+                                     const AppEngineState& engine,
+                                     uint8_t layer,
+                                     uint8_t row)
+{
+    switch(row % 3u)
+    {
+        case 0: return ExpressUiTargetLocked(shared, engine, layer, kExpressDrive);
+        case 1: return ExpressUiTargetLocked(shared, engine, layer, kExpressCutoff);
+        case 2:
+        default: return ExpressUiTargetLocked(shared, engine, layer, kExpressResonance);
+    }
+}
+
+static bool PerformEmphasisAnyUnlocked(const AppSharedState& shared,
+                                       const AppEngineState& engine,
+                                       uint8_t layer)
+{
+    for(uint8_t row = 0; row < 3u; ++row)
+    {
+        if(!PerformEmphasisRowLocked(shared, engine, layer, row))
+            return true;
+    }
+    return false;
+}
+
+static void PerformEmphasisEnsureValidFocus(const AppSharedState& shared,
+                                            AppEngineState& engine,
+                                            uint8_t layer)
+{
+    engine.perform_nav.perform_emphasis_row %= 3u;
+    if(!PerformEmphasisAnyUnlocked(shared, engine, layer))
+        return;
+    if(!PerformEmphasisRowLocked(shared, engine, layer, engine.perform_nav.perform_emphasis_row))
+        return;
+
+    for(uint8_t step = 1; step < 3u; ++step)
+    {
+        const uint8_t row = static_cast<uint8_t>((engine.perform_nav.perform_emphasis_row + step) % 3u);
+        if(!PerformEmphasisRowLocked(shared, engine, layer, row))
+        {
+            engine.perform_nav.perform_emphasis_row = row;
+            return;
+        }
+    }
+}
+
 bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui || !ctx.params)
@@ -101,21 +149,36 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    PerformEmphasisEnsureValidFocus(shared, engine, layer);
 
     static uint32_t s_last_ext_t_ms = 0u;
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
+        if(!PerformEmphasisAnyUnlocked(shared, engine, layer))
+        {
+            ui.ui_dirty = true;
+            return true;
+        }
         int row = static_cast<int>(engine.perform_nav.perform_emphasis_row) + e.value;
-        while(row < 0) row += 3;
-        while(row >= 3) row -= 3;
-        engine.perform_nav.perform_emphasis_row = static_cast<uint8_t>(row);
+        do
+        {
+            while(row < 0) row += 3;
+            while(row >= 3) row -= 3;
+            engine.perform_nav.perform_emphasis_row = static_cast<uint8_t>(row);
+            row += (e.value < 0) ? -1 : 1;
+        } while(PerformEmphasisRowLocked(shared, engine, layer, engine.perform_nav.perform_emphasis_row));
         ui.ui_dirty = true;
         return true;
     }
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
+        if(PerformEmphasisRowLocked(shared, engine, layer, engine.perform_nav.perform_emphasis_row))
+        {
+            ui.ui_dirty = true;
+            return true;
+        }
         const float delta_norm = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
         if(engine.perform_nav.perform_emphasis_row == 0)
         {
@@ -185,8 +248,10 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx)
 {
-    if(!ctx.ui)
+    if(!ctx.ui || !ctx.engine || !ctx.shared)
         return;
+    const uint8_t layer = ctx.engine->perform_nav.perform_layer & 1u;
+    PerformEmphasisEnsureValidFocus(*ctx.shared, *ctx.engine, layer);
     ctx.ui->ui_dirty = true;
 }
 
@@ -208,9 +273,14 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    PerformEmphasisEnsureValidFocus(shared, engine, layer);
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
     const float cutoff_hz = t.engine_filter_cutoff_hz[layer];
     const float resonance = Clamp01(t.engine_filter_resonance[layer]);
+    const bool flash_locked = ExpressUiFlashLocked(ctx.now_ms);
+    const bool drive_locked = flash_locked && PerformEmphasisRowLocked(shared, engine, layer, 0u);
+    const bool cutoff_locked = flash_locked && PerformEmphasisRowLocked(shared, engine, layer, 1u);
+    const bool reso_locked = flash_locked && PerformEmphasisRowLocked(shared, engine, layer, 2u);
     char header_label[16] = {};
     std::snprintf(header_label, sizeof(header_label), "emph %c", layer == 0 ? 'a' : 'b');
     const int header_w = MicroStringWidth(header_label);
@@ -246,7 +316,8 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
                          const char* label,
                          const char* value_text,
                          float angle_rad,
-                         int focus_style)
+                         int focus_style,
+                         bool locked_flash)
     {
         DrawCirclePixels(d, cx, cy, radius, true);
         d.DrawPixel(cx, cy, true);
@@ -258,7 +329,12 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
         const int label_w = TinyStringWidth(label);
         const int label_x = cx - (label_w / 2);
         const int label_y = cy + radius + 5;
-        if(focus_style == 1)
+        if(locked_flash)
+        {
+            d.DrawRect(label_x - 2, label_y - 1, label_x + label_w + 1, label_y + Font5x7::H, true, true);
+            DrawTinyString(d, label, label_x, label_y, false);
+        }
+        else if(focus_style == 1)
         {
             d.DrawRect(label_x - 2, label_y - 1, label_x + label_w + 1, label_y + Font5x7::H, true, false);
             DrawTinyString(d, label, label_x, label_y, true);
@@ -321,19 +397,31 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
               drive_label,
               drive_value,
               gain_angle,
-              engine.perform_nav.perform_emphasis_row == 0 ? (drive_mode_focus ? 2 : 1) : 0);
+              (!PerformEmphasisRowLocked(shared, engine, layer, 0u)
+                   && engine.perform_nav.perform_emphasis_row == 0)
+                  ? (drive_mode_focus ? 2 : 1)
+                  : 0,
+              drive_locked);
     draw_knob(kKnobCx[1],
               kKnobCy,
               kKnobRadius,
               "cutoff",
               cutoff_buf,
               cutoff_angle,
-              engine.perform_nav.perform_emphasis_row == 1 ? 2 : 0);
+              (!PerformEmphasisRowLocked(shared, engine, layer, 1u)
+                   && engine.perform_nav.perform_emphasis_row == 1)
+                  ? 2
+                  : 0,
+              cutoff_locked);
     draw_knob(kKnobCx[2],
               kKnobCy,
               kKnobRadius,
               "reso",
               "",
               reso_angle,
-              engine.perform_nav.perform_emphasis_row == 2 ? 2 : 0);
+              (!PerformEmphasisRowLocked(shared, engine, layer, 2u)
+                   && engine.perform_nav.perform_emphasis_row == 2)
+                  ? 2
+                  : 0,
+              reso_locked);
 }

@@ -44,14 +44,15 @@ static void AudioCallback_ApplyExpressOverlay(const AppSharedState& shared,
                                               PerformParamsCurrent& params)
 {
     const bool enabled = shared.performance.express.enabled.load(std::memory_order_acquire) != 0u;
-    const bool cc11_seen = shared.performance.express.cc11_seen.load(std::memory_order_acquire) != 0u;
-    if(!enabled || !cc11_seen)
+    const bool midi_mod_seen
+        = shared.performance.express.midi_mod_seen.load(std::memory_order_acquire) != 0u;
+    if(!enabled || !midi_mod_seen)
         return;
 
-    uint8_t cc11_value = shared.performance.express.cc11_value.load(std::memory_order_acquire);
-    if(cc11_value > 127u)
-        cc11_value = 127u;
-    const float norm = static_cast<float>(cc11_value) / 127.0f;
+    uint8_t midi_mod_value = shared.performance.express.midi_mod_value.load(std::memory_order_acquire);
+    if(midi_mod_value > 127u)
+        midi_mod_value = 127u;
+    const float norm = static_cast<float>(midi_mod_value) / 127.0f;
 
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {

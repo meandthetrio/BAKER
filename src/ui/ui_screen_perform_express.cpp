@@ -104,18 +104,60 @@ static void DrawCenteredTiny(OledPager& d, const char* str, int cx, int y, bool 
     int x = cx - w / 2;
     x = ClampInt(x, 0, 127 - w);
     if(focused)
-        DrawRencFocusFrame(d, x, y, w, Font5x7::H);
-    DrawTinyString(d, str, x, y, !focused);
+    {
+        d.DrawRect(x - 2, y - 2, x + w + 1, y + Font5x7::H + 1, true, false);
+        DrawTinyString(d, str, x, y, true);
+        return;
+    }
+    DrawTinyString(d, str, x, y, true);
 }
 
-static void DrawCenteredMicroInRect(OledPager& d, const char* str, int x0, int y0, int x1, int y1, bool focused)
+static void DrawCenteredMicroButton(OledPager& d,
+                                    const char* str,
+                                    int x0,
+                                    int y0,
+                                    int x1,
+                                    int y1)
 {
-    if(focused)
-        d.DrawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, true, false);
-    d.DrawRect(x0, y0, x1, y1, true, false);
     const int w = MicroStringWidth(str);
     const int x = ClampInt((x0 + x1 + 1 - w) / 2, x0 + 1, x1 - w);
     const int y = y0 + ((y1 - y0 + 1) - kMicroH) / 2;
+    d.DrawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, true, false);
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    DrawMicroString(d, str, x, y, false);
+}
+
+static void DrawCenteredMicroTarget(OledPager& d,
+                                    const char* str,
+                                    int x0,
+                                    int y0,
+                                    int x1,
+                                    int y1,
+                                    bool focused,
+                                    bool rshift_held)
+{
+    if(focused && rshift_held)
+    {
+        DrawCenteredMicroButton(d, str, x0, y0, x1, y1);
+        return;
+    }
+
+    if(focused)
+        DrawDottedRect(d, x0, y0, x1, y1, true);
+    else
+        d.DrawRect(x0, y0, x1, y1, true, false);
+
+    const int w = MicroStringWidth(str);
+    const int x = ClampInt((x0 + x1 + 1 - w) / 2, x0 + 1, x1 - w);
+    const int y = y0 + ((y1 - y0 + 1) - kMicroH) / 2;
+    DrawMicroString(d, str, x, y, true);
+}
+
+static void DrawCenteredMicroText(OledPager& d, const char* str, int cx, int y)
+{
+    const int w = MicroStringWidth(str);
+    int x = cx - (w / 2);
+    x = ClampInt(x, 0, 127 - w);
     DrawMicroString(d, str, x, y, true);
 }
 
@@ -136,14 +178,10 @@ static void DrawBypassButton(OledPager& d, bool enabled, bool focused)
     const char* label = enabled ? "on" : "off";
     const int x = 2;
     const int y = 2;
-    const int w = MicroStringWidth(label);
     if(focused)
         DrawRencFocusMicroString(d, label, x, y);
     else
-    {
-        d.DrawRect(0, 0, x + w + 1, y + kMicroH + 1, true, false);
         DrawMicroString(d, label, x, y, true);
-    }
 }
 } // namespace
 
@@ -276,6 +314,7 @@ void PerformExpress_Render(UiScreenCtx& ctx)
     constexpr int kValueRightCx = 108;
     constexpr int kTopY = 18;
     constexpr int kGapY = 14;
+    constexpr int kFooterY = 56;
 
     for(uint8_t row = 0; row < kExpressRows; ++row)
     {
@@ -292,16 +331,22 @@ void PerformExpress_Render(UiScreenCtx& ctx)
         FormatTargetValue(target, engine.express.max_value[layer][row], max_buf, sizeof(max_buf));
 
         DrawCenteredTiny(d, min_buf, kValueLeftCx, cy - 3, focus == base_focus);
-        DrawCenteredMicroInRect(d,
+        DrawCenteredMicroTarget(d,
                                 ExpressTargetLabel(target),
                                 kRectX0,
                                 y0,
                                 kRectX1,
                                 y1,
-                                focus == static_cast<uint8_t>(base_focus + 1u));
+                                focus == static_cast<uint8_t>(base_focus + 1u),
+                                ctx.rshift);
         DrawCenteredTiny(d, max_buf, kValueRightCx, cy - 3, focus == static_cast<uint8_t>(base_focus + 2u));
 
         d.DrawLine(32, cy, kRectX0 - 1, cy, true);
         d.DrawLine(kRectX1 + 1, cy, 96, cy, true);
     }
+
+    const int target_cx = (kRectX0 + kRectX1) / 2;
+    DrawCenteredMicroText(d, "lo", kValueLeftCx, kFooterY);
+    DrawCenteredMicroText(d, "midimod", target_cx, kFooterY);
+    DrawCenteredMicroText(d, "hi", kValueRightCx, kFooterY);
 }

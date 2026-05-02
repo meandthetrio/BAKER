@@ -277,10 +277,9 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
     const float cutoff_hz = t.engine_filter_cutoff_hz[layer];
     const float resonance = Clamp01(t.engine_filter_resonance[layer]);
-    const bool flash_locked = ExpressUiFlashLocked(ctx.now_ms);
-    const bool drive_locked = flash_locked && PerformEmphasisRowLocked(shared, engine, layer, 0u);
-    const bool cutoff_locked = flash_locked && PerformEmphasisRowLocked(shared, engine, layer, 1u);
-    const bool reso_locked = flash_locked && PerformEmphasisRowLocked(shared, engine, layer, 2u);
+    const bool drive_locked = PerformEmphasisRowLocked(shared, engine, layer, 0u);
+    const bool cutoff_locked = PerformEmphasisRowLocked(shared, engine, layer, 1u);
+    const bool reso_locked = PerformEmphasisRowLocked(shared, engine, layer, 2u);
     char header_label[16] = {};
     std::snprintf(header_label, sizeof(header_label), "emph %c", layer == 0 ? 'a' : 'b');
     const int header_w = MicroStringWidth(header_label);
@@ -316,8 +315,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
                          const char* label,
                          const char* value_text,
                          float angle_rad,
-                         int focus_style,
-                         bool locked_flash)
+                         int focus_style)
     {
         DrawCirclePixels(d, cx, cy, radius, true);
         d.DrawPixel(cx, cy, true);
@@ -329,12 +327,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
         const int label_w = TinyStringWidth(label);
         const int label_x = cx - (label_w / 2);
         const int label_y = cy + radius + 5;
-        if(locked_flash)
-        {
-            d.DrawRect(label_x - 2, label_y - 1, label_x + label_w + 1, label_y + Font5x7::H, true, true);
-            DrawTinyString(d, label, label_x, label_y, false);
-        }
-        else if(focus_style == 1)
+        if(focus_style == 1)
         {
             d.DrawRect(label_x - 2, label_y - 1, label_x + label_w + 1, label_y + Font5x7::H, true, false);
             DrawTinyString(d, label, label_x, label_y, true);
@@ -391,37 +384,52 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     constexpr int kKnobRadius = 12;
     constexpr int kKnobCy = 28;
     constexpr int kKnobCx[3] = {22, 64, 106};
-    draw_knob(kKnobCx[0],
-              kKnobCy,
-              kKnobRadius,
-              drive_label,
-              drive_value,
-              gain_angle,
-              (!PerformEmphasisRowLocked(shared, engine, layer, 0u)
-                   && engine.perform_nav.perform_emphasis_row == 0)
-                  ? (drive_mode_focus ? 2 : 1)
-                  : 0,
-              drive_locked);
-    draw_knob(kKnobCx[1],
-              kKnobCy,
-              kKnobRadius,
-              "cutoff",
-              cutoff_buf,
-              cutoff_angle,
-              (!PerformEmphasisRowLocked(shared, engine, layer, 1u)
-                   && engine.perform_nav.perform_emphasis_row == 1)
-                  ? 2
-                  : 0,
-              cutoff_locked);
-    draw_knob(kKnobCx[2],
-              kKnobCy,
-              kKnobRadius,
-              "reso",
-              "",
-              reso_angle,
-              (!PerformEmphasisRowLocked(shared, engine, layer, 2u)
-                   && engine.perform_nav.perform_emphasis_row == 2)
-                  ? 2
-                  : 0,
-              reso_locked);
+    if(!drive_locked)
+    {
+        draw_knob(kKnobCx[0],
+                  kKnobCy,
+                  kKnobRadius,
+                  drive_label,
+                  drive_value,
+                  gain_angle,
+                  (!PerformEmphasisRowLocked(shared, engine, layer, 0u)
+                       && engine.perform_nav.perform_emphasis_row == 0)
+                      ? (drive_mode_focus ? 2 : 1)
+                      : 0);
+    }
+    else
+    {
+        DrawTinyString(d, drive_label, kKnobCx[0] - (TinyStringWidth(drive_label) / 2), kKnobCy + kKnobRadius + 5, true);
+    }
+    if(!cutoff_locked)
+    {
+        draw_knob(kKnobCx[1],
+                  kKnobCy,
+                  kKnobRadius,
+                  "cutoff",
+                  cutoff_buf,
+                  cutoff_angle,
+                  (!PerformEmphasisRowLocked(shared, engine, layer, 1u)
+                       && engine.perform_nav.perform_emphasis_row == 1)
+                      ? 2
+                      : 0);
+    }
+    else
+    {
+        const char* label = "cutoff";
+        DrawTinyString(d, label, kKnobCx[1] - (TinyStringWidth(label) / 2), kKnobCy + kKnobRadius + 5, true);
+    }
+    if(!reso_locked)
+    {
+        draw_knob(kKnobCx[2],
+                  kKnobCy,
+                  kKnobRadius,
+                  "reso",
+                  "",
+                  reso_angle,
+                  (!PerformEmphasisRowLocked(shared, engine, layer, 2u)
+                       && engine.perform_nav.perform_emphasis_row == 2)
+                      ? 2
+                      : 0);
+    }
 }

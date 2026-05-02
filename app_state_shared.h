@@ -106,8 +106,8 @@ struct AppSharedState
         struct ExpressRuntimeState
         {
             std::atomic<uint8_t> enabled{0};
-            std::atomic<uint8_t> cc11_seen{0};
-            std::atomic<uint8_t> cc11_value{0};
+            std::atomic<uint8_t> midi_mod_seen{0};
+            std::atomic<uint8_t> midi_mod_value{0};
         } express{};
     } performance{};
 

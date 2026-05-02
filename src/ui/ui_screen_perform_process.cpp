@@ -23,11 +23,11 @@ static bool ProcessMainCursorLocked(const AppSharedState& shared,
                                     uint8_t layer,
                                     uint8_t main_cursor)
 {
-    if(main_cursor < 2u)
-        return false;
-    const uint8_t lane = static_cast<uint8_t>((main_cursor - 2u) & 0x03u);
-    return engine.process.perform_process_fx_order[lane] == 3u
-           && ExpressUiTargetLocked(shared, engine, layer, kExpressReverb);
+    (void)shared;
+    (void)engine;
+    (void)layer;
+    (void)main_cursor;
+    return false;
 }
 
 static void ProcessEnsureValidMainCursor(const AppSharedState& shared,
@@ -296,7 +296,8 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 break;
             case 3: // R = reverb wet
             default:
-                if(ProcessMainCursorLocked(shared, engine, layer, main_cursor))
+                if(engine.process.perform_process_fx_order[cursor] == 3u
+                   && ExpressUiTargetLocked(shared, engine, layer, kExpressReverb))
                 {
                     ui.ui_dirty = true;
                     return true;
@@ -355,10 +356,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
         const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
         const uint8_t pidx = engine.process.perform_process_detail_param[cursor];
         const PerformParamsTargets& t = ctx.params->TargetsForUI();
-        const bool flash_locked = ExpressUiFlashLocked(ctx.now_ms)
-                                  && ProcessDetailParamLocked(shared, engine, layer, fx_id, 4u);
-        const int locked_param = (fx_id == 3u && flash_locked) ? 4 : -1;
-        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift, locked_param, flash_locked);
+        const bool hide_locked_reverb = ProcessDetailParamLocked(shared, engine, layer, fx_id, 4u);
+        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift, hide_locked_reverb);
         return;
     }
 
@@ -401,9 +400,13 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     constexpr int kPaneW = 64;
     const char* labels[4] = {"S", "E", "D", "R"};
     float values[4] = {};
+    bool hide_rails[4] = {false, false, false, false};
+    bool hide_handles[4] = {false, false, false, false};
     for(int i = 0; i < 4; ++i)
     {
         const uint8_t fx_id = engine.process.perform_process_fx_order[i];
+        const bool hide_locked_reverb = (fx_id == 3u)
+                                        && ExpressUiTargetLocked(shared, engine, layer, kExpressReverb);
         switch(fx_id)
         {
             case 0: labels[i] = "S"; values[i] = Clamp01(t.sat_drive); break;
@@ -413,6 +416,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
             default:
                 labels[i] = "R";
                 values[i] = Clamp01(t.reverb_mix);
+                hide_rails[i] = hide_locked_reverb;
+                hide_handles[i] = hide_locked_reverb;
                 break;
         }
     }
@@ -435,43 +440,12 @@ void PerformProcess_Render(UiScreenCtx& ctx)
                                  selected_index,
                                  nullptr,
                                  nullptr,
-                                 nullptr,
-                                 nullptr,
+                                 hide_rails,
+                                 hide_handles,
                                  1,
                                  1,
                                  1);
 
         DrawProcessFxReorderOverlay(d, fader_x, fader_y, fader_w, fader_h, selected_index, ctx.rshift);
-        if(ExpressUiFlashLocked(ctx.now_ms))
-        {
-            for(int i = 0; i < 4; ++i)
-            {
-                if(engine.process.perform_process_fx_order[i] != 3u
-                   || !ExpressUiTargetLocked(shared, engine, layer, kExpressReverb))
-                    continue;
-
-                const int label_y = fader_y + fader_h - Font5x7::H - 1;
-                int fader_left = fader_x + 4;
-                int fader_right = fader_x + fader_w - 5;
-                if(fader_right <= fader_left)
-                    break;
-                const int span_x = fader_right - fader_left;
-                int line_x = fader_left + (span_x * i) / 3;
-                const char* label = labels[i];
-                const int label_w = TinyStringWidth(label);
-                int label_x = line_x - (label_w / 2);
-                if(label_x < fader_x + 1)
-                    label_x = fader_x + 1;
-                if(label_x + label_w > fader_x + fader_w - 2)
-                    label_x = fader_x + fader_w - 2 - label_w;
-                d.DrawRect(label_x - 2,
-                           label_y - 1,
-                           label_x + label_w + 1,
-                           label_y + Font5x7::H,
-                           true,
-                           true);
-                DrawTinyString(d, label, label_x, label_y, false);
-            }
-        }
     }
 }

@@ -140,14 +140,14 @@ static void HandleMidiNoteOff(const NoteOffEvent& note_off)
 
 static void HandleMidiControlChange(const ControlChangeEvent& cc)
 {
-    if(cc.control_number != 11u)
+    if(cc.control_number != 1u)
         return;
 
     uint8_t value = cc.value;
     if(value > 127u)
         value = 127u;
-    g_app.shared.performance.express.cc11_value.store(value, std::memory_order_release);
-    g_app.shared.performance.express.cc11_seen.store(1u, std::memory_order_release);
+    g_app.shared.performance.express.midi_mod_value.store(value, std::memory_order_release);
+    g_app.shared.performance.express.midi_mod_seen.store(1u, std::memory_order_release);
 }
 
 static bool DrainMidiInput(uint32_t now_ms)

@@ -188,7 +188,6 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
     const uint8_t stage_focus = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
     const bool loop_stage_editing
         = (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop);
-    const bool flash_locked = ExpressUiFlashLocked(ctx.now_ms);
     const int preview_x0 = kWaveX + 1;
     const int preview_x1 = kWaveX + kWaveW - 2;
     const int preview_y0 = kWaveY + 1;
@@ -375,15 +374,10 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
                 x = seg_start;
             if(x + w - 1 > seg_end)
                 x = seg_end - w + 1;
-            const bool locked_stage = flash_locked
-                                      && PerformAdsrLoopStageLocked(shared, engine, layer, static_cast<uint8_t>(i))
+            const bool locked_stage = PerformAdsrLoopStageLocked(shared, engine, layer, static_cast<uint8_t>(i))
                                       && loop_stage_editing;
             if(locked_stage)
-            {
-                d.DrawRect(x - 2, bottom_y - 1, x + w + 1, bottom_y + kMini3x5H, true, true);
-                DrawMiniString3x5(d, kBottomLetters[i], x, bottom_y, false);
                 continue;
-            }
             if(stage_enabled && !type_focused && stage_focus == static_cast<uint8_t>(i))
             {
                 d.DrawRect(x - 2, bottom_y - 1, x + w + 1, bottom_y + kMini3x5H, true, true);

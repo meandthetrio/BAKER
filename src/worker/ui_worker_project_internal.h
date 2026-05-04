@@ -17,6 +17,7 @@ class Params;
 // Shared helpers implemented in ui_worker_project.cpp (used by save collect + load apply).
 float ClampProjectFloat(float value, float lo, float hi);
 int8_t ClampProjectTune(int value);
+int8_t ClampProjectTuneCents(int value);
 uint8_t ClampProjectMidiNote(int value);
 void ClampProjectKeyzoneRange(uint8_t& lo, uint8_t& hi);
 uint8_t ClampProjectAdsrRow(int value);

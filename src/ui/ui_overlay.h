@@ -13,8 +13,9 @@ class OledPager;
 enum DiagnosticsOverlayPage : uint8_t
 {
     kDiagOverlayPageSys = 0,
-    kDiagOverlayPageGain1,
-    kDiagOverlayPageGain2,
+    kDiagOverlayPageActivity,
+    kDiagOverlayPageLayerAndMix,
+    kDiagOverlayPageOutputAndClamps,
     kDiagOverlayPageCount
 };
 

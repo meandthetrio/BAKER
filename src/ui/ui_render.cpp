@@ -58,8 +58,6 @@ void UIRender::Render(const AppState& app, const Params& params)
     {
         const UiLayout layout = UiLayout_Default();
         UiOverlay_Render(app.ui, app.diag, app.worker, params, layout, oled_pager_);
-        const char* hint = "DIAG E:PAGE PENC:BACK";
-        UiDraw_Footer(oled_pager_, layout, hint);
     }
 }
 

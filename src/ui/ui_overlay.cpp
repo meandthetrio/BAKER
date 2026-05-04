@@ -4,6 +4,7 @@
 #include "app_state_ui.h"
 #include "app_state_worker.h"
 #include "params.h"
+#include "ui_draw_text.h"
 #include "ui_layout.h"
 #include "oled_pager.h"
 
@@ -15,42 +16,104 @@ using namespace daisy;
 
 namespace
 {
-void WriteOverlayLine(OledPager& oled, int x, int y, const char* label, float value_db)
+struct OverlayMetric
 {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%s:%+05.1f", label, value_db);
-    oled.SetCursor(x, y);
-    oled.WriteString(buf, Font_6x8, true);
+    const char* label;
+    const char* value;
+};
+
+constexpr int kOverlayTitleRowY  = 1;
+constexpr int kOverlayMetricRows = 7;
+constexpr int kOverlayRowH       = 8;
+constexpr int kOverlayMetricX    = 0;
+
+int FontStringWidth(const char* str)
+{
+    if(!str)
+        return 0;
+    return static_cast<int>(std::strlen(str)) * Font_6x8.FontWidth;
 }
 
-void WriteOverlayCounterLine(OledPager& oled, int x, int y, const char* label, uint32_t value)
+void DrawOverlayTitle(OledPager& oled, const char* title)
 {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%s:%lu", label, static_cast<unsigned long>(value));
-    oled.SetCursor(x, y);
-    oled.WriteString(buf, Font_6x8, true);
+    const int title_w = MicroStringWidth(title);
+    const int title_x = (static_cast<int>(oled.Width()) - title_w) / 2;
+    DrawMicroString(oled, title, title_x, kOverlayTitleRowY, true);
 }
 
-void RenderGainPage1(const AppDiagnosticsState& diag, const UiLayout& layout, OledPager& oled)
+void DrawOverlayMetricRow(OledPager& oled, int row, const char* label, const char* value)
 {
-    const int x = layout.x;
-    const int y = layout.y_body;
-    WriteOverlayLine(oled, x, y + layout.line_h * 0, "APRE", diag.gain_probe_display_db[kDiagGainProbeAPre]);
-    WriteOverlayLine(oled, x, y + layout.line_h * 1, "APST", diag.gain_probe_display_db[kDiagGainProbeAPost]);
-    WriteOverlayLine(oled, x, y + layout.line_h * 2, "BPRE", diag.gain_probe_display_db[kDiagGainProbeBPre]);
-    WriteOverlayLine(oled, x, y + layout.line_h * 3, "BPST", diag.gain_probe_display_db[kDiagGainProbeBPost]);
-    WriteOverlayLine(oled, x, y + layout.line_h * 4, "SUM ", diag.gain_probe_display_db[kDiagGainProbeSumPreFx]);
+    const int row_y   = (row + 1) * kOverlayRowH;
+    const int label_y = row_y + 1;
+    const int value_w = FontStringWidth(value);
+    const int value_x = static_cast<int>(oled.Width()) - value_w;
+
+    DrawMicroString(oled, label, kOverlayMetricX, label_y, true);
+    oled.SetCursor(value_x, row_y);
+    oled.WriteString(value, Font_6x8, true);
 }
 
-void RenderGainPage2(const AppDiagnosticsState& diag, const UiLayout& layout, OledPager& oled)
+void DrawOverlayPage(OledPager& oled, const char* title, const OverlayMetric* metrics, int count)
 {
-    const int x = layout.x;
-    const int y = layout.y_body;
-    WriteOverlayLine(oled, x, y + layout.line_h * 0, "FX  ", diag.gain_probe_display_db[kDiagGainProbeFxPreMaster]);
-    WriteOverlayLine(oled, x, y + layout.line_h * 1, "OUT ", diag.gain_probe_display_db[kDiagGainProbeOutFinal]);
-    WriteOverlayCounterLine(oled, x, y + layout.line_h * 2, "SAT", diag.sat_softclip_hits.load(std::memory_order_relaxed));
-    WriteOverlayCounterLine(oled, x, y + layout.line_h * 3, "MST", diag.master_softclip_hits.load(std::memory_order_relaxed));
-    WriteOverlayCounterLine(oled, x, y + layout.line_h * 4, "MON", diag.monitor_clamp_hits.load(std::memory_order_relaxed));
+    oled.Fill(false);
+    DrawOverlayTitle(oled, title);
+    for(int i = 0; i < count && i < kOverlayMetricRows; ++i)
+        DrawOverlayMetricRow(oled, i, metrics[i].label, metrics[i].value);
+}
+
+void FormatUnsignedValue(char buf[16], uint32_t value)
+{
+    std::snprintf(buf, 16, "%lu", static_cast<unsigned long>(value));
+}
+
+void FormatPercentValue(char buf[16], uint32_t value)
+{
+    std::snprintf(buf, 16, "%lu%%", static_cast<unsigned long>(value));
+}
+
+void FormatSignedValue(char buf[16], int value)
+{
+    std::snprintf(buf, 16, "%+d", value);
+}
+
+void FormatGainValue(char buf[16], int deci_db)
+{
+    std::snprintf(buf, 16, "%+d.%01ddB", deci_db / 10, std::abs(deci_db % 10));
+}
+
+void FormatProbeDbValue(char buf[16], float value_db)
+{
+    const int rounded_db = static_cast<int>((value_db >= 0.0f) ? (value_db + 0.5f) : (value_db - 0.5f));
+    std::snprintf(buf, 16, "%+d", rounded_db);
+}
+
+const char* LoopModeValue(bool loop_mode)
+{
+    return loop_mode ? "loop" : "single";
+}
+
+const char* WorkerStateValue(const AppWorkerState& worker_state)
+{
+    if(worker_state.ui_req_busy)
+    {
+        switch(worker_state.ui_req_active)
+        {
+            case UiReqType::ScanSdWavs: return "scan samples";
+            case UiReqType::LoadWavIndex: return "load sample";
+            case UiReqType::DeleteWavIndex: return "delete sample";
+            case UiReqType::NormalizeCurrent: return "normalize";
+            case UiReqType::LoopFindCurrent: return "find loop";
+            case UiReqType::SaveRenderedWavCurrent: return "render sample";
+            case UiReqType::SaveProject: return "save project";
+            case UiReqType::LoadProject: return "load project";
+            default: return "working";
+        }
+    }
+
+    if(worker_state.ui_req_result < 0)
+        return "error";
+
+    return "idle";
 }
 } // namespace
 
@@ -69,93 +132,113 @@ void UiOverlay_Render(const AppUiState& ui,
                       const UiLayout& layout,
                       OledPager& oled)
 {
-    switch(diag.overlay.page)
-    {
-        case kDiagOverlayPageGain1:
-            RenderGainPage1(diag, layout, oled);
-            return;
-        case kDiagOverlayPageGain2:
-            RenderGainPage2(diag, layout, oled);
-            return;
-        case kDiagOverlayPageSys:
-        default:
-            break;
-    }
+    (void)layout;
 
     const uint32_t peak_cycles   = diag.audio_cycles_peak.load(std::memory_order_relaxed);
     const uint32_t budget_cycles = diag.audio_budget_cycles.load(std::memory_order_relaxed);
     uint32_t cpu_pct = 0;
     if(budget_cycles > 0)
         cpu_pct = (peak_cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
-    // Cap the display value so the compact fixed-width overlay format stays stable.
     if(cpu_pct > 999u)
         cpu_pct = 999u;
 
-    const uint32_t late_cnt = diag.audio_late_count.load(std::memory_order_relaxed);
-    const uint32_t clip_cnt = diag.clip_count.load(std::memory_order_relaxed);
-    const uint32_t evq_ovf = diag.queue_overflows.load(std::memory_order_relaxed);
     const auto& p = params.current;
     const int tune_a = static_cast<int>(p.engine_tune_semitones[0]);
     const int tune_b = static_cast<int>(p.engine_tune_semitones[1]);
     const int gain_a = static_cast<int>(p.engine_gain_db[0]);
     const int gain_b = static_cast<int>(p.engine_gain_db[1]);
-    const char* mode_a = p.engine_loop_mode[0] ? "LOOP" : "1SHOT";
-    const char* mode_b = p.engine_loop_mode[1] ? "LOOP" : "1SHOT";
-
-    // Mirror worker activity into compact overlay labels so diagnostics fit on one OLED row.
-    const char* worker_label = "IDLE";
-    if(worker_state.ui_req_busy)
-    {
-        switch(worker_state.ui_req_active)
-        {
-            case UiReqType::ScanSdWavs: worker_label = "SCAN"; break;
-            case UiReqType::LoadWavIndex: worker_label = "LOAD"; break;
-            case UiReqType::DeleteWavIndex: worker_label = "DEL"; break;
-            case UiReqType::NormalizeCurrent: worker_label = "NORM"; break;
-            case UiReqType::LoopFindCurrent: worker_label = "LOOPF"; break;
-            case UiReqType::SaveRenderedWavCurrent: worker_label = "SAVE"; break;
-            case UiReqType::SaveProject: worker_label = "PRJS"; break;
-            case UiReqType::LoadProject: worker_label = "PRJL"; break;
-            default: worker_label = "WORK"; break;
-        }
-    }
-    else if(worker_state.ui_req_result < 0)
-    {
-        worker_label = "ERR";
-    }
+    const char* mode_a = LoopModeValue(p.engine_loop_mode[0]);
+    const char* mode_b = LoopModeValue(p.engine_loop_mode[1]);
+    const char* worker_value = WorkerStateValue(worker_state);
     const uint32_t worker_pct = worker_state.ui_req_busy ? worker_state.ui_req_progress : 0u;
 
-    char buf[32];
-    const int x = layout.x;
-    const int y = layout.y_body;
+    char value0[16];
+    char value1[16];
+    char value2[16];
+    char value3[16];
+    char value4[16];
+    char value5[16];
+    char value6[16];
 
-    oled.SetCursor(x, y);
-    std::snprintf(buf, sizeof(buf), "U:%02lu C:%04lu CPU:%03lu",
-                  (unsigned long)ui.ui_hz,
-                  (unsigned long)ui.ctrl_hz,
-                  (unsigned long)cpu_pct);
-    oled.WriteString(buf, Font_6x8, true);
-
-    oled.SetCursor(x, y + layout.line_h);
-    std::snprintf(buf, sizeof(buf), "LATE:%lu CLP:%lu EVQ:%lu",
-                  (unsigned long)late_cnt,
-                  (unsigned long)clip_cnt,
-                  (unsigned long)evq_ovf);
-    oled.WriteString(buf, Font_6x8, true);
-
-    oled.SetCursor(x, y + layout.line_h * 2);
-    std::snprintf(buf, sizeof(buf), "A T:%+d G:%+d.%dd %s", tune_a, gain_a / 10, std::abs(gain_a % 10), mode_a);
-    oled.WriteString(buf, Font_6x8, true);
-
-    oled.SetCursor(x, y + layout.line_h * 3);
-    std::snprintf(buf, sizeof(buf), "B T:%+d G:%+d.%dd %s", tune_b, gain_b / 10, std::abs(gain_b % 10), mode_b);
-    oled.WriteString(buf, Font_6x8, true);
-
-    oled.SetCursor(x, y + layout.line_h * 4);
-    std::snprintf(buf, sizeof(buf), "WK:%s %03lu E:%lu/%lu",
-                  worker_label,
-                  (unsigned long)worker_pct,
-                  (unsigned long)diag.events_popped.load(std::memory_order_relaxed),
-                  (unsigned long)diag.events_pushed.load(std::memory_order_relaxed));
-    oled.WriteString(buf, Font_6x8, true);
+    switch(diag.overlay.page)
+    {
+        case kDiagOverlayPageActivity:
+        {
+            FormatUnsignedValue(value0, diag.events_pushed.load(std::memory_order_relaxed));
+            FormatPercentValue(value2, worker_pct);
+            FormatSignedValue(value3, tune_a);
+            FormatGainValue(value4, gain_a);
+            FormatSignedValue(value6, tune_b);
+            const OverlayMetric metrics[] = {
+                {"events queued", value0},
+                {"worker", worker_value},
+                {"worker progress", value2},
+                {"layer a tune", value3},
+                {"layer a gain", value4},
+                {"layer a mode", mode_a},
+                {"layer b tune", value6},
+            };
+            DrawOverlayPage(oled, "activity", metrics, 7);
+            return;
+        }
+        case kDiagOverlayPageLayerAndMix:
+        {
+            FormatGainValue(value0, gain_b);
+            FormatProbeDbValue(value2, diag.gain_probe_display_db[kDiagGainProbeAPre]);
+            FormatProbeDbValue(value3, diag.gain_probe_display_db[kDiagGainProbeAPost]);
+            FormatProbeDbValue(value4, diag.gain_probe_display_db[kDiagGainProbeBPre]);
+            FormatProbeDbValue(value5, diag.gain_probe_display_db[kDiagGainProbeBPost]);
+            FormatProbeDbValue(value6, diag.gain_probe_display_db[kDiagGainProbeSumPreFx]);
+            const OverlayMetric metrics[] = {
+                {"layer b gain", value0},
+                {"layer b mode", mode_b},
+                {"layer a pre", value2},
+                {"layer a post", value3},
+                {"layer b pre", value4},
+                {"layer b post", value5},
+                {"sum before effects", value6},
+            };
+            DrawOverlayPage(oled, "layer and mix", metrics, 7);
+            return;
+        }
+        case kDiagOverlayPageOutputAndClamps:
+        {
+            FormatProbeDbValue(value0, diag.gain_probe_display_db[kDiagGainProbeFxPreMaster]);
+            FormatProbeDbValue(value1, diag.gain_probe_display_db[kDiagGainProbeOutFinal]);
+            FormatUnsignedValue(value2, diag.sat_softclip_hits.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value3, diag.master_softclip_hits.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value4, diag.monitor_clamp_hits.load(std::memory_order_relaxed));
+            const OverlayMetric metrics[] = {
+                {"effects before master", value0},
+                {"final output", value1},
+                {"sample softclip", value2},
+                {"master softclip", value3},
+                {"monitor clamps", value4},
+            };
+            DrawOverlayPage(oled, "output and clamps", metrics, 5);
+            return;
+        }
+        case kDiagOverlayPageSys:
+        default:
+        {
+            FormatUnsignedValue(value0, ui.ui_hz);
+            FormatUnsignedValue(value1, ui.ctrl_hz);
+            FormatPercentValue(value2, cpu_pct);
+            FormatUnsignedValue(value3, diag.audio_late_count.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value4, diag.clip_count.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value5, diag.queue_overflows.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value6, diag.events_popped.load(std::memory_order_relaxed));
+            const OverlayMetric metrics[] = {
+                {"user interface", value0},
+                {"control rate", value1},
+                {"processor load", value2},
+                {"late callbacks", value3},
+                {"clip count", value4},
+                {"event overflows", value5},
+                {"events handled", value6},
+            };
+            DrawOverlayPage(oled, "system", metrics, 7);
+            return;
+        }
+    }
 }

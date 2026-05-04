@@ -550,7 +550,7 @@ struct ProjectManifestV11
     ModRoute mod_routes[kMaxModRoutes]{};
     uint8_t  mod_route_selected = 0;
     uint8_t  express_enabled = 0;
-    uint8_t  pad[2] = {};
+    int8_t   engine_tune_cents[kProjectSampleLayerCount] = {};
 };
 
 struct ProjectManifestV13Legacy

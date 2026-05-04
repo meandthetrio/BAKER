@@ -325,7 +325,7 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui)
         return false;
-    if(ctx.shift)
+    if(ctx.lshift)
         return false;
 
     AppUiState& ui = *ctx.ui;
@@ -361,6 +361,16 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    if((e.type == UiInputType::BtnDown || e.type == UiInputType::BtnUp) && e.id == kUiBtnRShift)
+    {
+        const uint8_t row = engine.perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
+        if(row == kEngineRowTune)
+        {
+            ui.ui_dirty = true;
+            return true;
+        }
+    }
+
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
         const uint8_t layer = engine.perform_nav.perform_layer & 1u;
@@ -368,13 +378,27 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         bool changed = false;
         if(row == kEngineRowTune)
         {
-            int v = static_cast<int>(engine.layer.engine_tune_semitones[layer]) + e.value;
-            v = ClampInt(v, -24, 24);
-            const int8_t vv = static_cast<int8_t>(v);
-            if(vv != engine.layer.engine_tune_semitones[layer])
+            if(ctx.rshift)
             {
-                engine.layer.engine_tune_semitones[layer] = vv;
-                changed = true;
+                int v = static_cast<int>(engine.layer.engine_tune_cents[layer]) + e.value;
+                v = ClampInt(v, -99, 99);
+                const int8_t vv = static_cast<int8_t>(v);
+                if(vv != engine.layer.engine_tune_cents[layer])
+                {
+                    engine.layer.engine_tune_cents[layer] = vv;
+                    changed = true;
+                }
+            }
+            else
+            {
+                int v = static_cast<int>(engine.layer.engine_tune_semitones[layer]) + e.value;
+                v = ClampInt(v, -24, 24);
+                const int8_t vv = static_cast<int8_t>(v);
+                if(vv != engine.layer.engine_tune_semitones[layer])
+                {
+                    engine.layer.engine_tune_semitones[layer] = vv;
+                    changed = true;
+                }
             }
         }
 
@@ -532,13 +556,17 @@ void PerformEngine_Render(UiScreenCtx& ctx)
 
     if(row == kEngineRowTune)
     {
-        DrawDottedRect(d, tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true);
-        const int semitones = static_cast<int>(engine.layer.engine_tune_semitones[layer]);
-        const int val_w = SignedSemitoneTextWidth(semitones);
+        if(ctx.rshift)
+            d.DrawRect(tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true, false);
+        else
+            DrawDottedRect(d, tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true);
+        const int tune_value = ctx.rshift ? static_cast<int>(engine.layer.engine_tune_cents[layer])
+                                          : static_cast<int>(engine.layer.engine_tune_semitones[layer]);
+        const int val_w = SignedSemitoneTextWidth(tune_value);
         int val_x = tune_x + (tune_w - val_w) / 2;
         if(val_x < tune_x)
             val_x = tune_x;
-        DrawSignedSemitoneText(d, semitones, val_x, kFooterY, true);
+        DrawSignedSemitoneText(d, tune_value, val_x, kFooterY, true);
     }
     else
     {

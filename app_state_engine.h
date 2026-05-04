@@ -14,6 +14,7 @@ struct AppEngineState
     {
         // Per-layer sample/editor metadata surfaced to the UI.
         int8_t  engine_tune_semitones[2] = {0, 0};
+        int8_t  engine_tune_cents[2] = {0, 0};
         int16_t engine_gain_db[2] = {0, 0};
         uint8_t engine_drive_mode[2] = {0u, 0u};
         uint8_t engine_play_mode[2] = {1, 1};

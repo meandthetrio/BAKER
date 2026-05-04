@@ -56,7 +56,8 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
     AppEngineState& engine = *ctx.engine;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     PerformParamsTargets& t = ctx.params->EditTargets();
-    t.engine_tune_semitones[layer] = static_cast<float>(engine.layer.engine_tune_semitones[layer]);
+    t.engine_tune_semitones[layer] = static_cast<float>(engine.layer.engine_tune_semitones[layer])
+                                     + (static_cast<float>(engine.layer.engine_tune_cents[layer]) * 0.01f);
     t.engine_gain_db[layer] = static_cast<float>(engine.layer.engine_gain_db[layer]);
     t.engine_loop_mode[layer] = (engine.layer.engine_play_mode[layer] != 0);
     for(uint8_t i = 0; i < kPerformLayerCount; ++i)

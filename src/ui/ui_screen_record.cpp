@@ -501,7 +501,7 @@ void Record_Render(UiScreenCtx& ctx)
         case RecordUiState::Recording:
         {
             d.SetCursor(0, 0);
-            d.WriteString("RECORDING - 5 SEC MAX", Font_6x8, true);
+            d.WriteString("RECORDING - 10 SEC MAX", Font_6x8, true);
 
             const int wave_y0 = Font_6x8.FontHeight + 2;
             const int wave_y1 = 62;

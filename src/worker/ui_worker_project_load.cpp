@@ -86,7 +86,8 @@ static void PublishProjectPerformParams(Params& params,
     }
     for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
     {
-        t.engine_tune_semitones[layer] = static_cast<float>(engine.layer.engine_tune_semitones[layer]);
+        t.engine_tune_semitones[layer] = static_cast<float>(engine.layer.engine_tune_semitones[layer])
+                                         + (static_cast<float>(engine.layer.engine_tune_cents[layer]) * 0.01f);
         if(process_layer_master_level)
         {
             t.engine_layer_master_level[layer]
@@ -212,6 +213,7 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
     {
         engine.layer.engine_tune_semitones[slot] = ClampProjectTune(manifest.engine_tune_semitones[slot]);
+        engine.layer.engine_tune_cents[slot] = ClampProjectTuneCents(manifest.engine_tune_cents[slot]);
         engine.keyzone.perform_keyzone_lo_note[slot] = manifest.perform_keyzone_lo_note[slot];
         engine.keyzone.perform_keyzone_hi_note[slot] = manifest.perform_keyzone_hi_note[slot];
         ClampProjectKeyzoneRange(engine.keyzone.perform_keyzone_lo_note[slot],

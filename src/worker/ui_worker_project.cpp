@@ -95,6 +95,15 @@ int8_t ClampProjectTune(int value)
     return static_cast<int8_t>(value);
 }
 
+int8_t ClampProjectTuneCents(int value)
+{
+    if(value < -99)
+        value = -99;
+    if(value > 99)
+        value = 99;
+    return static_cast<int8_t>(value);
+}
+
 uint8_t ClampProjectMidiNote(int value)
 {
     if(value < 0)
@@ -310,6 +319,7 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
         SampleEdit_Clamp(edit, sample.length);
         manifest.edit[slot] = edit;
         manifest.engine_tune_semitones[slot] = ClampProjectTune(engine.layer.engine_tune_semitones[slot]);
+        manifest.engine_tune_cents[slot] = ClampProjectTuneCents(engine.layer.engine_tune_cents[slot]);
         manifest.perform_keyzone_lo_note[slot] = engine.keyzone.perform_keyzone_lo_note[slot];
         manifest.perform_keyzone_hi_note[slot] = engine.keyzone.perform_keyzone_hi_note[slot];
         manifest.perform_adsr_row[slot] = ClampProjectAdsrRow(engine.adsr.perform_adsr_row[slot]);
@@ -334,6 +344,7 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
     {
         manifest.engine_layer_master_level[slot]
             = ClampProjectFloat(targets.engine_layer_master_level[slot], 0.0f, 2.0f);
+        manifest.engine_tune_cents[slot] = ClampProjectTuneCents(engine.layer.engine_tune_cents[slot]);
         if((manifest.sample_present_mask & static_cast<uint8_t>(1u << slot)) == 0u)
             manifest.engine_tune_semitones[slot] = ClampProjectTune(engine.layer.engine_tune_semitones[slot]);
         manifest.perform_keyzone_lo_note[slot] = engine.keyzone.perform_keyzone_lo_note[slot];

@@ -223,6 +223,15 @@ static void ClampProjectExpressRow(uint8_t& target, uint16_t& min_value, uint16_
     ExpressClampRow(target, min_value, max_value);
 }
 
+static void ClampProjectExpressPolyPorto(ProjectExpressState& express, uint8_t layer)
+{
+    ExpressClampPolyPortoConfig(express.poly_porto_voice_limit[layer],
+                                express.poly_porto_slide_ms[layer],
+                                express.poly_porto_source_range_semitones[layer],
+                                express.poly_porto_source_mode[layer],
+                                express.poly_porto_release_ms[layer]);
+}
+
 void ClampProjectEqState(ProjectEqState& eq)
 {
     auto clamp01 = [](float value) -> float
@@ -370,6 +379,13 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
                                    manifest.express.min_value[slot][row],
                                    manifest.express.max_value[slot][row]);
         }
+        manifest.express.poly_porto_voice_limit[slot] = engine.express.poly_porto_voice_limit[slot];
+        manifest.express.poly_porto_slide_ms[slot] = engine.express.poly_porto_slide_ms[slot];
+        manifest.express.poly_porto_source_range_semitones[slot]
+            = engine.express.poly_porto_source_range_semitones[slot];
+        manifest.express.poly_porto_source_mode[slot] = engine.express.poly_porto_source_mode[slot];
+        manifest.express.poly_porto_release_ms[slot] = engine.express.poly_porto_release_ms[slot];
+        ClampProjectExpressPolyPorto(manifest.express, slot);
     }
 }
 
@@ -417,6 +433,8 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     for(size_t i = 0; i < kMaxModRoutes; ++i)
         manifest.mod_routes[i] = shared.performance.modulation.mod_routes_ui[i];
     manifest.mod_route_selected = shared.performance.modulation.mod_route_selected;
+    manifest.express_enabled
+        = shared.performance.express.enabled.load(std::memory_order_relaxed) ? 1u : 0u;
 }
 
 static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifestV11& manifest)

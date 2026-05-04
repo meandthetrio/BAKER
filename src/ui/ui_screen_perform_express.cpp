@@ -17,6 +17,7 @@
 namespace
 {
 static constexpr uint8_t kExpressRows = kExpressRowCount;
+static constexpr uint8_t kPolyPortoDetailFieldCount = 5u;
 
 static int ClampInt(int v, int lo, int hi)
 {
@@ -31,6 +32,12 @@ static void FormatTargetValue(uint8_t target, uint16_t value, char* out, size_t 
 {
     switch(ExpressClampTarget(target))
     {
+        case kExpressNone:
+            std::snprintf(out, out_n, "%s", "");
+            break;
+        case kExpressPolyPorto:
+            std::snprintf(out, out_n, "%s", (value == 0u) ? "off" : "on");
+            break;
         case kExpressCutoff:
         {
             const uint32_t cutoff_hz = static_cast<uint32_t>(value);
@@ -69,6 +76,27 @@ static void FormatTargetValue(uint8_t target, uint16_t value, char* out, size_t 
     }
 }
 
+static bool RowUsesFixedToggleLabels(const AppEngineState::PerformExpressState& express,
+                                     uint8_t layer,
+                                     uint8_t row)
+{
+    return ExpressTargetIsPolyPorto(express.target[layer & 1u][row % kExpressRows]);
+}
+
+static bool RowHidesSideValues(const AppEngineState::PerformExpressState& express,
+                               uint8_t layer,
+                               uint8_t row)
+{
+    return ExpressTargetIsNone(express.target[layer & 1u][row % kExpressRows]);
+}
+
+static bool RowSkipsSideValueFocus(const AppEngineState::PerformExpressState& express,
+                                   uint8_t layer,
+                                   uint8_t row)
+{
+    return RowUsesFixedToggleLabels(express, layer, row) || RowHidesSideValues(express, layer, row);
+}
+
 static void NormalizeRow(AppEngineState::PerformExpressState& express, uint8_t layer, uint8_t row)
 {
     layer &= 1u;
@@ -83,17 +111,40 @@ static void SetTarget(AppEngineState::PerformExpressState& express, uint8_t laye
 {
     layer &= 1u;
     row %= kExpressRows;
-    express.target[layer][row] = ExpressClampTarget(next_target);
+    const uint8_t prev_target = ExpressClampTarget(express.target[layer][row]);
+    const uint8_t safe_target = ExpressClampTarget(next_target);
+    express.target[layer][row] = safe_target;
+    if(ExpressTargetIsNone(safe_target))
+    {
+        express.min_value[layer][row] = 0u;
+        express.max_value[layer][row] = 0u;
+    }
+    else if(ExpressTargetIsPolyPorto(safe_target))
+    {
+        express.min_value[layer][row] = 0u;
+        express.max_value[layer][row] = 1u;
+    }
+    else if(ExpressTargetIsPolyPorto(prev_target) || ExpressTargetIsNone(prev_target))
+    {
+        express.min_value[layer][row] = ExpressTargetMin(safe_target);
+        express.max_value[layer][row] = ExpressTargetMax(safe_target);
+    }
     NormalizeRow(express, layer, row);
 }
 
-static void DrawHeader(OledPager& d, const char* label)
+static void DrawHeader(OledPager& d, const char* label, bool inverted)
 {
-    d.Fill(false);
     const int box_h = kMicroH + 4;
     const int w = MicroStringWidth(label);
     const int bw = w + 4;
     const int bx = 128 - bw;
+    if(inverted)
+    {
+        d.DrawRect(bx, 0, bx + bw - 1, box_h - 1, false, true);
+        d.DrawRect(bx, 0, bx + bw - 1, box_h - 1, true, false);
+        DrawMicroString(d, label, bx + 2, 2, true);
+        return;
+    }
     d.DrawRect(bx, 0, bx + bw - 1, box_h - 1, true, true);
     DrawMicroString(d, label, bx + 2, 2, false);
 }
@@ -161,16 +212,122 @@ static void DrawCenteredMicroText(OledPager& d, const char* str, int cx, int y)
     DrawMicroString(d, str, x, y, true);
 }
 
-static void DrawLayerBadge(OledPager& d, uint8_t layer, bool inverted)
-{
-    const char* label = (layer & 1u) ? "B" : "A";
-    d.DrawRect(28, 0, 38, 10, true, inverted);
-    DrawTinyString(d, label, 31, 2, !inverted);
-}
-
 static void NormalizeExpressState(AppEngineState::PerformExpressState& express)
 {
     ExpressNormalizeAssignments(express.target, express.min_value, express.max_value);
+    for(uint8_t layer = 0; layer < kExpressLayerCount; ++layer)
+    {
+        ExpressClampPolyPortoConfig(express.poly_porto_voice_limit[layer],
+                                    express.poly_porto_slide_ms[layer],
+                                    express.poly_porto_source_range_semitones[layer],
+                                    express.poly_porto_source_mode[layer],
+                                    express.poly_porto_release_ms[layer]);
+    }
+}
+
+static uint8_t NormalizeFocusableExpressFocus(const AppEngineState::PerformExpressState& express,
+                                              uint8_t layer,
+                                              uint8_t focus)
+{
+    const uint8_t safe_focus = static_cast<uint8_t>(focus % kExpressFocusCount);
+    if(safe_focus == 0u)
+        return 0u;
+    const uint8_t row = static_cast<uint8_t>((safe_focus - 1u) / 3u);
+    const uint8_t col = static_cast<uint8_t>((safe_focus - 1u) % 3u);
+    if((col == 0u || col == 2u) && RowSkipsSideValueFocus(express, layer, row))
+        return static_cast<uint8_t>(1u + row * 3u + 1u);
+    return safe_focus;
+}
+
+static uint8_t AdvanceExpressFocus(const AppEngineState::PerformExpressState& express,
+                                   uint8_t layer,
+                                   uint8_t focus,
+                                   int delta)
+{
+    if(delta == 0)
+        return NormalizeFocusableExpressFocus(express, layer, focus);
+    int next = static_cast<int>(NormalizeFocusableExpressFocus(express, layer, focus));
+    int steps = (delta > 0) ? delta : -delta;
+    const int dir = (delta > 0) ? 1 : -1;
+    while(steps-- > 0)
+    {
+        do
+        {
+            next += dir;
+            if(next < 0)
+                next += kExpressFocusCount;
+            else if(next >= kExpressFocusCount)
+                next -= kExpressFocusCount;
+        } while(NormalizeFocusableExpressFocus(express, layer, static_cast<uint8_t>(next))
+                != static_cast<uint8_t>(next));
+    }
+    return static_cast<uint8_t>(next);
+}
+
+static void FormatPolyPortoDetailValue(uint8_t field,
+                                       const AppEngineState::PerformExpressState& express,
+                                       uint8_t layer,
+                                       char* out,
+                                       size_t out_n)
+{
+    switch(field % kPolyPortoDetailFieldCount)
+    {
+        case 0:
+            std::snprintf(out, out_n, "%ums", static_cast<unsigned>(express.poly_porto_slide_ms[layer]));
+            break;
+        case 1:
+            std::snprintf(out,
+                          out_n,
+                          "%ust",
+                          static_cast<unsigned>(express.poly_porto_source_range_semitones[layer]));
+            break;
+        case 2:
+            std::snprintf(out,
+                          out_n,
+                          "%s",
+                          (express.poly_porto_source_mode[layer] == kExpressPolyPortoSourceLatest)
+                              ? "LATEST"
+                              : "CLOSE");
+            break;
+        case 3:
+            std::snprintf(out, out_n, "%ums", static_cast<unsigned>(express.poly_porto_release_ms[layer]));
+            break;
+        default:
+            std::snprintf(out, out_n, "%u", static_cast<unsigned>(express.poly_porto_voice_limit[layer]));
+            break;
+    }
+}
+
+static void DrawPolyPortoDetail(OledPager& d,
+                                const AppEngineState::PerformExpressState& express,
+                                uint8_t layer,
+                                uint8_t field_focus)
+{
+    constexpr int kPanelX0 = 6;
+    constexpr int kPanelY0 = 12;
+    constexpr int kPanelX1 = 121;
+    constexpr int kPanelY1 = 61;
+    constexpr int kLabelX = 11;
+    constexpr int kValueX0 = 72;
+    constexpr int kValueX1 = 116;
+    constexpr int kRowY[kPolyPortoDetailFieldCount] = {20, 28, 36, 44, 52};
+    static const char* kLabels[kPolyPortoDetailFieldCount] = {"TIME", "RANGE", "SRC", "REL", "LIMIT"};
+
+    d.DrawRect(kPanelX0, kPanelY0, kPanelX1, kPanelY1, true, true);
+    d.DrawRect(kPanelX0 + 1, kPanelY0 + 1, kPanelX1 - 1, kPanelY1 - 1, true, false);
+    DrawMicroString(d, "polyporto", 10, 15, false);
+    DrawMicroString(d, (layer & 1u) ? "B" : "A", 100, 15, false);
+
+    for(uint8_t i = 0; i < kPolyPortoDetailFieldCount; ++i)
+    {
+        char value_buf[16] = {};
+        FormatPolyPortoDetailValue(i, express, layer, value_buf, sizeof(value_buf));
+        DrawTinyString(d, kLabels[i], kLabelX, kRowY[i], false);
+        if(field_focus == i)
+            DrawCenteredMicroButton(d, value_buf, kValueX0, kRowY[i] - 1, kValueX1, kRowY[i] + 7);
+        else
+            DrawCenteredTiny(d, value_buf, (kValueX0 + kValueX1) / 2, kRowY[i], false);
+    }
 }
 
 static void DrawBypassButton(OledPager& d, bool enabled, bool focused)
@@ -192,7 +349,12 @@ void PerformExpress_OnScreenEnter(UiScreenCtx& ctx)
 
     AppEngineState& engine = *ctx.engine;
     NormalizeExpressState(engine.express);
-    engine.perform_nav.perform_express_focus %= kExpressFocusCount;
+    engine.express.perform_express_detail_active = false;
+    engine.express.perform_express_detail_field %= kPolyPortoDetailFieldCount;
+    engine.perform_nav.perform_express_focus
+        = NormalizeFocusableExpressFocus(engine.express,
+                                         engine.perform_nav.perform_layer & 1u,
+                                         engine.perform_nav.perform_express_focus);
     ctx.ui->ui_dirty = true;
 }
 
@@ -208,19 +370,95 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppSharedState& shared = *ctx.shared;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     uint8_t& focus = engine.perform_nav.perform_express_focus;
-    focus %= kExpressFocusCount;
+    NormalizeExpressState(engine.express);
+    focus = NormalizeFocusableExpressFocus(engine.express, layer, focus);
+    if(engine.express.perform_express_detail_active)
+    {
+        const uint8_t detail_row = static_cast<uint8_t>((focus > 0u) ? ((focus - 1u) / 3u) : 0u);
+        if(focus == 0u || !ExpressTargetIsPolyPorto(engine.express.target[layer][detail_row])
+           || focus != static_cast<uint8_t>(1u + detail_row * 3u + 1u))
+        {
+            engine.express.perform_express_detail_active = false;
+        }
+    }
     const bool bypass_focus = (focus == 0u);
     const uint8_t row = bypass_focus ? 0u : static_cast<uint8_t>((focus - 1u) / 3u);
     const uint8_t col = bypass_focus ? 0u : static_cast<uint8_t>((focus - 1u) % 3u);
+    const bool polyporto_target_focus = !bypass_focus && col == 1u
+                                     && ExpressTargetIsPolyPorto(engine.express.target[layer][row]);
+
+    if(engine.express.perform_express_detail_active)
+    {
+        uint8_t& detail_focus = engine.express.perform_express_detail_field;
+        detail_focus %= kPolyPortoDetailFieldCount;
+        if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+        {
+            int next = static_cast<int>(detail_focus) + e.value;
+            while(next < 0)
+                next += static_cast<int>(kPolyPortoDetailFieldCount);
+            while(next >= static_cast<int>(kPolyPortoDetailFieldCount))
+                next -= static_cast<int>(kPolyPortoDetailFieldCount);
+            detail_focus = static_cast<uint8_t>(next);
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+        {
+            if(detail_focus == 0u)
+            {
+                const int next = ClampInt(static_cast<int>(engine.express.poly_porto_slide_ms[layer])
+                                              + (e.value * static_cast<int>(kExpressPolyPortoTimeStepMs)),
+                                          static_cast<int>(kExpressPolyPortoTimeMinMs),
+                                          static_cast<int>(kExpressPolyPortoTimeMaxMs));
+                engine.express.poly_porto_slide_ms[layer] = static_cast<uint16_t>(next);
+            }
+            else if(detail_focus == 1u)
+            {
+                const int next = ClampInt(static_cast<int>(engine.express.poly_porto_source_range_semitones[layer]) + e.value,
+                                          static_cast<int>(kExpressPolyPortoRangeMinSemitones),
+                                          static_cast<int>(kExpressPolyPortoRangeMaxSemitones));
+                engine.express.poly_porto_source_range_semitones[layer] = static_cast<uint8_t>(next);
+            }
+            else if(detail_focus == 2u)
+            {
+                const int next = ClampInt(static_cast<int>(engine.express.poly_porto_source_mode[layer]) + e.value,
+                                          static_cast<int>(kExpressPolyPortoSourceClosest),
+                                          static_cast<int>(kExpressPolyPortoSourceLatest));
+                engine.express.poly_porto_source_mode[layer] = static_cast<uint8_t>(next);
+            }
+            else if(detail_focus == 3u)
+            {
+                const int next = ClampInt(static_cast<int>(engine.express.poly_porto_release_ms[layer])
+                                              + (e.value * static_cast<int>(kExpressPolyPortoReleaseStepMs)),
+                                          static_cast<int>(kExpressPolyPortoReleaseMinMs),
+                                          static_cast<int>(kExpressPolyPortoReleaseMaxMs));
+                engine.express.poly_porto_release_ms[layer] = static_cast<uint16_t>(next);
+            }
+            else
+            {
+                const int next = ClampInt(static_cast<int>(engine.express.poly_porto_voice_limit[layer]) + e.value,
+                                          static_cast<int>(kExpressPolyPortoVoicesMin),
+                                          static_cast<int>(kExpressPolyPortoVoicesMax));
+                engine.express.poly_porto_voice_limit[layer] = static_cast<uint8_t>(next);
+            }
+            PublishEngineLayerParams(ctx);
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && ctx.rshift)
+        {
+            engine.express.perform_express_detail_active = false;
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+            return true;
+        return false;
+    }
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        int next = static_cast<int>(focus) + e.value;
-        while(next < 0)
-            next += kExpressFocusCount;
-        while(next >= kExpressFocusCount)
-            next -= kExpressFocusCount;
-        focus = static_cast<uint8_t>(next);
+        focus = AdvanceExpressFocus(engine.express, layer, focus, e.value);
         ui.ui_dirty = true;
         return true;
     }
@@ -228,6 +466,8 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
         if(bypass_focus)
+            return false;
+        if(RowSkipsSideValueFocus(engine.express, layer, row) && col != 1u)
             return false;
 
         if(col == 1u)
@@ -276,6 +516,14 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && polyporto_target_focus && ctx.rshift)
+    {
+        engine.express.perform_express_detail_active = true;
+        engine.express.perform_express_detail_field %= kPolyPortoDetailFieldCount;
+        ui.ui_dirty = true;
+        return true;
+    }
+
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
         engine.perform_nav.perform_layer ^= 1u;
@@ -296,16 +544,18 @@ void PerformExpress_Render(UiScreenCtx& ctx)
 
     AppEngineState& engine = *ctx.engine;
     OledPager& d = *ctx.display;
-    DrawHeader(d, "express");
+    d.Fill(false);
+    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+    const bool badge_invert = ctx.now_ms < engine.layer.engine_header_invert_until_ms;
+    char header_label[16] = {};
+    std::snprintf(header_label, sizeof(header_label), "express %c", layer == 0u ? 'a' : 'b');
+    DrawHeader(d, header_label, badge_invert);
     const bool express_enabled = ctx.shared->performance.express.enabled.load(std::memory_order_acquire) != 0u;
     DrawBypassButton(d, express_enabled, engine.perform_nav.perform_express_focus == 0u);
 
-    const uint8_t layer = engine.perform_nav.perform_layer & 1u;
-    const bool badge_invert = ctx.now_ms < engine.layer.engine_header_invert_until_ms;
-    DrawLayerBadge(d, layer, badge_invert);
-
     NormalizeExpressState(engine.express);
-    engine.perform_nav.perform_express_focus %= kExpressFocusCount;
+    engine.perform_nav.perform_express_focus
+        = NormalizeFocusableExpressFocus(engine.express, layer, engine.perform_nav.perform_express_focus);
     const uint8_t focus = engine.perform_nav.perform_express_focus;
 
     constexpr int kRectX0 = 42;
@@ -327,10 +577,27 @@ void PerformExpress_Render(UiScreenCtx& ctx)
 
         char min_buf[12] = {};
         char max_buf[12] = {};
-        FormatTargetValue(target, engine.express.min_value[layer][row], min_buf, sizeof(min_buf));
-        FormatTargetValue(target, engine.express.max_value[layer][row], max_buf, sizeof(max_buf));
+        const bool fixed_toggle = RowUsesFixedToggleLabels(engine.express, layer, row);
+        const bool hide_values = RowHidesSideValues(engine.express, layer, row);
+        if(fixed_toggle)
+        {
+            std::snprintf(min_buf, sizeof(min_buf), "off");
+            std::snprintf(max_buf, sizeof(max_buf), "on");
+        }
+        else if(!hide_values)
+        {
+            FormatTargetValue(target, engine.express.min_value[layer][row], min_buf, sizeof(min_buf));
+            FormatTargetValue(target, engine.express.max_value[layer][row], max_buf, sizeof(max_buf));
+        }
 
-        DrawCenteredTiny(d, min_buf, kValueLeftCx, cy - 3, focus == base_focus);
+        if(!hide_values)
+        {
+            DrawCenteredTiny(d,
+                             min_buf,
+                             kValueLeftCx,
+                             cy - 3,
+                             !fixed_toggle && focus == base_focus);
+        }
         DrawCenteredMicroTarget(d,
                                 ExpressTargetLabel(target),
                                 kRectX0,
@@ -339,7 +606,14 @@ void PerformExpress_Render(UiScreenCtx& ctx)
                                 y1,
                                 focus == static_cast<uint8_t>(base_focus + 1u),
                                 ctx.rshift);
-        DrawCenteredTiny(d, max_buf, kValueRightCx, cy - 3, focus == static_cast<uint8_t>(base_focus + 2u));
+        if(!hide_values)
+        {
+            DrawCenteredTiny(d,
+                             max_buf,
+                             kValueRightCx,
+                             cy - 3,
+                             !fixed_toggle && focus == static_cast<uint8_t>(base_focus + 2u));
+        }
 
         d.DrawLine(32, cy, kRectX0 - 1, cy, true);
         d.DrawLine(kRectX1 + 1, cy, 96, cy, true);
@@ -349,4 +623,10 @@ void PerformExpress_Render(UiScreenCtx& ctx)
     DrawCenteredMicroText(d, "lo", kValueLeftCx, kFooterY);
     DrawCenteredMicroText(d, "midimod", target_cx, kFooterY);
     DrawCenteredMicroText(d, "hi", kValueRightCx, kFooterY);
+
+    if(engine.express.perform_express_detail_active)
+        DrawPolyPortoDetail(d,
+                            engine.express,
+                            layer,
+                            engine.express.perform_express_detail_field % kPolyPortoDetailFieldCount);
 }

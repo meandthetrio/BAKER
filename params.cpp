@@ -151,5 +151,11 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
             current.express_min_value[layer][row] = t.express_min_value[layer][row];
             current.express_max_value[layer][row] = t.express_max_value[layer][row];
         }
+        current.express_poly_porto_voice_limit[layer] = t.express_poly_porto_voice_limit[layer];
+        current.express_poly_porto_slide_ms[layer] = t.express_poly_porto_slide_ms[layer];
+        current.express_poly_porto_source_range_semitones[layer]
+            = t.express_poly_porto_source_range_semitones[layer];
+        current.express_poly_porto_source_mode[layer] = t.express_poly_porto_source_mode[layer];
+        current.express_poly_porto_release_ms[layer] = t.express_poly_porto_release_ms[layer];
     }
 }

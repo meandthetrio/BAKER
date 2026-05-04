@@ -14,6 +14,9 @@
 #include "mod_matrix.h"
 #include "plocks.h"
 #include "macros.h"
+#include "express_state.h"
+
+struct AppDiagnosticsState;
 
 enum class VoiceState : uint8_t
 {
@@ -72,6 +75,18 @@ struct Voice
     bool          gate = false;
     bool          loop_voice = false;
     int8_t        dir  = 1;
+    bool          poly_porto_glide_active = false;
+    bool          poly_porto_managed = false;
+    bool          poly_porto_source_valid = false;
+    bool          poly_porto_source_released = false;
+    uint8_t       poly_porto_source_note = 0;
+    uint8_t       poly_porto_source_layer = 0;
+    uint16_t      poly_porto_slide_samples_remaining = 0;
+    float         poly_porto_current_semitones = 0.0f;
+    float         poly_porto_target_semitones = 0.0f;
+    float         poly_porto_step_semitones = 0.0f;
+    uint32_t      poly_porto_source_order = 0;
+    uint64_t      poly_porto_release_sample_time = 0;
 
     float old_pos   = 0.0f;
     float old_ratio = 1.0f;
@@ -117,6 +132,7 @@ struct LayerEmphasisCoeffs
     float positive_drive = 1.0f;
     float negative_drive = 1.0f;
     float even_makeup = 1.0f;
+    float output_trim = 1.0f;
     float g = 0.0f;
     float feedback = 0.0f;
     float pole4_linear_scale = 1.0f;
@@ -130,6 +146,7 @@ class VoiceEngine
     static constexpr uint8_t kMaxSampleBank = 8;
 
     void Init(float sample_rate, size_t block_size);
+    void BindDiagnostics(AppDiagnosticsState* diagnostics) { diagnostics_ = diagnostics; }
 
     // AUDIO THREAD ONLY: pops and handles all pending events for this block.
     void ProcessEvents(EventQueueSPSC& q);
@@ -206,6 +223,12 @@ class VoiceEngine
                                float release_ms);
     void SetLoopCrossfadeAmount(uint8_t layer, float amount);
     void SetLoopCrossfadeShape(uint8_t layer, float shape);
+    void SetPolyPortoEnabled(uint8_t layer, bool enabled);
+    void SetPolyPortoVoiceLimit(uint8_t layer, uint8_t voice_limit);
+    void SetPolyPortoSlideMs(uint8_t layer, float slide_ms);
+    void SetPolyPortoSourceRangeSemitones(uint8_t layer, uint8_t semitones);
+    void SetPolyPortoSourceMode(uint8_t layer, uint8_t source_mode);
+    void SetPolyPortoReleaseMs(uint8_t layer, float release_ms);
     void SetLoopMode(LoopMode mode)
     {
         loop_mode_.store(static_cast<uint8_t>(mode), std::memory_order_relaxed);
@@ -245,7 +268,7 @@ class VoiceEngine
     float env_decay_ms_  = 120.0f;
     float env_amount_    = 0.5f;
     static constexpr uint8_t kEngineLayerCount = 2;
-    static constexpr uint8_t kMaxVoicesPerLayer = 5;
+    static constexpr uint8_t kMaxVoicesPerLayer = 10;
     float engine_tune_semitones_[kEngineLayerCount] = {0.0f, 0.0f};
     // Cache of pow(2, semitones/12) per layer; populated lazily from inside
     // PrepareRenderScalars_ (const) when the dirty flag is set.
@@ -267,6 +290,21 @@ class VoiceEngine
     float loop_env_release_ms_[kEngineLayerCount] = {50.0f, 50.0f};
     float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
     float loop_crossfade_shape_[kEngineLayerCount] = {0.0f, 0.0f};
+    bool  poly_porto_enabled_[kEngineLayerCount] = {false, false};
+    uint8_t poly_porto_voice_limit_[kEngineLayerCount]
+        = {kExpressPolyPortoVoicesDefault, kExpressPolyPortoVoicesDefault};
+    float poly_porto_slide_ms_[kEngineLayerCount]
+        = {static_cast<float>(kExpressPolyPortoSlideDefaultMs),
+           static_cast<float>(kExpressPolyPortoSlideDefaultMs)};
+    uint8_t poly_porto_source_range_semitones_[kEngineLayerCount]
+        = {kExpressPolyPortoRangeDefaultSemitones, kExpressPolyPortoRangeDefaultSemitones};
+    uint8_t poly_porto_source_mode_[kEngineLayerCount]
+        = {kExpressPolyPortoSourceClosest, kExpressPolyPortoSourceClosest};
+    float poly_porto_release_ms_[kEngineLayerCount]
+        = {static_cast<float>(kExpressPolyPortoReleaseDefaultMs),
+           static_cast<float>(kExpressPolyPortoReleaseDefaultMs)};
+    uint32_t poly_porto_source_order_counter_ = 0;
+    uint64_t audio_sample_counter_ = 0;
     GlobalLFO lfo_;
     float sweep_phase_rate_  = 0.0f;
     float sweep_dir_rate_    = 1.0f;
@@ -300,11 +338,17 @@ class VoiceEngine
     std::atomic<uint32_t>* lfo_depth_dbg_out_  = nullptr;
     std::atomic<uint32_t>* playhead_frame_out_[2] = {nullptr, nullptr};
     std::atomic<uint32_t>* playhead_active_out_[2] = {nullptr, nullptr};
+    AppDiagnosticsState* diagnostics_ = nullptr;
 
     int  AllocateVoice_(uint8_t source_layer,
                         bool& stole,
                         uint8_t& stolen_index,
                         uint32_t& stolen_start_id);
+    int  AllocateVoiceExcluding_(uint8_t source_layer,
+                                 int exclude_index,
+                                 bool& stole,
+                                 uint8_t& stolen_index,
+                                 uint32_t& stolen_start_id);
     void StartVoice_(Voice& v,
                      const Sample* sample,
                      uint8_t note,
@@ -316,6 +360,33 @@ class VoiceEngine
     void FinishStopFade_(Voice& v);
     void NoteOff_(uint8_t note);
     void AllNotesOff_();
+    void ClearPolyPortoVoice_(Voice& v);
+    void MarkPolyPortoHeldSource_(Voice& v);
+    void MarkPolyPortoReleasedSource_(Voice& v);
+    void BeginPolyPortoGlide_(Voice& v, uint8_t from_note, uint8_t to_note, float slide_ms);
+    void BeginPolyPortoGlideFromAbsoluteNote_(Voice& v,
+                                              float from_note,
+                                              uint8_t to_note,
+                                              float slide_ms);
+    bool VoiceEligibleAsPolyPortoSource_(const Voice& v,
+                                         uint8_t source_layer,
+                                         uint8_t note,
+                                         uint8_t range_semitones,
+                                         float release_ms) const;
+    float CurrentPolyPortoSourceAbsoluteNote_(const Voice& v) const;
+    int  FindPolyPortoSourceVoice_(uint8_t source_layer,
+                                   uint8_t note,
+                                   uint8_t range_semitones,
+                                   uint8_t source_mode,
+                                   float release_ms) const;
+    uint8_t CountActivePolyPortoVoices_(uint8_t source_layer, int exclude_index) const;
+    bool TryStartPolyPortoVoice_(const Sample* sample,
+                                 uint8_t note,
+                                 uint8_t velocity,
+                                 uint8_t source_layer,
+                                 uint8_t vel_layer,
+                                 uint32_t start_id,
+                                 uint8_t& out_index);
     void RecomputeLayerEmphasisCoeffs_(uint8_t layer);
     float ProcessLayerBusSample_(uint8_t layer, float input);
 
@@ -351,6 +422,7 @@ class VoiceEngine
         float    gain;
         bool     use_edit;
         float    ratio;
+        float    pitch_ratio_scale;
         float    fade_step;
         float    env_a_step;
         float    env_d_step;
@@ -438,6 +510,12 @@ class VoiceEngine
         EnvStage env_stage;
         float    env_level;
         float    env_r_step;
+        float    ratio;
+        bool     glide_active;
+        float    glide_current_semitones;
+        float    glide_target_semitones;
+        float    glide_step_semitones;
+        uint16_t glide_samples_remaining;
         StopFadeState stop_fade;
     };
 

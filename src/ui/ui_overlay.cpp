@@ -13,10 +13,50 @@
 
 using namespace daisy;
 
-void UiOverlay_Update(UiOverlayState& o, uint32_t now_ms, bool shift_held, bool editing)
+namespace
 {
-    (void)editing;
-    const bool want = shift_held;
+void WriteOverlayLine(OledPager& oled, int x, int y, const char* label, float value_db)
+{
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%s:%+05.1f", label, value_db);
+    oled.SetCursor(x, y);
+    oled.WriteString(buf, Font_6x8, true);
+}
+
+void WriteOverlayCounterLine(OledPager& oled, int x, int y, const char* label, uint32_t value)
+{
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%s:%lu", label, static_cast<unsigned long>(value));
+    oled.SetCursor(x, y);
+    oled.WriteString(buf, Font_6x8, true);
+}
+
+void RenderGainPage1(const AppDiagnosticsState& diag, const UiLayout& layout, OledPager& oled)
+{
+    const int x = layout.x;
+    const int y = layout.y_body;
+    WriteOverlayLine(oled, x, y + layout.line_h * 0, "APRE", diag.gain_probe_display_db[kDiagGainProbeAPre]);
+    WriteOverlayLine(oled, x, y + layout.line_h * 1, "APST", diag.gain_probe_display_db[kDiagGainProbeAPost]);
+    WriteOverlayLine(oled, x, y + layout.line_h * 2, "BPRE", diag.gain_probe_display_db[kDiagGainProbeBPre]);
+    WriteOverlayLine(oled, x, y + layout.line_h * 3, "BPST", diag.gain_probe_display_db[kDiagGainProbeBPost]);
+    WriteOverlayLine(oled, x, y + layout.line_h * 4, "SUM ", diag.gain_probe_display_db[kDiagGainProbeSumPreFx]);
+}
+
+void RenderGainPage2(const AppDiagnosticsState& diag, const UiLayout& layout, OledPager& oled)
+{
+    const int x = layout.x;
+    const int y = layout.y_body;
+    WriteOverlayLine(oled, x, y + layout.line_h * 0, "FX  ", diag.gain_probe_display_db[kDiagGainProbeFxPreMaster]);
+    WriteOverlayLine(oled, x, y + layout.line_h * 1, "OUT ", diag.gain_probe_display_db[kDiagGainProbeOutFinal]);
+    WriteOverlayCounterLine(oled, x, y + layout.line_h * 2, "SAT", diag.sat_softclip_hits.load(std::memory_order_relaxed));
+    WriteOverlayCounterLine(oled, x, y + layout.line_h * 3, "MST", diag.master_softclip_hits.load(std::memory_order_relaxed));
+    WriteOverlayCounterLine(oled, x, y + layout.line_h * 4, "MON", diag.monitor_clamp_hits.load(std::memory_order_relaxed));
+}
+} // namespace
+
+void UiOverlay_Update(UiOverlayState& o, uint32_t now_ms)
+{
+    const bool want = o.modal_active;
     if(want && !o.visible)
         o.shown_since_ms = now_ms;
     o.visible = want;
@@ -29,6 +69,19 @@ void UiOverlay_Render(const AppUiState& ui,
                       const UiLayout& layout,
                       OledPager& oled)
 {
+    switch(diag.overlay.page)
+    {
+        case kDiagOverlayPageGain1:
+            RenderGainPage1(diag, layout, oled);
+            return;
+        case kDiagOverlayPageGain2:
+            RenderGainPage2(diag, layout, oled);
+            return;
+        case kDiagOverlayPageSys:
+        default:
+            break;
+    }
+
     const uint32_t peak_cycles   = diag.audio_cycles_peak.load(std::memory_order_relaxed);
     const uint32_t budget_cycles = diag.audio_budget_cycles.load(std::memory_order_relaxed);
     uint32_t cpu_pct = 0;

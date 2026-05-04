@@ -5,6 +5,7 @@
 #include "keygroups.h"
 #include "sample_edit.h"
 #include "storage_limits.h"
+#include "express_state.h"
 
 // App-owned engine/editor state and perform editing state.
 struct AppEngineState
@@ -81,10 +82,25 @@ struct AppEngineState
         static constexpr uint8_t kLayerCount = 2;
         static constexpr uint8_t kRowCount = 3;
 
-        // 0=CUTOFF, 1=DRIVE, 2=RESONANCE, 3=ATTACK, 4=SUSTAIN, 5=RELEASE, 6=REVERB.
-        uint8_t  target[kLayerCount][kRowCount] = {{0u, 1u, 6u}, {0u, 1u, 6u}};
-        uint16_t min_value[kLayerCount][kRowCount] = {{20u, 0u, 0u}, {20u, 0u, 0u}};
-        uint16_t max_value[kLayerCount][kRowCount] = {{20000u, 60u, 100u}, {20000u, 60u, 100u}};
+        // 0=CUTOFF, 1=DRIVE, 2=RESONANCE, 3=ATTACK, 4=SUSTAIN, 5=RELEASE,
+        // 6=REVERB, 7=POLYPORTO, 8=NONE.
+        uint8_t  target[kLayerCount][kRowCount]
+            = {{kExpressNone, kExpressNone, kExpressNone},
+               {kExpressNone, kExpressNone, kExpressNone}};
+        uint16_t min_value[kLayerCount][kRowCount] = {{0u, 0u, 0u}, {0u, 0u, 0u}};
+        uint16_t max_value[kLayerCount][kRowCount] = {{0u, 0u, 0u}, {0u, 0u, 0u}};
+        uint8_t  poly_porto_voice_limit[kLayerCount]
+            = {kExpressPolyPortoVoicesDefault, kExpressPolyPortoVoicesDefault};
+        uint16_t poly_porto_slide_ms[kLayerCount]
+            = {kExpressPolyPortoSlideDefaultMs, kExpressPolyPortoSlideDefaultMs};
+        uint8_t  poly_porto_source_range_semitones[kLayerCount]
+            = {kExpressPolyPortoRangeDefaultSemitones, kExpressPolyPortoRangeDefaultSemitones};
+        uint8_t  poly_porto_source_mode[kLayerCount]
+            = {kExpressPolyPortoSourceClosest, kExpressPolyPortoSourceClosest};
+        uint16_t poly_porto_release_ms[kLayerCount]
+            = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
+        bool     perform_express_detail_active = false;
+        uint8_t  perform_express_detail_field = 0;
     } express{};
 
     struct PerformProcessState

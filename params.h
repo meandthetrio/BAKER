@@ -58,12 +58,22 @@ struct PerformParamsTargets
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]
-        = {{kExpressCutoff, kExpressDrive, kExpressReverb},
-           {kExpressCutoff, kExpressDrive, kExpressReverb}};
+        = {{kExpressNone, kExpressNone, kExpressNone},
+           {kExpressNone, kExpressNone, kExpressNone}};
     uint16_t express_min_value[kLayerCount][kExpressRowCount]
-        = {{20u, 0u, 0u}, {20u, 0u, 0u}};
+        = {{0u, 0u, 0u}, {0u, 0u, 0u}};
     uint16_t express_max_value[kLayerCount][kExpressRowCount]
-        = {{20000u, 60u, 100u}, {20000u, 60u, 100u}};
+        = {{0u, 0u, 0u}, {0u, 0u, 0u}};
+    uint8_t  express_poly_porto_voice_limit[kLayerCount]
+        = {kExpressPolyPortoVoicesDefault, kExpressPolyPortoVoicesDefault};
+    uint16_t express_poly_porto_slide_ms[kLayerCount]
+        = {kExpressPolyPortoSlideDefaultMs, kExpressPolyPortoSlideDefaultMs};
+    uint8_t  express_poly_porto_source_range_semitones[kLayerCount]
+        = {kExpressPolyPortoRangeDefaultSemitones, kExpressPolyPortoRangeDefaultSemitones};
+    uint8_t  express_poly_porto_source_mode[kLayerCount]
+        = {kExpressPolyPortoSourceClosest, kExpressPolyPortoSourceClosest};
+    uint16_t express_poly_porto_release_ms[kLayerCount]
+        = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 
@@ -119,12 +129,22 @@ struct PerformParamsCurrent
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]
-        = {{kExpressCutoff, kExpressDrive, kExpressReverb},
-           {kExpressCutoff, kExpressDrive, kExpressReverb}};
+        = {{kExpressNone, kExpressNone, kExpressNone},
+           {kExpressNone, kExpressNone, kExpressNone}};
     uint16_t express_min_value[kLayerCount][kExpressRowCount]
-        = {{20u, 0u, 0u}, {20u, 0u, 0u}};
+        = {{0u, 0u, 0u}, {0u, 0u, 0u}};
     uint16_t express_max_value[kLayerCount][kExpressRowCount]
-        = {{20000u, 60u, 100u}, {20000u, 60u, 100u}};
+        = {{0u, 0u, 0u}, {0u, 0u, 0u}};
+    uint8_t  express_poly_porto_voice_limit[kLayerCount]
+        = {kExpressPolyPortoVoicesDefault, kExpressPolyPortoVoicesDefault};
+    uint16_t express_poly_porto_slide_ms[kLayerCount]
+        = {kExpressPolyPortoSlideDefaultMs, kExpressPolyPortoSlideDefaultMs};
+    uint8_t  express_poly_porto_source_range_semitones[kLayerCount]
+        = {kExpressPolyPortoRangeDefaultSemitones, kExpressPolyPortoRangeDefaultSemitones};
+    uint8_t  express_poly_porto_source_mode[kLayerCount]
+        = {kExpressPolyPortoSourceClosest, kExpressPolyPortoSourceClosest};
+    uint16_t express_poly_porto_release_ms[kLayerCount]
+        = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
     uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
 };
 

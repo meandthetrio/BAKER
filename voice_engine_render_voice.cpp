@@ -76,14 +76,31 @@ void VoiceEngine::CompleteStealFadeOut_(Voice& v)
     v.env_sustain    = v.new_env_sustain;
     v.gate           = v.new_gate;
     v.dir            = v.new_dir;
+    if(v.poly_porto_glide_active)
+        v.ratio = ComputeRatioFromSemitoneDelta(v.poly_porto_current_semitones);
+    else
+        v.ratio = v.new_ratio;
     v.steal_fade_level = 0.0f;
     v.steal_fade_step  = 0.0f;
     if(v.env_stage == EnvStage::Off)
+    {
         v.state = VoiceState::Idle;
+        ClearPolyPortoVoice_(v);
+    }
     else if(v.env_stage == EnvStage::Release)
+    {
         v.state = VoiceState::Releasing;
+        if(!v.poly_porto_glide_active)
+            v.poly_porto_managed = false;
+        MarkPolyPortoReleasedSource_(v);
+    }
     else
+    {
         v.state = VoiceState::Playing;
+        if(!v.poly_porto_glide_active)
+            v.poly_porto_managed = false;
+        MarkPolyPortoHeldSource_(v);
+    }
 }
 
 void VoiceEngine::VoiceRender_PlayheadMetricIfAudible_(const Voice& v,
@@ -112,6 +129,13 @@ void VoiceEngine::CommitNormalVoiceLoopState_(Voice& v, const RenderNormalVoiceL
     v.env_r_step = st.env_r_step;
     v.gate = st.gate;
     v.dir = st.dir;
+    v.ratio = st.ratio;
+    v.poly_porto_glide_active = st.glide_active;
+    v.poly_porto_current_semitones = st.glide_current_semitones;
+    v.poly_porto_target_semitones = st.glide_target_semitones;
+    v.poly_porto_step_semitones = st.glide_step_semitones;
+    v.poly_porto_slide_samples_remaining = st.glide_samples_remaining;
+    v.poly_porto_managed = st.glide_active;
     v.stop_fade_active = st.stop_fade.active;
     v.stop_fade_samples_remaining = st.stop_fade.remaining;
     v.stop_fade_level = st.stop_fade.level;
@@ -218,6 +242,7 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
     if(v.sample == nullptr || v.sample->pcm == nullptr || v.sample->length == 0)
     {
         v.state = VoiceState::Idle;
+        ClearPolyPortoVoice_(v);
         return;
     }
 
@@ -329,6 +354,7 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
                                                       size_t i,
                                                       RenderNormalVoiceLoopState& st)
 {
+    const float ratio = st.ratio * setup.pitch_ratio_scale;
     bool used_seam_xfade = false;
     float s = VoiceRenderFetch_VoiceStream(v.sample,
                                            st.pos,
@@ -368,7 +394,7 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
 
     if(!AdvancePos(st.pos,
                    st.dir,
-                   setup.ratio,
+                   ratio,
                    setup.length_f,
                    setup.ls,
                    setup.le,
@@ -405,7 +431,34 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
         if(st.env_stage == EnvStage::Off && !st.stop_fade.active)
         {
             v.state = VoiceState::Idle;
+            ClearPolyPortoVoice_(v);
             return true;
+        }
+    }
+
+    if(st.glide_active)
+    {
+        if(st.glide_samples_remaining > 0u)
+        {
+            --st.glide_samples_remaining;
+            if(st.glide_samples_remaining == 0u)
+            {
+                st.glide_current_semitones = st.glide_target_semitones;
+                st.ratio = ComputeRatioFromSemitoneDelta(st.glide_target_semitones);
+                st.glide_step_semitones = 0.0f;
+                st.glide_active = false;
+            }
+            else
+            {
+                st.glide_current_semitones += st.glide_step_semitones;
+                st.ratio = ComputeRatioFromSemitoneDelta(st.glide_current_semitones);
+            }
+        }
+        else
+        {
+            st.glide_active = false;
+            st.glide_step_semitones = 0.0f;
+            st.ratio = ComputeRatioFromSemitoneDelta(st.glide_target_semitones);
         }
     }
     return false;
@@ -558,11 +611,11 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     if(v.sample == nullptr || v.sample->pcm == nullptr || v.sample->length == 0)
     {
         v.state = VoiceState::Idle;
+        ClearPolyPortoVoice_(v);
         return;
     }
 
     const uint8_t source_layer = v.source_layer & 1u;
-    const float ratio = v.ratio * ctx.engine_tune_scale[source_layer] * pitch_scale;
     EffectivePlaybackRegion r{};
     bool loop_enabled = false;
     ResolveEffectivePlaybackRegion_(v, ctx, r, loop_enabled);
@@ -605,7 +658,8 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     setup.source_layer = source_layer;
     setup.gain = gain;
     setup.use_edit = use_edit;
-    setup.ratio = ratio;
+    setup.ratio = v.ratio * ctx.engine_tune_scale[source_layer] * pitch_scale;
+    setup.pitch_ratio_scale = ctx.engine_tune_scale[source_layer] * pitch_scale;
     setup.fade_step = v.fade_in_step;
     setup.env_a_step = v.env_a_step;
     setup.env_d_step = v.env_d_step;
@@ -640,6 +694,12 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     st.env_stage = v.env_stage;
     st.env_level = v.env_level;
     st.env_r_step = v.env_r_step;
+    st.ratio = v.ratio;
+    st.glide_active = v.poly_porto_glide_active;
+    st.glide_current_semitones = v.poly_porto_current_semitones;
+    st.glide_target_semitones = v.poly_porto_target_semitones;
+    st.glide_step_semitones = v.poly_porto_step_semitones;
+    st.glide_samples_remaining = v.poly_porto_slide_samples_remaining;
     st.stop_fade = stop_fade;
     if(st.stop_fade.active)
         st.gate = false;
@@ -649,7 +709,8 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     // for this block. Only "slow" voices (all stages >= 5 ms) qualify; any
     // stage faster than the threshold keeps the per-sample state machine.
     // Fast-path is scoped to RenderNormalVoice_; StealFadeOut keeps per-sample.
-    setup.block_rate_env       = (setup.env_a_step <= kFastEnvelopeStepThreshold)
+    setup.block_rate_env       = !st.glide_active
+                              && (setup.env_a_step <= kFastEnvelopeStepThreshold)
                               && (setup.env_d_step <= kFastEnvelopeStepThreshold)
                               && (st.env_r_step    <= kFastEnvelopeStepThreshold);
     setup.env_per_sample_delta = 0.0f;
@@ -717,7 +778,10 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
         st.env_level = env_end_level;
         st.env_stage = env_end_stage;
         if(env_ended_in_block && !st.stop_fade.active)
+        {
             v.state = VoiceState::Idle;
+            ClearPolyPortoVoice_(v);
+        }
     }
 
     stop_fade = st.stop_fade;

@@ -271,6 +271,7 @@ int main(void)
         PLocks_PublishCurrentStep(g_app.shared.performance.plocks.plocks,
                                   g_app.shared.performance.plocks.plock_pattern);
     g_audio.Init(hw.AudioSampleRate(), hw.AudioBlockSize());
+    g_audio.BindDiagnostics(&g_app.diag);
     g_ui.Init(hw);
     g_render.Init(&display, hw);
     g_app.ui.ui_nav.top = 0;
@@ -278,6 +279,7 @@ int main(void)
     g_app.ui.ui_active_screen = UiScreenId::Start;
     hw.midi.StartReceive();
     g_voice.Init(g_sample_rate_hz, hw.AudioBlockSize());
+    g_voice.BindDiagnostics(&g_app.diag);
     g_voice.SetModMatrix(&g_app.shared.performance.modulation.mod_matrix);
     g_voice.SetPLocks(&g_app.shared.performance.plocks.plocks);
     g_voice.SetMacros(&g_app.shared.performance.macros.macro_a,
@@ -362,7 +364,8 @@ int main(void)
               || (g_app.ui.ui_active_screen == UiScreenId::ModBlockA)
               || (g_app.ui.ui_active_screen == UiScreenId::ModBlockB)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
-              || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis);
+              || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis)
+              || (g_app.ui.ui_active_screen == UiScreenId::PerformExpress);
 
         if(sd_browse_active || record_review_active)
         {

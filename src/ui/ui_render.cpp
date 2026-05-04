@@ -16,6 +16,7 @@ void UIRender::Init(PodDisplay* display, DaisyPod& hw)
     ui_ticks_accum_ = 0;
     ui_window_start_ms_ = 0;
     last_stats_ms_ = 0;
+    last_gain_stats_ms_ = 0;
     last_events_pushed_   = 0;
     last_events_popped_   = 0;
     last_queue_overflows_ = 0;
@@ -57,8 +58,7 @@ void UIRender::Render(const AppState& app, const Params& params)
     {
         const UiLayout layout = UiLayout_Default();
         UiOverlay_Render(app.ui, app.diag, app.worker, params, layout, oled_pager_);
-        const char* hint = ui.value_edit.active ? "SHIFT:OVER P2:CANC"
-                                                  : "SHIFT:OVER P2:BACK";
+        const char* hint = "DIAG E:PAGE PENC:BACK";
         UiDraw_Footer(oled_pager_, layout, hint);
     }
 }
@@ -91,6 +91,18 @@ void UIRender::Tick(AppState& app, const Params& params)
         ui_ticks_accum_ = 0;
         ui_window_start_ms_ = now_ms;
         ui.ui_dirty = true;
+    }
+
+    if(last_gain_stats_ms_ == 0)
+        last_gain_stats_ms_ = now_ms;
+    if((now_ms - last_gain_stats_ms_) >= 1000)
+    {
+        for(uint8_t i = 0; i < kDiagGainProbeCount; ++i)
+            diag.gain_probe_display_db[i]
+                = DiagnosticsReadAndResetPeakDbfs(diag.gain_probe_peak_bits[i]);
+        last_gain_stats_ms_ = now_ms;
+        if(diag.overlay.visible && diag.overlay.page != kDiagOverlayPageSys)
+            ui.ui_dirty = true;
     }
 
     if(UiNav_Active(ui.ui_nav) == UiScreenId::PerformWaveEdit)
@@ -172,6 +184,8 @@ void UIRender::Tick(AppState& app, const Params& params)
                || (ovf != last_queue_overflows_)
                || (pushed != last_events_pushed_)
                || (popped != last_events_popped_))
+                ui.ui_dirty = true;
+            if(diag.overlay.page != kDiagOverlayPageSys)
                 ui.ui_dirty = true;
         }
 

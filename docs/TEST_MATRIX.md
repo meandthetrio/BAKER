@@ -165,6 +165,48 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
 - Fail
   - Lockups, runaway CPU symptoms, or non-recovering stuck voices.
 
+### PolyPorto gate and fallback sanity
+- Setup
+  - Enable EXPRESS and assign `POLYPORTO` to a row on the layer under test.
+  - Prepare one run each with EXPRESS off, mod wheel unseen, mod wheel `<=63`, and mod wheel `>63`.
+- Action
+  - Play notes with and without an eligible source voice.
+  - Repeat with no source, source outside `RANGE`, source older than `RELEASE`, and `LIMIT` already reached.
+- Pass
+  - EXPRESS off, unseen mod wheel, or mod wheel `<=63` all produce normal notes.
+  - No valid source, `RANGE` block, `RELEASE` block, and `LIMIT` block all fall back to normal NoteOn without dropping the note.
+- Fail
+  - Silent note-ons, forced glide when gating should block it, or `LIMIT` preventing the note from starting at all.
+
+### PolyPorto source selection
+- Setup
+  - Configure at least two eligible same-layer source voices with different pitches and start/release order.
+  - Prepare one case where a nearby source is on the other layer.
+- Action
+  - Test `SOURCE=CLOSEST`, then `SOURCE=LATEST`.
+  - Release one candidate and retry inside and outside the `RELEASE` window.
+- Pass
+  - `CLOSEST` picks the nearest eligible same-layer source.
+  - `LATEST` picks the most recently triggered or released eligible same-layer source.
+  - Cross-layer voices are ignored.
+  - A recently released source works only inside the configured `RELEASE` window.
+- Fail
+  - Cross-layer borrowing, stale-source wins in `LATEST`, or released voices staying eligible past the window.
+
+### PolyPorto borrow-source lifecycle
+- Setup
+  - Create a glide from one held note into a new note.
+  - Prepare a full-pool case where the new PolyPorto voice must steal a non-source voice.
+- Action
+  - Release the source note while the new note is gliding or sustaining.
+  - Force the full-pool stolen-allocation case and repeat.
+- Pass
+  - The source voice is used as pitch reference only.
+  - Releasing the source note does not release the new gliding note.
+  - In the full-pool case, the selected source is not stolen and the new note still glides correctly after a different victim is stolen.
+- Fail
+  - Source reuse/destruction, source note-off killing the new note, or full-pool allocation breaking the glide.
+
 ### Sample playback and edit sanity
 - Setup
   - Load a WAV and enter SAMPLE EDIT if the current route exposes it.

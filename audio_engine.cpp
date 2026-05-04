@@ -1,4 +1,5 @@
 #include "audio_engine.h"
+#include "app_state_diagnostics.h"
 #include <cmath>
 #include <cstring>
 
@@ -67,11 +68,20 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
 
 void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n, float pre)
 {
+    uint32_t hit_count = 0u;
     for(size_t i = 0; i < n; ++i)
     {
-        L[i] = SoftClip(L[i] * pre);
-        R[i] = SoftClip(R[i] * pre);
+        const float pre_l = L[i] * pre;
+        const float pre_r = R[i] * pre;
+        if(std::fabs(pre_l) > 1.0f)
+            ++hit_count;
+        if(std::fabs(pre_r) > 1.0f)
+            ++hit_count;
+        L[i] = SoftClip(pre_l);
+        R[i] = SoftClip(pre_r);
     }
+    if(diagnostics_ && hit_count > 0u)
+        diagnostics_->sat_softclip_hits.fetch_add(hit_count, std::memory_order_relaxed);
 }
 
 void AudioEngine::ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix)
@@ -198,11 +208,20 @@ void AudioEngine::ApplyMasterBlock_(float* L, float* R, size_t n,
     const bool  boosted = (level > 1.0001f);
     if(boosted)
     {
+        uint32_t hit_count = 0u;
         for(size_t i = 0; i < n; ++i)
         {
-            L[i] = SoftClip(L[i] * g);
-            R[i] = SoftClip(R[i] * g);
+            const float pre_l = L[i] * g;
+            const float pre_r = R[i] * g;
+            if(std::fabs(pre_l) > 1.0f)
+                ++hit_count;
+            if(std::fabs(pre_r) > 1.0f)
+                ++hit_count;
+            L[i] = SoftClip(pre_l);
+            R[i] = SoftClip(pre_r);
         }
+        if(diagnostics_ && hit_count > 0u)
+            diagnostics_->master_softclip_hits.fetch_add(hit_count, std::memory_order_relaxed);
     }
     else
     {
@@ -399,6 +418,22 @@ void AudioEngine::ProcessBlock(const float* inL,
             default:
                 break;
         }
+    }
+
+    if(diagnostics_)
+    {
+        float peak = 0.0f;
+        for(size_t i = 0; i < size; ++i)
+        {
+            const float abs_l = std::fabs(outL[i]);
+            const float abs_r = std::fabs(outR[i]);
+            if(abs_l > peak)
+                peak = abs_l;
+            if(abs_r > peak)
+                peak = abs_r;
+        }
+        DiagnosticsAccumulatePeakAtomic(
+            diagnostics_->gain_probe_peak_bits[kDiagGainProbeFxPreMaster], peak);
     }
 
     // Final gain stage (and soft-clip safety when BOOST is engaged).

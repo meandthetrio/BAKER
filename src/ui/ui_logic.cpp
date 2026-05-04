@@ -16,6 +16,12 @@ using namespace daisy;
 
 namespace
 {
+void CloseDiagnosticsOverlay(UiOverlayState& overlay)
+{
+    overlay.modal_active = false;
+    overlay.visible      = false;
+}
+
 bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& e, uint32_t now_ms)
 {
     AppUiState& ui = app.ui;
@@ -328,6 +334,41 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
         shift_held = ui.ui_lshift_held;
 
+        if(e.type == UiInputType::BtnDown
+           && ui.ui_lshift_held
+           && e.id == kUiBtnPod1)
+        {
+            if(!diag.overlay.modal_active)
+            {
+                diag.overlay.modal_active = true;
+                diag.overlay.page = kDiagOverlayPageSys;
+                UiOverlay_Update(diag.overlay, now_ms);
+                ui.ui_parent_preview_active = false;
+                ui.ui_parent_preview_from_top = 0;
+                ui.ui_parent_preview_mode = 0;
+                ui.ui_parent_preview_origin_screen = UiScreenId::COUNT;
+                ui.ui_dirty = true;
+            }
+            continue;
+        }
+
+        if(diag.overlay.modal_active)
+        {
+            if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+            {
+                diag.overlay.page = static_cast<uint8_t>((diag.overlay.page + 1u)
+                                                         % kDiagOverlayPageCount);
+                ui.ui_dirty = true;
+                continue;
+            }
+            if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+            {
+                CloseDiagnosticsOverlay(diag.overlay);
+                ui.ui_dirty = true;
+            }
+            continue;
+        }
+
         // POD BUTTON1 opens/closes SHIFT menu (short press, global).
         // Button1 is NEVER "enter/load"; EXT encoder click is enter.
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod1)
@@ -372,12 +413,6 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
         if(shift_held && e.type == UiInputType::BtnDown)
         {
-            if(e.id == kUiBtnPod1)
-            {
-                shared.performance.sequencer.seq_running = !shared.performance.sequencer.seq_running;
-                ui.ui_dirty = true;
-                continue;
-            }
             if(e.id == kUiBtnPodEnc)
             {
                 shared.performance.plocks.plock_apply_enabled = !shared.performance.plocks.plock_apply_enabled;
@@ -506,7 +541,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     }
 
     shift_held = ui.ui_lshift_held;
-    UiOverlay_Update(diag.overlay, now_ms, false, ui.value_edit.active);
+    UiOverlay_Update(diag.overlay, now_ms);
 
     ui.ui_in_ovf = UiInput_Dropped(ui.ui_in);
     ui.ui_in_hi = UiInput_HighWater(ui.ui_in);

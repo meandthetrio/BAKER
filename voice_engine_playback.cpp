@@ -10,6 +10,11 @@ static constexpr float kMaxRatio = 16.0f;
 float ComputeRatio(uint8_t note, uint8_t root_key)
 {
     const float semitones = static_cast<float>((int)note - (int)root_key);
+    return ComputeRatioFromSemitoneDelta(semitones);
+}
+
+float ComputeRatioFromSemitoneDelta(float semitones)
+{
     float ratio = std::pow(2.0f, semitones / 12.0f);
     if(ratio < kMinRatio)
         ratio = kMinRatio;

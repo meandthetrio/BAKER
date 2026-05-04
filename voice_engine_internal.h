@@ -3,6 +3,7 @@
 #include "voice_engine.h"
 
 float ComputeRatio(uint8_t note, uint8_t root_key);
+float ComputeRatioFromSemitoneDelta(float semitones);
 float ComputeFadeStepMs(float sample_rate, float fade_ms);
 
 void InitEnvelope(EnvStage& stage,

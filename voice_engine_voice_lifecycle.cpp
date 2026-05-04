@@ -64,6 +64,7 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.new_loop_voice = false;
     v.old_gate = false;
     v.mod_env.Reset();
+    ClearPolyPortoVoice_(v);
     v.stop_fade_active = false;
     v.stop_fade_samples_remaining = 0;
     v.stop_fade_level = 0.0f;
@@ -142,12 +143,29 @@ void VoiceEngine::StartVoice_(Voice& v,
                  sample_rate_);
 
     v.release_coeff = block_release_coeff_;
+    const float semitones = static_cast<float>((int)note - (int)sample->root_key);
+    v.poly_porto_current_semitones = semitones;
+    v.poly_porto_target_semitones = semitones;
+    v.poly_porto_step_semitones = 0.0f;
+    v.poly_porto_slide_samples_remaining = 0u;
+    v.poly_porto_glide_active = false;
+    v.poly_porto_managed = false;
+    MarkPolyPortoHeldSource_(v);
 }
 
 int VoiceEngine::AllocateVoice_(uint8_t source_layer,
                                 bool& stole,
                                 uint8_t& stolen_index,
                                 uint32_t& stolen_start_id)
+{
+    return AllocateVoiceExcluding_(source_layer, -1, stole, stolen_index, stolen_start_id);
+}
+
+int VoiceEngine::AllocateVoiceExcluding_(uint8_t source_layer,
+                                         int exclude_index,
+                                         bool& stole,
+                                         uint8_t& stolen_index,
+                                         uint32_t& stolen_start_id)
 {
     stole = false;
     stolen_index = 0;
@@ -157,6 +175,8 @@ int VoiceEngine::AllocateVoice_(uint8_t source_layer,
     uint8_t layer_active = 0;
     for(size_t i = 0; i < kMaxVoices; i++)
     {
+        if(static_cast<int>(i) == exclude_index)
+            continue;
         if(voices_[i].state != VoiceState::Idle
            && VoiceLayerForAllocation(voices_[i]) == source_layer)
             ++layer_active;
@@ -166,6 +186,8 @@ int VoiceEngine::AllocateVoice_(uint8_t source_layer,
     {
         for(size_t i = 0; i < kMaxVoices; i++)
         {
+            if(static_cast<int>(i) == exclude_index)
+                continue;
             if(voices_[i].state == VoiceState::Idle)
                 return static_cast<int>(i);
         }
@@ -193,6 +215,8 @@ int VoiceEngine::AllocateVoice_(uint8_t source_layer,
     }
 
     auto victim_ok = [&](size_t i) -> bool {
+        if(static_cast<int>(i) == exclude_index)
+            return false;
         if(voices_[i].state == VoiceState::Idle)
             return false;
         if(VoiceLayerForAllocation(voices_[i]) != source_layer)
@@ -233,6 +257,8 @@ int VoiceEngine::AllocateVoice_(uint8_t source_layer,
     {
         for(size_t i = 0; i < kMaxVoices; i++)
         {
+            if(static_cast<int>(i) == exclude_index)
+                continue;
             if(voices_[i].state != VoiceState::Idle
                && voices_[i].start_id < best_start_id)
             {
@@ -259,8 +285,12 @@ void VoiceEngine::AllNotesOff_()
     {
         Voice& v = voices_[i];
         if(v.state == VoiceState::Idle)
+        {
+            ClearPolyPortoVoice_(v);
             continue;
+        }
         StartStopFade_(v);
+        ClearPolyPortoVoice_(v);
     }
 }
 
@@ -273,9 +303,8 @@ void VoiceEngine::NoteOff_(uint8_t note)
             continue;
         if(v.state == VoiceState::Playing || v.state == VoiceState::Releasing)
         {
-            if(!v.loop_voice)
-                StartStopFade_(v);
             v.state = VoiceState::Releasing;
+            MarkPolyPortoReleasedSource_(v);
             const uint8_t layer = v.source_layer & 1u;
             SetEnvelopeRelease(v.env_stage,
                                v.env_level,
@@ -292,6 +321,12 @@ void VoiceEngine::NoteOff_(uint8_t note)
             if(v.new_loop_voice)
             {
                 const uint8_t layer = v.new_source_layer & 1u;
+                v.poly_porto_source_valid = true;
+                v.poly_porto_source_released = true;
+                v.poly_porto_source_note = v.note;
+                v.poly_porto_source_layer = v.new_source_layer & 1u;
+                v.poly_porto_source_order = ++poly_porto_source_order_counter_;
+                v.poly_porto_release_sample_time = audio_sample_counter_;
                 SetEnvelopeRelease(v.new_env_stage,
                                    v.new_env_level,
                                    v.new_env_r_step,
@@ -316,6 +351,12 @@ void VoiceEngine::NoteOff_(uint8_t note)
                                    sample_rate_);
                 v.new_gate = false;
                 v.new_dir  = 1;
+                v.poly_porto_source_valid = true;
+                v.poly_porto_source_released = true;
+                v.poly_porto_source_note = v.note;
+                v.poly_porto_source_layer = v.new_source_layer & 1u;
+                v.poly_porto_source_order = ++poly_porto_source_order_counter_;
+                v.poly_porto_release_sample_time = audio_sample_counter_;
             }
         }
     }

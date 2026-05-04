@@ -37,13 +37,28 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                 if(sample == nullptr || sample->pcm == nullptr || sample->length == 0)
                     continue;
 
+                const uint32_t start_id = ++note_start_counter_;
+                uint8_t poly_idx = 0u;
+                if(TryStartPolyPortoVoice_(sample,
+                                           note,
+                                           vel,
+                                           source_layer,
+                                           vel_layer,
+                                           start_id,
+                                           poly_idx))
+                {
+                    if(last_voice_packed_)
+                        last_voice_packed_->store(PackVoiceDebug_(poly_idx, note, vel),
+                                                  std::memory_order_relaxed);
+                    continue;
+                }
+
                 bool     stole = false;
                 uint8_t  stolen_index = 0;
                 uint32_t stolen_start_id = 0;
                 const int idx = AllocateVoice_(source_layer, stole, stolen_index, stolen_start_id);
                 if(idx >= 0)
                 {
-                    const uint32_t start_id = ++note_start_counter_;
                     Voice& v = voices_[(size_t)idx];
                     if(stole)
                     {
@@ -115,6 +130,12 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                         v.note     = note;
                         v.velocity = vel;
                         v.start_id = start_id;
+                        v.poly_porto_source_valid = false;
+                        v.poly_porto_source_note = note;
+                        v.poly_porto_source_layer = source_layer;
+                        v.poly_porto_source_order = 0u;
+                        v.poly_porto_managed = false;
+                        v.poly_porto_glide_active = false;
                     }
                     else
                     {

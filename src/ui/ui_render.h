@@ -26,6 +26,7 @@ class UIRender
     uint32_t    ui_ticks_accum_ = 0;
     uint32_t    ui_window_start_ms_ = 0;
     uint32_t    last_stats_ms_ = 0;
+    uint32_t    last_gain_stats_ms_ = 0;
     // Only the diagnostic fields actually consumed by the HUD screen or the
     // diag overlay are cached here. The other 16 `last_*_` members removed
     // in P7-Cleanup were never read back anywhere they could drive a render,

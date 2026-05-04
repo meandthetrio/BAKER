@@ -6,6 +6,8 @@
 #include "tilt_eq.h"
 #include "Effects/Reverb/DattorroReverb.h"
 
+struct AppDiagnosticsState;
+
 // Audio Engine Layer:
 // - Reads Params::current only.
 // - Hard bypass: DSP does not run when OFF.
@@ -15,6 +17,7 @@ class AudioEngine
 {
   public:
     void Init(float sample_rate, size_t block_size);
+    void BindDiagnostics(AppDiagnosticsState* diagnostics) { diagnostics_ = diagnostics; }
 
     void ProcessBlock(const float* inL,
                       const float* inR,
@@ -27,6 +30,7 @@ class AudioEngine
   private:
     float  sample_rate_ = 48000.0f;
     size_t block_size_  = 48;
+    AppDiagnosticsState* diagnostics_ = nullptr;
 
     // ---- SAT ----
     static inline float SoftClip(float x);

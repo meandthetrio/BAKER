@@ -64,6 +64,8 @@ static void AudioCallback_ApplyExpressOverlay(const AppSharedState& shared,
                                                      norm);
             switch(target)
             {
+                case kExpressNone:
+                    break;
                 case kExpressCutoff:
                     params.engine_filter_cutoff_hz[layer] = mapped;
                     break;
@@ -86,6 +88,7 @@ static void AudioCallback_ApplyExpressOverlay(const AppSharedState& shared,
                     params.reverb_mix = Clamp01(mapped * 0.01f);
                     params.reverb_on = (params.reverb_mix > 0.001f);
                     break;
+                case kExpressPolyPorto:
                 default:
                     break;
             }
@@ -230,6 +233,32 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     AudioCallback_ApplyExpressOverlay(g_app.shared, voice_params);
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {
+        bool poly_porto_owned = false;
+        for(uint8_t row = 0; row < kExpressRowCount; ++row)
+        {
+            if(ExpressTargetIsPolyPorto(voice_params.express_target[layer][row]))
+            {
+                poly_porto_owned = true;
+                break;
+            }
+        }
+        const bool midi_mod_seen
+            = g_app.shared.performance.express.midi_mod_seen.load(std::memory_order_acquire) != 0u;
+        uint8_t midi_mod_value
+            = g_app.shared.performance.express.midi_mod_value.load(std::memory_order_acquire);
+        if(midi_mod_value > 127u)
+            midi_mod_value = 127u;
+        const bool poly_porto_enabled = (g_app.shared.performance.express.enabled.load(std::memory_order_acquire) != 0u)
+                                     && midi_mod_seen
+                                     && midi_mod_value > 63u
+                                     && poly_porto_owned;
+        g_voice.SetPolyPortoEnabled(layer, poly_porto_enabled);
+        g_voice.SetPolyPortoVoiceLimit(layer, voice_params.express_poly_porto_voice_limit[layer]);
+        g_voice.SetPolyPortoSlideMs(layer, voice_params.express_poly_porto_slide_ms[layer]);
+        g_voice.SetPolyPortoSourceRangeSemitones(
+            layer, voice_params.express_poly_porto_source_range_semitones[layer]);
+        g_voice.SetPolyPortoSourceMode(layer, voice_params.express_poly_porto_source_mode[layer]);
+        g_voice.SetPolyPortoReleaseMs(layer, voice_params.express_poly_porto_release_ms[layer]);
         g_voice.SetEngineTuneSemitones(layer, voice_params.engine_tune_semitones[layer]);
         g_voice.SetEngineGainDb(layer, voice_params.engine_gain_db[layer]);
         g_voice.SetEngineDriveMode(layer, voice_params.engine_drive_mode[layer]);
@@ -274,6 +303,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy);
 
     const bool monitor_on = (g_app.shared.recording.rec_monitor_enable.load(std::memory_order_acquire) != 0);
+    uint32_t monitor_clamp_hits = 0u;
     if(monitor_on)
     {
         const uint8_t src = g_app.shared.recording.rec_source_sel.load(std::memory_order_acquire) & 1u;
@@ -283,17 +313,44 @@ void AudioCallback(AudioHandle::InputBuffer  in,
             float l = out[0][i] + mon;
             float r = out[1][i] + mon;
             if(l > 1.0f)
+            {
                 l = 1.0f;
+                ++monitor_clamp_hits;
+            }
             if(l < -1.0f)
+            {
                 l = -1.0f;
+                ++monitor_clamp_hits;
+            }
             if(r > 1.0f)
+            {
                 r = 1.0f;
+                ++monitor_clamp_hits;
+            }
             if(r < -1.0f)
+            {
                 r = -1.0f;
+                ++monitor_clamp_hits;
+            }
             out[0][i] = l;
             out[1][i] = r;
         }
     }
+    if(monitor_clamp_hits > 0u)
+        g_app.diag.monitor_clamp_hits.fetch_add(monitor_clamp_hits, std::memory_order_relaxed);
+
+    float out_peak = 0.0f;
+    for(size_t i = 0; i < size; ++i)
+    {
+        const float abs_l = std::fabs(out[0][i]);
+        const float abs_r = std::fabs(out[1][i]);
+        if(abs_l > out_peak)
+            out_peak = abs_l;
+        if(abs_r > out_peak)
+            out_peak = abs_r;
+    }
+    DiagnosticsAccumulatePeakAtomic(
+        g_app.diag.gain_probe_peak_bits[kDiagGainProbeOutFinal], out_peak);
 
     const uint32_t used = DWT->CYCCNT - start_cycles;
     g_app.diag.audio_cycles_last.store(used, std::memory_order_relaxed);

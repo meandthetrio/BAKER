@@ -69,6 +69,7 @@ CPP_SOURCES += src/storage/sd_browser_state.cpp
 CPP_SOURCES += src/storage/sd_sample_pool.cpp
 CPP_SOURCES += src/ui/oled_pager.cpp
 CPP_SOURCES += voice_engine.cpp
+CPP_SOURCES += voice_engine_poly_porto.cpp
 CPP_SOURCES += voice_engine_playback.cpp
 CPP_SOURCES += voice_engine_emphasis.cpp
 CPP_SOURCES += voice_engine_voice_lifecycle.cpp

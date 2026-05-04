@@ -95,6 +95,17 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
                             t.express_min_value[i][row],
                             t.express_max_value[i][row]);
         }
+        t.express_poly_porto_voice_limit[i] = engine.express.poly_porto_voice_limit[i];
+        t.express_poly_porto_slide_ms[i] = engine.express.poly_porto_slide_ms[i];
+        t.express_poly_porto_source_range_semitones[i]
+            = engine.express.poly_porto_source_range_semitones[i];
+        t.express_poly_porto_source_mode[i] = engine.express.poly_porto_source_mode[i];
+        t.express_poly_porto_release_ms[i] = engine.express.poly_porto_release_ms[i];
+        ExpressClampPolyPortoConfig(t.express_poly_porto_voice_limit[i],
+                                    t.express_poly_porto_slide_ms[i],
+                                    t.express_poly_porto_source_range_semitones[i],
+                                    t.express_poly_porto_source_mode[i],
+                                    t.express_poly_porto_release_ms[i]);
     }
     ctx.params->PublishTargets();
 }

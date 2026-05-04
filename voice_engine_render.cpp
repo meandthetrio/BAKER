@@ -94,11 +94,7 @@ void VoiceEngine::PrepareRenderScalars_(float (&engine_tune_scale)[kEngineLayerC
             engine_tune_dirty_[layer] = false;
         }
         engine_tune_scale[layer] = engine_tune_scale_[layer];
-
-        float gain = engine_layer_scale_[layer];
-        if(gain < 0.0f)
-            gain = 0.0f;
-        engine_voice_gain[layer] = gain;
+        engine_voice_gain[layer] = 1.0f;
     }
 
     lfo_depth = lfo_depth_;
@@ -362,4 +358,5 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                       active,
                       playhead_frame,
                       playhead_active);
+    audio_sample_counter_ += static_cast<uint64_t>(size);
 }

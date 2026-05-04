@@ -1,5 +1,6 @@
 #include "ui_screens.h"
 
+#include "app_state_diagnostics.h"
 #include "app_state_ui.h"
 #include "app_state_engine.h"
 #include "ui_input.h"
@@ -76,6 +77,14 @@ void UiRouter_Render(UiScreenCtx& ctx)
 {
     if(!ctx.ui)
         return;
+
+    if(ctx.diag && ctx.diag->overlay.modal_active)
+    {
+        const UiScreen& active = GetScreen(UiNav_Active(ctx.ui->ui_nav));
+        if(active.Render)
+            active.Render(ctx);
+        return;
+    }
 
     // Hold LShift to temporarily preview parent without changing nav state.
     if(ctx.lshift && ctx.ui->ui_parent_preview_active)

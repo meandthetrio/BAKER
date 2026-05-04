@@ -1,9 +1,70 @@
 #pragma once
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 
 #include "ui_overlay.h"
+
+enum DiagGainProbe : uint8_t
+{
+    kDiagGainProbeAPre = 0,
+    kDiagGainProbeAPost,
+    kDiagGainProbeBPre,
+    kDiagGainProbeBPost,
+    kDiagGainProbeSumPreFx,
+    kDiagGainProbeFxPreMaster,
+    kDiagGainProbeOutFinal,
+    kDiagGainProbeCount
+};
+
+static constexpr float kDiagGainFloorDb = -99.9f;
+
+inline uint32_t DiagnosticsFloatToBits(float value)
+{
+    uint32_t bits = 0u;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+inline float DiagnosticsBitsToFloat(uint32_t bits)
+{
+    float value = 0.0f;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+inline void DiagnosticsAccumulatePeakAtomic(std::atomic<uint32_t>& peak_bits, float magnitude)
+{
+    if(!(magnitude > 0.0f))
+        return;
+
+    const uint32_t candidate = DiagnosticsFloatToBits(magnitude);
+    uint32_t current = peak_bits.load(std::memory_order_relaxed);
+    while(current < candidate
+          && !peak_bits.compare_exchange_weak(
+              current, candidate, std::memory_order_relaxed, std::memory_order_relaxed))
+    {
+    }
+}
+
+inline float DiagnosticsPeakToDbfs(float magnitude)
+{
+    if(!(magnitude > 0.0f))
+        return kDiagGainFloorDb;
+
+    float db = 20.0f * std::log10(magnitude);
+    if(db < kDiagGainFloorDb)
+        db = kDiagGainFloorDb;
+    return db;
+}
+
+inline float DiagnosticsReadAndResetPeakDbfs(std::atomic<uint32_t>& peak_bits)
+{
+    return DiagnosticsPeakToDbfs(
+        DiagnosticsBitsToFloat(peak_bits.exchange(0u, std::memory_order_relaxed)));
+}
 
 // Non-functional overlay instrumentation and runtime counters/debug values.
 struct AppDiagnosticsState
@@ -44,4 +105,21 @@ struct AppDiagnosticsState
     std::atomic<uint32_t> lfo_depth_dbg{0};
     std::atomic<uint32_t> playhead_frame[2]{{0}, {0}};
     std::atomic<uint32_t> playhead_active[2]{{0}, {0}};
+    std::atomic<uint32_t> gain_probe_peak_bits[kDiagGainProbeCount]{{0},
+                                                                    {0},
+                                                                    {0},
+                                                                    {0},
+                                                                    {0},
+                                                                    {0},
+                                                                    {0}};
+    float gain_probe_display_db[kDiagGainProbeCount]{kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
+                                                     kDiagGainFloorDb};
+    std::atomic<uint32_t> sat_softclip_hits{0};
+    std::atomic<uint32_t> master_softclip_hits{0};
+    std::atomic<uint32_t> monitor_clamp_hits{0};
 };

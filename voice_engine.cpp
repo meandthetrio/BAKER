@@ -312,7 +312,15 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
         loop_env_release_ms_[layer] = 50.0f;
         loop_crossfade_amount_[layer] = 0.0625f;
         loop_crossfade_shape_[layer] = 0.0f;
+        poly_porto_enabled_[layer] = false;
+        poly_porto_voice_limit_[layer] = kExpressPolyPortoVoicesDefault;
+        poly_porto_slide_ms_[layer] = static_cast<float>(kExpressPolyPortoSlideDefaultMs);
+        poly_porto_source_range_semitones_[layer] = kExpressPolyPortoRangeDefaultSemitones;
+        poly_porto_source_mode_[layer] = kExpressPolyPortoSourceClosest;
+        poly_porto_release_ms_[layer] = static_cast<float>(kExpressPolyPortoReleaseDefaultMs);
     }
+    poly_porto_source_order_counter_ = 0;
+    audio_sample_counter_ = 0;
 
     RecomputeLayerEmphasisCoeffs_(0u);
     RecomputeLayerEmphasisCoeffs_(1u);

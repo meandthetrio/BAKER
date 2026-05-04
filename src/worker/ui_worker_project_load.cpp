@@ -109,6 +109,17 @@ static void PublishProjectPerformParams(Params& params,
                             t.express_min_value[layer][row],
                             t.express_max_value[layer][row]);
         }
+        t.express_poly_porto_voice_limit[layer] = engine.express.poly_porto_voice_limit[layer];
+        t.express_poly_porto_slide_ms[layer] = engine.express.poly_porto_slide_ms[layer];
+        t.express_poly_porto_source_range_semitones[layer]
+            = engine.express.poly_porto_source_range_semitones[layer];
+        t.express_poly_porto_source_mode[layer] = engine.express.poly_porto_source_mode[layer];
+        t.express_poly_porto_release_ms[layer] = engine.express.poly_porto_release_ms[layer];
+        ExpressClampPolyPortoConfig(t.express_poly_porto_voice_limit[layer],
+                                    t.express_poly_porto_slide_ms[layer],
+                                    t.express_poly_porto_source_range_semitones[layer],
+                                    t.express_poly_porto_source_mode[layer],
+                                    t.express_poly_porto_release_ms[layer]);
         t.engine_loop_mode[layer] = (engine.layer.engine_play_mode[layer] != 0);
         t.engine_loop_attack_ms[layer] = static_cast<float>(engine.adsr.perform_adsr_loop_attack[layer]);
         t.engine_loop_decay_ms[layer] = static_cast<float>(engine.adsr.perform_adsr_loop_decay[layer]);
@@ -159,6 +170,23 @@ static void ApplyProjectExpressRow(AppEngineState& engine,
     engine.express.max_value[layer][row] = max_value;
 }
 
+static void ApplyProjectExpressPolyPorto(AppEngineState& engine,
+                                         const ProjectManifestV11& manifest,
+                                         uint8_t layer)
+{
+    engine.express.poly_porto_voice_limit[layer] = manifest.express.poly_porto_voice_limit[layer];
+    engine.express.poly_porto_slide_ms[layer] = manifest.express.poly_porto_slide_ms[layer];
+    engine.express.poly_porto_source_range_semitones[layer]
+        = manifest.express.poly_porto_source_range_semitones[layer];
+    engine.express.poly_porto_source_mode[layer] = manifest.express.poly_porto_source_mode[layer];
+    engine.express.poly_porto_release_ms[layer] = manifest.express.poly_porto_release_ms[layer];
+    ExpressClampPolyPortoConfig(engine.express.poly_porto_voice_limit[layer],
+                                engine.express.poly_porto_slide_ms[layer],
+                                engine.express.poly_porto_source_range_semitones[layer],
+                                engine.express.poly_porto_source_mode[layer],
+                                engine.express.poly_porto_release_ms[layer]);
+}
+
 static void ApplyProjectManifestGlobalState(AppSharedState& shared, const ProjectManifestV11& manifest)
 {
     shared.performance.sequencer.seq_running = (manifest.seq_running != 0);
@@ -175,6 +203,8 @@ static void ApplyProjectManifestGlobalState(AppSharedState& shared, const Projec
     shared.performance.modulation.mod_route_selected = manifest.mod_route_selected;
     ModMatrix_Publish(shared.performance.modulation.mod_matrix,
                       shared.performance.modulation.mod_routes_ui);
+    shared.performance.express.enabled.store(manifest.express_enabled ? 1u : 0u,
+                                             std::memory_order_release);
 }
 
 static void ApplyProjectManifestLayerState(AppEngineState& engine, const ProjectManifestV11& manifest)
@@ -222,6 +252,7 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
         engine.layer.engine_drive_mode[slot] = ClampProjectDriveMode(manifest.engine_drive_mode[slot]);
         for(uint8_t row = 0; row < ProjectExpressState::kRowCount; ++row)
             ApplyProjectExpressRow(engine, manifest, slot, row);
+        ApplyProjectExpressPolyPorto(engine, manifest, slot);
     }
     ExpressNormalizeAssignments(engine.express.target,
                                 engine.express.min_value,
@@ -235,7 +266,6 @@ void ApplyProjectLoadState(AppEngineState& engine,
 {
     ApplyProjectManifestGlobalState(shared, manifest);
     ApplyProjectManifestLayerState(engine, manifest);
-    shared.performance.express.enabled.store(0u, std::memory_order_release);
     PublishProjectPerformParams(params,
                                 engine,
                                 manifest.engine_layer_master_level,
@@ -323,6 +353,21 @@ void PrepareProjectLoadManifest(ProjectManifestV11& manifest)
     ClampProjectEqState(manifest.eq);
     ClampProjectDelayState(manifest.delay);
     ClampProjectReverbState(manifest.reverb);
+    for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
+    {
+        for(uint8_t row = 0; row < ProjectExpressState::kRowCount; ++row)
+        {
+            ExpressClampRow(manifest.express.target[layer][row],
+                            manifest.express.min_value[layer][row],
+                            manifest.express.max_value[layer][row]);
+        }
+        ExpressClampPolyPortoConfig(manifest.express.poly_porto_voice_limit[layer],
+                                    manifest.express.poly_porto_slide_ms[layer],
+                                    manifest.express.poly_porto_source_range_semitones[layer],
+                                    manifest.express.poly_porto_source_mode[layer],
+                                    manifest.express.poly_porto_release_ms[layer]);
+    }
+    manifest.express_enabled = manifest.express_enabled ? 1u : 0u;
 }
 
 bool BeginProjectRestoreLoad(AppUiState& ui,

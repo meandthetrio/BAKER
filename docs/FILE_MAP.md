@@ -6,6 +6,7 @@
   - Which file owns a behavior?
   - Which thread is allowed to touch it?
 - Read `START_HERE.md` first if you are new to the repo, then use `README_GPT.md` and this file for deeper navigation.
+- PolyPorto runtime behavior and intended ownership are documented in `POLY_PORTO.md`.
 
 ## Architecture
 - `[AUDIO]` deterministic audio callback DSP only. No malloc, file I/O, logging, or UI work.
@@ -40,6 +41,7 @@
 - `audio_engine.cpp` / `audio_engine.h` `[AUDIO]` FX and final mix layer.
 - `voice_engine.h` / `voice_engine_internal.h` `[AUDIO]` shared engine state, voice state, internal contracts.
 - `voice_engine.cpp` `[AUDIO]` engine init plus sample/edit and per-layer setter entry points.
+- `voice_engine_poly_porto.cpp` `[AUDIO]` narrow PolyPorto owner: setters, source eligibility/selection, release-window helpers, active glide counting, and PolyPorto note start helper.
 - `voice_engine_playback.cpp` `[AUDIO]` playback math, loop stepping, envelope helpers.
 - `voice_engine_events.cpp` `[AUDIO]` event consumption and note-start dispatch.
 - `voice_engine_voice_lifecycle.cpp` `[AUDIO]` allocation, stealing, start/stop, note-off behavior.
@@ -131,6 +133,7 @@
 - Voice event dispatch: `voice_engine_events.cpp`
 - Voice rendering: `voice_engine_render.cpp`
 - Playback ratio / loop stepping / ADSR DSP: `voice_engine_playback.cpp`
+- PolyPorto runtime behavior / ownership: `docs/POLY_PORTO.md`, `voice_engine_poly_porto.cpp`
 - Emphasis bus/filter DSP: `voice_engine_emphasis.cpp`
 - Parameter smoothing/publish: `params.cpp`
 - Control scanning: `controls.cpp`

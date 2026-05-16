@@ -38,7 +38,8 @@ void VoiceEngine::FinishStopFade_(Voice& v)
 {
     v.state = VoiceState::Idle;
     v.sample = nullptr;
-    v.pos = 0.0f;
+    v.pos_frame = 0u;
+    v.pos_frac = 0.0f;
     v.ratio = 1.0f;
     v.gain = 0.0f;
     v.lpf_z = 0.0f;
@@ -53,7 +54,8 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.gate = false;
     v.loop_voice = false;
     v.dir  = 1;
-    v.new_pos = 0.0f;
+    v.new_pos_frame = 0u;
+    v.new_pos_frac = 0.0f;
     v.new_ratio = 1.0f;
     v.new_gain = 0.0f;
     v.old_source_layer = 0;
@@ -104,14 +106,15 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.start_id = start_id;
 
     v.sample = sample;
-    float start_pos = 0.0f;
-    if(edit_sample_ == sample)
+    uint32_t start_frame = 0u;
+    SampleEdit e{};
+    if(LookupSampleEdit_(sample, e))
     {
-        SampleEdit e = current_edit_;
         SampleEdit_Clamp(e, sample->length);
-        start_pos = static_cast<float>(e.start_frame);
+        start_frame = e.start_frame;
     }
-    v.pos    = start_pos;
+    v.pos_frame = start_frame;
+    v.pos_frac  = 0.0f;
     v.ratio  = ComputeRatio(note, sample->root_key);
     const float vel01 = (velocity > 127) ? 1.0f : ((float)velocity / 127.0f);
     v.gain = vel01 * kVoiceAmpScale;
@@ -337,7 +340,8 @@ void VoiceEngine::NoteOff_(uint8_t note)
             else
             {
                 StartStopFade_(v);
-                v.pos   = v.new_pos;
+                v.pos_frame = v.new_pos_frame;
+                v.pos_frac  = v.new_pos_frac;
                 v.gain  = v.new_gain;
                 v.ratio = v.new_ratio;
                 v.source_layer = v.new_source_layer;

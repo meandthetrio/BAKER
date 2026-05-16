@@ -115,10 +115,9 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
             = SmoothToward(current.engine_filter_resonance[layer],
                            t.engine_filter_resonance[layer],
                            coeff);
-        current.engine_tune_semitones[layer]
-            = SmoothToward(current.engine_tune_semitones[layer],
-                           t.engine_tune_semitones[layer],
-                           coeff);
+        // ENGINE tune must follow the displayed semitone/cents target exactly
+        // so retriggered notes match the current UI value without slew lag.
+        current.engine_tune_semitones[layer] = t.engine_tune_semitones[layer];
         current.engine_gain_db[layer]
             = SmoothToward(current.engine_gain_db[layer],
                            t.engine_gain_db[layer],

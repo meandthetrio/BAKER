@@ -21,6 +21,7 @@ struct AppUiState
     bool ui_dirty = true;
     UiNav ui_nav{};
     UiScreenId ui_active_screen = UiScreenId::Hud;
+    bool ui_blank_screen_active = false;
     bool ui_lshift_held = false;
     bool ui_rshift_held = false;
     bool ui_parent_preview_active = false;

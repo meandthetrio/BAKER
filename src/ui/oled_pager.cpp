@@ -17,25 +17,54 @@ void OledPager::Init(daisy::DaisyPod& hw)
     SendCommand(0x20); // Set Memory Addressing Mode
     SendCommand(0x02); // Page Addressing Mode
 
+    std::memset(front_, 0x00, kBufferSize);
     Fill(false);
     initialized_  = true;
+    display_on_ = true;
+    transfer_suppressed_ = false;
     transferring_ = false;
-    page_idx_     = 0;
+    page_idx_ = 0;
     last_page_ms_ = 0;
 }
 
 void OledPager::BeginFrameTransfer()
 {
-    if(!initialized_)
+    if(!initialized_ || transfer_suppressed_)
         return;
     std::memcpy(front_, back_, kBufferSize);
-    page_idx_     = 0;
+    page_idx_ = 0;
     transferring_ = true;
+}
+
+void OledPager::SetDisplayOn(bool on)
+{
+    if(!initialized_ || display_on_ == on)
+        return;
+
+    SendCommand(on ? 0xAF : 0xAE);
+    display_on_ = on;
+    last_page_ms_ = 0;
+    if(!on)
+    {
+        transferring_ = false;
+        page_idx_ = 0;
+    }
+}
+
+void OledPager::SetTransferSuppressed(bool suppressed)
+{
+    transfer_suppressed_ = suppressed;
+    last_page_ms_ = 0;
+    if(suppressed)
+    {
+        transferring_ = false;
+        page_idx_ = 0;
+    }
 }
 
 void OledPager::TickTransferOnePage(uint32_t now_ms, bool midi_busy)
 {
-    if(!initialized_ || !transferring_ || midi_busy)
+    if(!initialized_ || !display_on_ || transfer_suppressed_ || !transferring_ || midi_busy)
         return;
 
     if(last_page_ms_ != 0 && (now_ms - last_page_ms_) < 2)

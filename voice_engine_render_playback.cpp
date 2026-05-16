@@ -1,56 +1,118 @@
 #include "voice_engine_render_internal.h"
 
-void VoicePlayback_NormalizeStealFadeOutPositions(float length_f,
-                                                  float ls,
+#include <cmath>
+
+namespace
+{
+void WrapIntoLoopRegion(uint32_t end_frame,
+                        uint32_t loop_start,
+                        uint32_t& pos_frame,
+                        float& pos_frac)
+{
+    if(end_frame <= loop_start)
+        return;
+    if(pos_frame < end_frame)
+        return;
+
+    const uint32_t loop_span = end_frame - loop_start;
+    float overshoot = static_cast<float>(pos_frame - end_frame) + pos_frac;
+    if(overshoot < 0.0f)
+        overshoot = 0.0f;
+
+    if(loop_span == 0u)
+    {
+        pos_frame = loop_start;
+        pos_frac  = 0.0f;
+        return;
+    }
+
+    const float span_f = static_cast<float>(loop_span);
+    overshoot = std::fmod(overshoot, span_f);
+    if(overshoot < 0.0f)
+        overshoot += span_f;
+
+    pos_frame = loop_start + static_cast<uint32_t>(overshoot);
+    pos_frac  = overshoot - static_cast<float>(static_cast<uint32_t>(overshoot));
+}
+
+void ClampToStart(uint32_t start, uint32_t& pos_frame, float& pos_frac)
+{
+    if(pos_frame < start)
+    {
+        pos_frame = start;
+        pos_frac  = 0.0f;
+    }
+}
+} // namespace
+
+void VoicePlayback_NormalizeStealFadeOutPositions(uint32_t end_frame,
+                                                  uint32_t ls,
                                                   uint32_t start,
                                                   bool loop_enabled,
-                                                  float& pos,
+                                                  uint32_t& pos_frame,
+                                                  float& pos_frac,
                                                   bool& gate)
 {
-    if(loop_enabled && pos >= length_f)
-        pos = ls + (pos - length_f);
-    if(pos < static_cast<float>(start))
-        pos = static_cast<float>(start);
-    if(!loop_enabled && pos >= length_f && length_f > 0.0f)
+    if(loop_enabled)
+        WrapIntoLoopRegion(end_frame, ls, pos_frame, pos_frac);
+    ClampToStart(start, pos_frame, pos_frac);
+    if(!loop_enabled && end_frame > 0u && pos_frame >= end_frame)
     {
         gate = false;
-        pos  = length_f - 1.0f;
+        pos_frame = end_frame - 1u;
+        pos_frac  = 0.0f;
     }
 }
 
-void VoicePlayback_NormalizeVoiceBlockStart(float length_f,
-                                            float ls,
+void VoicePlayback_NormalizeVoiceBlockStart(uint32_t end_frame,
+                                            uint32_t ls,
                                             uint32_t start,
                                             bool loop_enabled,
                                             bool gate,
-                                            float& pos)
+                                            uint32_t& pos_frame,
+                                            float& pos_frac)
 {
-    if(loop_enabled && gate && pos >= length_f)
-        pos = ls + (pos - length_f);
-    if(pos < static_cast<float>(start))
-        pos = static_cast<float>(start);
+    if(loop_enabled && gate)
+        WrapIntoLoopRegion(end_frame, ls, pos_frame, pos_frac);
+    ClampToStart(start, pos_frame, pos_frac);
 }
 
-void VoicePlayback_ClampPosPastEndWhenGateOff(float length_f, bool gate, float& pos)
+void VoicePlayback_ClampPosPastEndWhenGateOff(uint32_t end_frame,
+                                              bool gate,
+                                              uint32_t& pos_frame,
+                                              float& pos_frac)
 {
-    if(!gate && pos >= length_f && length_f > 0.0f)
-        pos = length_f - 1.0f;
+    if(!gate && end_frame > 0u && pos_frame >= end_frame)
+    {
+        pos_frame = end_frame - 1u;
+        pos_frac  = 0.0f;
+    }
 }
 
-void VoicePlayback_ClampPosToLastFrameIfValid(float length_f, float& pos)
+void VoicePlayback_ClampPosToLastFrameIfValid(uint32_t end_frame,
+                                              uint32_t& pos_frame,
+                                              float& pos_frac)
 {
-    if(length_f > 0.0f)
-        pos = length_f - 1.0f;
+    if(end_frame > 0u)
+    {
+        pos_frame = end_frame - 1u;
+        pos_frac  = 0.0f;
+    }
 }
 
-float VoicePlayback_ClampPlayheadPos(float p, uint32_t sample_length)
+uint32_t VoicePlayback_ClampPlayheadFrame(uint32_t frame, uint32_t sample_length)
 {
-    if(p < 0.0f)
-        p = 0.0f;
-    const float pmax = static_cast<float>(sample_length - 1);
-    if(p > pmax)
-        p = pmax;
-    return p;
+    if(sample_length == 0u)
+        return 0u;
+    const uint32_t pmax = sample_length - 1u;
+    if(frame > pmax)
+        frame = pmax;
+    return frame;
+}
+
+float VoicePlayback_PosAsFloat(uint32_t frame, float frac)
+{
+    return static_cast<float>(frame) + frac;
 }
 
 void VoicePlayback_StepFadeIn(float& fade, float fade_step)

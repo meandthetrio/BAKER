@@ -55,12 +55,6 @@ void VoiceEngine::SnapshotPLockState_()
     }
 }
 
-void VoiceEngine::SnapshotRenderEditState_(SampleEdit& edit, const Sample*& edit_sample) const
-{
-    edit = current_edit_;
-    edit_sample = edit_sample_;
-}
-
 const ModRoute* VoiceEngine::SnapshotModRoutes_(ModRoute (&routes_local)[kMaxModRoutes]) const
 {
     if(!mod_matrix_)
@@ -164,9 +158,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     SnapshotMacroState_();
     SnapshotPLockState_();
 
-    SampleEdit edit{};
-    const Sample* edit_sample = nullptr;
-    SnapshotRenderEditState_(edit, edit_sample);
     float engine_tune_scale[kEngineLayerCount] = {};
     float engine_voice_gain[kEngineLayerCount] = {};
     float lfo_depth = 0.0f;
@@ -264,8 +255,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         outR,
         size,
         loop_mode,
-        edit,
-        edit_sample,
         engine_tune_scale,
         engine_voice_gain,
         playhead_frame,

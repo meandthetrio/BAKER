@@ -6,25 +6,34 @@
 
 // Block-start / stepping helpers (voice_engine_render_playback.cpp). Used by
 // voice_engine_render_voice.cpp only; keep render TU thin on playback math.
-void VoicePlayback_NormalizeStealFadeOutPositions(float length_f,
-                                                  float ls,
+void VoicePlayback_NormalizeStealFadeOutPositions(uint32_t end_frame,
+                                                  uint32_t ls,
                                                   uint32_t start,
                                                   bool loop_enabled,
-                                                  float& pos,
+                                                  uint32_t& pos_frame,
+                                                  float& pos_frac,
                                                   bool& gate);
 
-void VoicePlayback_NormalizeVoiceBlockStart(float length_f,
-                                            float ls,
+void VoicePlayback_NormalizeVoiceBlockStart(uint32_t end_frame,
+                                            uint32_t ls,
                                             uint32_t start,
                                             bool loop_enabled,
                                             bool gate,
-                                            float& pos);
+                                            uint32_t& pos_frame,
+                                            float& pos_frac);
 
-void VoicePlayback_ClampPosPastEndWhenGateOff(float length_f, bool gate, float& pos);
+void VoicePlayback_ClampPosPastEndWhenGateOff(uint32_t end_frame,
+                                              bool gate,
+                                              uint32_t& pos_frame,
+                                              float& pos_frac);
 
-void VoicePlayback_ClampPosToLastFrameIfValid(float length_f, float& pos);
+void VoicePlayback_ClampPosToLastFrameIfValid(uint32_t end_frame,
+                                              uint32_t& pos_frame,
+                                              float& pos_frac);
 
-float VoicePlayback_ClampPlayheadPos(float p, uint32_t sample_length);
+uint32_t VoicePlayback_ClampPlayheadFrame(uint32_t frame, uint32_t sample_length);
+
+float VoicePlayback_PosAsFloat(uint32_t frame, float frac);
 
 void VoicePlayback_StepFadeIn(float& fade, float fade_step);
 
@@ -33,16 +42,17 @@ float VoicePlayback_ClampMixToOne(float x);
 float VoicePlayback_FadeInMultiplier(float fade);
 
 // Loop stepping / sustain-loop seam / boundary sampling (voice_engine_render_loop.cpp).
-bool AdvancePos(float& pos,
+bool AdvancePos(uint32_t& pos_frame,
+                float& pos_frac,
                 int8_t& dir,
                 float ratio,
-                float len,
-                float ls,
-                float le,
+                uint32_t len,
+                uint32_t ls,
+                uint32_t le,
                 bool loop_enabled,
                 bool gate,
                 LoopMode mode,
-                float seam_offset = 0.0f);
+                uint32_t seam_offset = 0u);
 
 bool VoiceRenderLoop_FullSampleWrapGate(const Sample* s,
                                         bool loop_enabled,
@@ -52,7 +62,8 @@ float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
                                               bool loop_voice,
                                               uint32_t seam_frames,
                                               bool used_seam_xfade,
-                                              float pos,
+                                              uint32_t pos_frame,
+                                              float pos_frac,
                                               uint32_t start,
                                               uint32_t end,
                                               float sample_rate);
@@ -65,7 +76,8 @@ float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
                                               bool loop_voice,
                                               uint32_t seam_frames,
                                               bool used_seam_xfade,
-                                              float pos,
+                                              uint32_t pos_frame,
+                                              float pos_frac,
                                               float fade_start_threshold,
                                               float fade_end_threshold,
                                               uint32_t start,
@@ -74,9 +86,10 @@ float VoiceRenderLoop_ApplyBoundaryFadeNoSeam(float s,
 
 // Sample fetch / interpolation (voice_engine_render_fetch.cpp).
 void  VoiceRenderFetch_InitSqrtLut();
-float SampleAtLinear(const Sample* s, float pos, bool wrap_end);
+float SampleAtLinear(const Sample* s, uint32_t pos_frame, float pos_frac, bool wrap_end);
 float SampleAtLinearRegion(const Sample* s,
-                           float pos,
+                           uint32_t pos_frame,
+                           float pos_frac,
                            uint32_t start,
                            uint32_t end,
                            bool loop_enabled,
@@ -86,7 +99,8 @@ float SampleAtLinearRegion(const Sample* s,
 uint32_t ComputeLoopSeamCrossfadeFrames(uint32_t start, uint32_t end, float amount);
 float ComputeLoopSeamCrossfadeWeight(float mix, float shape, bool fade_in);
 float SampleAtLoopSeamCrossfade(const Sample* s,
-                                float pos,
+                                uint32_t pos_frame,
+                                float pos_frac,
                                 uint32_t start,
                                 uint32_t end,
                                 uint32_t seam_frames,
@@ -95,7 +109,8 @@ float SampleAtLoopSeamCrossfade(const Sample* s,
                                 bool& used_xfade);
 
 float VoiceRenderFetch_VoiceStream(const Sample* sample,
-                                   float pos,
+                                   uint32_t pos_frame,
+                                   float pos_frac,
                                    float gain,
                                    bool layer_loop_voice,
                                    uint32_t start,
@@ -169,7 +184,8 @@ struct BatchRampState
 // Returns the index of the first sample where AdvancePos failed (end of
 // stream), or `count` if no end-of-stream occurred.
 size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
-                                         float& pos,
+                                         uint32_t& pos_frame,
+                                         float& pos_frac,
                                          int8_t& dir,
                                          bool& gate,
                                          size_t count,

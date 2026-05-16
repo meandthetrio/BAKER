@@ -53,7 +53,8 @@ struct Voice
     uint32_t   start_id      = 0; // monotonic allocation id (used for Oldest Note stealing)
 
     const Sample* sample = nullptr;
-    float         pos    = 0.0f; // playback position in samples
+    uint32_t      pos_frame = 0; // integer playback frame
+    float         pos_frac  = 0.0f; // fractional offset within frame [0,1)
     float         ratio  = 1.0f; // playback increment per output sample
     float         gain   = 0.0f; // 0..1
     float         vel_brightness = 1.0f;
@@ -88,13 +89,15 @@ struct Voice
     uint32_t      poly_porto_source_order = 0;
     uint64_t      poly_porto_release_sample_time = 0;
 
-    float old_pos   = 0.0f;
+    uint32_t old_pos_frame = 0;
+    float old_pos_frac = 0.0f;
     float old_ratio = 1.0f;
     float old_gain  = 0.0f;
     uint8_t old_source_layer = 0;
     bool  old_gate  = false;
     int8_t old_dir  = 1;
-    float new_pos   = 0.0f;
+    uint32_t new_pos_frame = 0;
+    float new_pos_frac = 0.0f;
     float new_ratio = 1.0f;
     float new_gain  = 0.0f;
     uint8_t new_source_layer = 0;
@@ -181,8 +184,11 @@ class VoiceEngine
     void SetSample(const Sample* sample) { current_sample_ = sample; }
     void SetSampleEdit(const SampleEdit& edit, const Sample* sample)
     {
-        current_edit_ = edit;
-        edit_sample_ = sample;
+        const int slot = FindSampleBankSlot_(sample);
+        if(slot < 0)
+            return;
+        sample_edit_bank_[slot] = edit;
+        sample_edit_valid_[slot] = true;
     }
     void SetLpfCutoff(float hz) { lpf_cutoff_hz_ = hz; }
     void SetModMatrix(const ModMatrixState* state) { mod_matrix_ = state; }
@@ -256,8 +262,8 @@ class VoiceEngine
     const Sample* sample_bank_[kMaxSampleBank] = {};
     uint8_t sample_bank_count_ = 0;
     const Sample* current_sample_     = nullptr;
-    const Sample* edit_sample_        = nullptr;
-    SampleEdit current_edit_{};
+    SampleEdit sample_edit_bank_[kMaxSampleBank]{};
+    bool sample_edit_valid_[kMaxSampleBank] = {};
     float lpf_cutoff_hz_              = 20000.0f;
     std::atomic<uint8_t> loop_mode_{static_cast<uint8_t>(LoopMode::Forward)};
     int32_t stop_fade_samples_        = 0;
@@ -396,8 +402,6 @@ class VoiceEngine
         float* outR;
         size_t size;
         LoopMode loop_mode;
-        SampleEdit edit;
-        const Sample* edit_sample;
         const float* engine_tune_scale;
         const float* engine_voice_gain;
         uint32_t* playhead_frame;
@@ -475,7 +479,8 @@ class VoiceEngine
 
     struct RenderStealFadeOutLoopState
     {
-        float    old_pos;
+        uint32_t old_pos_frame;
+        float    old_pos_frac;
         bool     old_gate;
         int8_t   old_dir;
         float    steal_fade_level;
@@ -503,7 +508,8 @@ class VoiceEngine
 
     struct RenderNormalVoiceLoopState
     {
-        float    pos;
+        uint32_t pos_frame;
+        float    pos_frac;
         bool     gate;
         int8_t   dir;
         float    fade;
@@ -523,7 +529,8 @@ class VoiceEngine
     void VoiceRender_PlayheadMetricIfAudible_(const Voice& v,
                                               const RenderVoiceContext& ctx,
                                               uint8_t ui_layer,
-                                              float pos,
+                                              uint32_t pos_frame,
+                                              float pos_frac,
                                               float env_level);
 
     bool RenderNormalVoice_ProcessOneSample_(Voice& v,
@@ -549,7 +556,6 @@ class VoiceEngine
 
     void SnapshotMacroState_();
     void SnapshotPLockState_();
-    void SnapshotRenderEditState_(SampleEdit& edit, const Sample*& edit_sample) const;
     const ModRoute* SnapshotModRoutes_(ModRoute (&routes_local)[kMaxModRoutes]) const;
     void PrepareRenderScalars_(float (&engine_tune_scale)[kEngineLayerCount],
                                float (&engine_voice_gain)[kEngineLayerCount],
@@ -578,6 +584,8 @@ class VoiceEngine
                                float mix_scale,
                                uint32_t& clip_block,
                                const bool (&layer_skip)[2]);
+    int  FindSampleBankSlot_(const Sample* sample) const;
+    bool LookupSampleEdit_(const Sample* sample, SampleEdit& edit) const;
 
     static uint32_t PackVoiceDebug_(uint8_t idx, uint8_t note, uint8_t vel);
 };

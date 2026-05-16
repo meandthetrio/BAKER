@@ -10,23 +10,23 @@ void VoiceRenderFetch_InitSqrtLut()
         s_sqrt_lut[i] = std::sqrt(static_cast<float>(i) / 255.0f);
 }
 
-float SampleAtLinear(const Sample* s, float pos, bool wrap_end)
+float SampleAtLinear(const Sample* s, uint32_t pos_frame, float pos_frac, bool wrap_end)
 {
     if(s == nullptr || s->pcm == nullptr || s->length == 0)
         return 0.0f;
-    const uint32_t i = static_cast<uint32_t>(pos);
-    if(i >= s->length)
+    if(pos_frame >= s->length)
         return 0.0f;
-    const float frac = pos - static_cast<float>(i);
-    const int16_t a = s->pcm[i];
-    const int16_t b = (i + 1 < s->length) ? s->pcm[i + 1] : (wrap_end ? s->pcm[0] : a);
+    const int16_t a = s->pcm[pos_frame];
+    const int16_t b = (pos_frame + 1 < s->length) ? s->pcm[pos_frame + 1]
+                                                  : (wrap_end ? s->pcm[0] : a);
     const float fa = static_cast<float>(a) * (1.0f / 32768.0f);
     const float fb = static_cast<float>(b) * (1.0f / 32768.0f);
-    return fa + frac * (fb - fa);
+    return fa + pos_frac * (fb - fa);
 }
 
 float SampleAtLinearRegion(const Sample* s,
-                           float pos,
+                           uint32_t pos_frame,
+                           float pos_frac,
                            uint32_t start,
                            uint32_t end,
                            bool loop_enabled,
@@ -37,26 +37,21 @@ float SampleAtLinearRegion(const Sample* s,
         return 0.0f;
     if(end <= start || end > s->length)
         end = s->length;
-    if(pos < (float)start || pos >= (float)end)
+    if(pos_frame < start || pos_frame >= end)
         return 0.0f;
-
-    const uint32_t i = static_cast<uint32_t>(pos);
-    if(i < start || i >= end)
-        return 0.0f;
-    const float frac = pos - static_cast<float>(i);
-    const int16_t a = s->pcm[i];
-    uint32_t next = i + 1;
+    const int16_t a = s->pcm[pos_frame];
+    uint32_t next = pos_frame + 1;
     if(next >= end)
     {
         if(loop_enabled && loop_start < loop_end)
             next = loop_start;
         else
-            next = i;
+            next = pos_frame;
     }
     const int16_t b = s->pcm[next];
     const float fa = static_cast<float>(a) * (1.0f / 32768.0f);
     const float fb = static_cast<float>(b) * (1.0f / 32768.0f);
-    return fa + frac * (fb - fa);
+    return fa + pos_frac * (fb - fa);
 }
 
 uint32_t ComputeLoopSeamCrossfadeFrames(uint32_t start, uint32_t end, float amount)
@@ -100,7 +95,8 @@ float ComputeLoopSeamCrossfadeWeight(float mix, float shape, bool fade_in)
 }
 
 float SampleAtLoopSeamCrossfade(const Sample* s,
-                                float pos,
+                                uint32_t pos_frame,
+                                float pos_frac,
                                 uint32_t start,
                                 uint32_t end,
                                 uint32_t seam_frames,
@@ -111,21 +107,23 @@ float SampleAtLoopSeamCrossfade(const Sample* s,
     (void)sample_rate;
     used_xfade = false;
     if(seam_frames == 0 || end <= start + seam_frames)
-        return SampleAtLinearRegion(s, pos, start, end, true, start, end);
+        return SampleAtLinearRegion(s, pos_frame, pos_frac, start, end, true, start, end);
 
-    const float seam_start = static_cast<float>(end - seam_frames);
-    if(pos < seam_start)
-        return SampleAtLinearRegion(s, pos, start, end, true, start, end);
+    const uint32_t seam_start = end - seam_frames;
+    if(pos_frame < seam_start)
+        return SampleAtLinearRegion(s, pos_frame, pos_frac, start, end, true, start, end);
 
-    float mix = (pos - seam_start) / static_cast<float>(seam_frames);
+    float mix
+        = (static_cast<float>(pos_frame - seam_start) + pos_frac) / static_cast<float>(seam_frames);
     if(mix < 0.0f)
         mix = 0.0f;
     if(mix > 1.0f)
         mix = 1.0f;
 
-    const float seam_pos = static_cast<float>(start) + (pos - seam_start);
-    const float tail = SampleAtLinearRegion(s, pos, start, end, true, start, end);
-    const float head = SampleAtLinearRegion(s, seam_pos, start, end, true, start, end);
+    const uint32_t seam_pos_frame = start + (pos_frame - seam_start);
+    const float tail = SampleAtLinearRegion(s, pos_frame, pos_frac, start, end, true, start, end);
+    const float head
+        = SampleAtLinearRegion(s, seam_pos_frame, pos_frac, start, end, true, start, end);
     const float tail_weight = ComputeLoopSeamCrossfadeWeight(mix, shape, false);
     const float head_weight = ComputeLoopSeamCrossfadeWeight(mix, shape, true);
     used_xfade = true;
@@ -133,7 +131,8 @@ float SampleAtLoopSeamCrossfade(const Sample* s,
 }
 
 float VoiceRenderFetch_VoiceStream(const Sample* sample,
-                                   float pos,
+                                   uint32_t pos_frame,
+                                   float pos_frac,
                                    float gain,
                                    bool layer_loop_voice,
                                    uint32_t start,
@@ -150,7 +149,8 @@ float VoiceRenderFetch_VoiceStream(const Sample* sample,
 {
     if(layer_loop_voice)
         return SampleAtLoopSeamCrossfade(sample,
-                                         pos,
+                                         pos_frame,
+                                         pos_frac,
                                          start,
                                          end,
                                          seam_frames,
@@ -160,7 +160,8 @@ float VoiceRenderFetch_VoiceStream(const Sample* sample,
             * gain;
     if(use_edit)
         return SampleAtLinearRegion(sample,
-                                    pos,
+                                    pos_frame,
+                                    pos_frac,
                                     start,
                                     end,
                                     region_loop_enabled,
@@ -169,25 +170,26 @@ float VoiceRenderFetch_VoiceStream(const Sample* sample,
 
     const bool wrap_end
         = VoiceRenderLoop_FullSampleWrapGate(sample, region_loop_enabled, gate_for_wrap);
-    return SampleAtLinear(sample, pos, wrap_end) * gain;
+    return SampleAtLinear(sample, pos_frame, pos_frac, wrap_end) * gain;
 }
 
 size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
-                                         float& pos,
+                                         uint32_t& pos_frame,
+                                         float& pos_frac,
                                          int8_t& dir,
                                          bool& gate,
                                          size_t count,
                                          float* out_buf)
 {
     size_t eos_idx = count;
-    const float seam_offset
-        = p.layer_loop_voice ? static_cast<float>(p.seam_frames) : 0.0f;
+    const uint32_t seam_offset = p.layer_loop_voice ? p.seam_frames : 0u;
 
     for(size_t i = 0; i < count; ++i)
     {
         bool used_seam_xfade = false;
         float s = VoiceRenderFetch_VoiceStream(p.sample,
-                                               pos,
+                                               pos_frame,
+                                               pos_frac,
                                                p.gain,
                                                p.layer_loop_voice,
                                                p.start,
@@ -205,7 +207,8 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
                                                     p.layer_loop_voice,
                                                     p.seam_frames,
                                                     used_seam_xfade,
-                                                    pos,
+                                                    pos_frame,
+                                                    pos_frac,
                                                     p.fade_start_threshold,
                                                     p.fade_end_threshold,
                                                     p.start,
@@ -220,12 +223,13 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
         // for each post-eos sample.
         if(eos_idx == count)
         {
-            if(!AdvancePos(pos,
+            if(!AdvancePos(pos_frame,
+                           pos_frac,
                            dir,
                            p.ratio,
-                           p.length_f,
-                           p.ls,
-                           p.le,
+                           p.end,
+                           p.ls_i,
+                           p.le_i,
                            p.loop_enabled,
                            gate,
                            p.voice_loop_mode,
@@ -233,8 +237,11 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
             {
                 eos_idx = i;
                 gate    = false;
-                if(p.length_f > 0.0f)
-                    pos = p.length_f - 1.0f;
+                if(p.end > 0u)
+                {
+                    pos_frame = p.end - 1u;
+                    pos_frac  = 0.0f;
+                }
             }
         }
     }

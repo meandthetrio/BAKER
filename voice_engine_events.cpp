@@ -78,7 +78,8 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                         // Second steal while fading: keep victim tail; replace pending new only.
                         if(!already_fading)
                         {
-                            v.old_pos          = v.pos;
+                            v.old_pos_frame    = v.pos_frame;
+                            v.old_pos_frac     = v.pos_frac;
                             v.old_ratio        = v.ratio;
                             const float old_fin = (v.fade_in < 1.0f) ? v.fade_in : 1.0f;
                             const float old_env = (v.env_level < 1.0f) ? v.env_level : 1.0f;
@@ -88,12 +89,13 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                             v.old_dir          = v.dir;
                         }
 
-                        v.new_pos = 0.0f;
-                        if(edit_sample_ == sample)
+                        v.new_pos_frame = 0u;
+                        v.new_pos_frac  = 0.0f;
+                        SampleEdit e{};
+                        if(LookupSampleEdit_(sample, e))
                         {
-                            SampleEdit e = current_edit_;
                             SampleEdit_Clamp(e, sample->length);
-                            v.new_pos = static_cast<float>(e.start_frame);
+                            v.new_pos_frame = e.start_frame;
                         }
                         v.new_ratio = ComputeRatio(note, sample->root_key);
                         v.new_gain = vel01 * kVoiceAmpScale;

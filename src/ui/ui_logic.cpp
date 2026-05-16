@@ -273,37 +273,41 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         processed++;
         ui.ui_in_pop++;
         input_detected = true;
+        const bool blank_screen_active = ui.ui_blank_screen_active;
 
         if(e.type == UiInputType::BtnDown)
         {
             if(e.id == kUiBtnLShift)
             {
                 ui.ui_lshift_held = true;
-                const UiScreenId active = UiNav_Active(ui.ui_nav);
-                if(active == UiScreenId::PerformProcess
-                   && (engine.process.perform_process_detail_active || engine.process.perform_process_eq_graph_active))
+                if(!blank_screen_active)
                 {
-                    ui.ui_parent_preview_origin_screen = active;
-                    ui.ui_parent_preview_origin_main_cursor = engine.process.perform_process_main_cursor;
-                    ui.ui_parent_preview_origin_fx_cursor = engine.process.perform_process_fx_cursor;
-                    ui.ui_parent_preview_origin_process_detail   = engine.process.perform_process_detail_active;
-                    ui.ui_parent_preview_origin_process_eq_graph = engine.process.perform_process_eq_graph_active;
-                    ui.ui_parent_preview_active = true;
-                    ui.ui_parent_preview_mode = 2;
-                    ui.ui_parent_preview_from_top = ui.ui_nav.top;
-                    ui.ui_dirty = true;
-                }
-                else if(ui.ui_nav.top > 0)
-                {
-                    ui.ui_parent_preview_origin_screen = active;
-                    ui.ui_parent_preview_origin_main_cursor = engine.process.perform_process_main_cursor;
-                    ui.ui_parent_preview_origin_fx_cursor = engine.process.perform_process_fx_cursor;
-                    ui.ui_parent_preview_origin_process_detail   = engine.process.perform_process_detail_active;
-                    ui.ui_parent_preview_origin_process_eq_graph = engine.process.perform_process_eq_graph_active;
-                    ui.ui_parent_preview_active = true;
-                    ui.ui_parent_preview_mode = 1;
-                    ui.ui_parent_preview_from_top = ui.ui_nav.top;
-                    ui.ui_dirty = true;
+                    const UiScreenId active = UiNav_Active(ui.ui_nav);
+                    if(active == UiScreenId::PerformProcess
+                       && (engine.process.perform_process_detail_active || engine.process.perform_process_eq_graph_active))
+                    {
+                        ui.ui_parent_preview_origin_screen = active;
+                        ui.ui_parent_preview_origin_main_cursor = engine.process.perform_process_main_cursor;
+                        ui.ui_parent_preview_origin_fx_cursor = engine.process.perform_process_fx_cursor;
+                        ui.ui_parent_preview_origin_process_detail = engine.process.perform_process_detail_active;
+                        ui.ui_parent_preview_origin_process_eq_graph = engine.process.perform_process_eq_graph_active;
+                        ui.ui_parent_preview_active = true;
+                        ui.ui_parent_preview_mode = 2;
+                        ui.ui_parent_preview_from_top = ui.ui_nav.top;
+                        ui.ui_dirty = true;
+                    }
+                    else if(ui.ui_nav.top > 0)
+                    {
+                        ui.ui_parent_preview_origin_screen = active;
+                        ui.ui_parent_preview_origin_main_cursor = engine.process.perform_process_main_cursor;
+                        ui.ui_parent_preview_origin_fx_cursor = engine.process.perform_process_fx_cursor;
+                        ui.ui_parent_preview_origin_process_detail = engine.process.perform_process_detail_active;
+                        ui.ui_parent_preview_origin_process_eq_graph = engine.process.perform_process_eq_graph_active;
+                        ui.ui_parent_preview_active = true;
+                        ui.ui_parent_preview_mode = 1;
+                        ui.ui_parent_preview_from_top = ui.ui_nav.top;
+                        ui.ui_dirty = true;
+                    }
                 }
             }
             else if(e.id == kUiBtnRShift)
@@ -318,7 +322,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             if(e.id == kUiBtnLShift)
             {
                 ui.ui_lshift_held = false;
-                if(ui.ui_parent_preview_active)
+                if(!blank_screen_active && ui.ui_parent_preview_active)
                 {
                     CommitParentPreviewSelection(app, params, now_ms);
                     continue;
@@ -333,6 +337,17 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         }
 
         shift_held = ui.ui_lshift_held;
+        const bool both_shifts_held = ui.ui_lshift_held && ui.ui_rshift_held;
+
+        if(ui.ui_blank_screen_active)
+        {
+            if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+            {
+                ui.ui_blank_screen_active = false;
+                ui.ui_dirty = true;
+            }
+            continue;
+        }
 
         if(e.type == UiInputType::BtnDown
            && ui.ui_lshift_held
@@ -399,6 +414,15 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             ui.ui_dirty = true;
             continue;
             }
+        }
+
+        if(e.type == UiInputType::BtnDown
+           && both_shifts_held
+           && e.id == kUiBtnPod2)
+        {
+            ui.ui_blank_screen_active = true;
+            ui.ui_dirty = true;
+            continue;
         }
 
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)

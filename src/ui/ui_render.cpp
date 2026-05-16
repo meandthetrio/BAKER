@@ -28,6 +28,8 @@ void UIRender::Init(PodDisplay* display, DaisyPod& hw)
     last_playhead_frame_[1]  = 0;
     last_playhead_active_[0] = 0;
     last_playhead_active_[1] = 0;
+    blank_screen_frame_pending_ = false;
+    blank_screen_display_off_ = false;
 }
 
 void UIRender::Render(const AppState& app, const Params& params)
@@ -74,6 +76,44 @@ void UIRender::Tick(AppState& app, const Params& params)
         return;
 
     const uint32_t now_ms = System::GetNow();
+
+    if(blank_screen_display_off_ && !ui.ui_blank_screen_active)
+    {
+        oled_pager_.SetTransferSuppressed(false);
+        oled_pager_.SetDisplayOn(true);
+        blank_screen_display_off_ = false;
+        blank_screen_frame_pending_ = false;
+        last_ui_ms_ = 0;
+        diag.render_cooldown_until_ms = 0;
+        ui.ui_dirty = true;
+    }
+    else if(!ui.ui_blank_screen_active)
+    {
+        blank_screen_frame_pending_ = false;
+    }
+
+    if(ui.ui_blank_screen_active)
+    {
+        if(blank_screen_display_off_)
+            return;
+
+        if(oled_pager_.IsTransferring())
+            return;
+
+        if(!blank_screen_frame_pending_)
+        {
+            oled_pager_.Fill(false);
+            oled_pager_.BeginFrameTransfer();
+            blank_screen_frame_pending_ = true;
+            return;
+        }
+
+        oled_pager_.SetDisplayOn(false);
+        oled_pager_.SetTransferSuppressed(true);
+        blank_screen_display_off_ = true;
+        blank_screen_frame_pending_ = false;
+        return;
+    }
 
     // 60Hz timer gate
     if((now_ms - last_ui_ms_) < 16)

@@ -69,9 +69,40 @@ void VoiceEngine::SetSampleBank(const Sample* const* bank, uint8_t count)
         count = kMaxSampleBank;
     sample_bank_count_ = count;
     for(uint8_t i = 0; i < count; ++i)
+    {
         sample_bank_[i] = bank ? bank[i] : nullptr;
+        sample_edit_bank_[i] = SampleEdit_Default(0);
+        sample_edit_valid_[i] = false;
+    }
     for(uint8_t i = count; i < kMaxSampleBank; ++i)
+    {
         sample_bank_[i] = nullptr;
+        sample_edit_bank_[i] = SampleEdit_Default(0);
+        sample_edit_valid_[i] = false;
+    }
+}
+
+int VoiceEngine::FindSampleBankSlot_(const Sample* sample) const
+{
+    if(sample == nullptr)
+        return -1;
+
+    for(uint8_t i = 0; i < sample_bank_count_; ++i)
+    {
+        if(sample_bank_[i] == sample)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool VoiceEngine::LookupSampleEdit_(const Sample* sample, SampleEdit& edit) const
+{
+    const int slot = FindSampleBankSlot_(sample);
+    if(slot < 0 || !sample_edit_valid_[slot])
+        return false;
+
+    edit = sample_edit_bank_[slot];
+    return true;
 }
 
 void VoiceEngine::SetModParams(float lfo_rate_hz,
@@ -284,11 +315,13 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
     last_new_start_id_       = 0;
     sample_bank_count_       = 0;
     current_sample_          = nullptr;
-    edit_sample_             = nullptr;
-    current_edit_            = SampleEdit_Default(0);
 
     for(uint8_t i = 0; i < kMaxSampleBank; ++i)
+    {
         sample_bank_[i] = nullptr;
+        sample_edit_bank_[i] = SampleEdit_Default(0);
+        sample_edit_valid_[i] = false;
+    }
 
     for(size_t i = 0; i < kMaxVoices; i++)
     {

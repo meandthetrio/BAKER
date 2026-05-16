@@ -40,6 +40,8 @@ class UIRender
     uint32_t    last_velocity_monitor_   = 0;
     uint32_t    last_playhead_frame_[2]  = {0, 0};
     uint32_t    last_playhead_active_[2] = {0, 0};
+    bool        blank_screen_frame_pending_ = false;
+    bool        blank_screen_display_off_ = false;
 
     void Render(const AppState& app, const Params& params);
 };

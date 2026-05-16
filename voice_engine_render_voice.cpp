@@ -17,7 +17,7 @@ void VoiceRender_UpdatePlayheadMetric(float* playhead_metric,
                                       uint32_t* playhead_frame,
                                       uint32_t* playhead_active,
                                       uint8_t ui_layer,
-                                      float pos,
+                                      uint32_t pos_frame,
                                       float env_level,
                                       uint32_t sample_length)
 {
@@ -25,8 +25,8 @@ void VoiceRender_UpdatePlayheadMetric(float* playhead_metric,
     if(metric >= playhead_metric[ui_layer])
     {
         playhead_metric[ui_layer] = metric;
-        const float p = VoicePlayback_ClampPlayheadPos(pos, sample_length);
-        playhead_frame[ui_layer] = static_cast<uint32_t>(p);
+        playhead_frame[ui_layer]
+            = VoicePlayback_ClampPlayheadFrame(pos_frame, sample_length);
         playhead_active[ui_layer] = 1u;
     }
 }
@@ -61,7 +61,8 @@ void VoiceEngine::BeginStopFadeOnStreamEnd_(Voice& v, StopFadeState& sf)
 
 void VoiceEngine::CompleteStealFadeOut_(Voice& v)
 {
-    v.pos            = v.new_pos;
+    v.pos_frame      = v.new_pos_frame;
+    v.pos_frac       = v.new_pos_frac;
     v.gain           = v.new_gain;
     v.ratio          = v.new_ratio;
     v.source_layer   = v.new_source_layer;
@@ -106,23 +107,26 @@ void VoiceEngine::CompleteStealFadeOut_(Voice& v)
 void VoiceEngine::VoiceRender_PlayheadMetricIfAudible_(const Voice& v,
                                                       const RenderVoiceContext& ctx,
                                                       uint8_t ui_layer,
-                                                      float pos,
+                                                      uint32_t pos_frame,
+                                                      float pos_frac,
                                                       float env_level)
 {
     if(v.state == VoiceState::Idle || v.sample == nullptr || v.sample->length == 0)
         return;
+    (void)pos_frac;
     VoiceRender_UpdatePlayheadMetric(ctx.playhead_metric,
                                      ctx.playhead_frame,
                                      ctx.playhead_active,
                                      ui_layer,
-                                     pos,
+                                     pos_frame,
                                      env_level,
                                      v.sample->length);
 }
 
 void VoiceEngine::CommitNormalVoiceLoopState_(Voice& v, const RenderNormalVoiceLoopState& st)
 {
-    v.pos = st.pos;
+    v.pos_frame = st.pos_frame;
+    v.pos_frac = st.pos_frac;
     v.fade_in = st.fade;
     v.env_stage = st.env_stage;
     v.env_level = st.env_level;
@@ -147,8 +151,8 @@ void VoiceEngine::ResolveEffectivePlaybackRegion_(const Voice& v,
                                                   EffectivePlaybackRegion& out,
                                                   bool& loop_enabled_base)
 {
-    out.use_edit = (ctx.edit_sample != nullptr && v.sample == ctx.edit_sample);
-    SampleEdit e = ctx.edit;
+    SampleEdit e{};
+    out.use_edit = LookupSampleEdit_(v.sample, e);
     out.start = 0;
     out.end = v.sample->length;
     out.ls_i = v.sample->loop_start;
@@ -175,7 +179,8 @@ bool VoiceEngine::RenderStealFadeOut_ProcessOneSample_(Voice& v,
 {
     bool old_used_seam_xfade = false;
     float s = VoiceRenderFetch_VoiceStream(v.sample,
-                                           st.old_pos,
+                                           st.old_pos_frame,
+                                           st.old_pos_frac,
                                            setup.old_gain,
                                            setup.loop_voice,
                                            setup.start,
@@ -193,7 +198,8 @@ bool VoiceEngine::RenderStealFadeOut_ProcessOneSample_(Voice& v,
                                                 setup.loop_voice,
                                                 setup.old_seam_frames,
                                                 old_used_seam_xfade,
-                                                st.old_pos,
+                                                st.old_pos_frame,
+                                                st.old_pos_frac,
                                                 setup.loop_fade_start_threshold,
                                                 setup.loop_fade_end_threshold,
                                                 setup.start,
@@ -209,21 +215,25 @@ bool VoiceEngine::RenderStealFadeOut_ProcessOneSample_(Voice& v,
     if(StopFade_AdvanceAndFinishIfDone_(v, st.stop_fade))
         return true;
 
-    if(!AdvancePos(st.old_pos,
+    if(!AdvancePos(st.old_pos_frame,
+                   st.old_pos_frac,
                    st.old_dir,
                    setup.old_ratio,
-                   setup.length_f,
-                   setup.ls,
-                   setup.le,
+                   setup.end,
+                   setup.ls_i,
+                   setup.le_i,
                    setup.old_loop_enabled,
                    st.old_gate,
                    setup.old_loop_mode,
-                   setup.loop_voice ? static_cast<float>(setup.old_seam_frames) : 0.0f))
+                   setup.loop_voice ? setup.old_seam_frames : 0u))
     {
         st.old_gate = false;
     }
 
-    VoicePlayback_ClampPosPastEndWhenGateOff(setup.length_f, st.old_gate, st.old_pos);
+    VoicePlayback_ClampPosPastEndWhenGateOff(setup.end,
+                                             st.old_gate,
+                                             st.old_pos_frame,
+                                             st.old_pos_frac);
 
     st.steal_fade_level -= setup.steal_fade_step;
     if(st.steal_fade_level <= 0.0f)
@@ -269,17 +279,19 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
     setup.ls       = static_cast<float>(setup.ls_i);
     setup.le       = static_cast<float>(setup.le_i);
     RenderStealFadeOutLoopState st{};
-    st.old_pos          = v.old_pos;
+    st.old_pos_frame    = v.old_pos_frame;
+    st.old_pos_frac     = v.old_pos_frac;
     st.old_gate         = v.old_gate;
     st.old_dir          = v.old_dir;
     st.steal_fade_level = v.steal_fade_level;
     st.stop_fade        = stop_fade;
 
-    VoicePlayback_NormalizeStealFadeOutPositions(setup.length_f,
-                                                 setup.ls,
+    VoicePlayback_NormalizeStealFadeOutPositions(setup.end,
+                                                 setup.ls_i,
                                                  setup.start,
                                                  setup.old_loop_enabled,
-                                                 st.old_pos,
+                                                 st.old_pos_frame,
+                                                 st.old_pos_frac,
                                                  st.old_gate);
 
     setup.old_ratio = v.old_ratio * ctx.engine_tune_scale[setup.old_layer] * pitch_scale;
@@ -326,7 +338,8 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
 
     if(v.state == VoiceState::StealFadeOut)
     {
-        v.old_pos          = st.old_pos;
+        v.old_pos_frame    = st.old_pos_frame;
+        v.old_pos_frac     = st.old_pos_frac;
         v.old_gate         = st.old_gate;
         v.old_dir          = st.old_dir;
         v.steal_fade_level = st.steal_fade_level;
@@ -343,7 +356,8 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
         VoiceRender_PlayheadMetricIfAudible_(v,
                                              ctx,
                                              v.old_source_layer & 1u,
-                                             st.old_pos,
+                                             st.old_pos_frame,
+                                             st.old_pos_frac,
                                              st.steal_fade_level);
     }
 }
@@ -357,7 +371,8 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
     const float ratio = st.ratio * setup.pitch_ratio_scale;
     bool used_seam_xfade = false;
     float s = VoiceRenderFetch_VoiceStream(v.sample,
-                                           st.pos,
+                                           st.pos_frame,
+                                           st.pos_frac,
                                            setup.gain,
                                            setup.loop_voice,
                                            setup.start,
@@ -375,7 +390,8 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
                                                 setup.loop_voice,
                                                 setup.seam_frames,
                                                 used_seam_xfade,
-                                                st.pos,
+                                                st.pos_frame,
+                                                st.pos_frac,
                                                 setup.loop_fade_start_threshold,
                                                 setup.loop_fade_end_threshold,
                                                 setup.start,
@@ -392,22 +408,25 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
     if(StopFade_AdvanceAndFinishIfDone_(v, st.stop_fade))
         return true;
 
-    if(!AdvancePos(st.pos,
+    if(!AdvancePos(st.pos_frame,
+                   st.pos_frac,
                    st.dir,
                    ratio,
-                   setup.length_f,
-                   setup.ls,
-                   setup.le,
+                   setup.end,
+                   setup.ls_i,
+                   setup.le_i,
                    setup.loop_enabled,
                    st.gate,
                    setup.voice_loop_mode,
-                   setup.loop_voice ? static_cast<float>(setup.seam_frames) : 0.0f))
+                   setup.loop_voice ? setup.seam_frames : 0u))
     {
         const bool need_stop_fade = !st.stop_fade.active;
         BeginStopFadeOnStreamEnd_(v, st.stop_fade);
         if(need_stop_fade)
             st.gate = false;
-        VoicePlayback_ClampPosToLastFrameIfValid(setup.length_f, st.pos);
+        VoicePlayback_ClampPosToLastFrameIfValid(setup.end,
+                                                 st.pos_frame,
+                                                 st.pos_frac);
     }
     if(st.fade < 1.0f)
         VoicePlayback_StepFadeIn(st.fade, setup.fade_step);
@@ -506,14 +525,15 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
     p.seam_frames          = setup.seam_frames;
     p.loop_shape           = loop_crossfade_shape_[setup.source_layer];
     p.sample_rate          = sample_rate_;
-    p.ratio                = setup.ratio;
+    p.ratio                = setup.ratio * setup.pitch_ratio_scale;
     p.gain                 = setup.gain;
     p.fade_start_threshold = setup.loop_fade_start_threshold;
     p.fade_end_threshold   = setup.loop_fade_end_threshold;
 
     // Phase 1: fetch + boundary-fade + pos advance for the whole batch.
     const size_t eos_idx = VoiceRenderFetch_VoiceStreamBatch(p,
-                                                             st.pos,
+                                                             st.pos_frame,
+                                                             st.pos_frac,
                                                              st.dir,
                                                              st.gate,
                                                              N,
@@ -658,7 +678,9 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     setup.source_layer = source_layer;
     setup.gain = gain;
     setup.use_edit = use_edit;
-    setup.ratio = v.ratio * ctx.engine_tune_scale[source_layer] * pitch_scale;
+    setup.ratio = v.ratio;
+    // Keep the stored voice ratio unscaled so both normal render paths apply
+    // the combined layer tune + mod pitch factor exactly once.
     setup.pitch_ratio_scale = ctx.engine_tune_scale[source_layer] * pitch_scale;
     setup.fade_step = v.fade_in_step;
     setup.env_a_step = v.env_a_step;
@@ -687,7 +709,8 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     }
 
     RenderNormalVoiceLoopState st{};
-    st.pos = v.pos;
+    st.pos_frame = v.pos_frame;
+    st.pos_frac = v.pos_frac;
     st.gate = v.gate;
     st.dir = v.dir;
     st.fade = v.fade_in;
@@ -703,7 +726,13 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     st.stop_fade = stop_fade;
     if(st.stop_fade.active)
         st.gate = false;
-    VoicePlayback_NormalizeVoiceBlockStart(setup.length_f, setup.ls, setup.start, setup.loop_enabled, st.gate, st.pos);
+    VoicePlayback_NormalizeVoiceBlockStart(setup.end,
+                                           setup.ls_i,
+                                           setup.start,
+                                           setup.loop_enabled,
+                                           st.gate,
+                                           st.pos_frame,
+                                           st.pos_frac);
 
     // P5: decide whether this voice can use block-rate envelope simulation
     // for this block. Only "slow" voices (all stages >= 5 ms) qualify; any
@@ -790,6 +819,11 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     {
         CommitNormalVoiceLoopState_(v, st);
 
-        VoiceRender_PlayheadMetricIfAudible_(v, ctx, source_layer & 1u, st.pos, st.env_level);
+        VoiceRender_PlayheadMetricIfAudible_(v,
+                                             ctx,
+                                             source_layer & 1u,
+                                             st.pos_frame,
+                                             st.pos_frac,
+                                             st.env_level);
     }
 }

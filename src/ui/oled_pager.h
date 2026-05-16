@@ -19,6 +19,10 @@ class OledPager
     void BeginFrameTransfer();
     bool IsTransferring() const { return transferring_; }
     bool IsReady() const { return initialized_; }
+    bool IsDisplayOn() const { return display_on_; }
+    bool IsTransferSuppressed() const { return transfer_suppressed_; }
+    void SetDisplayOn(bool on);
+    void SetTransferSuppressed(bool suppressed);
     void TickTransferOnePage(uint32_t now_ms, bool midi_busy);
 
     uint16_t Width() const override { return kWidth; }
@@ -39,9 +43,11 @@ class OledPager
     daisy::I2CHandle i2c_;
     uint8_t          i2c_address_ = 0x3C;
     uint32_t         last_page_ms_ = 0;
-    bool             initialized_  = false;
-    bool        transferring_ = false;
-    uint8_t     page_idx_     = 0;
-    uint8_t     front_[kBufferSize];
-    uint8_t     back_[kBufferSize];
+    bool             initialized_ = false;
+    bool             display_on_ = true;
+    bool             transfer_suppressed_ = false;
+    bool             transferring_ = false;
+    uint8_t          page_idx_ = 0;
+    uint8_t          front_[kBufferSize];
+    uint8_t          back_[kBufferSize];
 };

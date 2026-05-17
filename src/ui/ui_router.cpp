@@ -42,6 +42,10 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return;
         }
 
+        // SHIFT uses BACK to cancel pending bootloader arm before leaving.
+        if(active == UiScreenId::ShiftMenu && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
         // Record uses BACK for in-screen state transitions (review/back-confirm/stop).
         if(active == UiScreenId::Record && s.OnEvent && s.OnEvent(ctx, e))
             return;
@@ -53,6 +57,10 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         // TRIM screen uses BACK to cancel pending start/end edits.
         if(active == UiScreenId::PerformWaveEdit && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
+        // RENAME PROJECT uses LEnc click as in-screen delete, not global back.
+        if(active == UiScreenId::RenameProject && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
         if(UiNav_Pop(ctx.ui->ui_nav))

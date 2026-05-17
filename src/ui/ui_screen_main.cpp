@@ -8,9 +8,7 @@
 #include "app_state_shared.h"
 #include "app_state_worker.h"
 #include "oled_pager.h"
-#include "project_actions.h"
 #include "ui_input.h"
-#include "ui_layout.h"
 
 #include <cstdio>
 
@@ -256,78 +254,4 @@ void MainMenu_Render(UiScreenCtx& ctx)
 
     const int selected = static_cast<int>(ctx.ui->main_menu_index % kMainMenuCount);
     DrawMainMenuFriendStyle(*ctx.display, selected);
-}
-
-bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
-{
-    if(!ctx.ui || !ctx.project || !ctx.worker)
-        return false;
-
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
-    {
-        AppProjectState& project = *ctx.project;
-        const int next = static_cast<int>(project.current_project_slot) + e.value;
-        project.current_project_slot = ProjectActions_WrapSlot(next);
-        ctx.ui->ui_dirty = true;
-        return true;
-    }
-
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
-    {
-        return ProjectActions_TriggerRequest(*ctx.ui,
-                                             *ctx.project,
-                                             *ctx.worker,
-                                             UiReqType::LoadProject,
-                                             ctx.project->current_project_slot);
-    }
-
-    // Do not consume BACK events; let the router/nav handle it.
-    return false;
-}
-
-void Presets_Render(UiScreenCtx& ctx)
-{
-    if(!ctx.ui || !ctx.project || !ctx.display)
-        return;
-
-    AppProjectState& project = *ctx.project;
-    OledPager& d = *ctx.display;
-    d.Fill(false);
-
-    const uint8_t visible_rows = kPresetsVisibleRows;
-    if(visible_rows == 0u)
-        return;
-
-    static constexpr int kRowPitch = Font5x7::H + 2;
-    const int total_h = static_cast<int>(visible_rows) * Font5x7::H
-                        + static_cast<int>(visible_rows - 1u) * 2;
-    const int start_y = (static_cast<int>(d.Height()) - total_h) / 2;
-
-    uint8_t top_row = 0;
-    if(project.current_project_slot >= visible_rows)
-        top_row = static_cast<uint8_t>(project.current_project_slot - (visible_rows - 1u));
-    const uint8_t max_top = static_cast<uint8_t>(kProjectSlotCount - visible_rows);
-    if(top_row > max_top)
-        top_row = max_top;
-
-    for(uint8_t row = 0; row < visible_rows; ++row)
-    {
-        const uint8_t slot = static_cast<uint8_t>(top_row + row);
-        if(slot >= kProjectSlotCount)
-            break;
-
-        char label[16];
-        std::snprintf(label, sizeof(label), "PROJECT %02u", static_cast<unsigned>(slot + 1u));
-
-        const int row_y = start_y + static_cast<int>(row) * kRowPitch;
-        const bool focused = (slot == project.current_project_slot);
-        if(focused)
-        {
-            DrawRencFocusTinyString(d, label, 1, row_y);
-        }
-        else
-        {
-            DrawTinyString(d, label, 1, row_y, true);
-        }
-    }
 }

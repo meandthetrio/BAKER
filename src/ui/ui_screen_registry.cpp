@@ -3,7 +3,17 @@
 const UiScreen& GetScreen(UiScreenId id)
 {
     static const UiScreen start{UiScreenId::Start, nullptr, nullptr, MainMenu_OnEvent, MainMenu_Render, MainMenu_OnEnter};
-    static const UiScreen presets{UiScreenId::Presets, nullptr, nullptr, Presets_OnEvent, Presets_Render};
+    static const UiScreen presets{UiScreenId::Presets, Presets_OnEnter, nullptr, Presets_OnEvent, Presets_Render};
+    static const UiScreen project_action_menu{UiScreenId::ProjectActionMenu,
+                                              nullptr,
+                                              nullptr,
+                                              ProjectActionMenu_OnEvent,
+                                              ProjectActionMenu_Render};
+    static const UiScreen rename_project{UiScreenId::RenameProject,
+                                         RenameProject_OnEnter,
+                                         nullptr,
+                                         RenameProject_OnEvent,
+                                         RenameProject_Render};
     static const UiScreen record{UiScreenId::Record, Record_OnEnter, Record_OnExit, Record_OnEvent, Record_Render};
     static const UiScreen perform_menu{UiScreenId::PerformMenu, nullptr, nullptr, PerformMenu_OnEvent, PerformMenu_Render, PerformMenu_OnEnter};
     static const UiScreen perform_engine{UiScreenId::PerformEngine,
@@ -68,6 +78,10 @@ const UiScreen& GetScreen(UiScreenId id)
             return start;
         case UiScreenId::Presets:
             return presets;
+        case UiScreenId::ProjectActionMenu:
+            return project_action_menu;
+        case UiScreenId::RenameProject:
+            return rename_project;
         case UiScreenId::Record:
             return record;
         case UiScreenId::PerformMenu:

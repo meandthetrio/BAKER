@@ -317,6 +317,35 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         ui.ui_in_pop++;
         input_detected = true;
         const bool blank_screen_active = ui.ui_blank_screen_active;
+        const bool rename_project_active = (UiNav_Active(ui.ui_nav) == UiScreenId::RenameProject);
+
+        if(rename_project_active
+           && (e.type == UiInputType::BtnDown
+               || e.type == UiInputType::BtnUp
+               || e.type == UiInputType::BtnLong))
+        {
+            if(e.id == kUiBtnLShift)
+            {
+                const bool had_preview = ui.ui_parent_preview_active;
+                ui.ui_lshift_held = false;
+                ClearParentPreviewState(ui);
+                if(had_preview)
+                    ui.ui_dirty = true;
+                continue;
+            }
+
+            if(e.id == kUiBtnPod1)
+            {
+                ui.ui_btn1_held = false;
+                continue;
+            }
+
+            if(e.id == kUiBtnPod2)
+            {
+                ui.ui_btn2_held = false;
+                continue;
+            }
+        }
 
         if(e.type == UiInputType::BtnDown)
         {
@@ -441,6 +470,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             {
             if(active == UiScreenId::ShiftMenu)
             {
+                ui.shift_menu_bootloader_armed = false;
+                ui.shift_menu_bootloader_arm_start_ms = 0;
+                ui.shift_menu_bootloader_loading = false;
+                ui.shift_menu_bootloader_loading_start_ms = 0;
                 UiNav_Pop(ui.ui_nav);
             }
             else
@@ -448,6 +481,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 // Reset SHIFT menu state on entry.
                 ui.shift_menu_cursor = 0;
                 ui.shift_menu_edit_volume = false;
+                ui.shift_menu_bootloader_armed = false;
+                ui.shift_menu_bootloader_arm_start_ms = 0;
+                ui.shift_menu_bootloader_loading = false;
+                ui.shift_menu_bootloader_loading_start_ms = 0;
                 // Cancel any pending SD delete mode when opening SHIFT.
                 ui.sd_delete_mode = false;
                 UiNav_Push(ui.ui_nav, UiScreenId::ShiftMenu);

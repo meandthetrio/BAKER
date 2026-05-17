@@ -167,6 +167,16 @@ static void StartQueuedUiRequest(AppUiState& ui,
             if(!LoadProject(ui, project, engine, shared, worker, params))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
+        case UiReqType::ScanProjectSlots:
+            if(!ScanProjectSlots(ui, project))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
+            break;
+        case UiReqType::RenameProject:
+            if(!RenameProject(ui, project, worker))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
+            break;
         case UiReqType::SaveRenderedWavCurrent:
             if(!StartSave(ui, shared))
                 FailAndFinishUiRequest(worker, worker.project_restore);

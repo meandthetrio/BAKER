@@ -58,8 +58,14 @@ bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 bool MainMenu_OnEnter(UiScreenCtx& ctx);
 void MainMenu_Render(UiScreenCtx& ctx);
 
+void Presets_OnEnter(UiScreenCtx& ctx);
 bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void Presets_Render(UiScreenCtx& ctx);
+bool ProjectActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void ProjectActionMenu_Render(UiScreenCtx& ctx);
+void RenameProject_OnEnter(UiScreenCtx& ctx);
+bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void RenameProject_Render(UiScreenCtx& ctx);
 
 void Record_OnEnter(UiScreenCtx& ctx);
 void Record_OnExit(UiScreenCtx& ctx);

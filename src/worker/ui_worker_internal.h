@@ -98,6 +98,8 @@ bool StartNextProjectRestoreLoad(AppUiState& ui,
 bool StartLoadPath(AppUiState& ui, AppSharedState& shared, const char* path, uint8_t target_slot);
 
 bool ReadProjectManifestFromFile(ProjectManifestV11& manifest);
+bool ScanProjectSlots(AppUiState& ui, AppProjectState& project);
+bool RenameProject(AppUiState& ui, AppProjectState& project, AppWorkerState& worker);
 bool SaveProject(AppUiState& ui,
                  AppProjectState& project,
                  AppEngineState& engine,

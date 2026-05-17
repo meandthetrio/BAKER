@@ -20,6 +20,8 @@ enum class UiReqType : uint8_t
     SaveRenderedWavCurrent,
     SaveProject,
     LoadProject,
+    ScanProjectSlots,
+    RenameProject,
     COUNT
 };
 

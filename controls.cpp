@@ -102,8 +102,11 @@ void Controls_Tick(ControlsState& cs, AppUiState& ui, uint32_t now_ms)
         PushEvent(ui, MakeButtonEvent(UiInputType::BtnUp, kUiBtnLShift, now_ms));
 
     const bool enc_click = cs.hw->encoder.RisingEdge();
+    const bool enc_release = cs.hw->encoder.FallingEdge();
     if(enc_click)
         PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnPodEnc, now_ms));
+    if(enc_release)
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnUp, kUiBtnPodEnc, now_ms));
 
     const int32_t pod_inc = cs.hw->encoder.Increment();
     if(pod_inc != 0)
@@ -117,8 +120,11 @@ void Controls_Tick(ControlsState& cs, AppUiState& ui, uint32_t now_ms)
     }
 
     const bool ext_click = cs.ext_enc.RisingEdge();
+    const bool ext_release = cs.ext_enc.FallingEdge();
     if(ext_click)
         PushEvent(ui, MakeButtonEvent(UiInputType::BtnDown, kUiBtnExtEnc, now_ms));
+    if(ext_release)
+        PushEvent(ui, MakeButtonEvent(UiInputType::BtnUp, kUiBtnExtEnc, now_ms));
 
     const int32_t ext_inc = cs.ext_enc.Increment();
     if(ext_inc != 0)

@@ -7,6 +7,7 @@
 #include "ui_screens.h"
 
 #include <cstdio>
+#include <cstring>
 
 static void SetProjectStatusImmediate(AppProjectState& project, uint8_t slot, const char* msg)
 {
@@ -31,6 +32,16 @@ static bool OpenProjectStatusScreen(AppUiState& ui,
     return UiNav_Push(ui.ui_nav, UiScreenId::ProjectStatus);
 }
 
+const char* ProjectActions_DisplayName(const AppProjectState& project, uint8_t slot)
+{
+    if(slot < kProjectSlotCount && project.slot_names[slot][0] != '\0')
+        return project.slot_names[slot];
+
+    static char fallback[16];
+    std::snprintf(fallback, sizeof(fallback), "PROJECT %02u", static_cast<unsigned>(slot + 1u));
+    return fallback;
+}
+
 uint8_t ProjectActions_WrapSlot(int slot)
 {
     while(slot < 0)
@@ -46,13 +57,24 @@ bool ProjectActions_TriggerRequest(AppUiState& ui,
                                    UiReqType req_type,
                                    uint8_t slot)
 {
-    const ProjectAction action = (req_type == UiReqType::SaveProject) ? ProjectAction::Save
-                                                                      : ProjectAction::Load;
+    ProjectAction action = ProjectAction::Load;
+    const char* status = "LOADING";
+    if(req_type == UiReqType::SaveProject)
+    {
+        action = ProjectAction::Save;
+        status = "SAVING";
+    }
+    else if(req_type == UiReqType::RenameProject)
+    {
+        action = ProjectAction::Rename;
+        status = "RENAMING";
+    }
+
     OpenProjectStatusScreen(ui,
                             project,
                             action,
                             slot,
-                            (action == ProjectAction::Save) ? "SAVING" : "LOADING");
+                            status);
     const UiReq req{req_type, slot, 0};
     if(!UiReq_Push(ui, worker, req))
         SetProjectStatusImmediate(project, slot, "ERR");

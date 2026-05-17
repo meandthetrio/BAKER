@@ -8,6 +8,7 @@ struct AppWorkerState;
 enum class UiReqType : uint8_t;
 
 uint8_t ProjectActions_WrapSlot(int slot);
+const char* ProjectActions_DisplayName(const AppProjectState& project, uint8_t slot);
 bool ProjectActions_TriggerRequest(AppUiState& ui,
                                    AppProjectState& project,
                                    AppWorkerState& worker,

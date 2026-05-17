@@ -13,6 +13,7 @@
 #include "params.h"
 #include "project_actions.h"
 #include "sd_browser_state.h"
+#include "system.h"
 #include "ui_input.h"
 #include "ui_layout.h"
 #include "ui_requests.h"
@@ -22,8 +23,33 @@ enum ShiftMenuItem : uint8_t
     ShiftDelete = 0,
     ShiftVolume,
     ShiftSaveProject,
+    ShiftBootloader,
     ShiftCount
 };
+
+static constexpr uint32_t kShiftBootloaderHoldMs = 2000u;
+static constexpr uint32_t kShiftBootloaderLoadingOverlayMs = 1000u;
+
+static void ClearShiftBootloaderState(AppUiState& ui)
+{
+    ui.shift_menu_bootloader_armed = false;
+    ui.shift_menu_bootloader_arm_start_ms = 0;
+    ui.shift_menu_bootloader_loading = false;
+    ui.shift_menu_bootloader_loading_start_ms = 0;
+}
+
+static void CancelShiftBootloaderArm(AppUiState& ui)
+{
+    ui.shift_menu_bootloader_armed = false;
+    ui.shift_menu_bootloader_arm_start_ms = 0;
+}
+
+static void BeginShiftBootloaderLoading(AppUiState& ui, uint32_t now_ms)
+{
+    CancelShiftBootloaderArm(ui);
+    ui.shift_menu_bootloader_loading = true;
+    ui.shift_menu_bootloader_loading_start_ms = now_ms;
+}
 
 void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
 {
@@ -32,6 +58,7 @@ void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
     // Returning to SHIFT should cancel any SD delete mode.
     ctx.ui->sd_delete_mode = false;
     ctx.ui->shift_menu_edit_volume = false;
+    ClearShiftBootloaderState(*ctx.ui);
 }
 
 bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -42,6 +69,9 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppUiState& ui = *ctx.ui;
+    if(ui.shift_menu_bootloader_loading)
+        return true;
+
     AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
     AppProjectState& project = *ctx.project;
@@ -51,6 +81,13 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta)
     {
+        if(ui.shift_menu_bootloader_armed && e.id == kUiEncExt)
+        {
+            CancelShiftBootloaderArm(ui);
+            ui.ui_dirty = true;
+            return true;
+        }
+
         // R encoder turn adjusts value when editing VOLUME.
         if(ui.shift_menu_edit_volume && e.id == kUiEncExt)
         {
@@ -98,6 +135,8 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
             if(cur != ui.shift_menu_cursor)
             {
+                if(ui.shift_menu_bootloader_armed)
+                    CancelShiftBootloaderArm(ui);
                 ui.shift_menu_cursor = cur;
                 ui.ui_dirty = true;
             }
@@ -138,17 +177,40 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                                                  worker,
                                                  UiReqType::SaveProject,
                                                  project.current_project_slot);
+        if(ui.shift_menu_cursor == ShiftBootloader)
+        {
+            ui.shift_menu_bootloader_armed = true;
+            ui.shift_menu_bootloader_arm_start_ms = e.t_ms;
+            ui.ui_dirty = true;
+            return true;
+        }
         return true;
     }
 
     // L encoder click backs out one level when editing volume.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
+        if(ui.shift_menu_bootloader_armed)
+        {
+            CancelShiftBootloaderArm(ui);
+            ui.ui_dirty = true;
+            return true; // consume so BACK acts as cancel-first for bootloader arm
+        }
         if(ui.shift_menu_edit_volume)
         {
             ui.shift_menu_edit_volume = false;
             ui.ui_dirty = true;
             return true; // consume so router doesn't pop screen
+        }
+    }
+
+    if(e.type == UiInputType::BtnUp && e.id == kUiBtnExtEnc)
+    {
+        if(ui.shift_menu_bootloader_armed)
+        {
+            CancelShiftBootloaderArm(ui);
+            ui.ui_dirty = true;
+            return true;
         }
     }
 
@@ -158,6 +220,12 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(ui.shift_menu_edit_volume)
         {
             ui.shift_menu_edit_volume = false;
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(ui.shift_menu_bootloader_armed)
+        {
+            CancelShiftBootloaderArm(ui);
             ui.ui_dirty = true;
             return true;
         }
@@ -172,11 +240,32 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         return;
 
     AppUiState& ui = *ctx.ui;
-    AppProjectState& project = *ctx.project;
     OledPager& d = *ctx.display;
     d.Fill(false);
 
     const int screen_w = (int)d.Width();
+
+    if(ui.shift_menu_bootloader_armed)
+    {
+        const uint32_t elapsed_ms = ctx.now_ms - ui.shift_menu_bootloader_arm_start_ms;
+        if(elapsed_ms >= kShiftBootloaderHoldMs)
+        {
+            BeginShiftBootloaderLoading(ui, ctx.now_ms);
+        }
+        else if(ui.shift_menu_cursor != ShiftBootloader)
+        {
+            CancelShiftBootloaderArm(ui);
+        }
+        else
+        {
+            ui.ui_dirty = true;
+        }
+    }
+
+    if(ui.shift_menu_bootloader_loading)
+    {
+        ui.ui_dirty = true;
+    }
 
     // Compute volume percent for display (0..200 with boost).
     uint32_t vol_pct = 0;
@@ -236,6 +325,64 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         {
             if(sel) DrawRencFocusTinyString(d, "SAVE PROJECT", label_x, label_y);
             else DrawTinyString(d, "SAVE PROJECT", label_x, label_y, true);
+        }
+        else if(i == ShiftBootloader)
+        {
+            if(sel) DrawRencFocusTinyString(d, "BOOTLOADER", label_x, label_y);
+            else DrawTinyString(d, "BOOTLOADER", label_x, label_y, true);
+
+            char buf[12];
+            if(ui.shift_menu_bootloader_armed)
+            {
+                const uint32_t elapsed_ms = ctx.now_ms - ui.shift_menu_bootloader_arm_start_ms;
+                const uint32_t remaining_ms = (elapsed_ms >= kShiftBootloaderHoldMs)
+                                                  ? 0u
+                                                  : (kShiftBootloaderHoldMs - elapsed_ms);
+                const uint32_t remaining_tenths = (remaining_ms + 99u) / 100u;
+                std::snprintf(buf,
+                              sizeof(buf),
+                              "%lu.%lus",
+                              static_cast<unsigned long>(remaining_tenths / 10u),
+                              static_cast<unsigned long>(remaining_tenths % 10u));
+            }
+            else if(sel)
+            {
+                std::snprintf(buf, sizeof(buf), "%s", "HOLD 2S");
+            }
+            else
+            {
+                buf[0] = '\0';
+            }
+
+            if(buf[0] != '\0')
+            {
+                const int val_w = TinyStringWidth(buf);
+                DrawTinyString(d, buf, screen_w - val_w - 1, label_y, true);
+            }
+        }
+    }
+
+    if(ui.shift_menu_bootloader_loading)
+    {
+        const char* kLoadingLabel = "LOADING";
+        const int overlay_w = TinyStringWidth(kLoadingLabel) + 10;
+        const int overlay_h = Font5x7::H + 8;
+        const int overlay_x = (screen_w - overlay_w) / 2;
+        const int overlay_y = (static_cast<int>(d.Height()) - overlay_h) / 2;
+
+        d.DrawRect(overlay_x, overlay_y, overlay_x + overlay_w - 1, overlay_y + overlay_h - 1, false, true);
+        d.DrawRect(overlay_x, overlay_y, overlay_x + overlay_w - 1, overlay_y + overlay_h - 1, true, false);
+        DrawTinyString(d,
+                       kLoadingLabel,
+                       overlay_x + (overlay_w - TinyStringWidth(kLoadingLabel)) / 2,
+                       overlay_y + (overlay_h - Font5x7::H) / 2,
+                       true);
+
+        const uint32_t loading_elapsed_ms = ctx.now_ms - ui.shift_menu_bootloader_loading_start_ms;
+        if(loading_elapsed_ms >= kShiftBootloaderLoadingOverlayMs)
+        {
+            daisy::System::ResetToBootloader(daisy::System::DAISY_INFINITE_TIMEOUT);
+            return;
         }
     }
 }

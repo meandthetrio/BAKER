@@ -22,6 +22,7 @@ static const char* ProjectActionLabel(ProjectAction action)
     {
         case ProjectAction::Save: return "SAVE";
         case ProjectAction::Load: return "LOAD";
+        case ProjectAction::Rename: return "RENAME";
         default: return "NONE";
     }
 }

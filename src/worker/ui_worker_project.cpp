@@ -32,6 +32,32 @@ static uint8_t ClampProjectSlotIndex(uint8_t slot)
     return (slot < kProjectSlotCount) ? slot : 0u;
 }
 
+static bool IsProjectNameChar(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+}
+
+static void SanitizeProjectName(char* out, size_t n, const char* src)
+{
+    if(!out || n == 0)
+        return;
+
+    size_t write = 0;
+    if(src)
+    {
+        for(size_t read = 0; src[read] != '\0' && write + 1 < n; ++read)
+        {
+            char c = src[read];
+            if(c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c - 'A' + 'a');
+            if(!IsProjectNameChar(c))
+                continue;
+            out[write++] = c;
+        }
+    }
+    out[write] = '\0';
+}
+
 uint8_t RequestedProjectSlot(const AppWorkerState& worker)
 {
     return ClampProjectSlotIndex(static_cast<uint8_t>(worker.ui_req_arg0));
@@ -66,6 +92,35 @@ void SetProjectSlotStatus(AppProjectState& project, uint8_t slot, const char* ms
     const uint8_t slot_num = static_cast<uint8_t>(ClampProjectSlotIndex(slot) + 1u);
     std::snprintf(status, sizeof(status), "P%02u %s", slot_num, msg ? msg : "");
     SetProjectStatus(project, status);
+}
+
+static void CacheProjectSlotName(AppProjectState& project, uint8_t slot, const char* name)
+{
+    if(slot >= kProjectSlotCount)
+        return;
+    SanitizeProjectName(project.slot_names[slot], sizeof(project.slot_names[slot]), name);
+}
+
+static bool ReadExistingProjectName(uint8_t slot, char* out, size_t n)
+{
+    if(!out || n == 0)
+        return false;
+
+    out[0] = '\0';
+    const char* base = s_sd.fsi.GetSDPath();
+    char prj_path[kProjectPathMax];
+    if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, slot, "AKPRJ"))
+        return false;
+
+    if(f_open(&s_sd.file, prj_path, FA_READ) != FR_OK)
+        return false;
+
+    ProjectManifestV11 manifest{};
+    if(!ReadProjectManifestFromFile(manifest))
+        return false;
+
+    SanitizeProjectName(out, n, manifest.project_name);
+    return true;
 }
 
 bool ProjectManifestHasLayer(const ProjectManifestV11& m, uint8_t layer)
@@ -448,6 +503,41 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
         = shared.performance.express.enabled.load(std::memory_order_relaxed) ? 1u : 0u;
 }
 
+bool ScanProjectSlots(AppUiState& ui, AppProjectState& project)
+{
+    project.metadata_scan_requested = false;
+    project.metadata_scan_complete = false;
+
+    if(!EnsureSdMounted(ui))
+        return false;
+
+    for(uint8_t slot = 0; slot < kProjectSlotCount; ++slot)
+    {
+        project.slot_has_file[slot] = false;
+        project.slot_names[slot][0] = '\0';
+
+        const char* base = s_sd.fsi.GetSDPath();
+        char prj_path[kProjectPathMax];
+        if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, slot, "AKPRJ"))
+            continue;
+
+        const FRESULT open_res = f_open(&s_sd.file, prj_path, FA_READ);
+        if(open_res != FR_OK)
+            continue;
+
+        project.slot_has_file[slot] = true;
+        ProjectManifestV11 manifest{};
+        if(!ReadProjectManifestFromFile(manifest))
+            continue;
+
+        CacheProjectSlotName(project, slot, manifest.project_name);
+    }
+
+    project.metadata_scan_complete = true;
+    ui.ui_dirty = true;
+    return true;
+}
+
 static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifestV11& manifest)
 {
     char tmp_path[kProjectPathMax];
@@ -498,6 +588,8 @@ static bool EnsureProjectSaveMounted(AppUiState& ui, AppProjectState& project, u
 }
 
 static void CollectProjectSaveManifest(ProjectManifestV11& manifest,
+                                       AppProjectState& project,
+                                       uint8_t project_slot,
                                        AppEngineState& engine,
                                        AppSharedState& shared,
                                        const Params& params)
@@ -505,6 +597,20 @@ static void CollectProjectSaveManifest(ProjectManifestV11& manifest,
     const PerformParamsTargets& targets = params.TargetsForUI();
     CollectProjectLayerState(manifest, engine, shared, targets);
     CollectProjectGlobalState(manifest, shared, targets);
+
+    char project_name[sizeof(manifest.project_name)] = {};
+    if(project_slot < kProjectSlotCount)
+    {
+        if(project.slot_names[project_slot][0] != '\0')
+        {
+            SanitizeProjectName(project_name, sizeof(project_name), project.slot_names[project_slot]);
+        }
+        else if(project.slot_has_file[project_slot])
+        {
+            ReadExistingProjectName(project_slot, project_name, sizeof(project_name));
+        }
+    }
+    std::snprintf(manifest.project_name, sizeof(manifest.project_name), "%s", project_name);
 }
 
 static bool ValidateProjectSaveManifest(AppProjectState& project,
@@ -544,11 +650,17 @@ bool SaveProject(AppUiState& ui,
         return false;
 
     ProjectManifestV11 manifest{};
-    CollectProjectSaveManifest(manifest, engine, shared, params);
+    CollectProjectSaveManifest(manifest, project, project_slot, engine, shared, params);
     if(!ValidateProjectSaveManifest(project, project_slot, manifest))
         return false;
 
-    return WriteProjectSaveManifest(project, project_slot, manifest);
+    if(!WriteProjectSaveManifest(project, project_slot, manifest))
+        return false;
+
+    CacheProjectSlotName(project, project_slot, manifest.project_name);
+    project.slot_has_file[project_slot] = true;
+    project.metadata_scan_complete = true;
+    return true;
 }
 
 static uint8_t BeginProjectLoad(AppProjectState& project, const AppWorkerState& worker)
@@ -575,4 +687,57 @@ bool LoadProject(AppUiState& ui,
 
     SetupProjectRestoreState(worker, engine, manifest);
     return BeginProjectRestoreLoad(ui, project, engine, shared, worker, project_slot);
+}
+
+bool RenameProject(AppUiState& ui, AppProjectState& project, AppWorkerState& worker)
+{
+    const uint8_t project_slot = RequestedProjectSlot(worker);
+    if(project_slot >= kProjectSlotCount || !project.slot_has_file[project_slot])
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    if(!EnsureSdMounted(ui))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    const char* base = s_sd.fsi.GetSDPath();
+    char prj_path[kProjectPathMax];
+    if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, project_slot, "AKPRJ"))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    if(f_open(&s_sd.file, prj_path, FA_READ) != FR_OK)
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    ProjectManifestV11 manifest{};
+    if(!ReadProjectManifestFromFile(manifest))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    SanitizeProjectName(manifest.project_name,
+                        sizeof(manifest.project_name),
+                        project.pending_rename_name);
+    if(!WriteProjectManifestFile(project_slot, manifest))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    CacheProjectSlotName(project, project_slot, manifest.project_name);
+    project.slot_has_file[project_slot] = true;
+    project.metadata_scan_complete = true;
+    SetProjectSlotStatus(project, project_slot, "RENAMED");
+    ui.ui_dirty = true;
+    return true;
 }

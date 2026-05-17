@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "app_state_project.h"
 #include "sd_browser_state.h"
 #include "ui_input.h"
 #include "ui_list_menu.h"
@@ -11,6 +12,12 @@
 enum class PerformPage : uint8_t
 {
     Main = 0,
+};
+
+enum class ProjectRenameFocus : uint8_t
+{
+    Grid = 0,
+    Save,
 };
 
 // Main-thread UI shell, input plumbing, browser/editor navigation, and destructive-menu state.
@@ -56,9 +63,19 @@ struct AppUiState
     // SHIFT menu and destructive browser flow state.
     uint8_t shift_menu_cursor = 0;
     bool shift_menu_edit_volume = false;
+    bool shift_menu_bootloader_armed = false;
+    uint32_t shift_menu_bootloader_arm_start_ms = 0;
+    bool shift_menu_bootloader_loading = false;
+    uint32_t shift_menu_bootloader_loading_start_ms = 0;
     bool sd_delete_mode = false;
     uint16_t sd_delete_index = 0;
     char sd_delete_name[kSdNameMax] = {};
+    uint8_t project_action_cursor = 0;
+    uint8_t project_rename_grid_col = 0;
+    uint8_t project_rename_grid_row = 0;
+    uint8_t project_rename_length = 0;
+    ProjectRenameFocus project_rename_focus = ProjectRenameFocus::Grid;
+    char project_rename_draft[kProjectNameMax] = {};
 
     UiListMenu sample_edit_menu{};
     bool sample_edit_menu_inited = false;

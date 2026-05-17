@@ -13,6 +13,7 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
 - Root navigation starts at `Start` (main menu), not at HUD.
 - PRESETS owns project-slot selection and project load.
 - Button1 Settings retains `SAVE PROJECT` but uses the currently selected PRESETS slot implicitly.
+- Button1 Settings also exposes `BOOTLOADER`, which should require a deliberate `RClick` hold for 2 seconds.
 - Overlay rendering code exists, but the old dedicated overlay hotkey is not guaranteed on every branch.
 - HUD, FX, MOD, MACRO, and SAMPLE EDIT may be route-dependent. If a route is not exposed in the current build, skip that check rather than inventing a path.
 - Preset save/load beyond project-file save/load is still partial. Treat project save/load as the supported persistence path.
@@ -133,6 +134,20 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
   - Enter/commit/cancel behavior is reliable and footer or mode hints update coherently.
 - Fail
   - Stuck edit mode, wrong-target edits, or commit/cancel behavior that does not match the displayed state.
+
+### Bootloader arm safety
+- Setup
+  - Open Button1 Settings and select `BOOTLOADER`.
+- Action
+  - Tap `RClick` briefly once.
+  - Hold `RClick` for less than 2 seconds and release.
+  - Hold `RClick` continuously for at least 2 seconds.
+- Pass
+  - A short tap does not enter bootloader.
+  - Releasing before 2 seconds cancels the armed state cleanly.
+  - A continuous 2-second hold enters the Daisy bootloader.
+- Fail
+  - Single-click bootloader entry, armed state that cannot be cancelled, or reset behavior triggered outside the deliberate hold path.
 
 ### Layout and diagnostics sanity
 - Setup

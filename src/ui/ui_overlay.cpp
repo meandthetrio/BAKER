@@ -106,6 +106,8 @@ const char* WorkerStateValue(const AppWorkerState& worker_state)
             case UiReqType::SaveRenderedWavCurrent: return "render sample";
             case UiReqType::SaveProject: return "save project";
             case UiReqType::LoadProject: return "load project";
+            case UiReqType::ScanProjectSlots: return "scan projects";
+            case UiReqType::RenameProject: return "rename project";
             default: return "working";
         }
     }

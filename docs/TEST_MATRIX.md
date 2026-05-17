@@ -11,7 +11,8 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
 ## Current Build Notes
 
 - Root navigation starts at `Start` (main menu), not at HUD.
-- `PROJECT SLOT`, `SAVE PROJECT`, and `LOAD PROJECT` live under Button1 Settings.
+- PRESETS owns project-slot selection and project load.
+- Button1 Settings retains `SAVE PROJECT` but uses the currently selected PRESETS slot implicitly.
 - Overlay rendering code exists, but the old dedicated overlay hotkey is not guaranteed on every branch.
 - HUD, FX, MOD, MACRO, and SAMPLE EDIT may be route-dependent. If a route is not exposed in the current build, skip that check rather than inventing a path.
 - Preset save/load beyond project-file save/load is still partial. Treat project save/load as the supported persistence path.
@@ -251,9 +252,9 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
 
 ### Project save/load core path
 - Setup
-  - Build a distinct state and pick a known project slot through Button1 Settings.
+  - Build a distinct state and pick a known project slot through PRESETS.
 - Action
-  - Save the project, change state, then load the same slot.
+  - Save the project from Button1 Settings, change state, then load the same slot from PRESETS.
 - Pass
   - Save/load status is surfaced clearly and the supported persisted state restores deterministically.
 - Fail

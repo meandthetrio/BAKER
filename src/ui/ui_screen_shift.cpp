@@ -21,9 +21,7 @@ enum ShiftMenuItem : uint8_t
 {
     ShiftDelete = 0,
     ShiftVolume,
-    ShiftProjectSlot,
     ShiftSaveProject,
-    ShiftLoadProject,
     ShiftCount
 };
 
@@ -89,17 +87,6 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
-        if(!ui.shift_menu_edit_volume
-           && e.id == kUiEncExt
-           && ui.shift_menu_cursor == ShiftProjectSlot
-           && e.value != 0)
-        {
-            const int next = static_cast<int>(project.current_project_slot) + e.value;
-            project.current_project_slot = ProjectActions_WrapSlot(next);
-            ui.ui_dirty = true;
-            return true;
-        }
-
         // L encoder turn scrolls between settings rows when not editing.
         if(!ui.shift_menu_edit_volume && e.id == kUiEncPod)
         {
@@ -151,12 +138,6 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                                                  worker,
                                                  UiReqType::SaveProject,
                                                  project.current_project_slot);
-        if(ui.shift_menu_cursor == ShiftLoadProject)
-            return ProjectActions_TriggerRequest(ui,
-                                                 project,
-                                                 worker,
-                                                 UiReqType::LoadProject,
-                                                 project.current_project_slot);
         return true;
     }
 
@@ -191,20 +172,11 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         return;
 
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
     AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
-    AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const UiLayout layout = UiLayout_Default();
     const int screen_w = (int)d.Width();
-    char status[16];
-    BuildStatus(shared, status, sizeof(status));
-    UiDraw_Header(d, layout, "SETTINGS", status);
 
     // Compute volume percent for display (0..200 with boost).
     uint32_t vol_pct = 0;
@@ -221,98 +193,49 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
             vol_pct = 200u;
     }
 
-    // Settings rows: DELETE / OUTPUT VOL / PROJECT SLOT / SAVE PROJECT / LOAD PROJECT.
-    const int row_y0 = layout.y_body;
-    const int row_h = layout.line_h;
+    static constexpr int kRowPitch = Font5x7::H + 2;
+    const int total_h = static_cast<int>(ShiftCount) * Font5x7::H
+                        + static_cast<int>(ShiftCount - 1u) * 2;
+    const int row_y0 = (static_cast<int>(d.Height()) - total_h) / 2;
 
     for(int i = 0; i < ShiftCount; ++i)
     {
         const bool sel = (ui.shift_menu_cursor == (uint8_t)i);
-        const int y = row_y0 + i * row_h;
-        const int x0 = layout.x;
-        const int label_x = x0 + 1;
-        const int label_y = y + 1;
+        const int label_y = row_y0 + i * kRowPitch;
+        const int label_x = 1;
         if(i == ShiftDelete)
         {
-            if(sel) DrawRencFocusString6x8(d, "DELETE", label_x, label_y);
-            else
-            {
-                d.SetCursor(label_x, label_y);
-                d.WriteString("DELETE", Font_6x8, true);
-            }
+            if(sel) DrawRencFocusTinyString(d, "DELETE", label_x, label_y);
+            else DrawTinyString(d, "DELETE", label_x, label_y, true);
         }
         else if(i == ShiftVolume)
         {
-            const char* label = ui.shift_menu_edit_volume ? "OUTPUT VOL*" : "OUTPUT VOL";
-            if(sel) DrawRencFocusString6x8(d, label, label_x, label_y);
-            else
-            {
-                d.SetCursor(label_x, label_y);
-                d.WriteString(label, Font_6x8, true);
-            }
+            const char* label = "OUTPUT VOL";
+            if(sel) DrawRencFocusTinyString(d, label, label_x, label_y);
+            else DrawTinyString(d, label, label_x, label_y, true);
 
             // Right-aligned value.
             char buf[8];
-            int  val_len = 3;
             if(vol_pct == 100u)
             {
                 std::snprintf(buf, sizeof(buf), "UNITY");
-                val_len = 5;
             }
             else if(vol_pct > 100u)
             {
                 std::snprintf(buf, sizeof(buf), "+%3lu", (unsigned long)vol_pct);
-                val_len = 4;
             }
             else
             {
                 std::snprintf(buf, sizeof(buf), "%3lu", (unsigned long)vol_pct);
-                val_len = 3;
             }
 
-            const int val_w = 6 * val_len;
-            d.SetCursor(screen_w - val_w - 1, y + 1);
-            d.WriteString(buf, Font_6x8, true);
-        }
-        else if(i == ShiftProjectSlot)
-        {
-            if(sel) DrawRencFocusString6x8(d, "PROJECT SLOT", label_x, label_y);
-            else
-            {
-                d.SetCursor(label_x, label_y);
-                d.WriteString("PROJECT SLOT", Font_6x8, true);
-            }
-
-            char buf[8];
-            std::snprintf(buf,
-                          sizeof(buf),
-                          "%02u",
-                          static_cast<unsigned>(project.current_project_slot + 1u));
-            d.SetCursor(screen_w - 12 - 1, y + 1);
-            d.WriteString(buf, Font_6x8, true);
+            const int val_w = TinyStringWidth(buf);
+            DrawTinyString(d, buf, screen_w - val_w - 1, label_y, true);
         }
         else if(i == ShiftSaveProject)
         {
-            if(sel) DrawRencFocusString6x8(d, "SAVE PROJECT", label_x, label_y);
-            else
-            {
-                d.SetCursor(label_x, label_y);
-                d.WriteString("SAVE PROJECT", Font_6x8, true);
-            }
-        }
-        else if(i == ShiftLoadProject)
-        {
-            if(sel) DrawRencFocusString6x8(d, "LOAD PROJECT", label_x, label_y);
-            else
-            {
-                d.SetCursor(label_x, label_y);
-                d.WriteString("LOAD PROJECT", Font_6x8, true);
-            }
+            if(sel) DrawRencFocusTinyString(d, "SAVE PROJECT", label_x, label_y);
+            else DrawTinyString(d, "SAVE PROJECT", label_x, label_y, true);
         }
     }
-
-    const char* hint = ui.shift_menu_edit_volume ? "L:NAV R:CHG P2:BACK"
-                        : (ui.shift_menu_cursor == ShiftProjectSlot) ? "L:NAV R:CHG/CLK"
-                        : "L:NAV R:SEL";
-    UiDraw_Footer(d, layout, hint);
 }

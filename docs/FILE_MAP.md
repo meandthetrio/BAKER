@@ -32,7 +32,7 @@
 - `/build` generated output only.
 
 ## Entry Points
-- `main.cpp` `[MAIN]` app entry, hardware init, `AudioCallback`, main-loop scheduling, MIDI to event mapping.
+- `main.cpp` `[MAIN]` app entry, hardware init, `AudioCallback`, main-loop scheduling, UART + USB MIDI polling, and MIDI to event mapping.
 - `app_state.h` `[SHARED]` composition root for runtime state and cross-subsystem wiring; prefer narrower `app_state_*` headers away from orchestration boundaries.
 
 ## Module Map
@@ -116,6 +116,7 @@
 ## Cross-Thread Handoffs
 - Event queue: `event_queue.h`
   - MAIN writes MIDI/voice events, AUDIO consumes in `VoiceEngine::ProcessEvents`.
+  - Both UART MIDI and USB MIDI are decoded on MAIN and feed this same queue path.
 - Parameter publish/smoothing: `params.*`
   - MAIN edits/publishes targets, AUDIO consumes smoothed current values once per block.
 - UI request to worker: `ui_requests.*` -> `ui_worker.*`

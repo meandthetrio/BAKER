@@ -11,6 +11,19 @@
 #include "sample_edit.h"
 #include "ui_input.h"
 
+namespace
+{
+void StartTrimPreview(AppUiState& ui)
+{
+    ui.ui_trim_preview_hold = true;
+}
+
+void StopTrimPreview(AppUiState& ui)
+{
+    ui.ui_trim_preview_hold = false;
+}
+} // namespace
+
 void PerformWaveEdit_Render(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.display)
@@ -213,6 +226,7 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
+    StopTrimPreview(ui);
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     SampleEdit edit = shared.sample.edit.sd_edit_slots[layer];
     const Sample& sample = shared.sample.publish.sd_slots[layer];
@@ -248,9 +262,24 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        engine.perform_nav.perform_layer ^= 1u;
-        const uint8_t next = engine.perform_nav.perform_layer & 1u;
-        shared.sample.publish.sd_current_slot.store(next, std::memory_order_release);
+        if(ctx.rshift)
+        {
+            StopTrimPreview(ui);
+            engine.perform_nav.perform_layer ^= 1u;
+            const uint8_t next = engine.perform_nav.perform_layer & 1u;
+            shared.sample.publish.sd_current_slot.store(next, std::memory_order_release);
+        }
+        else
+        {
+            StartTrimPreview(ui);
+        }
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnUp && e.id == kUiBtnPod2)
+    {
+        StopTrimPreview(ui);
         ui.ui_dirty = true;
         return true;
     }
@@ -258,6 +287,7 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // Cancel trim edit session: restore entry snapshot and return.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
+        StopTrimPreview(ui);
         if(engine.wave_edit.perform_wave_edit_has_entry)
         {
             for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)

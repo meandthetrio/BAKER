@@ -41,6 +41,7 @@ ADSR_V2 is an embedded Daisy sampler/performer firmware repo. The codebase is or
 
 ### Audio handoff
 - Musical events move from main-thread code into audio through the event queue.
+- MIDI transport polling stays on the main thread; UART MIDI and USB MIDI share the same decoded event handoff into audio.
 - Parameter changes move from UI/main-thread code into audio through the params publish/smoothing path.
 - Sample and edit changes are published by non-audio code and applied by audio at safe block boundaries.
 - Audio ownership is also split by concern: treat `voice_engine.cpp` plus `voice_engine_*.cpp` as one module with specialized owners.

@@ -24,6 +24,8 @@ struct AppUiState
     bool ui_blank_screen_active = false;
     bool ui_lshift_held = false;
     bool ui_rshift_held = false;
+    bool ui_trim_preview_hold = false;
+    bool ui_trim_preview_gate = false;
     bool ui_parent_preview_active = false;
     uint8_t ui_parent_preview_from_top = 0;
     uint8_t ui_parent_preview_mode = 0;

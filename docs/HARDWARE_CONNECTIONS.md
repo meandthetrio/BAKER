@@ -64,10 +64,26 @@ Wiring (explicit in repo):
 - SDA -> Seed **D12**
 Source: `main.cpp` (`InitOled`)
 
-## MIDI (used by code; pins not stated in repo)
+## MIDI (used by code)
+### UART MIDI
+- UART MIDI remains enabled.
 - MIDI receive is started via: `hw.midi.StartReceive();`
+- DaisyPod/libDaisy owns the UART MIDI transport setup.
 Source: `main.cpp`
-> Note: Physical pin/jack wiring is not stated in this repo (handled by DaisyPod/libDaisy defaults).
+> Note: Physical UART MIDI jack/pin wiring is not restated in this repo because it comes from DaisyPod/libDaisy defaults.
+
+### USB-C MIDI device input
+- USB-C MIDI input uses libDaisy `MidiUsbHandler`.
+- Firmware initializes USB MIDI with `MidiUsbHandler::Config` and sets `transport_config.periph = MidiUsbTransport::Config::EXTERNAL`.
+- Expected Daisy Seed USB device pins for this path:
+  - `D30` = USB `D+`
+  - `D29` = USB `D-`
+  - `D0` = USB `ID`
+- The board USB-C connector is expected to be wired to those Seed USB device pins for power/data.
+- USB MIDI receive is started via: `usb_midi.StartReceive();`
+- USB MIDI is polled from the main/control domain, not from the audio callback.
+- USB MIDI and UART MIDI both feed the same existing BAKER `NoteOn` / `NoteOff` event queue path.
+Source: `main.cpp`
 
 ## Record input source selection
 - The RECORD flow switches between `LINE IN` and `MICROPHONE` in UI/state code.

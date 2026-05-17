@@ -30,6 +30,7 @@ using namespace daisy;
 
 // --- Hardware ---
 static DaisyPod hw;
+static MidiUsbHandler usb_midi;
 
 // --- OLED Types ---
 using PodDisplay = OledDisplay<SSD130xI2c128x64Driver>;
@@ -150,13 +151,14 @@ static void HandleMidiControlChange(const ControlChangeEvent& cc)
     g_app.shared.performance.express.midi_mod_seen.store(1u, std::memory_order_release);
 }
 
-static bool DrainMidiInput(uint32_t now_ms)
+template <typename TMidiHandler>
+static bool DrainMidiHandlerInput(TMidiHandler& midi, uint32_t now_ms)
 {
     bool midi_activity = false;
-    hw.midi.Listen();
-    while(hw.midi.HasEvents())
+    midi.Listen();
+    while(midi.HasEvents())
     {
-        MidiEvent msg = hw.midi.PopEvent();
+        MidiEvent msg = midi.PopEvent();
         g_app.diag.midi_rx_count.fetch_add(1, std::memory_order_relaxed);
         midi_activity = true;
 
@@ -170,6 +172,16 @@ static bool DrainMidiInput(uint32_t now_ms)
     if(midi_activity)
         g_app.ui.last_input_ms = now_ms;
     return midi_activity;
+}
+
+static bool DrainMidiInput(uint32_t now_ms)
+{
+    return DrainMidiHandlerInput(hw.midi, now_ms);
+}
+
+static bool DrainUsbMidiInput(uint32_t now_ms)
+{
+    return DrainMidiHandlerInput(usb_midi, now_ms);
 }
 
 static void RunControlTicks(uint32_t now_ms)
@@ -277,7 +289,11 @@ int main(void)
     g_app.ui.ui_nav.top = 0;
     g_app.ui.ui_nav.stack[0] = UiScreenId::Start;
     g_app.ui.ui_active_screen = UiScreenId::Start;
+    MidiUsbHandler::Config usb_midi_config;
+    usb_midi_config.transport_config.periph = MidiUsbTransport::Config::EXTERNAL;
+    usb_midi.Init(usb_midi_config);
     hw.midi.StartReceive();
+    usb_midi.StartReceive();
     g_voice.Init(g_sample_rate_hz, hw.AudioBlockSize());
     g_voice.BindDiagnostics(&g_app.diag);
     g_voice.SetModMatrix(&g_app.shared.performance.modulation.mod_matrix);
@@ -333,8 +349,10 @@ int main(void)
             ctrl_accum_ms = 20;
 
         const bool midi_activity = DrainMidiInput(now_ms);
+        const bool usb_midi_activity = DrainUsbMidiInput(now_ms);
 
-        const bool midi_busy = midi_activity || hw.midi.HasEvents();
+        const bool midi_busy = midi_activity || usb_midi_activity || hw.midi.HasEvents()
+                               || usb_midi.HasEvents();
         RunControlTicks(now_ms);
 
         const uint32_t loop_mode = g_app.diag.loop_mode.load(std::memory_order_relaxed);

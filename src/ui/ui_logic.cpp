@@ -16,6 +16,56 @@ using namespace daisy;
 
 namespace
 {
+void ClearParentPreviewState(AppUiState& ui)
+{
+    ui.ui_parent_preview_active = false;
+    ui.ui_parent_preview_from_top = 0;
+    ui.ui_parent_preview_mode = 0;
+    ui.ui_parent_preview_origin_screen = UiScreenId::COUNT;
+    ui.ui_parent_preview_origin_main_cursor = 0;
+    ui.ui_parent_preview_origin_fx_cursor = 0;
+    ui.ui_parent_preview_origin_process_detail = false;
+    ui.ui_parent_preview_origin_process_eq_graph = false;
+}
+
+bool PushPreviewNoteOn(EventQueueSPSC& evtq,
+                       AppDiagnosticsState& diag,
+                       AppUiState& ui,
+                       uint8_t note,
+                       uint8_t velocity,
+                       uint8_t slot)
+{
+    const uint8_t vel_layer = Velocity_SelectLayer(velocity);
+    Event evt = Event::NoteOnEvent(note, velocity);
+    evt.value = static_cast<uint32_t>(slot) | (static_cast<uint32_t>(vel_layer) << 8);
+    if(evtq.Push(evt))
+    {
+        diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+    ui.ui_dirty = true;
+    return false;
+}
+
+bool PushPreviewNoteOff(EventQueueSPSC& evtq,
+                        AppDiagnosticsState& diag,
+                        AppUiState& ui,
+                        uint8_t note)
+{
+    const Event evt = Event::NoteOffEvent(note);
+    if(evtq.Push(evt))
+    {
+        diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+    ui.ui_dirty = true;
+    return false;
+}
+
 void CloseDiagnosticsOverlay(UiOverlayState& overlay)
 {
     overlay.modal_active = false;
@@ -26,7 +76,7 @@ bool DispatchToParentPreview(AppState& app, Params& params, const UiInputEvent& 
 {
     AppUiState& ui = app.ui;
     AppEngineState& engine = app.engine;
-    if(!ui.ui_parent_preview_active)
+    if(!ui.ui_parent_preview_active || !ui.ui_lshift_held)
         return false;
     if(e.type != UiInputType::EncDelta || e.value == 0)
         return false;
@@ -135,14 +185,7 @@ void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms
             UiNav_Push(ui.ui_nav, ui.ui_parent_preview_origin_screen);
     }
 
-    ui.ui_parent_preview_active = false;
-    ui.ui_parent_preview_from_top = 0;
-    ui.ui_parent_preview_mode = 0;
-    ui.ui_parent_preview_origin_screen = UiScreenId::COUNT;
-    ui.ui_parent_preview_origin_main_cursor = 0;
-    ui.ui_parent_preview_origin_fx_cursor = 0;
-    ui.ui_parent_preview_origin_process_detail   = false;
-    ui.ui_parent_preview_origin_process_eq_graph = false;
+    ClearParentPreviewState(ui);
     ui.ui_dirty = true;
 }
 } // namespace
@@ -343,6 +386,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         {
             if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
             {
+                ClearParentPreviewState(ui);
                 ui.ui_blank_screen_active = false;
                 ui.ui_dirty = true;
             }
@@ -358,10 +402,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 diag.overlay.modal_active = true;
                 diag.overlay.page = kDiagOverlayPageSys;
                 UiOverlay_Update(diag.overlay, now_ms);
-                ui.ui_parent_preview_active = false;
-                ui.ui_parent_preview_from_top = 0;
-                ui.ui_parent_preview_mode = 0;
-                ui.ui_parent_preview_origin_screen = UiScreenId::COUNT;
+                ClearParentPreviewState(ui);
                 ui.ui_dirty = true;
             }
             continue;
@@ -420,6 +461,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
            && both_shifts_held
            && e.id == kUiBtnPod2)
         {
+            ClearParentPreviewState(ui);
             ui.ui_blank_screen_active = true;
             ui.ui_dirty = true;
             continue;
@@ -538,30 +580,31 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         const Sample& s = shared.sample.publish.sd_slots[slot];
         if(s.pcm != nullptr && s.length > 0)
         {
-            const uint8_t velocity = 120;
-            const uint8_t vel_layer = Velocity_SelectLayer(velocity);
-            Event evt = Event::NoteOnEvent(60, velocity);
-            evt.value = static_cast<uint32_t>(slot) | (static_cast<uint32_t>(vel_layer) << 8);
-            if(evtq.Push(evt))
-            {
-                diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
+            if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))
                 recording.record_preview_gate = true;
-            }
-            else
-            {
-                diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-                ui.ui_dirty = true;
-            }
         }
     }
     if((!record_review_active || !recording.record_preview_hold) && recording.record_preview_gate)
     {
-        const Event evt = Event::NoteOffEvent(60);
-        if(evtq.Push(evt))
-            diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
-        else
-            diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
-        recording.record_preview_gate = false;
+        if(PushPreviewNoteOff(evtq, diag, ui, 60))
+            recording.record_preview_gate = false;
+    }
+
+    const bool trim_preview_active = (active_screen == UiScreenId::PerformWaveEdit);
+    if(trim_preview_active && ui.ui_trim_preview_hold && !ui.ui_trim_preview_gate)
+    {
+        const uint8_t slot = engine.perform_nav.perform_layer & 1u;
+        const Sample& s = shared.sample.publish.sd_slots[slot];
+        if(s.pcm != nullptr && s.length > 0)
+        {
+            if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))
+                ui.ui_trim_preview_gate = true;
+        }
+    }
+    if((!trim_preview_active || !ui.ui_trim_preview_hold) && ui.ui_trim_preview_gate)
+    {
+        if(PushPreviewNoteOff(evtq, diag, ui, 60))
+            ui.ui_trim_preview_gate = false;
     }
 
     shift_held = ui.ui_lshift_held;

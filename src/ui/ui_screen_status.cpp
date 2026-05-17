@@ -68,13 +68,7 @@ void ProjectStatus_Render(UiScreenCtx& ctx)
     if(!ctx.ui || !ctx.display)
         return;
 
-    const AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
     AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
-    AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;
     d.Fill(false);
 

@@ -18,10 +18,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     if(ctx.shift)
@@ -192,10 +189,7 @@ void Record_OnEnter(UiScreenCtx& ctx)
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     recording.record_state = RecordUiState::SourceSelect;
     recording.record_source_index = 0;
     recording.record_target_index = 0;
@@ -213,13 +207,8 @@ void Record_OnExit(UiScreenCtx& ctx)
 {
     if(!ctx.ui)
         return;
-    AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     Record_StopPreview(recording);
     shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     recording.record_anim_start_ms = -1.0;

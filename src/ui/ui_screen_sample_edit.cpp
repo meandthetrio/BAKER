@@ -71,10 +71,6 @@ bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     if(ctx.shift)
@@ -232,10 +228,6 @@ void SampleEdit_Render(UiScreenCtx& ctx)
         return;
 
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     const uint8_t slot = shared.sample.publish.sd_current_slot.load(std::memory_order_relaxed) & 1u;

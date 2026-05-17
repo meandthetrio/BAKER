@@ -64,7 +64,6 @@ static void DrawPerformLoopCrossfadeCurve(OledPager& d,
 
 void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
 {
-    AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
     AppSharedState& shared = *ctx.shared;
 

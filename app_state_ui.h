@@ -72,6 +72,7 @@ struct AppUiState
     // SHIFT menu and destructive browser flow state.
     uint8_t shift_menu_cursor = 0;
     bool shift_menu_edit_volume = false;
+    bool shift_menu_firmware_update_active = false;
     bool shift_menu_bootloader_armed = false;
     uint32_t shift_menu_bootloader_arm_start_ms = 0;
     bool shift_menu_bootloader_loading = false;

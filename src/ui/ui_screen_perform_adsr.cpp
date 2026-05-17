@@ -163,11 +163,7 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
@@ -225,11 +221,7 @@ void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
         return;
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     engine.adsr.perform_adsr_stage_focus = 0;
     engine.adsr.perform_adsr_type_focus = false;
     engine.adsr.perform_adsr_wave_focus = false;
@@ -248,11 +240,7 @@ void PerformAdsr_Render(UiScreenCtx& ctx)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     EngineRefreshLoadedMetadata(ui, engine, shared);
 
     OledPager& d = *ctx.display;

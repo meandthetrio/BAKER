@@ -26,11 +26,6 @@ bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
         return false;
 
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
-    AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     SdBrowserState& sd = ui.sd;
 
@@ -65,12 +60,7 @@ void SdDeleteConfirm_Render(UiScreenCtx& ctx)
         return;
 
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;
     d.Fill(false);
 

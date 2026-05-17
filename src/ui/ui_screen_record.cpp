@@ -89,10 +89,7 @@ static void Record_StartRecording(UiScreenCtx& ctx)
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     const uint8_t src = (recording.record_source_index == 1)
                             ? static_cast<uint8_t>(RecordInputSource::Mic)
                             : static_cast<uint8_t>(RecordInputSource::LineIn);
@@ -109,13 +106,7 @@ static void Record_RenderReadyCuzStyle(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.display)
         return;
-    AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
-    AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;
 
     static uint8_t text_mask[64][128];
@@ -388,10 +379,7 @@ void Record_Render(UiScreenCtx& ctx)
         return;
 
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
     OledPager& d = *ctx.display;

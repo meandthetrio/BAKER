@@ -23,15 +23,29 @@ enum ShiftMenuItem : uint8_t
     ShiftDelete = 0,
     ShiftVolume,
     ShiftSaveProject,
-    ShiftBootloader,
+    ShiftBootVersion,
+    ShiftFirmwareUpdate,
     ShiftCount
 };
 
 static constexpr uint32_t kShiftBootloaderHoldMs = 2000u;
-static constexpr uint32_t kShiftBootloaderLoadingOverlayMs = 1000u;
+static constexpr uint32_t kShiftBootloaderLoadingOverlayMs = 3000u;
+
+static const char* ShiftBootVersionLabel(daisy::System::BootInfo::Version version)
+{
+    switch(version)
+    {
+        case daisy::System::BootInfo::Version::LT_v6_0: return "<6.0";
+        case daisy::System::BootInfo::Version::NONE: return "NONE";
+        case daisy::System::BootInfo::Version::v6_0: return "6.0";
+        case daisy::System::BootInfo::Version::v6_1: return "6.1+";
+        default: return "?";
+    }
+}
 
 static void ClearShiftBootloaderState(AppUiState& ui)
 {
+    ui.shift_menu_firmware_update_active = false;
     ui.shift_menu_bootloader_armed = false;
     ui.shift_menu_bootloader_arm_start_ms = 0;
     ui.shift_menu_bootloader_loading = false;
@@ -70,14 +84,65 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     if(ui.shift_menu_bootloader_loading)
+    {
+        if(e.type == UiInputType::BtnDown
+           && (e.id == kUiBtnPodEnc || e.id == kUiBtnPod2))
+        {
+            ui.shift_menu_bootloader_loading = false;
+            ui.shift_menu_bootloader_loading_start_ms = 0;
+            ui.shift_menu_firmware_update_active = false;
+            ui.shift_menu_bootloader_armed = false;
+            ui.shift_menu_bootloader_arm_start_ms = 0;
+            ui.ui_dirty = true;
+            return true;
+        }
         return true;
+    }
 
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
     AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
-    AppSharedState& shared = *ctx.shared;
     AppWorkerState& worker = *ctx.worker;
+
+    if(ui.shift_menu_firmware_update_active)
+    {
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+        {
+            ui.shift_menu_bootloader_armed = true;
+            ui.shift_menu_bootloader_arm_start_ms = e.t_ms;
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(e.type == UiInputType::BtnUp && e.id == kUiBtnExtEnc)
+        {
+            if(ui.shift_menu_bootloader_armed)
+            {
+                CancelShiftBootloaderArm(ui);
+                ui.ui_dirty = true;
+            }
+            return true;
+        }
+        if(e.type == UiInputType::BtnDown
+           && (e.id == kUiBtnPodEnc || e.id == kUiBtnPod2))
+        {
+            if(ui.shift_menu_bootloader_armed)
+            {
+                CancelShiftBootloaderArm(ui);
+            }
+            else
+            {
+                ui.shift_menu_firmware_update_active = false;
+            }
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(e.type == UiInputType::EncDelta && e.id == kUiEncExt
+           && ui.shift_menu_bootloader_armed)
+        {
+            CancelShiftBootloaderArm(ui);
+            ui.ui_dirty = true;
+            return true;
+        }
+        return true;
+    }
 
     if(e.type == UiInputType::EncDelta)
     {
@@ -185,10 +250,13 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ui.ui_dirty = true;
             return true;
         }
-        if(ui.shift_menu_cursor == ShiftBootloader)
+        if(ui.shift_menu_cursor == ShiftBootVersion)
         {
-            ui.shift_menu_bootloader_armed = true;
-            ui.shift_menu_bootloader_arm_start_ms = e.t_ms;
+            return true;
+        }
+        if(ui.shift_menu_cursor == ShiftFirmwareUpdate)
+        {
+            ui.shift_menu_firmware_update_active = true;
             ui.ui_dirty = true;
             return true;
         }
@@ -260,7 +328,7 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         {
             BeginShiftBootloaderLoading(ui, ctx.now_ms);
         }
-        else if(ui.shift_menu_cursor != ShiftBootloader)
+        else if(!ui.shift_menu_firmware_update_active)
         {
             CancelShiftBootloaderArm(ui);
         }
@@ -273,8 +341,39 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     if(ui.shift_menu_bootloader_loading)
     {
         ui.ui_dirty = true;
+        const char* kPairing = "PAIRING";
+        const int x = (screen_w - TinyStringWidth(kPairing)) / 2;
+        const int y = (static_cast<int>(d.Height()) - Font5x7::H) / 2;
+        DrawTinyString(d, kPairing, x, y, true);
+
+        const uint32_t loading_elapsed_ms = ctx.now_ms - ui.shift_menu_bootloader_loading_start_ms;
+        if(loading_elapsed_ms >= kShiftBootloaderLoadingOverlayMs)
+        {
+            daisy::System::ResetToBootloader(daisy::System::DAISY_INFINITE_TIMEOUT);
+        }
+        return;
     }
 
+    if(ui.shift_menu_firmware_update_active)
+    {
+        if(ui.shift_menu_bootloader_armed)
+        {
+            const char* kPairing = "PAIRING";
+            const int x = (screen_w - TinyStringWidth(kPairing)) / 2;
+            const int y = (static_cast<int>(d.Height()) - Font5x7::H) / 2;
+            DrawTinyString(d, kPairing, x, y, true);
+        }
+        else
+        {
+            DrawTinyString(d, "FIRMWARE UPDATE", 10, 8, true);
+            DrawTinyString(d, "HOLD down Right", 8, 24, true);
+            DrawTinyString(d, "Encoder for two", 8, 34, true);
+            DrawTinyString(d, "seconds to pair", 8, 44, true);
+            DrawTinyString(d, "device", 8, 54, true);
+        }
+    }
+    else
+    {
     // Compute volume percent for display (0..200 with boost).
     uint32_t vol_pct = 0;
     if(ctx.params)
@@ -334,63 +433,22 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
             if(sel) DrawRencFocusTinyString(d, "SAVE PROJECT", label_x, label_y);
             else DrawTinyString(d, "SAVE PROJECT", label_x, label_y, true);
         }
-        else if(i == ShiftBootloader)
+        else if(i == ShiftBootVersion)
         {
-            if(sel) DrawRencFocusTinyString(d, "BOOTLOADER", label_x, label_y);
-            else DrawTinyString(d, "BOOTLOADER", label_x, label_y, true);
+            const char* label = "BOOT VER";
+            if(sel) DrawRencFocusTinyString(d, label, label_x, label_y);
+            else DrawTinyString(d, label, label_x, label_y, true);
 
-            char buf[12];
-            if(ui.shift_menu_bootloader_armed)
-            {
-                const uint32_t elapsed_ms = ctx.now_ms - ui.shift_menu_bootloader_arm_start_ms;
-                const uint32_t remaining_ms = (elapsed_ms >= kShiftBootloaderHoldMs)
-                                                  ? 0u
-                                                  : (kShiftBootloaderHoldMs - elapsed_ms);
-                const uint32_t remaining_tenths = (remaining_ms + 99u) / 100u;
-                std::snprintf(buf,
-                              sizeof(buf),
-                              "%lu.%lus",
-                              static_cast<unsigned long>(remaining_tenths / 10u),
-                              static_cast<unsigned long>(remaining_tenths % 10u));
-            }
-            else if(sel)
-            {
-                std::snprintf(buf, sizeof(buf), "%s", "HOLD 2S");
-            }
-            else
-            {
-                buf[0] = '\0';
-            }
-
-            if(buf[0] != '\0')
-            {
-                const int val_w = TinyStringWidth(buf);
-                DrawTinyString(d, buf, screen_w - val_w - 1, label_y, true);
-            }
+            const char* ver = ShiftBootVersionLabel(daisy::System::GetBootloaderVersion());
+            const int val_w = TinyStringWidth(ver);
+            DrawTinyString(d, ver, screen_w - val_w - 1, label_y, true);
+        }
+        else if(i == ShiftFirmwareUpdate)
+        {
+            if(sel) DrawRencFocusTinyString(d, "FIRMWARE UPDATE", label_x, label_y);
+            else DrawTinyString(d, "FIRMWARE UPDATE", label_x, label_y, true);
         }
     }
-
-    if(ui.shift_menu_bootloader_loading)
-    {
-        const char* kLoadingLabel = "LOADING";
-        const int overlay_w = TinyStringWidth(kLoadingLabel) + 10;
-        const int overlay_h = Font5x7::H + 8;
-        const int overlay_x = (screen_w - overlay_w) / 2;
-        const int overlay_y = (static_cast<int>(d.Height()) - overlay_h) / 2;
-
-        d.DrawRect(overlay_x, overlay_y, overlay_x + overlay_w - 1, overlay_y + overlay_h - 1, false, true);
-        d.DrawRect(overlay_x, overlay_y, overlay_x + overlay_w - 1, overlay_y + overlay_h - 1, true, false);
-        DrawTinyString(d,
-                       kLoadingLabel,
-                       overlay_x + (overlay_w - TinyStringWidth(kLoadingLabel)) / 2,
-                       overlay_y + (overlay_h - Font5x7::H) / 2,
-                       true);
-
-        const uint32_t loading_elapsed_ms = ctx.now_ms - ui.shift_menu_bootloader_loading_start_ms;
-        if(loading_elapsed_ms >= kShiftBootloaderLoadingOverlayMs)
-        {
-            daisy::System::ResetToBootloader(daisy::System::DAISY_INFINITE_TIMEOUT);
-            return;
-        }
     }
+
 }

@@ -143,11 +143,7 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     PerformEmphasisEnsureValidFocus(shared, engine, layer);
 
@@ -262,11 +258,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     EngineRefreshLoadedMetadata(ui, engine, shared);
 
     OledPager& d = *ctx.display;

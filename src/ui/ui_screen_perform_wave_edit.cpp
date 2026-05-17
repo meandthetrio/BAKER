@@ -34,11 +34,8 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     EngineRefreshLoadedMetadata(ui, engine, shared);
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
@@ -203,11 +200,7 @@ void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
         engine.wave_edit.perform_wave_edit_entry[slot] = shared.sample.edit.sd_edit_slots[slot];
     engine.wave_edit.perform_wave_edit_has_entry = true;
@@ -221,11 +214,7 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     StopTrimPreview(ui);
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     SampleEdit edit = shared.sample.edit.sd_edit_slots[layer];
@@ -249,11 +238,7 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
     Sample& sample = shared.sample.publish.sd_slots[layer];

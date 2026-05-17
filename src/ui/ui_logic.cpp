@@ -474,6 +474,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 ui.shift_menu_bootloader_arm_start_ms = 0;
                 ui.shift_menu_bootloader_loading = false;
                 ui.shift_menu_bootloader_loading_start_ms = 0;
+                ui.shift_menu_firmware_update_active = false;
                 UiNav_Pop(ui.ui_nav);
             }
             else
@@ -485,6 +486,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 ui.shift_menu_bootloader_arm_start_ms = 0;
                 ui.shift_menu_bootloader_loading = false;
                 ui.shift_menu_bootloader_loading_start_ms = 0;
+                ui.shift_menu_firmware_update_active = false;
                 // Cancel any pending SD delete mode when opening SHIFT.
                 ui.sd_delete_mode = false;
                 UiNav_Push(ui.ui_nav, UiScreenId::ShiftMenu);

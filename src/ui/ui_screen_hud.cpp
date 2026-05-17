@@ -77,12 +77,8 @@ void Hud_Render(UiScreenCtx& ctx)
         return;
 
     const AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     EnsureHudMenu(*ctx.ui);
 
     const uint32_t peak_cycles   = diag.audio_cycles_peak.load(std::memory_order_relaxed);

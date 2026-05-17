@@ -47,11 +47,7 @@ void ProcessHandleLayerToggle(UiScreenCtx& ctx)
 {
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     engine.perform_nav.perform_layer ^= 1u;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
@@ -63,11 +59,6 @@ void ProcessHandleLayerMuteToggle(UiScreenCtx& ctx, uint8_t layer)
 {
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
-    AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     PerformParamsTargets& t = ctx.params->EditTargets();
     if(ctx.rshift)
     {
@@ -110,11 +101,6 @@ void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e, uint8
 {
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
-    AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     if(engine.process.perform_process_vol_muted[layer])
     {
         // Do not unmute on encoder turn; mute state toggles only on R-click.

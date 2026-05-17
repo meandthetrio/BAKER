@@ -384,17 +384,38 @@ int main(void)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformExpress);
+        const bool firmware_pairing_hold_active
+            = g_app.ui.shift_menu_firmware_update_active && g_app.ui.shift_menu_bootloader_armed;
 
-        if(sd_browse_active || record_review_active)
+        // Smooth 1Hz red pulse on both LEDs while user holds R encoder in firmware pairing.
+        float pairing_red = 0.0f;
+        if(firmware_pairing_hold_active)
         {
+            const uint32_t phase_ms = now_ms % 1000u;
+            float t = static_cast<float>(phase_ms) / 1000.0f; // 0..1
+            float tri = (t < 0.5f) ? (t * 2.0f) : ((1.0f - t) * 2.0f); // 0..1..0
+            tri *= tri; // ease for smoother pulse
+            pairing_red = 0.08f + 0.92f * tri;
+        }
+
+        if(firmware_pairing_hold_active)
+        {
+            hw.led1.Set(pairing_red, 0.0f, 0.0f);
+            hw.led2.Set(pairing_red, 0.0f, 0.0f);
+        }
+        else if(sd_browse_active || record_review_active)
+        {
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, 1.0f, 0.0f);
         }
         else if(perform_ab_active)
         {
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, 0.0f, 1.0f);
         }
         else
         {
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, 0.0f, 0.0f);
         }
 

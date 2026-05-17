@@ -100,11 +100,7 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     ProcessEnsureValidMainCursor(shared, engine, layer);
     ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor);
@@ -324,11 +320,7 @@ void PerformProcess_Render(UiScreenCtx& ctx)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     ProcessEnsureValidMainCursor(shared, engine, layer);
     ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor);

@@ -330,11 +330,7 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     EngineRefreshLoadedMetadata(ui, engine, shared);
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
@@ -420,11 +416,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppRecordingState& recording = *ctx.recording;
-    AppProjectState& project = *ctx.project;
-    AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    AppWorkerState& worker = *ctx.worker;
     EngineRefreshLoadedMetadata(ui, engine, shared);
 
     OledPager& d = *ctx.display;

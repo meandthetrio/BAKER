@@ -686,4 +686,33 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                   params,
                   now_ms,
                   worker_budget_us);
+
+    if(ui.save_project_pending
+       && worker.ui_req_done_count != ui.save_project_pending_done_count)
+    {
+        ui.save_project_pending = false;
+        ui.project_rename_for_new_save = false;
+        ui.project_rename_new_save_slot = 0;
+        ui.pending_named_save_active = false;
+        ui.pending_named_save_slot = 0;
+        ui.pending_named_save_name[0] = '\0';
+        if(worker.ui_req_result < 0)
+        {
+            if(UiNav_Active(ui.ui_nav) != UiScreenId::ProjectStatus)
+                UiNav_Push(ui.ui_nav, UiScreenId::ProjectStatus);
+        }
+        ui.ui_dirty = true;
+    }
+
+    if(ui.project_style_update_pending
+       && worker.ui_req_done_count != ui.project_style_update_pending_done_count)
+    {
+        ui.project_style_update_pending = false;
+        if(worker.ui_req_result < 0)
+        {
+            if(UiNav_Active(ui.ui_nav) != UiScreenId::ProjectStatus)
+                UiNav_Push(ui.ui_nav, UiScreenId::ProjectStatus);
+        }
+        ui.ui_dirty = true;
+    }
 }

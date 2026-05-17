@@ -172,11 +172,19 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
         if(ui.shift_menu_cursor == ShiftSaveProject)
-            return ProjectActions_TriggerRequest(ui,
-                                                 project,
-                                                 worker,
-                                                 UiReqType::SaveProject,
-                                                 project.current_project_slot);
+        {
+            if(!project.metadata_scan_complete && !project.metadata_scan_requested)
+            {
+                const UiReq req{UiReqType::ScanProjectSlots, 0, 0};
+                if(UiReq_Push(ui, worker, req))
+                    project.metadata_scan_requested = true;
+            }
+            ui.save_project_menu_cursor = 0;
+            ui.save_project_confirm_cursor = 1;
+            if(UiNav_Push(ui.ui_nav, UiScreenId::SaveProjectMenu))
+                ui.ui_dirty = true;
+            return true;
+        }
         if(ui.shift_menu_cursor == ShiftBootloader)
         {
             ui.shift_menu_bootloader_armed = true;

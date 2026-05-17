@@ -22,6 +22,7 @@ enum class UiReqType : uint8_t
     LoadProject,
     ScanProjectSlots,
     RenameProject,
+    UpdateProjectStyle,
     COUNT
 };
 

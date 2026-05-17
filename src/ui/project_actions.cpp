@@ -34,8 +34,13 @@ static bool OpenProjectStatusScreen(AppUiState& ui,
 
 const char* ProjectActions_DisplayName(const AppProjectState& project, uint8_t slot)
 {
-    if(slot < kProjectSlotCount && project.slot_names[slot][0] != '\0')
-        return project.slot_names[slot];
+    if(slot < kProjectSlotCount)
+    {
+        if(!project.slot_has_file[slot])
+            return "----";
+        if(project.slot_names[slot][0] != '\0')
+            return project.slot_names[slot];
+    }
 
     static char fallback[16];
     std::snprintf(fallback, sizeof(fallback), "PROJECT %02u", static_cast<unsigned>(slot + 1u));

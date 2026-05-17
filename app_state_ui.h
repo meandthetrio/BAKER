@@ -20,6 +20,15 @@ enum class ProjectRenameFocus : uint8_t
     Save,
 };
 
+enum class ProjectPresetsSortMode : uint8_t
+{
+    Number = 0,
+    Name,
+};
+
+static constexpr uint8_t kProjectPresetsHeaderCount = 3;
+static constexpr uint8_t kProjectStyleFilterAll = 0xffu;
+
 // Main-thread UI shell, input plumbing, browser/editor navigation, and destructive-menu state.
 struct AppUiState
 {
@@ -70,7 +79,28 @@ struct AppUiState
     bool sd_delete_mode = false;
     uint16_t sd_delete_index = 0;
     char sd_delete_name[kSdNameMax] = {};
+    uint8_t presets_focus_index = kProjectPresetsHeaderCount;
+    uint8_t presets_top_row = 0;
+    ProjectPresetsSortMode presets_sort_mode = ProjectPresetsSortMode::Number;
+    bool presets_sort_descending = false;
+    uint8_t presets_style_filter = kProjectStyleFilterAll;
+    uint8_t presets_style_picker_cursor = 0;
     uint8_t project_action_cursor = 0;
+    uint8_t project_action_style_cursor = 0;
+    bool project_style_update_pending = false;
+    uint8_t project_style_update_pending_slot = 0;
+    uint32_t project_style_update_pending_done_count = 0;
+    uint8_t save_project_menu_cursor = 0;
+    uint8_t save_project_slot_cursor = 0;
+    uint8_t save_project_confirm_cursor = 1;
+    bool save_project_pending = false;
+    uint8_t save_project_pending_slot = 0;
+    uint32_t save_project_pending_done_count = 0;
+    bool project_rename_for_new_save = false;
+    uint8_t project_rename_new_save_slot = 0;
+    bool pending_named_save_active = false;
+    uint8_t pending_named_save_slot = 0;
+    char pending_named_save_name[kProjectNameMax] = {};
     uint8_t project_rename_grid_col = 0;
     uint8_t project_rename_grid_row = 0;
     uint8_t project_rename_length = 0;

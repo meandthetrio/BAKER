@@ -9,11 +9,31 @@ const UiScreen& GetScreen(UiScreenId id)
                                               nullptr,
                                               ProjectActionMenu_OnEvent,
                                               ProjectActionMenu_Render};
+    static const UiScreen presets_style_filter{UiScreenId::PresetsStyleFilter,
+                                               nullptr,
+                                               nullptr,
+                                               PresetsStyleFilter_OnEvent,
+                                               PresetsStyleFilter_Render};
     static const UiScreen rename_project{UiScreenId::RenameProject,
                                          RenameProject_OnEnter,
                                          nullptr,
                                          RenameProject_OnEvent,
                                          RenameProject_Render};
+    static const UiScreen save_project_menu{UiScreenId::SaveProjectMenu,
+                                            nullptr,
+                                            nullptr,
+                                            SaveProjectMenu_OnEvent,
+                                            SaveProjectMenu_Render};
+    static const UiScreen save_project_slots{UiScreenId::SaveProjectSlots,
+                                             nullptr,
+                                             nullptr,
+                                             SaveProjectSlots_OnEvent,
+                                             SaveProjectSlots_Render};
+    static const UiScreen save_project_confirm{UiScreenId::SaveProjectConfirm,
+                                               nullptr,
+                                               nullptr,
+                                               SaveProjectConfirm_OnEvent,
+                                               SaveProjectConfirm_Render};
     static const UiScreen record{UiScreenId::Record, Record_OnEnter, Record_OnExit, Record_OnEvent, Record_Render};
     static const UiScreen perform_menu{UiScreenId::PerformMenu, nullptr, nullptr, PerformMenu_OnEvent, PerformMenu_Render, PerformMenu_OnEnter};
     static const UiScreen perform_engine{UiScreenId::PerformEngine,
@@ -80,8 +100,16 @@ const UiScreen& GetScreen(UiScreenId id)
             return presets;
         case UiScreenId::ProjectActionMenu:
             return project_action_menu;
+        case UiScreenId::PresetsStyleFilter:
+            return presets_style_filter;
         case UiScreenId::RenameProject:
             return rename_project;
+        case UiScreenId::SaveProjectMenu:
+            return save_project_menu;
+        case UiScreenId::SaveProjectSlots:
+            return save_project_slots;
+        case UiScreenId::SaveProjectConfirm:
+            return save_project_confirm;
         case UiScreenId::Record:
             return record;
         case UiScreenId::PerformMenu:

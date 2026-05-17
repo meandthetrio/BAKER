@@ -55,13 +55,14 @@ static void FinishRequest(AppWorkerState& worker, ProjectRestoreState& project_r
     ClearProjectRestoreStateInternal(project_restore);
 }
 
-static void BeginUiRequest(AppWorkerState& worker, UiReqType type, uint16_t arg0)
+static void BeginUiRequest(AppWorkerState& worker, UiReqType type, uint16_t arg0, uint16_t arg1)
 {
     worker.ui_req_busy = true;
     worker.ui_req_active = type;
     worker.ui_req_progress = 0;
     worker.ui_req_result = 0;
     worker.ui_req_arg0 = arg0;
+    worker.ui_req_arg1 = arg1;
     worker.ui_req_work_units_done = 0;
     worker.ui_req_work_units_total = 0;
 }
@@ -104,7 +105,7 @@ static void MaybeHandlePendingLoad(AppUiState& ui, AppWorkerState& worker, AppSh
     const uint16_t idx = ui.sd.load_pending_index;
     ui.sd.load_pending = false;
     CancelForPendingLoad(ui, worker, shared);
-    BeginUiRequest(worker, UiReqType::LoadWavIndex, idx);
+    BeginUiRequest(worker, UiReqType::LoadWavIndex, idx, 0);
     if(!StartLoadInternal(ui.sd, shared, idx))
     {
         SdWavLoad_SetBusy(shared, ui.sd, false);
@@ -120,7 +121,7 @@ static void StartQueuedUiRequest(AppUiState& ui,
                                  Params& params,
                                  const UiReq& req)
 {
-    BeginUiRequest(worker, req.type, req.a);
+    BeginUiRequest(worker, req.type, req.a, req.b);
 
     switch(req.type)
     {
@@ -177,6 +178,11 @@ static void StartQueuedUiRequest(AppUiState& ui,
                 worker.ui_req_result = -1;
             FinishRequest(worker, worker.project_restore);
             break;
+        case UiReqType::UpdateProjectStyle:
+            if(!UpdateProjectStyle(ui, project, worker))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
+            break;
         case UiReqType::SaveRenderedWavCurrent:
             if(!StartSave(ui, shared))
                 FailAndFinishUiRequest(worker, worker.project_restore);
@@ -217,7 +223,11 @@ static void FinalizeLoadProjectRequest(AppProjectState& project, AppWorkerState&
     if(worker.ui_req_result < 0)
         SetProjectSlotStatus(project, project_slot, "ERR");
     else
+    {
         SetProjectSlotStatus(project, project_slot, "LOADED");
+        project.has_active_project_slot = true;
+        project.active_project_slot = project_slot;
+    }
     FinishRequest(worker, worker.project_restore);
 }
 

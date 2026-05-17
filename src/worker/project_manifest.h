@@ -7,7 +7,7 @@
 #include "macros.h"
 #include "mod_matrix.h"
 
-static constexpr uint16_t kProjectManifestVersion = 15;
+static constexpr uint16_t kProjectManifestVersion = 16;
 static constexpr uint8_t kProjectPathMax = 64;
 static constexpr uint8_t kProjectSampleLayerCount = 2;
 
@@ -553,6 +553,53 @@ struct ProjectManifestV14Legacy
     int8_t   engine_tune_cents[kProjectSampleLayerCount] = {};
 };
 
+struct ProjectManifestV15Legacy
+{
+    char     magic[4] = {'A', 'K', 'P', 'J'};
+    uint16_t version = 15;
+    uint8_t  sample_present_mask = 0;
+    uint8_t  reserved = 0;
+    char     wav_path[kProjectSampleLayerCount][kProjectPathMax] = {};
+    SampleEdit edit[kProjectSampleLayerCount]{};
+    int8_t   engine_tune_semitones[kProjectSampleLayerCount] = {};
+    uint8_t  perform_keyzone_lo_note[kProjectSampleLayerCount] = {48u, 48u};
+    uint8_t  perform_keyzone_hi_note[kProjectSampleLayerCount] = {60u, 60u};
+    uint8_t  perform_adsr_row[kProjectSampleLayerCount] = {1u, 1u};
+    uint8_t  engine_play_mode[kProjectSampleLayerCount] = {1u, 1u};
+    uint16_t perform_adsr_loop_attack[kProjectSampleLayerCount] = {5u, 5u};
+    uint8_t  perform_adsr_loop_decay[kProjectSampleLayerCount] = {20u, 20u};
+    uint8_t  perform_adsr_loop_sustain[kProjectSampleLayerCount] = {100u, 100u};
+    uint16_t perform_adsr_loop_release[kProjectSampleLayerCount] = {50u, 50u};
+    float    perform_adsr_loop_crossfade[kProjectSampleLayerCount] = {0.0625f, 0.0625f};
+    float    perform_adsr_loop_crossfade_shape[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    uint8_t  perform_adsr_env_a_x[kProjectSampleLayerCount] = {13u, 13u};
+    uint8_t  perform_adsr_env_d_x[kProjectSampleLayerCount] = {38u, 38u};
+    uint8_t  perform_adsr_env_r_x[kProjectSampleLayerCount] = {89u, 89u};
+    uint8_t  perform_adsr_env_s_level[kProjectSampleLayerCount] = {50u, 50u};
+    int16_t  engine_gain_db[kProjectSampleLayerCount] = {0, 0};
+    uint8_t  engine_drive_mode[kProjectSampleLayerCount] = {0u, 0u};
+    float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
+    float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
+    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    ProjectSatState   sat{};
+    ProjectEqState    eq{};
+    ProjectDelayState delay{};
+    ProjectReverbState reverb{};
+    ProjectExpressState express{};
+    uint8_t  seq_running = 1;
+    uint8_t  plock_apply_enabled = 1;
+    uint8_t  lfo_wave = 0;
+    uint8_t  macro_sel = 0;
+    uint32_t seq_bpm = 120;
+    MacroState macro_ui{};
+    ModRoute mod_routes[kMaxModRoutes]{};
+    uint8_t  mod_route_selected = 0;
+    uint8_t  express_enabled = 0;
+    int8_t   engine_tune_cents[kProjectSampleLayerCount] = {};
+    char     project_name[13] = {};
+};
+
 struct ProjectManifestV11
 {
     char     magic[4] = {'A', 'K', 'P', 'J'};
@@ -598,6 +645,8 @@ struct ProjectManifestV11
     uint8_t  express_enabled = 0;
     int8_t   engine_tune_cents[kProjectSampleLayerCount] = {};
     char     project_name[13] = {};
+    uint8_t  project_style = 0;
+    uint8_t  project_style_pad[2] = {};
 };
 
 struct ProjectManifestV13Legacy

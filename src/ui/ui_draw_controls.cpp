@@ -30,8 +30,8 @@ void DrawRencFocusFrame(OledPager& d, int x, int y, int w, int h)
     const int ix1 = ClampCoord(x + w, 0, 127);
     const int iy1 = ClampCoord(y + h, 0, 63);
 
+    d.DrawRect(ox0, oy0, ox1, oy1, false, true);
     d.DrawRect(ox0, oy0, ox1, oy1, true, false);
-    d.DrawRect(ix0, iy0, ix1, iy1, false, false);
     d.DrawRect(ix0, iy0, ix1, iy1, true, true);
 }
 

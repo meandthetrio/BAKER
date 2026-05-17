@@ -1,5 +1,7 @@
 #include "ui_worker_internal.h"
 
+#include "app_state_project.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -67,6 +69,11 @@ static bool ProjectManifestValid(const ProjectManifestV11& m)
 static bool ProjectManifestValid(const ProjectManifestV14Legacy& m)
 {
     return ManifestMagicVersionOk(m.magic, m.version, 14u);
+}
+
+static bool ProjectManifestValid(const ProjectManifestV15Legacy& m)
+{
+    return ManifestMagicVersionOk(m.magic, m.version, 15u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV12Legacy& m)
@@ -515,6 +522,59 @@ static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifes
     CopySharedSeqModTail(dst, src);
 }
 
+static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifestV15Legacy& src)
+{
+    dst = ProjectManifestV11{};
+    dst.sample_present_mask = src.sample_present_mask;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
+        dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
+        dst.perform_adsr_row[slot] = src.perform_adsr_row[slot];
+        dst.engine_play_mode[slot] = src.engine_play_mode[slot];
+        dst.perform_adsr_loop_attack[slot] = src.perform_adsr_loop_attack[slot];
+        dst.perform_adsr_loop_decay[slot] = src.perform_adsr_loop_decay[slot];
+        dst.perform_adsr_loop_sustain[slot] = src.perform_adsr_loop_sustain[slot];
+        dst.perform_adsr_loop_release[slot] = src.perform_adsr_loop_release[slot];
+        dst.perform_adsr_loop_crossfade[slot] = src.perform_adsr_loop_crossfade[slot];
+        dst.perform_adsr_loop_crossfade_shape[slot] = src.perform_adsr_loop_crossfade_shape[slot];
+        dst.perform_adsr_env_a_x[slot] = src.perform_adsr_env_a_x[slot];
+        dst.perform_adsr_env_d_x[slot] = src.perform_adsr_env_d_x[slot];
+        dst.perform_adsr_env_r_x[slot] = src.perform_adsr_env_r_x[slot];
+        dst.perform_adsr_env_s_level[slot] = src.perform_adsr_env_s_level[slot];
+        dst.engine_gain_db[slot] = src.engine_gain_db[slot];
+        dst.engine_drive_mode[slot] = src.engine_drive_mode[slot];
+        dst.engine_filter_cutoff_hz[slot] = src.engine_filter_cutoff_hz[slot];
+        dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
+        dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
+        dst.engine_tune_cents[slot] = src.engine_tune_cents[slot];
+        for(uint8_t row = 0; row < ProjectExpressState::kRowCount; ++row)
+        {
+            dst.express.target[slot][row] = src.express.target[slot][row];
+            dst.express.min_value[slot][row] = src.express.min_value[slot][row];
+            dst.express.max_value[slot][row] = src.express.max_value[slot][row];
+        }
+        dst.express.poly_porto_voice_limit[slot] = src.express.poly_porto_voice_limit[slot];
+        dst.express.poly_porto_slide_ms[slot] = src.express.poly_porto_slide_ms[slot];
+        dst.express.poly_porto_source_range_semitones[slot]
+            = src.express.poly_porto_source_range_semitones[slot];
+        dst.express.poly_porto_source_mode[slot] = src.express.poly_porto_source_mode[slot];
+        dst.express.poly_porto_release_ms[slot] = src.express.poly_porto_release_ms[slot];
+    }
+    for(size_t i = 0; i < 4; ++i)
+        dst.fx_order[i] = src.fx_order[i];
+    dst.sat = src.sat;
+    dst.eq = src.eq;
+    dst.delay = src.delay;
+    dst.reverb = src.reverb;
+    dst.express_enabled = src.express_enabled ? 1u : 0u;
+    std::snprintf(dst.project_name, sizeof(dst.project_name), "%s", src.project_name);
+    CopySharedSeqModTail(dst, src);
+}
+
 static void ProjectManifestUpgrade(ProjectManifestV10& dst, const ProjectManifestV9& src)
 {
     dst = ProjectManifestV10{};
@@ -558,6 +618,15 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     if(manifest_size == sizeof(ProjectManifestV11))
     {
         rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifestV15Legacy))
+    {
+        ProjectManifestV15Legacy legacy_v15{};
+        rd = f_read(&s_sd.file, &legacy_v15, sizeof(legacy_v15), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v15) && ProjectManifestValid(legacy_v15))
+            ProjectManifestUpgrade(manifest, legacy_v15);
+        else
+            rd = FR_INVALID_OBJECT;
     }
     else if(manifest_size == sizeof(ProjectManifestV14Legacy))
     {
@@ -797,9 +866,12 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
         manifest.wav_path[slot][sizeof(manifest.wav_path[slot]) - 1] = '\0';
     manifest.project_name[sizeof(manifest.project_name) - 1] = '\0';
+    manifest.project_style = ProjectStyleToStored(ProjectStyleFromStored(manifest.project_style));
 
     return (manifest_size == sizeof(ProjectManifestV11) && rd == FR_OK && br == sizeof(manifest)
             && ProjectManifestValid(manifest))
+           || (manifest_size == sizeof(ProjectManifestV15Legacy) && rd == FR_OK
+               && br == sizeof(ProjectManifestV15Legacy))
            || (manifest_size == sizeof(ProjectManifestV14Legacy) && rd == FR_OK
                && br == sizeof(ProjectManifestV14Legacy))
            || (manifest_size == sizeof(ProjectManifestV13Legacy) && rd == FR_OK

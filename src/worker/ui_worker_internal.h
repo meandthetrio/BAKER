@@ -2,6 +2,7 @@
 
 #include <cstddef>
 
+#include "app_state_project.h"
 #include "project_manifest.h"
 #include "storage_limits.h"
 
@@ -80,6 +81,7 @@ bool MakePath(char* out, size_t n, const char* base, const char* name);
 void WorkerExtractBaseName(const char* path, char* out, size_t out_n);
 
 uint8_t RequestedProjectSlot(const AppWorkerState& worker);
+ProjectStyleId RequestedProjectStyle(const AppWorkerState& worker);
 void SetProjectSlotStatus(AppProjectState& project, uint8_t slot, const char* msg);
 
 bool EnsureSdMounted(AppUiState& ui);
@@ -100,6 +102,7 @@ bool StartLoadPath(AppUiState& ui, AppSharedState& shared, const char* path, uin
 bool ReadProjectManifestFromFile(ProjectManifestV11& manifest);
 bool ScanProjectSlots(AppUiState& ui, AppProjectState& project);
 bool RenameProject(AppUiState& ui, AppProjectState& project, AppWorkerState& worker);
+bool UpdateProjectStyle(AppUiState& ui, AppProjectState& project, AppWorkerState& worker);
 bool SaveProject(AppUiState& ui,
                  AppProjectState& project,
                  AppEngineState& engine,

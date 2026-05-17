@@ -24,6 +24,7 @@ struct AppWorkerState
     uint8_t  ui_req_progress = 0;
     int8_t   ui_req_result = 0;
     uint16_t ui_req_arg0 = 0;
+    uint16_t ui_req_arg1 = 0;
     uint32_t ui_req_done_count = 0;
     uint32_t ui_req_work_units_done = 0;
     uint32_t ui_req_work_units_total = 0;

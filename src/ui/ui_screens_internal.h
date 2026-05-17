@@ -63,9 +63,17 @@ bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void Presets_Render(UiScreenCtx& ctx);
 bool ProjectActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void ProjectActionMenu_Render(UiScreenCtx& ctx);
+bool PresetsStyleFilter_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void PresetsStyleFilter_Render(UiScreenCtx& ctx);
 void RenameProject_OnEnter(UiScreenCtx& ctx);
 bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void RenameProject_Render(UiScreenCtx& ctx);
+bool SaveProjectMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void SaveProjectMenu_Render(UiScreenCtx& ctx);
+bool SaveProjectSlots_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void SaveProjectSlots_Render(UiScreenCtx& ctx);
+bool SaveProjectConfirm_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void SaveProjectConfirm_Render(UiScreenCtx& ctx);
 
 void Record_OnEnter(UiScreenCtx& ctx);
 void Record_OnExit(UiScreenCtx& ctx);

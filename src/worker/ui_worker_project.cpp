@@ -63,6 +63,11 @@ uint8_t RequestedProjectSlot(const AppWorkerState& worker)
     return ClampProjectSlotIndex(static_cast<uint8_t>(worker.ui_req_arg0));
 }
 
+ProjectStyleId RequestedProjectStyle(const AppWorkerState& worker)
+{
+    return ProjectStyleFromStored(static_cast<uint8_t>(worker.ui_req_arg1));
+}
+
 static bool MakeProjectSlotFilename(char* out, size_t n, uint8_t slot, const char* ext)
 {
     if(!out || n == 0 || !ext)
@@ -101,12 +106,24 @@ static void CacheProjectSlotName(AppProjectState& project, uint8_t slot, const c
     SanitizeProjectName(project.slot_names[slot], sizeof(project.slot_names[slot]), name);
 }
 
-static bool ReadExistingProjectName(uint8_t slot, char* out, size_t n)
+static void CacheProjectSlotStyle(AppProjectState& project, uint8_t slot, ProjectStyleId style)
 {
-    if(!out || n == 0)
+    if(slot >= kProjectSlotCount)
+        return;
+    project.slot_styles[slot] = style;
+}
+
+static bool ReadExistingProjectMetadata(uint8_t slot,
+                                        char* out_name,
+                                        size_t out_name_n,
+                                        ProjectStyleId* out_style)
+{
+    if(!out_name || out_name_n == 0)
         return false;
 
-    out[0] = '\0';
+    out_name[0] = '\0';
+    if(out_style)
+        *out_style = ProjectStyleId::None;
     const char* base = s_sd.fsi.GetSDPath();
     char prj_path[kProjectPathMax];
     if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, slot, "AKPRJ"))
@@ -119,7 +136,9 @@ static bool ReadExistingProjectName(uint8_t slot, char* out, size_t n)
     if(!ReadProjectManifestFromFile(manifest))
         return false;
 
-    SanitizeProjectName(out, n, manifest.project_name);
+    SanitizeProjectName(out_name, out_name_n, manifest.project_name);
+    if(out_style)
+        *out_style = ProjectStyleFromStored(manifest.project_style);
     return true;
 }
 
@@ -515,6 +534,7 @@ bool ScanProjectSlots(AppUiState& ui, AppProjectState& project)
     {
         project.slot_has_file[slot] = false;
         project.slot_names[slot][0] = '\0';
+        project.slot_styles[slot] = ProjectStyleId::None;
 
         const char* base = s_sd.fsi.GetSDPath();
         char prj_path[kProjectPathMax];
@@ -531,6 +551,7 @@ bool ScanProjectSlots(AppUiState& ui, AppProjectState& project)
             continue;
 
         CacheProjectSlotName(project, slot, manifest.project_name);
+        CacheProjectSlotStyle(project, slot, ProjectStyleFromStored(manifest.project_style));
     }
 
     project.metadata_scan_complete = true;
@@ -588,6 +609,7 @@ static bool EnsureProjectSaveMounted(AppUiState& ui, AppProjectState& project, u
 }
 
 static void CollectProjectSaveManifest(ProjectManifestV11& manifest,
+                                       const AppUiState& ui,
                                        AppProjectState& project,
                                        uint8_t project_slot,
                                        AppEngineState& engine,
@@ -599,18 +621,39 @@ static void CollectProjectSaveManifest(ProjectManifestV11& manifest,
     CollectProjectGlobalState(manifest, shared, targets);
 
     char project_name[sizeof(manifest.project_name)] = {};
+    ProjectStyleId project_style = ProjectStyleId::None;
     if(project_slot < kProjectSlotCount)
     {
-        if(project.slot_names[project_slot][0] != '\0')
+        ProjectStyleId existing_style = ProjectStyleId::None;
+        char existing_name[sizeof(manifest.project_name)] = {};
+        const bool have_existing_metadata = project.slot_has_file[project_slot]
+                                            && ReadExistingProjectMetadata(project_slot,
+                                                                          existing_name,
+                                                                          sizeof(existing_name),
+                                                                          &existing_style);
+        if(ui.pending_named_save_active && ui.pending_named_save_slot == project_slot)
+        {
+            SanitizeProjectName(project_name, sizeof(project_name), ui.pending_named_save_name);
+        }
+        else if(project.slot_names[project_slot][0] != '\0')
         {
             SanitizeProjectName(project_name, sizeof(project_name), project.slot_names[project_slot]);
         }
         else if(project.slot_has_file[project_slot])
         {
-            ReadExistingProjectName(project_slot, project_name, sizeof(project_name));
+            if(have_existing_metadata)
+                std::snprintf(project_name, sizeof(project_name), "%s", existing_name);
+        }
+
+        if(project.slot_has_file[project_slot])
+        {
+            project_style = project.slot_styles[project_slot];
+            if(project_style == ProjectStyleId::None && have_existing_metadata)
+                project_style = existing_style;
         }
     }
     std::snprintf(manifest.project_name, sizeof(manifest.project_name), "%s", project_name);
+    manifest.project_style = ProjectStyleToStored(project_style);
 }
 
 static bool ValidateProjectSaveManifest(AppProjectState& project,
@@ -650,7 +693,7 @@ bool SaveProject(AppUiState& ui,
         return false;
 
     ProjectManifestV11 manifest{};
-    CollectProjectSaveManifest(manifest, project, project_slot, engine, shared, params);
+    CollectProjectSaveManifest(manifest, ui, project, project_slot, engine, shared, params);
     if(!ValidateProjectSaveManifest(project, project_slot, manifest))
         return false;
 
@@ -658,8 +701,11 @@ bool SaveProject(AppUiState& ui,
         return false;
 
     CacheProjectSlotName(project, project_slot, manifest.project_name);
+    CacheProjectSlotStyle(project, project_slot, ProjectStyleFromStored(manifest.project_style));
     project.slot_has_file[project_slot] = true;
     project.metadata_scan_complete = true;
+    project.has_active_project_slot = true;
+    project.active_project_slot = project_slot;
     return true;
 }
 
@@ -683,6 +729,10 @@ bool LoadProject(AppUiState& ui,
         return false;
 
     PrepareProjectLoadManifest(manifest);
+    CacheProjectSlotName(project, project_slot, manifest.project_name);
+    CacheProjectSlotStyle(project, project_slot, ProjectStyleFromStored(manifest.project_style));
+    project.slot_has_file[project_slot] = true;
+    project.metadata_scan_complete = true;
     ApplyProjectLoadState(engine, shared, params, manifest);
 
     SetupProjectRestoreState(worker, engine, manifest);
@@ -735,9 +785,62 @@ bool RenameProject(AppUiState& ui, AppProjectState& project, AppWorkerState& wor
     }
 
     CacheProjectSlotName(project, project_slot, manifest.project_name);
+    CacheProjectSlotStyle(project, project_slot, ProjectStyleFromStored(manifest.project_style));
     project.slot_has_file[project_slot] = true;
     project.metadata_scan_complete = true;
     SetProjectSlotStatus(project, project_slot, "RENAMED");
+    ui.ui_dirty = true;
+    return true;
+}
+
+bool UpdateProjectStyle(AppUiState& ui, AppProjectState& project, AppWorkerState& worker)
+{
+    const uint8_t project_slot = RequestedProjectSlot(worker);
+    if(project_slot >= kProjectSlotCount || !project.slot_has_file[project_slot])
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    if(!EnsureSdMounted(ui))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    const char* base = s_sd.fsi.GetSDPath();
+    char prj_path[kProjectPathMax];
+    if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, project_slot, "AKPRJ"))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    if(f_open(&s_sd.file, prj_path, FA_READ) != FR_OK)
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    ProjectManifestV11 manifest{};
+    if(!ReadProjectManifestFromFile(manifest))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    manifest.project_style = ProjectStyleToStored(RequestedProjectStyle(worker));
+    if(!WriteProjectManifestFile(project_slot, manifest))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    CacheProjectSlotName(project, project_slot, manifest.project_name);
+    CacheProjectSlotStyle(project, project_slot, ProjectStyleFromStored(manifest.project_style));
+    project.slot_has_file[project_slot] = true;
+    project.metadata_scan_complete = true;
+    SetProjectSlotStatus(project, project_slot, "STYLED");
     ui.ui_dirty = true;
     return true;
 }

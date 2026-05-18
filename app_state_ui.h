@@ -94,6 +94,7 @@ struct AppUiState
     uint8_t presets_style_picker_cursor = 0;
     uint8_t project_action_cursor = 0;
     uint8_t project_action_style_cursor = 0;
+    uint32_t project_status_loaded_since_ms = 0;
     bool project_style_update_pending = false;
     uint8_t project_style_update_pending_slot = 0;
     uint32_t project_style_update_pending_done_count = 0;

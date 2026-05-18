@@ -10,23 +10,12 @@
 #include "ui_input.h"
 #include "ui_layout.h"
 #include "oled_pager.h"
+#include "project_actions.h"
 
 #include <cstdio>
 #include <cstring>
 
 using namespace daisy;
-
-static const char* ProjectActionLabel(ProjectAction action)
-{
-    switch(action)
-    {
-        case ProjectAction::Save: return "SAVE";
-        case ProjectAction::Load: return "LOAD";
-        case ProjectAction::Rename: return "RENAME";
-        case ProjectAction::Style: return "STYLE";
-        default: return "NONE";
-    }
-}
 
 static void ProjectStatusDisplayText(const AppProjectState& project, char* out, size_t n)
 {
@@ -48,6 +37,11 @@ static void ProjectStatusDisplayText(const AppProjectState& project, char* out, 
         std::snprintf(out, n, "%.*s", static_cast<int>(n - 1), token);
 }
 
+static bool ProjectStatusIsLoading(const char* s)
+{
+    return std::strcmp(s, "LOADING") == 0 || std::strcmp(s, "WAITING") == 0;
+}
+
 bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui)
@@ -65,38 +59,58 @@ bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
 void ProjectStatus_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.ui || !ctx.display)
+    if(!ctx.ui || !ctx.display || !ctx.project)
         return;
 
+    AppUiState& ui = *ctx.ui;
     AppProjectState& project = *ctx.project;
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const UiLayout layout = UiLayout_Default();
-    char status_text[12];
+    char status_text[16];
     ProjectStatusDisplayText(project, status_text, sizeof(status_text));
-    UiDraw_Header(d, layout, "PROJECT", status_text);
+    const char* slot_name = ProjectActions_DisplayName(project, project.project_action_slot);
+    const int title_x = (128 - TinyStringWidth(slot_name)) / 2;
+    DrawTinyString(d, slot_name, title_x < 0 ? 0 : title_x, 2, true);
 
-    char buf[24];
-    d.SetCursor(layout.x, layout.y_body);
-    std::snprintf(buf,
-                  sizeof(buf),
-                  "PROJECT SLOT %02u",
-                  static_cast<unsigned>(project.project_action_slot + 1u));
-    d.WriteString(buf, Font_6x8, true);
+    bool is_loaded = (std::strcmp(status_text, "LOADED") == 0);
+    if(project.project_action == ProjectAction::Load && is_loaded)
+    {
+        if(ui.project_status_loaded_since_ms == 0u)
+            ui.project_status_loaded_since_ms = ctx.now_ms;
+        else if((ctx.now_ms - ui.project_status_loaded_since_ms) >= 900u)
+        {
+            if(UiNav_Pop(ui.ui_nav))
+                ui.ui_dirty = true;
+        }
+    }
+    else
+    {
+        ui.project_status_loaded_since_ms = 0u;
+    }
 
-    d.SetCursor(layout.x, layout.y_body + layout.line_h);
-    std::snprintf(buf, sizeof(buf), "ACTION: %s", ProjectActionLabel(project.project_action));
-    d.WriteString(buf, Font_6x8, true);
-
-    d.SetCursor(layout.x, layout.y_body + layout.line_h * 2);
-    d.WriteString("STATUS:", Font_6x8, true);
+    char big[20];
+    if(ProjectStatusIsLoading(status_text))
+    {
+        static const char* dots[] = {"   ", ".  ", ".. ", "..."};
+        const uint8_t i = static_cast<uint8_t>((ctx.now_ms / 180u) & 0x3u);
+        std::snprintf(big, sizeof(big), "LOADING%s", dots[i]);
+    }
+    else if(is_loaded)
+    {
+        std::snprintf(big, sizeof(big), "SUCCESS");
+    }
+    else
+    {
+        std::snprintf(big, sizeof(big), "%s", status_text);
+    }
 
     const int scale = 2;
-    const int text_w = static_cast<int>(std::strlen(status_text)) * Font_6x8.FontWidth * scale;
+    const int text_w = static_cast<int>(std::strlen(big)) * Font_6x8.FontWidth * scale;
     const int text_x = (128 - text_w) / 2;
-    const int text_y = layout.y_body + layout.line_h * 3 + 2;
-    DrawScaledText6x8(d, status_text, text_x, text_y, scale);
+    const int text_y = 26;
+    DrawScaledText6x8(d, big, text_x, text_y, scale);
 
-    UiDraw_Footer(d, layout, "RENC:EXIT");
+    if(ProjectStatusIsLoading(status_text))
+        ui.ui_dirty = true;
 }

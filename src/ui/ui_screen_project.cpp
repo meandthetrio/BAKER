@@ -823,28 +823,9 @@ void BuildRenameDisplayText(const AppProjectState& project,
                             char* out,
                             size_t out_n)
 {
+    (void)project;
     if(!out || out_n == 0)
         return;
-
-    if(ui.project_rename_length == 0u)
-    {
-        if(ui.sample_rename_active)
-        {
-            out[0] = '\0';
-            return;
-        }
-        if(ui.project_rename_for_new_save)
-        {
-            out[0] = '\0';
-            return;
-        }
-
-        std::snprintf(out,
-                      out_n,
-                      "%s",
-                      ProjectActions_DisplayName(project, RenameTargetSlot(ui, project)));
-        return;
-    }
 
     std::snprintf(out, out_n, "%s", ui.project_rename_draft);
 }

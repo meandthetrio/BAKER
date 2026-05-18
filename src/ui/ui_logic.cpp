@@ -340,11 +340,6 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 continue;
             }
 
-            if(e.id == kUiBtnPod2)
-            {
-                ui.ui_btn2_held = false;
-                continue;
-            }
         }
 
         if(e.type == UiInputType::BtnDown)
@@ -489,6 +484,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 ui.shift_menu_firmware_update_active = false;
                 // Cancel any pending SD delete mode when opening SHIFT.
                 ui.sd_delete_mode = false;
+                ui.sd_rename_mode = false;
+                ui.sample_rename_active = false;
                 UiNav_Push(ui.ui_nav, UiScreenId::ShiftMenu);
             }
             ui.ui_dirty = true;

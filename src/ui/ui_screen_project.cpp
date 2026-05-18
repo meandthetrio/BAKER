@@ -60,6 +60,7 @@ static const char kRenameGrid[kRenameRows][kRenameCols + 1] = {
     "123456789",
 };
 static const char kRenameSaveLabel[] = "save";
+static const char kRenameCancelLabel[] = "cancel";
 static const char kSaveProjectNoneLabel[] = "none";
 static const char kProjectStylePlaceholder[] = "----";
 static const char* kProjectStyleLabels[kProjectStyleCount] = {
@@ -801,6 +802,22 @@ bool QueueRenameRequest(AppUiState& ui, AppProjectState& project, AppWorkerState
     return true;
 }
 
+bool QueueRenameSampleRequest(AppUiState& ui, AppWorkerState& worker)
+{
+    if(!ui.sample_rename_active || ui.project_rename_length == 0u)
+        return false;
+
+    const UiReq req{UiReqType::RenameWavIndex, ui.sample_rename_index, 0};
+    if(!UiReq_Push(ui, worker, req))
+        return false;
+
+    ui.sample_rename_active = false;
+    ui.sd_rename_mode = true;
+    UiNav_Pop(ui.ui_nav);
+    ui.ui_dirty = true;
+    return true;
+}
+
 void BuildRenameDisplayText(const AppProjectState& project,
                             const AppUiState& ui,
                             char* out,
@@ -811,6 +828,11 @@ void BuildRenameDisplayText(const AppProjectState& project,
 
     if(ui.project_rename_length == 0u)
     {
+        if(ui.sample_rename_active)
+        {
+            out[0] = '\0';
+            return;
+        }
         if(ui.project_rename_for_new_save)
         {
             out[0] = '\0';
@@ -1114,6 +1136,14 @@ void RenameProject_OnEnter(UiScreenCtx& ctx)
     ui.ui_parent_preview_origin_fx_cursor = 0;
     ui.ui_parent_preview_origin_process_detail = false;
     ui.ui_parent_preview_origin_process_eq_graph = false;
+    if(ui.sample_rename_active)
+    {
+        ui.project_rename_grid_col = 0;
+        ui.project_rename_grid_row = 0;
+        ui.project_rename_focus = ProjectRenameFocus::Grid;
+        ui.ui_dirty = true;
+        return;
+    }
     if(ui.project_rename_for_new_save)
     {
         ui.project_rename_draft[0] = '\0';
@@ -1145,7 +1175,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(e.id == kUiEncPod)
         {
-            if(ui.project_rename_focus == ProjectRenameFocus::Save)
+            if(ui.project_rename_focus == ProjectRenameFocus::Save
+               || ui.project_rename_focus == ProjectRenameFocus::Cancel)
                 return true;
             ui.project_rename_grid_col = WrapCursor(ui.project_rename_grid_col, e.value, kRenameCols);
             ui.ui_dirty = true;
@@ -1153,7 +1184,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
         if(e.id == kUiEncExt)
         {
-            if(ui.project_rename_focus == ProjectRenameFocus::Save)
+            if(ui.project_rename_focus == ProjectRenameFocus::Save
+               || ui.project_rename_focus == ProjectRenameFocus::Cancel)
             {
                 if(e.value > 0)
                 {
@@ -1178,8 +1210,24 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
+        if(ui.project_rename_focus == ProjectRenameFocus::Cancel)
+        {
+            if(ui.sample_rename_active)
+                ui.sample_rename_active = false;
+            ui.project_rename_for_new_save = false;
+            UiNav_Pop(ui.ui_nav);
+            ui.ui_dirty = true;
+            return true;
+        }
+
         if(ui.project_rename_focus == ProjectRenameFocus::Save)
         {
+            if(ui.sample_rename_active)
+            {
+                if(ui.project_rename_length == 0u)
+                    return true;
+                return QueueRenameSampleRequest(ui, *ctx.worker);
+            }
             if(ui.project_rename_for_new_save)
             {
                 if(ui.project_rename_length == 0u)
@@ -1210,7 +1258,26 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             --ui.project_rename_length;
             ui.project_rename_draft[ui.project_rename_length] = '\0';
             ui.ui_dirty = true;
+            return true;
         }
+
+        if(ui.sample_rename_active)
+        {
+            ui.sample_rename_active = false;
+        }
+        ui.project_rename_for_new_save = false;
+        UiNav_Pop(ui.ui_nav);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        if(ui.project_rename_focus == ProjectRenameFocus::Save)
+            ui.project_rename_focus = ProjectRenameFocus::Cancel;
+        else
+            ui.project_rename_focus = ProjectRenameFocus::Save;
+        ui.ui_dirty = true;
         return true;
     }
 
@@ -1232,11 +1299,15 @@ void RenameProject_Render(UiScreenCtx& ctx)
     d.SetCursor(kRenameNameX, kRenameNameY);
     d.WriteString(display_name, Font_6x8, true);
 
-    const int save_x = static_cast<int>(d.Width()) - TinyStringWidth(kRenameSaveLabel) - 2;
-    if(ui.project_rename_focus == ProjectRenameFocus::Save)
-        DrawRencFocusTinyString(d, kRenameSaveLabel, save_x, kRenameSaveY);
+    const bool show_cancel = (ui.project_rename_focus == ProjectRenameFocus::Cancel);
+    const bool action_focused = (ui.project_rename_focus == ProjectRenameFocus::Save)
+                                || (ui.project_rename_focus == ProjectRenameFocus::Cancel);
+    const char* action_label = show_cancel ? kRenameCancelLabel : kRenameSaveLabel;
+    const int action_x = static_cast<int>(d.Width()) - TinyStringWidth(action_label) - 2;
+    if(action_focused)
+        DrawRencFocusTinyString(d, action_label, action_x, kRenameSaveY);
     else
-        DrawTinyString(d, kRenameSaveLabel, save_x, kRenameSaveY, true);
+        DrawTinyString(d, action_label, action_x, kRenameSaveY, true);
 
     for(uint8_t row = 0; row < kRenameRows; ++row)
     {

@@ -3,7 +3,7 @@
 ## Purpose
 - This is the repo ownership and navigation map.
 - Use it to answer two questions quickly:
-  - Which file owns a behavior?
+  - Which file owns a behavior? 
   - Which thread is allowed to touch it?
 - Read `START_HERE.md` first if you are new to the repo, then use `README_GPT.md` and this file for deeper navigation.
 - PolyPorto runtime behavior and intended ownership are documented in `POLY_PORTO.md`.

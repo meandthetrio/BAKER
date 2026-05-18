@@ -178,6 +178,17 @@ static void StartQueuedUiRequest(AppUiState& ui,
                 worker.ui_req_result = -1;
             FinishRequest(worker, worker.project_restore);
             break;
+        case UiReqType::RenameWavIndex:
+            if(!RenameWavAtIndex(ui.sd, req.a, ui.project_rename_draft))
+                worker.ui_req_result = -1;
+            else
+            {
+                SdBrowser_ClearList(ui.sd);
+                ui.sd.scan_done = false;
+                ui.sd.scan_in_progress = false;
+            }
+            FinishRequest(worker, worker.project_restore);
+            break;
         case UiReqType::UpdateProjectStyle:
             if(!UpdateProjectStyle(ui, project, worker))
                 worker.ui_req_result = -1;

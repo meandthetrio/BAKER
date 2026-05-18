@@ -17,3 +17,4 @@ bool SaveStep(SdBrowserState& sd,
               AppWorkerState& worker,
               uint16_t budget_us);
 bool DeleteWavAtIndex(SdBrowserState& sd, uint16_t idx);
+bool RenameWavAtIndex(SdBrowserState& sd, uint16_t idx, const char* new_stem);

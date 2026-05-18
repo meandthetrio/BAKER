@@ -11,6 +11,7 @@
 #include "ff.h"
 
 #include <cstdio>
+#include <cstring>
 
 extern SdWorkerState s_sd;
 
@@ -415,4 +416,70 @@ bool DeleteWavAtIndex(SdBrowserState& sd, uint16_t idx)
     }
     SdBrowser_SetStatus(sd, "DEL ERR");
     return false;
+}
+
+bool RenameWavAtIndex(SdBrowserState& sd, uint16_t idx, const char* new_stem)
+{
+    if(!EnsureSdMountedInternal(sd) || idx >= sd.wav_count || !new_stem || new_stem[0] == '\0')
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    const char* old_path = sd.paths[idx];
+    if(!old_path || old_path[0] == '\0')
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    const char* slash = old_path;
+    for(const char* p = old_path; *p != '\0'; ++p)
+    {
+        if(*p == '/' || *p == '\\')
+            slash = p + 1;
+    }
+    const char* dot = nullptr;
+    for(const char* p = slash; *p != '\0'; ++p)
+    {
+        if(*p == '.')
+            dot = p;
+    }
+    const char* ext = dot ? dot : ".wav";
+
+    char dir[kSdPathMax];
+    dir[0] = '\0';
+    const size_t old_len = std::strlen(old_path);
+    const size_t base_off = static_cast<size_t>(slash - old_path);
+    if(base_off > 0u)
+    {
+        const size_t dir_len = (base_off < old_len) ? base_off : old_len;
+        if(dir_len + 1u >= sizeof(dir))
+        {
+            SdBrowser_SetStatus(sd, "REN ERR");
+            return false;
+        }
+        std::snprintf(dir, sizeof(dir), "%.*s", static_cast<int>(dir_len), old_path);
+    }
+
+    char new_path[kSdPathMax];
+    if(dir[0] != '\0')
+        std::snprintf(new_path, sizeof(new_path), "%s%s%s", dir, new_stem, ext);
+    else
+        std::snprintf(new_path, sizeof(new_path), "%s%s", new_stem, ext);
+
+    if(std::strncmp(new_path, old_path, sizeof(new_path)) == 0)
+    {
+        SdBrowser_SetStatus(sd, "RENAMED");
+        return true;
+    }
+
+    if(f_rename(old_path, new_path) != FR_OK)
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    SdBrowser_SetStatus(sd, "RENAMED");
+    return true;
 }

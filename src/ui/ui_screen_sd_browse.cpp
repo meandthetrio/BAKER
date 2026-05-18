@@ -20,6 +20,47 @@
 #include <cstring>
 
 using namespace daisy;
+
+static void EnsureScanRequested(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.worker)
+        return;
+
+    SdBrowserState& sd = ctx.ui->sd;
+    if(sd.scan_in_progress || sd.scan_done)
+        return;
+
+    UiReq req{UiReqType::ScanSdWavs, 0, 0};
+    if(UiReq_Push(*ctx.ui, *ctx.worker, req))
+    {
+        sd.scan_in_progress = true;
+        SdBrowser_SetStatus(sd, "SCANNING");
+        ctx.ui->ui_dirty = true;
+    }
+}
+
+static void BuildRenameDraftFromName(const char* name, char* out, size_t out_n)
+{
+    if(!out || out_n == 0u)
+        return;
+    out[0] = '\0';
+    if(!name || name[0] == '\0')
+        return;
+
+    std::snprintf(out, out_n, "%s", name);
+    const size_t len = std::strlen(out);
+    if(len > 4u)
+    {
+        char* ext = out + (len - 4u);
+        const bool wav_ext = (ext[0] == '.')
+                             && ((ext[1] == 'w') || (ext[1] == 'W'))
+                             && ((ext[2] == 'a') || (ext[2] == 'A'))
+                             && ((ext[3] == 'v') || (ext[3] == 'V'));
+        if(wav_ext)
+            ext[0] = '\0';
+    }
+}
+
 void SdBrowse_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.ui)
@@ -34,14 +75,7 @@ void SdBrowse_OnEnter(UiScreenCtx& ctx)
         SdBrowser_RebuildMenu(sd);
     }
 
-    if(!sd.scan_in_progress && !sd.scan_done)
-    {
-        UiReq req{UiReqType::ScanSdWavs, 0, 0};
-        UiReq_Push(*ctx.ui, *ctx.worker, req);
-        sd.scan_in_progress = true;
-        SdBrowser_SetStatus(sd, "SCANNING");
-        ctx.ui->ui_dirty = true;
-    }
+    EnsureScanRequested(ctx);
 }
 
 bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -65,6 +99,10 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
+        EnsureScanRequested(ctx);
+        if(!sd.scan_done)
+            return true;
+
         if(sd.wav_count > 0 && !sd.scan_in_progress)
         {
             const uint16_t idx = sd.menu.cursor;
@@ -77,6 +115,19 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                                 sizeof(ctx.ui->sd_delete_name));
                 UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdDeleteConfirm);
                 ctx.ui->ui_dirty = true;
+                return true;
+            }
+            if(ctx.ui->sd_rename_mode)
+            {
+                ctx.ui->sample_rename_active = true;
+                ctx.ui->sample_rename_index = idx;
+                BuildRenameDraftFromName(sd.names[idx],
+                                         ctx.ui->project_rename_draft,
+                                         sizeof(ctx.ui->project_rename_draft));
+                ctx.ui->project_rename_length =
+                    static_cast<uint8_t>(std::strlen(ctx.ui->project_rename_draft));
+                if(UiNav_Push(ctx.ui->ui_nav, UiScreenId::RenameProject))
+                    ctx.ui->ui_dirty = true;
                 return true;
             }
 
@@ -113,6 +164,8 @@ void SdBrowse_Render(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.display)
         return;
+
+    EnsureScanRequested(ctx);
 
     SdBrowserState& sd = ctx.ui->sd;
     const UiLayout layout = UiLayout_Default();

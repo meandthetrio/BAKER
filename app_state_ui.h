@@ -18,6 +18,7 @@ enum class ProjectRenameFocus : uint8_t
 {
     Grid = 0,
     Save,
+    Cancel,
 };
 
 enum class ProjectPresetsSortMode : uint8_t
@@ -72,6 +73,8 @@ struct AppUiState
     // SHIFT menu and destructive browser flow state.
     uint8_t shift_menu_cursor = 0;
     bool shift_menu_edit_volume = false;
+    bool shift_menu_sd_manage_active = false;
+    uint8_t shift_menu_sd_manage_cursor = 0;
     bool shift_menu_firmware_update_active = false;
     bool shift_menu_bootloader_armed = false;
     uint32_t shift_menu_bootloader_arm_start_ms = 0;
@@ -80,6 +83,9 @@ struct AppUiState
     bool sd_delete_mode = false;
     uint16_t sd_delete_index = 0;
     char sd_delete_name[kSdNameMax] = {};
+    bool sd_rename_mode = false;
+    bool sample_rename_active = false;
+    uint16_t sample_rename_index = 0;
     uint8_t presets_focus_index = kProjectPresetsHeaderCount;
     uint8_t presets_top_row = 0;
     ProjectPresetsSortMode presets_sort_mode = ProjectPresetsSortMode::Number;

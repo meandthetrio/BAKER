@@ -302,8 +302,12 @@ int main(void)
                       &g_app.shared.performance.macros.macro_b,
                       &g_app.shared.performance.macros.macro_sel,
                       &g_app.shared.performance.macros.macro_gen);
-    const Sample* bank[2] = {&g_app.shared.sample.publish.sd_slots[0], &g_app.shared.sample.publish.sd_slots[1]};
-    g_voice.SetSampleBank(bank, 2);
+    const Sample* bank[kRecordPreviewSampleIndex + 1] = {
+        &g_app.shared.sample.publish.sd_slots[0],
+        &g_app.shared.sample.publish.sd_slots[1],
+        &g_app.shared.recording.rec_sample,
+    };
+    g_voice.SetSampleBank(bank, kRecordPreviewSampleIndex + 1);
     g_voice.SetSample(&g_app.shared.sample.publish.sd_slots[0]);
     g_voice.BindDebug(&g_app.diag.events_popped,
                       &g_app.diag.voices_active,

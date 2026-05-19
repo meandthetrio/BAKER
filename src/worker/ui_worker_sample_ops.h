@@ -11,7 +11,7 @@ bool StartNormalize(AppUiState& ui, AppSharedState& shared);
 bool NormalizeStep(AppUiState& ui, AppSharedState& shared, uint16_t budget_us);
 bool LoopFindCurrent(AppUiState& ui, AppSharedState& shared);
 
-bool StartSave(AppUiState& ui, AppSharedState& shared);
+bool StartSave(AppUiState& ui, AppSharedState& shared, bool save_recording);
 bool SaveStep(SdBrowserState& sd,
               AppSharedState& shared,
               AppWorkerState& worker,

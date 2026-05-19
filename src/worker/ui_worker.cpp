@@ -195,7 +195,7 @@ static void StartQueuedUiRequest(AppUiState& ui,
             FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::SaveRenderedWavCurrent:
-            if(!StartSave(ui, shared))
+            if(!StartSave(ui, shared, req.a != 0u))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::RebuildCache:

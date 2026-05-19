@@ -587,9 +587,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         const uint32_t rec_len = shared.recording.rec_length.load(std::memory_order_acquire);
         if(rec_len > 0)
         {
-            uint8_t slot = shared.recording.rec_slot_pending.load(std::memory_order_acquire) & 1u;
-            Sample& s = shared.sample.publish.sd_slots[slot];
-            s.pcm = SdSampleBuffer(slot);
+            Sample& s = shared.recording.rec_sample;
+            s.pcm = SdRecordBuffer();
             s.length = rec_len;
             s.sample_rate = 48000;
             s.root_key = 60;
@@ -598,14 +597,9 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             s.loop_enabled = false;
 
             SampleEdit edit = SampleEdit_Default(rec_len);
-            shared.sample.edit.sd_edit_slots[slot] = edit;
-            shared.sample.edit.sd_edit_pending = edit;
-            shared.sample.edit.sd_edit_slot.store(slot, std::memory_order_release);
-            shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-            shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
+            shared.recording.rec_edit = edit;
 
-            shared.sample.publish.sd_current_slot.store(slot, std::memory_order_release);
-            recording.record_slot = slot;
+            recording.record_slot = kRecordPreviewSampleIndex;
             recording.record_state = RecordUiState::Review;
             ui.ui_dirty = true;
         }
@@ -620,8 +614,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                                        && recording.record_state == RecordUiState::Review);
     if(record_review_active && recording.record_preview_hold && !recording.record_preview_gate)
     {
-        const uint8_t slot = recording.record_slot & 1u;
-        const Sample& s = shared.sample.publish.sd_slots[slot];
+        const uint8_t slot = recording.record_slot;
+        const Sample& s = shared.recording.rec_sample;
         if(s.pcm != nullptr && s.length > 0)
         {
             if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))

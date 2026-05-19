@@ -25,6 +25,29 @@ static void CloseWorkerFileIfOpen()
     s_sd.file_open = false;
 }
 
+static bool SelectSaveDirectory(SdBrowserState& sd)
+{
+    const char* base = s_sd.fsi.GetSDPath();
+    std::snprintf(s_sd.save_dir, sizeof(s_sd.save_dir), "%sWAV", base);
+
+    DIR dir;
+    if(f_opendir(&dir, s_sd.save_dir) == FR_OK)
+    {
+        f_closedir(&dir);
+        return true;
+    }
+
+    std::snprintf(s_sd.save_dir, sizeof(s_sd.save_dir), "%s", base);
+    if(f_opendir(&dir, s_sd.save_dir) == FR_OK)
+    {
+        f_closedir(&dir);
+        return true;
+    }
+
+    SdBrowser_SetSaveStatus(sd, "DIR ERR");
+    return false;
+}
+
 bool StartNormalize(AppUiState& ui, AppSharedState& shared)
 {
     const uint8_t slot = shared.sample.publish.sd_current_slot.load(std::memory_order_relaxed) & 1u;
@@ -200,7 +223,7 @@ bool LoopFindCurrent(AppUiState& ui, AppSharedState& shared)
     return true;
 }
 
-bool StartSave(AppUiState& ui, AppSharedState& shared)
+bool StartSave(AppUiState& ui, AppSharedState& shared, bool save_recording)
 {
     SdBrowserState& sd = ui.sd;
     sd.save_in_progress = false;
@@ -215,14 +238,16 @@ bool StartSave(AppUiState& ui, AppSharedState& shared)
     }
 
     const uint8_t slot = shared.sample.publish.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const Sample& sample = shared.sample.publish.sd_slots[slot];
+    const Sample& sample = save_recording ? shared.recording.rec_sample
+                                          : shared.sample.publish.sd_slots[slot];
     if(sample.pcm == nullptr || sample.length == 0)
     {
         SdBrowser_SetSaveStatus(sd, "NO SAMPLE");
         return false;
     }
 
-    SampleEdit edit = shared.sample.edit.sd_edit_slots[slot];
+    SampleEdit edit = save_recording ? shared.recording.rec_edit
+                                     : shared.sample.edit.sd_edit_slots[slot];
     SampleEdit_Clamp(edit, sample.length);
     if(edit.end_frame <= edit.start_frame || edit.end_frame > sample.length)
     {
@@ -231,14 +256,15 @@ bool StartSave(AppUiState& ui, AppSharedState& shared)
     }
 
     s_sd.save_slot = slot;
+    s_sd.save_pcm = sample.pcm;
     s_sd.save_start = edit.start_frame;
     s_sd.save_end = edit.end_frame;
     s_sd.save_total = edit.end_frame - edit.start_frame;
     s_sd.save_written = 0;
     s_sd.save_gain = edit.gain;
 
-    const char* base = s_sd.fsi.GetSDPath();
-    std::snprintf(s_sd.save_dir, sizeof(s_sd.save_dir), "%s", base);
+    if(!SelectSaveDirectory(sd))
+        return false;
 
     bool found = false;
     for(uint16_t i = 1; i <= 9999u; ++i)
@@ -296,11 +322,11 @@ bool StartSave(AppUiState& ui, AppSharedState& shared)
 
 bool SaveStep(SdBrowserState& sd, AppSharedState& shared, AppWorkerState& worker, uint16_t budget_us)
 {
+    (void)shared;
     if(!s_sd.save_active || !s_sd.file_open)
         return true;
 
-    const Sample& sample = shared.sample.publish.sd_slots[s_sd.save_slot];
-    if(sample.pcm == nullptr || s_sd.save_total == 0)
+    if(s_sd.save_pcm == nullptr || s_sd.save_total == 0)
     {
         CloseWorkerFileIfOpen();
         s_sd.save_active = false;
@@ -332,7 +358,7 @@ bool SaveStep(SdBrowserState& sd, AppSharedState& shared, AppWorkerState& worker
         frames_to_write = max_frames;
 
     static int16_t s_save_buf[kSaveChunkFrames];
-    const int16_t* src = sample.pcm + s_sd.save_start + s_sd.save_written;
+    const int16_t* src = s_sd.save_pcm + s_sd.save_start + s_sd.save_written;
     const float gain = s_sd.save_gain;
     const bool unity_gain = (gain > 0.9999f && gain < 1.0001f);
     const void* write_ptr = s_save_buf;
@@ -384,6 +410,7 @@ bool SaveStep(SdBrowserState& sd, AppSharedState& shared, AppWorkerState& worker
         sd.save_progress = 100;
         SdBrowser_SetSaveStatus(sd, "SAVED");
         SdBrowser_SetSaveName(sd, s_sd.save_name);
+        SdBrowser_AddWavFile(sd, s_sd.save_name, s_sd.save_path);
         return true;
     }
 

@@ -50,6 +50,7 @@ struct SdWorkerState
     int32_t norm_peak = 0;
     bool save_active = false;
     uint8_t save_slot = 0;
+    const int16_t* save_pcm = nullptr;
     uint32_t save_start = 0;
     uint32_t save_end = 0;
     uint32_t save_total = 0;

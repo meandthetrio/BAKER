@@ -77,6 +77,50 @@ void SdBrowser_RebuildMenu(SdBrowserState& s)
     s.menu_inited = true;
 }
 
+bool SdBrowser_AddWavFile(SdBrowserState& s, const char* name, const char* path)
+{
+    if(!name || !path || name[0] == '\0' || path[0] == '\0')
+        return false;
+
+    const bool had_full_scan = s.scan_done;
+
+    for(uint8_t i = 0; i < s.wav_count; ++i)
+    {
+        if(std::strcmp(s.paths[i], path) == 0)
+        {
+            std::snprintf(s.names[i], sizeof(s.names[i]), "%.*s",
+                          (int)sizeof(s.names[i]) - 1,
+                          name);
+            SdBrowser_RebuildMenu(s);
+            s.scan_done = had_full_scan;
+            return true;
+        }
+    }
+
+    if(s.wav_count >= kSdMaxFiles)
+        return false;
+
+    const uint8_t old_cursor = s.menu.cursor;
+    const uint8_t old_scroll = s.menu.scroll;
+    const uint8_t idx = s.wav_count++;
+
+    std::snprintf(s.names[idx], sizeof(s.names[idx]), "%.*s",
+                  (int)sizeof(s.names[idx]) - 1,
+                  name);
+    std::snprintf(s.paths[idx], sizeof(s.paths[idx]), "%.*s",
+                  (int)sizeof(s.paths[idx]) - 1,
+                  path);
+
+    SdBrowser_RebuildMenu(s);
+    if(idx > 0u)
+    {
+        s.menu.cursor = old_cursor;
+        s.menu.scroll = old_scroll;
+    }
+    s.scan_done = had_full_scan;
+    return true;
+}
+
 void SdBrowser_RemoveWavAtIndex(SdBrowserState& s, uint16_t idx)
 {
     if(idx >= s.wav_count)

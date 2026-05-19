@@ -9,6 +9,7 @@
 #include "app_state_shared.h"
 #include "app_state_worker.h"
 #include "sd_browser_state.h"
+#include "storage_limits.h"
 #include "ui_input.h"
 #include "ui_requests.h"
 
@@ -144,7 +145,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(recording.record_target_index == 0)
             {
-                UiReq req{UiReqType::SaveRenderedWavCurrent, 0, 0};
+                UiReq req{UiReqType::SaveRenderedWavCurrent, 1, 0};
                 if(UiReq_Push(ui, worker, req))
                 {
                     SdBrowser_SetSaveStatus(ui.sd, "SAVING");
@@ -187,13 +188,12 @@ void Record_OnEnter(UiScreenCtx& ctx)
     if(!ctx.ui)
         return;
     AppUiState& ui = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
     AppRecordingState& recording = *ctx.recording;
     AppSharedState& shared = *ctx.shared;
     recording.record_state = RecordUiState::SourceSelect;
     recording.record_source_index = 0;
     recording.record_target_index = 0;
-    recording.record_slot = engine.perform_nav.perform_layer & 1u;
+    recording.record_slot = kRecordPreviewSampleIndex;
     recording.record_anim_start_ms = -1.0;
     shared.recording.rec_source_sel.store(recording.record_source_index & 1u, std::memory_order_release);
     shared.recording.rec_monitor_enable.store(0, std::memory_order_release);

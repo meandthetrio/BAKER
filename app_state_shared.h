@@ -67,6 +67,8 @@ struct AppSharedState
         int16_t rec_live_min[128] = {};
         int16_t rec_live_max[128] = {};
         int16_t rec_live_last_col = -1;
+        Sample rec_sample{};
+        SampleEdit rec_edit{};
     } recording{};
 
     struct PerformanceSharedState

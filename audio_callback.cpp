@@ -128,7 +128,6 @@ void AudioCallback_ApplySdSampleHandoffs(VoiceEngine& voice, AppSharedState& sha
 
 static bool     s_rec_active = false;
 static uint8_t  s_rec_source = 0;
-static uint8_t  s_rec_slot = 0;
 static uint32_t s_rec_pos = 0;
 static constexpr uint32_t kRecLiveWaveStride = 128u;
 
@@ -137,7 +136,6 @@ void AudioCallback_ProcessRecording(AudioHandle::InputBuffer in, size_t size)
     if(g_app.shared.recording.rec_start_req.exchange(0, std::memory_order_acq_rel) != 0)
     {
         s_rec_source = g_app.shared.recording.rec_source_sel.load(std::memory_order_acquire) & 1u;
-        s_rec_slot = g_app.shared.recording.rec_slot_pending.load(std::memory_order_acquire) & 1u;
         s_rec_pos = 0;
         s_rec_active = true;
         g_app.shared.recording.rec_pos.store(0, std::memory_order_release);
@@ -160,7 +158,7 @@ void AudioCallback_ProcessRecording(AudioHandle::InputBuffer in, size_t size)
 
     if(s_rec_active)
     {
-        int16_t* dst = SdSampleBuffer(s_rec_slot);
+        int16_t* dst = SdRecordBuffer();
         const uint32_t max_frames = kSdSampleMaxFrames;
         for(size_t i = 0; i < size; ++i)
         {

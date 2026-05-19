@@ -50,6 +50,7 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
                                            AppRecordingState& recording,
                                            AppSharedState& shared)
 {
+    (void)engine;
     Record_StopPreview(recording);
     shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     shared.recording.rec_start_req.store(0, std::memory_order_release);
@@ -59,12 +60,11 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
     shared.recording.rec_length.store(0, std::memory_order_release);
     Record_ResetLiveWave(shared);
 
-    const uint8_t slot = engine.perform_nav.perform_layer & 1u;
-    recording.record_slot = slot;
-    shared.recording.rec_slot_pending.store(slot, std::memory_order_release);
+    recording.record_slot = kRecordPreviewSampleIndex;
+    shared.recording.rec_slot_pending.store(0, std::memory_order_release);
 
-    // Reset target slot metadata so review/save reflects the fresh unsaved take.
-    Sample& s = shared.sample.publish.sd_slots[slot];
+    // Reset only the dedicated recording sample; engine layer slots stay untouched.
+    Sample& s = shared.recording.rec_sample;
     s.pcm = nullptr;
     s.length = 0;
     s.sample_rate = 48000;
@@ -74,11 +74,7 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
     s.loop_enabled = false;
 
     SampleEdit edit = SampleEdit_Default(0);
-    shared.sample.edit.sd_edit_slots[slot] = edit;
-    shared.sample.edit.sd_edit_pending = edit;
-    shared.sample.edit.sd_edit_slot.store(slot, std::memory_order_release);
-    shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-    shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
+    shared.recording.rec_edit = edit;
 }
 
 static void Record_StartRecording(UiScreenCtx& ctx)
@@ -489,7 +485,7 @@ void Record_Render(UiScreenCtx& ctx)
         case RecordUiState::Recording:
         {
             d.SetCursor(0, 0);
-            d.WriteString("RECORDING - 10 SEC MAX", Font_6x8, true);
+            d.WriteString("RECORDING - 5 SEC MAX", Font_6x8, true);
 
             const int wave_y0 = Font_6x8.FontHeight + 2;
             const int wave_y1 = 62;
@@ -568,9 +564,8 @@ void Record_Render(UiScreenCtx& ctx)
         case RecordUiState::Review:
         {
             UiDraw_Header(d, layout, "RECORDED PLAYBACK", status);
-            const uint8_t slot = recording.record_slot & 1u;
-            const Sample& s = shared.sample.publish.sd_slots[slot];
-            const SampleEdit* e = (s.length > 0) ? &shared.sample.edit.sd_edit_slots[slot] : nullptr;
+            const Sample& s = shared.recording.rec_sample;
+            const SampleEdit* e = (s.length > 0) ? &shared.recording.rec_edit : nullptr;
             if(ctx.ui && ctx.ui->sd.sd_wav_load_busy)
             {
                 d.DrawRect(0, layout.y_body, 127, layout.y_body + 49, true, false);

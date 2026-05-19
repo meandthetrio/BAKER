@@ -1315,8 +1315,9 @@ void RenameProject_Render(UiScreenCtx& ctx)
                                  && (col == ui.project_rename_grid_col);
             if(focused)
             {
-                DrawRencFocusFrame(d, x, y, TinyStringWidth(label), Font5x7::H);
-                DrawTinyStringCaseSensitive(d, label, x, y, false);
+                const int w = TinyStringWidth(label);
+                DrawDottedRect(d, x - 3, y - 3, x + w + 2, y + Font5x7::H + 2, true);
+                DrawTinyStringCaseSensitive(d, label, x, y, true);
             }
             else
             {

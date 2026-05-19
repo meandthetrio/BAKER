@@ -230,7 +230,7 @@ void SdBrowse_Render(UiScreenCtx& ctx)
 
     const int menu_x = layout.x;
     const int menu_y = layout.y_body + layout.line_h * lines_used;
-    const int label_x = menu_x + 10;
+    const int label_x = menu_x + 6;
 
     for(uint8_t row = 0; row < sd.menu.rows; ++row)
     {

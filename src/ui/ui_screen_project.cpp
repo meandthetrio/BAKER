@@ -48,7 +48,7 @@ static constexpr uint8_t kRenameCols = 9;
 static constexpr uint8_t kRenameRows = 4;
 static constexpr int kRenameNameX = 2;
 static constexpr int kRenameNameY = 8;
-static constexpr int kRenameSaveY = 3;
+static constexpr int kRenameSaveY = 0;
 static constexpr int kRenameGridX = 2;
 static constexpr int kRenameGridY = 22;
 static constexpr int kRenameGridXPitch = 14;
@@ -631,9 +631,18 @@ void RenderProjectSlotListWindow(UiScreenCtx& ctx, uint8_t focused_slot)
     }
 }
 
-char RenameGridChar(uint8_t row, uint8_t col)
+char RenameGridChar(uint8_t row, uint8_t col, bool uppercase)
 {
-    return kRenameGrid[row % kRenameRows][col % kRenameCols];
+    char c = kRenameGrid[row % kRenameRows][col % kRenameCols];
+    if(uppercase && c >= 'a' && c <= 'z')
+        c = static_cast<char>(c - 'a' + 'A');
+    return c;
+}
+
+uint8_t RenameMaxLength(const AppUiState& ui)
+{
+    return ui.sample_rename_active ? kSdRenameStemMax
+                                   : static_cast<uint8_t>(kProjectNameMax - 1u);
 }
 
 void RequestProjectSlotMetadata(AppUiState& ui,
@@ -769,7 +778,8 @@ bool QueueNamedSaveRequest(AppUiState& ui,
     ui.pending_named_save_slot = slot;
     std::snprintf(ui.pending_named_save_name,
                   sizeof(ui.pending_named_save_name),
-                  "%s",
+                  "%.*s",
+                  static_cast<int>(kProjectNameMax - 1u),
                   ui.project_rename_draft);
     ui.project_rename_for_new_save = false;
 
@@ -789,7 +799,8 @@ bool QueueRenameRequest(AppUiState& ui, AppProjectState& project, AppWorkerState
     project.pending_rename_slot = project.current_project_slot;
     std::snprintf(project.pending_rename_name,
                   sizeof(project.pending_rename_name),
-                  "%s",
+                  "%.*s",
+                  static_cast<int>(kProjectNameMax - 1u),
                   ui.project_rename_draft);
 
     const UiReq req{UiReqType::RenameProject, project.pending_rename_slot, 0};
@@ -1221,11 +1232,13 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return QueueRenameRequest(ui, project, *ctx.worker);
         }
 
-        if(ui.project_rename_length + 1u >= sizeof(ui.project_rename_draft))
+        if(ui.project_rename_length >= RenameMaxLength(ui))
             return true;
 
         ui.project_rename_draft[ui.project_rename_length] =
-            RenameGridChar(ui.project_rename_grid_row, ui.project_rename_grid_col);
+            RenameGridChar(ui.project_rename_grid_row,
+                           ui.project_rename_grid_col,
+                           ctx.rshift);
         ++ui.project_rename_length;
         ui.project_rename_draft[ui.project_rename_length] = '\0';
         ui.ui_dirty = true;
@@ -1294,7 +1307,7 @@ void RenameProject_Render(UiScreenCtx& ctx)
     {
         for(uint8_t col = 0; col < kRenameCols; ++col)
         {
-            char label[2] = {RenameGridChar(row, col), '\0'};
+            char label[2] = {RenameGridChar(row, col, ctx.rshift), '\0'};
             const int x = kRenameGridX + static_cast<int>(col) * kRenameGridXPitch;
             const int y = kRenameGridY + static_cast<int>(row) * kRenameGridYPitch;
             const bool focused = (ui.project_rename_focus == ProjectRenameFocus::Grid)
@@ -1302,11 +1315,12 @@ void RenameProject_Render(UiScreenCtx& ctx)
                                  && (col == ui.project_rename_grid_col);
             if(focused)
             {
-                DrawRencFocusTinyString(d, label, x, y);
+                DrawRencFocusFrame(d, x, y, TinyStringWidth(label), Font5x7::H);
+                DrawTinyStringCaseSensitive(d, label, x, y, false);
             }
             else
             {
-                DrawTinyString(d, label, x, y, true);
+                DrawTinyStringCaseSensitive(d, label, x, y, true);
             }
         }
     }

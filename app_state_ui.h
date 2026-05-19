@@ -29,6 +29,9 @@ enum class ProjectPresetsSortMode : uint8_t
 
 static constexpr uint8_t kProjectPresetsHeaderCount = 3;
 static constexpr uint8_t kProjectStyleFilterAll = 0xffu;
+static constexpr uint8_t kRenameDraftMax
+    = (kProjectNameMax > (kSdRenameStemMax + 1u)) ? kProjectNameMax
+                                                   : static_cast<uint8_t>(kSdRenameStemMax + 1u);
 
 // Main-thread UI shell, input plumbing, browser/editor navigation, and destructive-menu state.
 struct AppUiState
@@ -113,7 +116,7 @@ struct AppUiState
     uint8_t project_rename_grid_row = 0;
     uint8_t project_rename_length = 0;
     ProjectRenameFocus project_rename_focus = ProjectRenameFocus::Grid;
-    char project_rename_draft[kProjectNameMax] = {};
+    char project_rename_draft[kRenameDraftMax] = {};
 
     UiListMenu sample_edit_menu{};
     bool sample_edit_menu_inited = false;

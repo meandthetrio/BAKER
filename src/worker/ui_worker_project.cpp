@@ -34,7 +34,7 @@ static uint8_t ClampProjectSlotIndex(uint8_t slot)
 
 static bool IsProjectNameChar(char c)
 {
-    return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
 }
 
 static void SanitizeProjectName(char* out, size_t n, const char* src)
@@ -48,8 +48,6 @@ static void SanitizeProjectName(char* out, size_t n, const char* src)
         for(size_t read = 0; src[read] != '\0' && write + 1 < n; ++read)
         {
             char c = src[read];
-            if(c >= 'A' && c <= 'Z')
-                c = static_cast<char>(c - 'A' + 'a');
             if(!IsProjectNameChar(c))
                 continue;
             out[write++] = c;

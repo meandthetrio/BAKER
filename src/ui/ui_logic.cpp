@@ -378,7 +378,11 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 }
             }
             else if(e.id == kUiBtnRShift)
+            {
                 ui.ui_rshift_held = true;
+                if(rename_project_active)
+                    ui.ui_dirty = true;
+            }
             else if(e.id == kUiBtnPod1)
                 ui.ui_btn1_held = true;
             else if(e.id == kUiBtnPod2)
@@ -396,7 +400,11 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 }
             }
             else if(e.id == kUiBtnRShift)
+            {
                 ui.ui_rshift_held = false;
+                if(rename_project_active)
+                    ui.ui_dirty = true;
+            }
             else if(e.id == kUiBtnPod1)
                 ui.ui_btn1_held = false;
             else if(e.id == kUiBtnPod2)

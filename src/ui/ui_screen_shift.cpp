@@ -426,7 +426,6 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         else
             DrawTinyString(d, "RENAME SAMPLE", 16, 38, true);
 
-        DrawTinyString(d, "R:SELECT  L:BACK", 18, 54, true);
         return;
     }
 

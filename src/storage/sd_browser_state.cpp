@@ -76,3 +76,40 @@ void SdBrowser_RebuildMenu(SdBrowserState& s)
     UiListMenu_Init(s.menu, s.items, s.wav_count, rows);
     s.menu_inited = true;
 }
+
+void SdBrowser_RemoveWavAtIndex(SdBrowserState& s, uint16_t idx)
+{
+    if(idx >= s.wav_count)
+        return;
+
+    for(uint8_t i = static_cast<uint8_t>(idx); i + 1u < s.wav_count; ++i)
+    {
+        std::memcpy(s.names[i], s.names[i + 1u], sizeof(s.names[i]));
+        std::memcpy(s.paths[i], s.paths[i + 1u], sizeof(s.paths[i]));
+    }
+
+    s.wav_count--;
+    s.names[s.wav_count][0] = '\0';
+    s.paths[s.wav_count][0] = '\0';
+    s.items[s.wav_count].label = "";
+    s.items[s.wav_count].screen = UiScreenId::COUNT;
+    s.items[s.wav_count].req = UiReqType::None;
+
+    const uint8_t rows = s.menu_rows;
+    SdBrowser_RebuildMenu(s);
+    if(s.wav_count == 0u)
+        return;
+
+    uint8_t cursor = static_cast<uint8_t>(idx);
+    if(cursor >= s.wav_count)
+        cursor = static_cast<uint8_t>(s.wav_count - 1u);
+
+    s.menu.cursor = cursor;
+    if(rows > 0u)
+    {
+        if(s.menu.scroll > cursor)
+            s.menu.scroll = cursor;
+        else if(cursor >= static_cast<uint8_t>(s.menu.scroll + rows))
+            s.menu.scroll = static_cast<uint8_t>(cursor - (rows - 1u));
+    }
+}

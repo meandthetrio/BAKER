@@ -40,15 +40,17 @@ bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
     }
 
     UiReq del{UiReqType::DeleteWavIndex, idx, 0};
-    UiReq scan{UiReqType::ScanSdWavs, 0, 0};
-    (void)UiReq_Push(ui, worker, del);
-    (void)UiReq_Push(ui, worker, scan);
+    if(!UiReq_Push(ui, worker, del))
+    {
+        SdBrowser_SetStatus(sd, "DEL ERR");
+        UiNav_Pop(ui.ui_nav);
+        ui.ui_dirty = true;
+        return true;
+    }
 
-    sd.scan_in_progress = true;
-    sd.scan_done = false;
     SdBrowser_SetStatus(sd, "DELETING");
 
-    ui.sd_delete_mode = false;
+    ui.sd_delete_mode = true;
     UiNav_Pop(ui.ui_nav);
     ui.ui_dirty = true;
     return true;

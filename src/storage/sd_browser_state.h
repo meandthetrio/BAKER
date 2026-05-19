@@ -47,3 +47,4 @@ void SdBrowser_SetStatus(SdBrowserState& s, const char* msg);
 void SdBrowser_SetSaveStatus(SdBrowserState& s, const char* msg);
 void SdBrowser_SetSaveName(SdBrowserState& s, const char* name);
 void SdBrowser_RebuildMenu(SdBrowserState& s);
+void SdBrowser_RemoveWavAtIndex(SdBrowserState& s, uint16_t idx);

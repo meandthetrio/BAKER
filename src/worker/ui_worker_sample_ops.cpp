@@ -411,6 +411,7 @@ bool DeleteWavAtIndex(SdBrowserState& sd, uint16_t idx)
     const FRESULT fr = f_unlink(sd.paths[idx]);
     if(fr == FR_OK)
     {
+        SdBrowser_RemoveWavAtIndex(sd, idx);
         SdBrowser_SetStatus(sd, "DELETED");
         return true;
     }

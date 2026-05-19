@@ -359,6 +359,12 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     d.Fill(false);
 
     const int screen_w = (int)d.Width();
+    auto draw_centered_tiny = [&](const char* text, int y) {
+        int x = (screen_w - TinyStringWidth(text)) / 2;
+        if(x < 0)
+            x = 0;
+        DrawTinyString(d, text, x, y, true);
+    };
 
     if(ui.shift_menu_bootloader_armed)
     {
@@ -380,10 +386,10 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     if(ui.shift_menu_bootloader_loading)
     {
         ui.ui_dirty = true;
-        const char* kPairing = "PAIRING";
-        const int x = (screen_w - TinyStringWidth(kPairing)) / 2;
-        const int y = (static_cast<int>(d.Height()) - Font5x7::H) / 2;
-        DrawTinyString(d, kPairing, x, y, true);
+        draw_centered_tiny("PAIRING - visit", 8);
+        draw_centered_tiny("retroactivepedals", 22);
+        draw_centered_tiny(".com to", 34);
+        draw_centered_tiny("complete update", 48);
 
         const uint32_t loading_elapsed_ms = ctx.now_ms - ui.shift_menu_bootloader_loading_start_ms;
         if(loading_elapsed_ms >= kShiftBootloaderLoadingOverlayMs)
@@ -397,10 +403,10 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     {
         if(ui.shift_menu_bootloader_armed)
         {
-            const char* kPairing = "PAIRING";
-            const int x = (screen_w - TinyStringWidth(kPairing)) / 2;
-            const int y = (static_cast<int>(d.Height()) - Font5x7::H) / 2;
-            DrawTinyString(d, kPairing, x, y, true);
+            draw_centered_tiny("PAIRING - visit", 8);
+            draw_centered_tiny("retroactivepedals", 22);
+            draw_centered_tiny(".com to", 34);
+            draw_centered_tiny("complete update", 48);
         }
         else
         {

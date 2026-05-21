@@ -187,12 +187,14 @@ void DrawEqGraphScreen(OledPager& d, const PerformParamsTargets& t, uint32_t now
     const int plot_y0 = 9;
     const int plot_y1 = kDisplayH - 11;
 
-    const char* hdr = "eq";
-    const int hw = MicroStringWidth(hdr);
+    const char* hdr = "TILT EQ";
+    const int hw = TinyStringWidth(hdr);
     int hx = (kDisplayW - hw) / 2;
     if(hx < 0)
         hx = 0;
-    DrawMicroString(d, hdr, hx, 0, true);
+    const int hy = 2;
+    DrawDottedRect(d, hx - 2, hy - 2, hx + hw + 1, hy + Font5x7::H + 1, true);
+    DrawTinyString(d, hdr, hx, hy, true);
 
     const float center_hz = TiltEq_CenterNormToHz(t.eq_center_norm);
     const float tilt = ClampEqTiltDb(t.eq_tilt_db);

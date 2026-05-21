@@ -54,6 +54,71 @@ static void DrawSignedSemitoneText(OledPager& d, int v, int x, int y, bool on)
     DrawTinyString(d, buf, x, y, on);
 }
 
+static int DivFloor(int n, int d)
+{
+    int q = n / d;
+    int r = n % d;
+    if(r != 0 && ((r > 0) != (d > 0)))
+        --q;
+    return q;
+}
+
+static int ModFloor(int n, int d)
+{
+    int r = n % d;
+    if(r < 0)
+        r += (d < 0) ? -d : d;
+    return r;
+}
+
+static int SignedTuneWithCentsTextWidth(int total_cents)
+{
+    if(total_cents == 0)
+        return TinyStringWidth("0");
+
+    const int abs_cents = (total_cents < 0) ? -total_cents : total_cents;
+    const int semis = abs_cents / 100;
+    const int cents = abs_cents % 100;
+    char buf[12];
+    std::snprintf(buf, sizeof(buf), "+%d.%02d", semis, cents);
+    return TinyStringWidth(buf);
+}
+
+static void DrawSignedTuneWithCentsText(OledPager& d, int total_cents, int x, int y, bool on)
+{
+    if(total_cents == 0)
+    {
+        DrawTinyString(d, "0", x, y, on);
+        return;
+    }
+
+    const int abs_cents = (total_cents < 0) ? -total_cents : total_cents;
+    const int semis = abs_cents / 100;
+    const int cents = abs_cents % 100;
+    char buf[12];
+    std::snprintf(buf, sizeof(buf), "%c%d.%02d", (total_cents < 0) ? '-' : '+', semis, cents);
+    DrawTinyString(d, buf, x, y, on);
+}
+
+static void ClampAndSplitTune(int total_cents, int8_t& semitones, int8_t& cents)
+{
+    int clamped_total = total_cents;
+    if(clamped_total < -2400)
+        clamped_total = -2400;
+    if(clamped_total > 2400)
+        clamped_total = 2400;
+    const int semis = DivFloor(clamped_total, 100);
+    const int rem = ModFloor(clamped_total, 100);
+    if(clamped_total < 0 && rem != 0)
+    {
+        semitones = static_cast<int8_t>(semis + 1);
+        cents = static_cast<int8_t>(rem - 100);
+        return;
+    }
+    semitones = static_cast<int8_t>(semis);
+    cents = static_cast<int8_t>(rem);
+}
+
 static int LoadWordmarkWidth()
 {
     // 5 + 1 + 3 + 1 + 3 + 1 + 4
@@ -448,13 +513,32 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         bool changed = false;
         if(row == kEngineRowTune)
         {
-            int v = static_cast<int>(engine.layer.engine_tune_semitones[layer]) + e.value;
-            v = ClampInt(v, -24, 24);
-            const int8_t vv = static_cast<int8_t>(v);
-            if(vv != engine.layer.engine_tune_semitones[layer])
+            if(ctx.rshift)
             {
-                engine.layer.engine_tune_semitones[layer] = vv;
-                changed = true;
+                const int total_cents = static_cast<int>(engine.layer.engine_tune_semitones[layer]) * 100
+                                        + static_cast<int>(engine.layer.engine_tune_cents[layer])
+                                        + e.value;
+                int8_t new_semitones = engine.layer.engine_tune_semitones[layer];
+                int8_t new_cents = engine.layer.engine_tune_cents[layer];
+                ClampAndSplitTune(total_cents, new_semitones, new_cents);
+                if(new_semitones != engine.layer.engine_tune_semitones[layer]
+                   || new_cents != engine.layer.engine_tune_cents[layer])
+                {
+                    engine.layer.engine_tune_semitones[layer] = new_semitones;
+                    engine.layer.engine_tune_cents[layer] = new_cents;
+                    changed = true;
+                }
+            }
+            else
+            {
+                int v = static_cast<int>(engine.layer.engine_tune_semitones[layer]) + e.value;
+                v = ClampInt(v, -24, 24);
+                const int8_t vv = static_cast<int8_t>(v);
+                if(vv != engine.layer.engine_tune_semitones[layer])
+                {
+                    engine.layer.engine_tune_semitones[layer] = vv;
+                    changed = true;
+                }
             }
         }
 
@@ -627,13 +711,34 @@ void PerformEngine_Render(UiScreenCtx& ctx)
 
     if(row == kEngineRowTune)
     {
-        d.DrawRect(tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true, false);
-        const int tune_value = static_cast<int>(engine.layer.engine_tune_semitones[layer]);
-        const int val_w = SignedSemitoneTextWidth(tune_value);
+        const int semitone_value = static_cast<int>(engine.layer.engine_tune_semitones[layer]);
+        const int cents_value = static_cast<int>(engine.layer.engine_tune_cents[layer]);
+        const int total_cents = semitone_value * 100 + cents_value;
+        const int val_w = ctx.rshift ? SignedTuneWithCentsTextWidth(total_cents)
+                                     : SignedSemitoneTextWidth(semitone_value);
         int val_x = tune_x + (tune_w - val_w) / 2;
         if(val_x < tune_x)
             val_x = tune_x;
-        DrawSignedSemitoneText(d, tune_value, val_x, kFooterY, true);
+
+        const int by0 = kFooterY - 2;
+        const int by1 = kFooterY + Font5x7::H + 1;
+        if(ctx.rshift)
+        {
+            const int bx0 = val_x - 2;
+            const int bx1 = val_x + val_w + 1;
+            d.DrawRect(bx0, by0, bx1, by1, true, false);
+        }
+        else
+        {
+            const int bx0 = tune_x - 2;
+            const int bx1 = tune_x + tune_w + 1;
+            DrawDottedRect(d, bx0, by0, bx1, by1, true);
+        }
+
+        if(ctx.rshift)
+            DrawSignedTuneWithCentsText(d, total_cents, val_x, kFooterY, true);
+        else
+            DrawSignedSemitoneText(d, semitone_value, val_x, kFooterY, true);
     }
     else
     {

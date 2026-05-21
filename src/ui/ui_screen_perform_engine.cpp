@@ -281,10 +281,82 @@ static int ClampInt(int v, int lo, int hi)
     return v;
 }
 
-static constexpr int32_t kEngineRowCount = 3;
+static constexpr int32_t kEngineRowCount = 4;
 static constexpr int32_t kEngineRowWave = 0;
 static constexpr int32_t kEngineRowLoad = 1;
-static constexpr int32_t kEngineRowTune = 2;
+static constexpr int32_t kEngineRowReverse = 2;
+static constexpr int32_t kEngineRowTune = 3;
+
+static bool ReverseLoadedSampleForLayer(AppSharedState& shared, uint8_t layer)
+{
+    layer &= 1u;
+    Sample& sample = shared.sample.publish.sd_slots[layer];
+    if(sample.pcm == nullptr || sample.length < 2)
+        return false;
+
+    int16_t* pcm = const_cast<int16_t*>(sample.pcm);
+    uint32_t i = 0;
+    uint32_t j = sample.length - 1u;
+    while(i < j)
+    {
+        const int16_t t = pcm[i];
+        pcm[i] = pcm[j];
+        pcm[j] = t;
+        ++i;
+        --j;
+    }
+
+    auto map_index = [&](uint32_t idx) -> uint32_t
+    {
+        if(idx > sample.length)
+            idx = sample.length;
+        return sample.length - idx;
+    };
+
+    uint32_t new_loop_start = map_index(sample.loop_end);
+    uint32_t new_loop_end = map_index(sample.loop_start);
+    if(new_loop_start > new_loop_end)
+    {
+        const uint32_t t = new_loop_start;
+        new_loop_start = new_loop_end;
+        new_loop_end = t;
+    }
+    sample.loop_start = new_loop_start;
+    sample.loop_end = new_loop_end;
+
+    SampleEdit& edit = shared.sample.edit.sd_edit_slots[layer];
+    uint32_t new_edit_start = map_index(edit.start_frame);
+    uint32_t new_edit_end = map_index(edit.end_frame);
+    if(new_edit_start > new_edit_end)
+    {
+        const uint32_t t = new_edit_start;
+        new_edit_start = new_edit_end;
+        new_edit_end = t;
+    }
+    edit.start_frame = new_edit_start;
+    edit.end_frame = new_edit_end;
+
+    uint32_t new_edit_loop_start = map_index(edit.loop_end);
+    uint32_t new_edit_loop_end = map_index(edit.loop_start);
+    if(new_edit_loop_start > new_edit_loop_end)
+    {
+        const uint32_t t = new_edit_loop_start;
+        new_edit_loop_start = new_edit_loop_end;
+        new_edit_loop_end = t;
+    }
+    edit.loop_start = new_edit_loop_start;
+    edit.loop_end = new_edit_loop_end;
+    if(edit.loop_start > edit.end_frame)
+        edit.loop_start = edit.end_frame;
+    if(edit.loop_end > edit.end_frame)
+        edit.loop_end = edit.end_frame;
+    if(edit.loop_start < edit.start_frame)
+        edit.loop_start = edit.start_frame;
+    if(edit.loop_end < edit.start_frame)
+        edit.loop_end = edit.start_frame;
+
+    return true;
+}
 
 void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
 {
@@ -310,13 +382,25 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
     if(!ctx.ui)
         return false;
 
+    AppEngineState& engine = *ctx.engine;
+    AppSharedState& shared = *ctx.shared;
     const uint8_t row = ctx.engine->perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
     if(row == kEngineRowWave)
         return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformWaveEdit);
+    if(row == kEngineRowReverse)
+    {
+        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+        if(ReverseLoadedSampleForLayer(shared, layer))
+        {
+            PublishEngineLayerParams(ctx);
+            ctx.ui->ui_dirty = true;
+        }
+        return true;
+    }
     if(row != kEngineRowLoad)
         return false;
 
-    ctx.engine->layer.engine_load_target_layer = ctx.engine->perform_nav.perform_layer & 1u;
+    ctx.engine->layer.engine_load_target_layer = engine.perform_nav.perform_layer & 1u;
     ctx.engine->layer.engine_load_from_perform = true;
     return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
 }
@@ -357,16 +441,6 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
-    if((e.type == UiInputType::BtnDown || e.type == UiInputType::BtnUp) && e.id == kUiBtnRShift)
-    {
-        const uint8_t row = engine.perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
-        if(row == kEngineRowTune)
-        {
-            ui.ui_dirty = true;
-            return true;
-        }
-    }
-
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
         const uint8_t layer = engine.perform_nav.perform_layer & 1u;
@@ -374,27 +448,13 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         bool changed = false;
         if(row == kEngineRowTune)
         {
-            if(ctx.rshift)
+            int v = static_cast<int>(engine.layer.engine_tune_semitones[layer]) + e.value;
+            v = ClampInt(v, -24, 24);
+            const int8_t vv = static_cast<int8_t>(v);
+            if(vv != engine.layer.engine_tune_semitones[layer])
             {
-                int v = static_cast<int>(engine.layer.engine_tune_cents[layer]) + e.value;
-                v = ClampInt(v, -99, 99);
-                const int8_t vv = static_cast<int8_t>(v);
-                if(vv != engine.layer.engine_tune_cents[layer])
-                {
-                    engine.layer.engine_tune_cents[layer] = vv;
-                    changed = true;
-                }
-            }
-            else
-            {
-                int v = static_cast<int>(engine.layer.engine_tune_semitones[layer]) + e.value;
-                v = ClampInt(v, -24, 24);
-                const int8_t vv = static_cast<int8_t>(v);
-                if(vv != engine.layer.engine_tune_semitones[layer])
-                {
-                    engine.layer.engine_tune_semitones[layer] = vv;
-                    changed = true;
-                }
+                engine.layer.engine_tune_semitones[layer] = vv;
+                changed = true;
             }
         }
 
@@ -516,21 +576,30 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     }
 
     const int load_w = LoadWordmarkWidth();
+    const int reverse_w = TinyStringWidth("reverse");
     const int tune_w = TuneWordmarkWidth();
     constexpr int kScreenW = 128;
-    constexpr int kHalfW = kScreenW / 2;
-    const int load_anchor_x = kHalfW / 2;
-    const int tune_anchor_x = kHalfW + (kHalfW / 2);
+    constexpr int kThirdW = kScreenW / 3;
+    const int load_anchor_x = kThirdW / 2;
+    const int reverse_anchor_x = kThirdW + (kThirdW / 2);
+    const int tune_anchor_x = (2 * kThirdW) + (kThirdW / 2);
     int load_x = load_anchor_x - (load_w / 2);
+    int reverse_x = reverse_anchor_x - (reverse_w / 2);
     int tune_x = tune_anchor_x - (tune_w / 2);
     const int load_min_x = 1;
-    const int load_max_x = (kHalfW - 1) - load_w;
-    const int tune_min_x = kHalfW + 1;
+    const int load_max_x = (kThirdW - 1) - load_w;
+    const int reverse_min_x = kThirdW + 1;
+    const int reverse_max_x = (2 * kThirdW - 1) - reverse_w;
+    const int tune_min_x = (2 * kThirdW) + 1;
     const int tune_max_x = (kScreenW - 1) - tune_w;
     if(load_x < load_min_x)
         load_x = load_min_x;
     if(load_x > load_max_x)
         load_x = load_max_x;
+    if(reverse_x < reverse_min_x)
+        reverse_x = reverse_min_x;
+    if(reverse_x > reverse_max_x)
+        reverse_x = reverse_max_x;
     if(tune_x < tune_min_x)
         tune_x = tune_min_x;
     if(tune_x > tune_max_x)
@@ -546,14 +615,20 @@ void PerformEngine_Render(UiScreenCtx& ctx)
         DrawLoadWordmark(d, load_x, kFooterY, true);
     }
 
+    if(row == kEngineRowReverse)
+    {
+        d.DrawRect(reverse_x - 1, kFooterY - 1, reverse_x + reverse_w, kFooterY + Font5x7::H, true, true);
+        DrawTinyString(d, "reverse", reverse_x, kFooterY, false);
+    }
+    else
+    {
+        DrawTinyString(d, "reverse", reverse_x, kFooterY, true);
+    }
+
     if(row == kEngineRowTune)
     {
-        if(ctx.rshift)
-            d.DrawRect(tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true, false);
-        else
-            DrawDottedRect(d, tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true);
-        const int tune_value = ctx.rshift ? static_cast<int>(engine.layer.engine_tune_cents[layer])
-                                          : static_cast<int>(engine.layer.engine_tune_semitones[layer]);
+        d.DrawRect(tune_x - 2, kFooterY - 2, tune_x + tune_w + 1, kFooterY + Font5x7::H + 1, true, false);
+        const int tune_value = static_cast<int>(engine.layer.engine_tune_semitones[layer]);
         const int val_w = SignedSemitoneTextWidth(tune_value);
         int val_x = tune_x + (tune_w - val_w) / 2;
         if(val_x < tune_x)

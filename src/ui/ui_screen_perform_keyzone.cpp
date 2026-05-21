@@ -37,6 +37,11 @@ static int ClampInt(int v, int lo, int hi)
     return v;
 }
 
+static void DrawFillOnlyTinyString(OledPager& d, int x, int y, int w)
+{
+    d.DrawRect(x - 1, y - 1, x + w, y + Font5x7::H, true, true);
+}
+
 static bool PerformKeyzone_TryPushSubscreen(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.engine)
@@ -233,7 +238,10 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     }
     else
     {
-        DrawRencFocusFrame(d, mode_tx, mode_ty, mode_w, Font5x7::H);
+        if(is_split)
+            DrawRencFocusFrame(d, mode_tx, mode_ty, mode_w, Font5x7::H);
+        else
+            DrawFillOnlyTinyString(d, mode_tx, mode_ty, mode_w);
         draw_mode_str(mode_str, mode_tx, mode_ty, false);
     }
 
@@ -249,12 +257,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
 
         const int split_w        = TinyStringWidthCaseSensitiveTightColons(split_text);
         const int split_x        = (128 - split_w) / 2;
-        const bool split_focused = (ui.perform_keyzone_focus == 1);
-        if(split_focused)
-        {
-            DrawRencFocusFrame(d, split_x, status_y, split_w, Font5x7::H);
-        }
-        DrawTinyStringCaseSensitive(d, split_text, split_x, status_y, !split_focused);
+        DrawTinyStringCaseSensitive(d, split_text, split_x, status_y, true);
     }
 
     auto keyzone_left_x = [&](uint8_t midi_note)
@@ -408,7 +411,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
         const int vel_ty = bottom_y0 + (64 - bottom_y0 - Font5x7::H) / 2;
         if(ui.perform_keyzone_focus == 1)
         {
-            DrawRencFocusFrame(d, vel_tx, vel_ty, vel_w, Font5x7::H);
+            DrawFillOnlyTinyString(d, vel_tx, vel_ty, vel_w);
             draw_mode_str(kVelModLabel, vel_tx, vel_ty, false);
         }
         else

@@ -23,6 +23,24 @@
 
 static constexpr uint32_t kRecordCountdownMs = 4000;
 
+static void DrawFillOnlyString6x8(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = static_cast<int>(std::strlen(str)) * 6;
+    int x0 = x - 2;
+    int y0 = y - 2;
+    int x1 = x + w + 1;
+    int y1 = y + 8 + 1;
+    if(x0 < 0) x0 = 0;
+    if(y0 < 0) y0 = 0;
+    if(x1 > 127) x1 = 127;
+    if(y1 > 63) y1 = 63;
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    d.SetCursor(x, y);
+    d.WriteString(str, Font_6x8, false);
+}
+
 static float Clamp01(float x)
 {
     if(x < 0.0f) return 0.0f;
@@ -432,7 +450,7 @@ void Record_Render(UiScreenCtx& ctx)
                 const bool sel = (static_cast<uint8_t>(i) == recording.record_source_index);
                 if(sel)
                 {
-                    DrawRencFocusString6x8(d, names[i], 2, y + 1);
+                    DrawFillOnlyString6x8(d, names[i], 2, y + 1);
                 }
                 else
                 {

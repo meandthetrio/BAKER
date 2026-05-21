@@ -461,16 +461,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         // Button1 is NEVER "enter/load"; EXT encoder click is enter.
         if(!shift_held && e.type == UiInputType::BtnDown && e.id == kUiBtnPod1)
         {
-            // Toggle SHIFT menu.
+            // Toggle SHIFT menu from any screen.
             const UiScreenId active = UiNav_Active(ui.ui_nav);
-            if(active == UiScreenId::PerformProcess
-               && (engine.process.perform_process_detail_active || engine.process.perform_process_eq_graph_active))
-            {
-                // Let PROCESS detail / EQ graph consume POD1 as "back to PROCESS".
-                // Do not globally open SHIFT menu from inside FX detail.
-            }
-            else
-            {
             if(active == UiScreenId::ShiftMenu)
             {
                 ui.shift_menu_bootloader_armed = false;
@@ -498,7 +490,6 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             }
             ui.ui_dirty = true;
             continue;
-            }
         }
 
         if(e.type == UiInputType::BtnDown

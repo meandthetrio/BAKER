@@ -16,6 +16,15 @@ static constexpr int32_t kMainMenuCount = 3;
 static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "RECORD", "PERFORM"};
 static constexpr uint8_t kPresetsVisibleRows = 7;
 
+static void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = TinyStringWidth(str);
+    d.DrawRect(x - 2, y - 2, x + w + 1, y + Font5x7::H + 1, true, true);
+    DrawTinyString(d, str, x, y, false);
+}
+
 static int32_t NextMenuIndex(int32_t current, int32_t delta)
 {
     static const int32_t order[kMainMenuCount] = {0, 1, 2};
@@ -167,7 +176,7 @@ static void DrawMainMenuFriendStyle(OledPager& d, int selected)
         const int text_y = start_y + i * (text_h + kListGapY);
         if(is_selected)
         {
-            DrawRencFocusTinyString(d, label, text_x, text_y);
+            DrawFillOnlyTinyString(d, label, text_x, text_y);
         }
         else
         {

@@ -198,13 +198,13 @@ static void DrawProcessSatDetail(OledPager& d,
     const bool tape_selected = (t.sat_mode == 0);
     const bool bit_selected = (t.sat_mode == 1);
     const bool mode_select_active = (selected_param == 3);
-    d.DrawRect(block_x, block_y, block_x + block_w - 1, block_y + box_h - 1, true, tape_selected);
+    d.DrawRect(block_x, block_y, block_x + block_w - 1, block_y + box_h - 1, true, false);
     d.DrawRect(block_x,
                block_y + box_h + kGap,
                block_x + block_w - 1,
                block_y + (box_h * 2) + kGap - 1,
                true,
-               bit_selected);
+               false);
     const int label_w1 = TinyStringWidth("TAPE");
     const int label_w2 = TinyStringWidth("BIT");
     const int label_y1 = block_y + (box_h - Font5x7::H) / 2;
@@ -214,13 +214,19 @@ static void DrawProcessSatDetail(OledPager& d,
     if(label_x1 < block_x + 1) label_x1 = block_x + 1;
     if(label_x2 < block_x + 1) label_x2 = block_x + 1;
     if(mode_select_active && tape_selected)
-        DrawRencFocusTinyString(d, "TAPE", label_x1, label_y1);
+    {
+        d.DrawRect(label_x1 - 2, label_y1 - 2, label_x1 + label_w1 + 1, label_y1 + Font5x7::H + 1, true, false);
+        DrawTinyString(d, "TAPE", label_x1, label_y1, true);
+    }
     else
-        DrawTinyString(d, "TAPE", label_x1, label_y1, !tape_selected);
+        DrawTinyString(d, "TAPE", label_x1, label_y1, true);
     if(mode_select_active && bit_selected)
-        DrawRencFocusTinyString(d, "BIT", label_x2, label_y2);
+    {
+        d.DrawRect(label_x2 - 2, label_y2 - 2, label_x2 + label_w2 + 1, label_y2 + Font5x7::H + 1, true, false);
+        DrawTinyString(d, "BIT", label_x2, label_y2, true);
+    }
     else
-        DrawTinyString(d, "BIT", label_x2, label_y2, !bit_selected);
+        DrawTinyString(d, "BIT", label_x2, label_y2, true);
 
     const int fader_offset = 8;
     const int fader_x = block_x + block_w + kGap + fader_offset;
@@ -241,6 +247,7 @@ static void DrawProcessSatDetail(OledPager& d,
     const bool circle_handles[3] = {false, false, false};
     const bool hide_rails[3] = {t.sat_mode == 1, false, false};
     const bool hide_handles[3] = {t.sat_mode == 1, false, false};
+    const int selected_label_style = 3;
     DrawVerticalFadersInRect(d,
                              fader_x,
                              block_y,
@@ -254,7 +261,11 @@ static void DrawProcessSatDetail(OledPager& d,
                              fader_offsets,
                              circle_handles,
                              hide_rails,
-                             hide_handles);
+                             hide_handles,
+                             0,
+                             0,
+                             0,
+                             selected_label_style);
     if(t.sat_mode != 1)
         return;
 
@@ -288,7 +299,8 @@ static void DrawProcessSatDetail(OledPager& d,
             const bool is_selected = (i == cur_idx);
             if(is_selected)
             {
-                DrawRencFocusTinyString(d, bits_label, bits_x, bits_y);
+                d.DrawRect(bits_x - 2, bits_y - 2, bits_x + bits_w + 1, bits_y + Font5x7::H + 1, true, false);
+                DrawTinyString(d, bits_label, bits_x, bits_y, true);
             }
             else
             {
@@ -322,8 +334,7 @@ static void DrawProcessDelayDetail(OledPager& d,
     constexpr int kDelayFaderCount = 4;
     constexpr int kMargin = 2;
 
-    const int header_box_h = kMicroH + 4;
-    const int block_y = header_box_h;
+    const int block_y = Font5x7::H + 4;
     int block_h = kDisplayH - block_y - kMargin;
     if(block_h < 3)
         block_h = 3;
@@ -339,23 +350,60 @@ static void DrawProcessDelayDetail(OledPager& d,
     const bool fader_select_active = (param_index >= 0 && param_index < kDelayFaderCount);
     if(!fader_select_active)
         param_index = 0;
-    int lb_x0[4], lb_y0[4], lb_x1[4], lb_y1[4];
-    DrawDelayDetailFaders(d,
-                          fader_x,
-                          block_y,
-                          fader_w,
-                          block_h,
-                          fader_labels,
-                          fader_values,
-                          fader_select_active,
-                          param_index,
-                          lb_x0,
-                          lb_y0,
-                          lb_x1,
-                          lb_y1);
+
+    // Use the exact same shared renderer as reverb for identical rail/handle/label behavior.
+    DrawVerticalFadersInRect(d,
+                             fader_x,
+                             block_y,
+                             fader_w,
+                             block_h,
+                             fader_labels,
+                             fader_values,
+                             kDelayFaderCount,
+                             fader_select_active,
+                             param_index,
+                             nullptr,
+                             nullptr,
+                             nullptr,
+                             nullptr,
+                             0,
+                             0,
+                             0,
+                             3);
+
+    // Compute label bounds for LTM/RTM dotted shift indicators using shared layout math.
+    int lb_x0[4] = {};
+    int lb_y0[4] = {};
+    int lb_x1[4] = {};
+    int lb_y1[4] = {};
+    const int label_y = block_y + block_h - Font5x7::H - 1;
+    const int fader_left = fader_x + 4;
+    const int fader_right = fader_x + fader_w - 5;
+    const int span_x = fader_right - fader_left;
+    for(int i = 0; i < kDelayFaderCount; ++i)
+    {
+        int line_x = fader_left;
+        if(kDelayFaderCount > 1 && span_x > 0)
+            line_x = fader_left + (span_x * i) / (kDelayFaderCount - 1);
+        const int lab_w = TinyStringWidth(fader_labels[i]);
+        int lab_x = line_x - (lab_w / 2);
+        if(lab_x < fader_x + 1)
+            lab_x = fader_x + 1;
+        if(lab_x + lab_w > fader_x + fader_w - 2)
+            lab_x = fader_x + fader_w - 2 - lab_w;
+        lb_x0[i] = lab_x - 1;
+        lb_y0[i] = label_y - 1;
+        lb_x1[i] = lab_x + lab_w;
+        lb_y1[i] = label_y + Font5x7::H;
+    }
 
     if(rshift_held)
     {
+        // LTM/RTM must be dotted-only (no solid border): clear any shared solid focus box first.
+        d.DrawRect(lb_x0[0] - 1, lb_y0[0] - 1, lb_x1[0] + 1, lb_y1[0] + 1, false, true);
+        d.DrawRect(lb_x0[1] - 1, lb_y0[1] - 1, lb_x1[1] + 1, lb_y1[1] + 1, false, true);
+        DrawTinyString(d, fader_labels[0], lb_x0[0] + 1, lb_y0[0] + 1, true);
+        DrawTinyString(d, fader_labels[1], lb_x0[1] + 1, lb_y0[1] + 1, true);
         DrawClockwiseMarchingDottedRect(
             d, lb_x0[0] - 1, lb_y0[0] - 1, lb_x1[0] + 1, lb_y1[0] + 1, now_ms);
         DrawClockwiseMarchingDottedRect(
@@ -364,9 +412,17 @@ static void DrawProcessDelayDetail(OledPager& d,
     }
 
     if(fader_select_active && param_index == 0)
+    {
+        d.DrawRect(lb_x0[0] - 1, lb_y0[0] - 1, lb_x1[0] + 1, lb_y1[0] + 1, false, true);
+        DrawTinyString(d, fader_labels[0], lb_x0[0] + 1, lb_y0[0] + 1, true);
         DrawDottedRect(d, lb_x0[0] - 1, lb_y0[0] - 1, lb_x1[0] + 1, lb_y1[0] + 1, true);
+    }
     if(fader_select_active && param_index == 1)
+    {
+        d.DrawRect(lb_x0[1] - 1, lb_y0[1] - 1, lb_x1[1] + 1, lb_y1[1] + 1, false, true);
+        DrawTinyString(d, fader_labels[1], lb_x0[1] + 1, lb_y0[1] + 1, true);
         DrawDottedRect(d, lb_x0[1] - 1, lb_y0[1] - 1, lb_x1[1] + 1, lb_y1[1] + 1, true);
+    }
 }
 
 static void DrawProcessReverbDetail(OledPager& d,
@@ -410,7 +466,11 @@ static void DrawProcessReverbDetail(OledPager& d,
                              fader_offsets,
                              nullptr,
                              hide_rails,
-                             hide_handles);
+                             hide_handles,
+                             0,
+                             0,
+                             0,
+                             3);
 }
 
 void DrawFxDetailScreen(OledPager& d,
@@ -428,19 +488,6 @@ void DrawFxDetailScreen(OledPager& d,
     if(index < 0 || index >= kPerformFaderCount)
         index = 0;
 
-    if(index == 2)
-    {
-        const char* hdr       = "delay";
-        const int   header_w  = MicroStringWidth(hdr);
-        const int   box_w     = header_w + 4;
-        const int   header_box_h = kMicroH + 4;
-        int         box_x     = kDisplayW - box_w;
-        if(box_x < 0)
-            box_x = 0;
-        d.DrawRect(box_x, 0, box_x + box_w - 1, header_box_h - 1, true, true);
-        DrawMicroString(d, hdr, box_x + 2, 2, false);
-    }
-    else
     {
         const char* label  = labels[index];
         const int   text_w = TinyStringWidth(label);

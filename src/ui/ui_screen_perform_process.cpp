@@ -436,6 +436,7 @@ void PerformProcess_Render(UiScreenCtx& ctx)
                                  hide_handles,
                                  1,
                                  1,
+                                 1,
                                  1);
 
         DrawProcessFxReorderOverlay(d, fader_x, fader_y, fader_w, fader_h, selected_index, ctx.rshift);

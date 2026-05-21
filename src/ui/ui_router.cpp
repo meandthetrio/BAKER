@@ -55,6 +55,10 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(active == UiScreenId::PerformProcess && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
+        // EXPRESS detail uses BACK to return from PolyPorto detail to EXPRESS main.
+        if(active == UiScreenId::PerformExpress && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
         // TRIM screen uses BACK to cancel pending start/end edits.
         if(active == UiScreenId::PerformWaveEdit && s.OnEvent && s.OnEvent(ctx, e))
             return;

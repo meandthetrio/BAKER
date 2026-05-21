@@ -21,6 +21,24 @@
 
 using namespace daisy;
 
+static void DrawFillOnlyString6x8(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = static_cast<int>(std::strlen(str)) * 6;
+    int x0 = x - 2;
+    int y0 = y - 2;
+    int x1 = x + w + 1;
+    int y1 = y + 8 + 1;
+    if(x0 < 0) x0 = 0;
+    if(y0 < 0) y0 = 0;
+    if(x1 > 127) x1 = 127;
+    if(y1 > 63) y1 = 63;
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    d.SetCursor(x, y);
+    d.WriteString(str, Font_6x8, false);
+}
+
 static void EnsureScanRequested(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.worker)
@@ -241,7 +259,7 @@ void SdBrowse_Render(UiScreenCtx& ctx)
         const int row_y = menu_y + static_cast<int>(row) * layout.line_h;
         if(idx == sd.menu.cursor)
         {
-            DrawRencFocusString6x8(d, sd.menu.items[idx].label, label_x, row_y);
+            DrawFillOnlyString6x8(d, sd.menu.items[idx].label, label_x, row_y);
             continue;
         }
 

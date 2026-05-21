@@ -1,6 +1,7 @@
 #include "ui_draw_controls.h"
 
 #include "ui_draw_text.h"
+#include "ui_draw_shapes.h"
 #include "oled_pager.h"
 
 #include <cstring>
@@ -77,7 +78,8 @@ void DrawVerticalFadersInRect(OledPager& d,
                               const bool* hide_handles,
                               int selected_label_box_y_offset,
                               int selected_label_box_extra_bottom,
-                              int selected_label_box_bottom_clip_extra)
+                              int selected_label_box_bottom_clip_extra,
+                              int selected_label_style)
 {
     if(w <= 2 || h <= 2 || count <= 0)
         return;
@@ -203,7 +205,30 @@ void DrawVerticalFadersInRect(OledPager& d,
         {
             if(selected)
             {
-                DrawRencFocusTinyString(d, label, label_x, label_y);
+                if(selected_label_style == 1)
+                {
+                    const int x0 = label_x - 2;
+                    const int y0 = label_y - 2;
+                    const int x1 = label_x + label_w + 1;
+                    const int y1 = label_y + Font5x7::H + 1;
+                    d.DrawRect(x0, y0, x1, y1, true, true);
+                    DrawDottedRect(d, x0 + 1, y0 + 1, x1 - 1, y1 - 1, false);
+                    DrawTinyString(d, label, label_x, label_y, false);
+                }
+                else if(selected_label_style == 2)
+                {
+                    d.DrawRect(label_x - 2, label_y - 2, label_x + label_w + 1, label_y + Font5x7::H + 1, true, true);
+                    DrawTinyString(d, label, label_x, label_y, false);
+                }
+                else if(selected_label_style == 3)
+                {
+                    d.DrawRect(label_x - 2, label_y - 2, label_x + label_w + 1, label_y + Font5x7::H + 1, true, false);
+                    DrawTinyString(d, label, label_x, label_y, true);
+                }
+                else
+                {
+                    DrawRencFocusTinyString(d, label, label_x, label_y);
+                }
             }
             else
             {
@@ -237,23 +262,19 @@ void DrawDelayDetailFaders(OledPager& d,
     if(w <= 2 || h <= 2)
         return;
 
-    constexpr int kCharColW   = 6;
-    constexpr int kLabelGap   = 2;
     constexpr int kShiftLtmRtmFbkPx = 5;
     constexpr int kMixLabelLeftPx   = 3;
-    constexpr int kDisplayH         = 64;
     const int       line_top    = y + 2;
     const int       line_bottom = y + h - 2;
     if(line_bottom <= line_top)
         return;
 
-    int fader_left = x + 4 + kCharColW + kLabelGap;
+    int fader_left = x + 4;
     int fader_right = x + w - 5;
     if(fader_right <= fader_left)
         return;
 
     const int span_x = fader_right - fader_left;
-    const int span_y = line_bottom - line_top;
     constexpr int kCount = 4;
 
     for(int f = 0; f < kCount; ++f)
@@ -264,45 +285,24 @@ void DrawDelayDetailFaders(OledPager& d,
         // LTM/RTM/FBK: rails shift right; labels stay on the unshifted column grid.
         const int rail_x_center = line_x + ((f <= 2) ? kShiftLtmRtmFbkPx : 0);
 
-        int col_right = line_x - kLabelGap;
-        int col_left  = col_right - kCharColW + 1;
-        if(f == 3)
+        const char* lab = labels[f];
+        int         lab_w = 0;
+        int         lab_x = 0;
+        int         lab_y = y + h - Font5x7::H - 1;
+        if(lab != nullptr && lab[0] != '\0')
         {
-            col_left -= kMixLabelLeftPx;
-            col_right -= kMixLabelLeftPx;
-        }
-        const char* lab     = labels[f];
-        const int   lab_len = (lab != nullptr) ? static_cast<int>(std::strlen(lab)) : 0;
-        if(lab != nullptr && lab_len > 0)
-        {
-            constexpr int kMaxLabelStack = 3;
-            const int     nch            = lab_len < kMaxLabelStack ? lab_len : kMaxLabelStack;
-            constexpr int kStackGap      = 1;
-            const int     stack_h        = nch * Font5x7::H + (nch > 1 ? (nch - 1) * kStackGap : 0);
-            const int     y_start        = line_top + (span_y - stack_h) / 2;
-            if(y_start >= line_top && nch > 0)
-            {
-                out_lbl_x0[f] = col_left - 1;
-                out_lbl_y0[f] = y_start - 1;
-                out_lbl_x1[f] = col_right;
-                out_lbl_y1[f] = y_start + stack_h;
-
-                const bool inv_fbk_mix = select_active && f == selected_index && f >= 2;
-                if(inv_fbk_mix)
-                {
-                    d.DrawRect(out_lbl_x0[f], out_lbl_y0[f], out_lbl_x1[f], out_lbl_y1[f], true, true);
-                }
-                for(int c = 0; c < nch; ++c)
-                {
-                    char      one[2] = {lab[c], '\0'};
-                    const int cw     = TinyStringWidth(one);
-                    int       cx     = col_left + (kCharColW - cw) / 2;
-                    if(cx < x + 1)
-                        cx = x + 1;
-                    const int cy = y_start + c * (Font5x7::H + kStackGap);
-                    DrawTinyString(d, one, cx, cy, !inv_fbk_mix);
-                }
-            }
+            lab_w = TinyStringWidth(lab);
+            lab_x = rail_x_center - (lab_w / 2);
+            if(f == 3)
+                lab_x -= kMixLabelLeftPx;
+            if(lab_x < x + 1)
+                lab_x = x + 1;
+            if(lab_x + lab_w > x + w - 2)
+                lab_x = x + w - 2 - lab_w;
+            out_lbl_x0[f] = lab_x - 1;
+            out_lbl_y0[f] = lab_y - 1;
+            out_lbl_x1[f] = lab_x + lab_w;
+            out_lbl_y1[f] = lab_y + Font5x7::H;
         }
 
         int rail_x = rail_x_center;
@@ -311,8 +311,8 @@ void DrawDelayDetailFaders(OledPager& d,
         if(rail_x > x + w - 2)
             rail_x = x + w - 2;
 
-        const int rail_top    = (f <= 1) ? 0 : line_top;
-        const int rail_bottom = (f <= 1) ? (kDisplayH - 1) : line_bottom;
+        const int rail_top    = line_top;
+        const int rail_bottom = line_bottom;
         const int span_y_rail = rail_bottom - rail_top;
         if(span_y_rail < 1)
             continue;
@@ -369,6 +369,17 @@ void DrawDelayDetailFaders(OledPager& d,
                 d.DrawLine(inner_x0, center_y - 2, inner_x1, center_y - 2, true);
             if(center_y + 2 <= handle_y1 - 1)
                 d.DrawLine(inner_x0, center_y + 2, inner_x1, center_y + 2, true);
+        }
+
+        // Draw labels after rails/handles so controls visually pass behind titles.
+        if(lab != nullptr && lab[0] != '\0')
+        {
+            // Mask only the text cell (not full label box) so low handles can still peek above label.
+            d.DrawRect(lab_x, lab_y, lab_x + lab_w - 1, lab_y + Font5x7::H - 1, false, true);
+            const bool selected = select_active && f == selected_index;
+            if(selected && f >= 2)
+                d.DrawRect(out_lbl_x0[f], out_lbl_y0[f], out_lbl_x1[f], out_lbl_y1[f], true, false);
+            DrawTinyString(d, lab, lab_x, lab_y, true);
         }
     }
 }

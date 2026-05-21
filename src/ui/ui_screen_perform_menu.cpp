@@ -13,6 +13,14 @@
 static constexpr int32_t kPerformMenuCount = 6;
 static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EMPHASIS", "EXPRESS", "PROCESS"};
 
+static void DrawFillOnlyTinyString(OledPager& d, const char* s, int x, int y)
+{
+    const int w = TinyStringWidth(s);
+    const int h = Font5x7::H;
+    d.DrawRect(x - 1, y - 1, x + w, y + h, true, true);
+    DrawTinyString(d, s, x, y, false);
+}
+
 static int32_t NextPerformMenuIndex(int32_t current, int32_t delta)
 {
     static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3, 4, 5};
@@ -260,7 +268,7 @@ static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
         const int text_y = start_y + i * (text_h + kListGapY);
         if(is_selected)
         {
-            DrawRencFocusTinyString(d, label, text_x, text_y);
+            DrawFillOnlyTinyString(d, label, text_x, text_y);
         }
         else
         {

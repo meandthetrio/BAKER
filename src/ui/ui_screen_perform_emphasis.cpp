@@ -386,7 +386,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
                   gain_angle,
                   (!PerformEmphasisRowLocked(shared, engine, layer, 0u)
                        && engine.perform_nav.perform_emphasis_row == 0)
-                      ? (drive_mode_focus ? 2 : 1)
+                      ? (drive_mode_focus ? 1 : 2)
                       : 0);
     }
     else
@@ -403,7 +403,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
                   cutoff_angle,
                   (!PerformEmphasisRowLocked(shared, engine, layer, 1u)
                        && engine.perform_nav.perform_emphasis_row == 1)
-                      ? 2
+                      ? 1
                       : 0);
     }
     else
@@ -421,7 +421,7 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
                   reso_angle,
                   (!PerformEmphasisRowLocked(shared, engine, layer, 2u)
                        && engine.perform_nav.perform_emphasis_row == 2)
-                      ? 2
+                      ? 1
                       : 0);
     }
 }

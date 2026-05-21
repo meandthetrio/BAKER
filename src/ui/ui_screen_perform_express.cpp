@@ -163,21 +163,6 @@ static void DrawCenteredTiny(OledPager& d, const char* str, int cx, int y, bool 
     DrawTinyString(d, str, x, y, true);
 }
 
-static void DrawCenteredMicroButton(OledPager& d,
-                                    const char* str,
-                                    int x0,
-                                    int y0,
-                                    int x1,
-                                    int y1)
-{
-    const int w = MicroStringWidth(str);
-    const int x = ClampInt((x0 + x1 + 1 - w) / 2, x0 + 1, x1 - w);
-    const int y = y0 + ((y1 - y0 + 1) - kMicroH) / 2;
-    d.DrawRect(x0 - 2, y0 - 2, x1 + 2, y1 + 2, true, false);
-    d.DrawRect(x0, y0, x1, y1, true, true);
-    DrawMicroString(d, str, x, y, false);
-}
-
 static void DrawCenteredMicroTarget(OledPager& d,
                                     const char* str,
                                     int x0,
@@ -185,22 +170,32 @@ static void DrawCenteredMicroTarget(OledPager& d,
                                     int x1,
                                     int y1,
                                     bool focused,
-                                    bool rshift_held)
+                                    bool rshift_held,
+                                    bool dotted_border)
 {
-    if(focused && rshift_held)
+    const int w = MicroStringWidth(str);
+    const int x = ClampInt((x0 + x1 + 1 - w) / 2, x0 + 1, x1 - w);
+    const int y = y0 + ((y1 - y0 + 1) - kMicroH) / 2;
+
+    if(!focused)
     {
-        DrawCenteredMicroButton(d, str, x0, y0, x1, y1);
+        DrawMicroString(d, str, x, y, true);
         return;
     }
 
-    if(focused)
+    // Express target R-shift visual behavior applies only to POLYPORTO.
+    if(rshift_held && dotted_border)
+    {
+        d.DrawRect(x0, y0, x1, y1, true, true);
+        DrawMicroString(d, str, x, y, false);
+        return;
+    }
+
+    if(dotted_border)
         DrawDottedRect(d, x0, y0, x1, y1, true);
     else
         d.DrawRect(x0, y0, x1, y1, true, false);
 
-    const int w = MicroStringWidth(str);
-    const int x = ClampInt((x0 + x1 + 1 - w) / 2, x0 + 1, x1 - w);
-    const int y = y0 + ((y1 - y0 + 1) - kMicroH) / 2;
     DrawMicroString(d, str, x, y, true);
 }
 
@@ -276,11 +271,18 @@ static void FormatPolyPortoDetailValue(uint8_t field,
             std::snprintf(out, out_n, "%ums", static_cast<unsigned>(express.poly_porto_slide_ms[layer]));
             break;
         case 1:
-            std::snprintf(out,
-                          out_n,
-                          "%ust",
-                          static_cast<unsigned>(express.poly_porto_source_range_semitones[layer]));
+        {
+            const unsigned n = static_cast<unsigned>(express.poly_porto_source_range_semitones[layer]);
+            const char* suffix = "th";
+            if((n % 100u) < 11u || (n % 100u) > 13u)
+            {
+                if((n % 10u) == 1u) suffix = "st";
+                else if((n % 10u) == 2u) suffix = "nd";
+                else if((n % 10u) == 3u) suffix = "rd";
+            }
+            std::snprintf(out, out_n, "%u%s", n, suffix);
             break;
+        }
         case 2:
             std::snprintf(out,
                           out_n,
@@ -313,20 +315,18 @@ static void DrawPolyPortoDetail(OledPager& d,
     constexpr int kRowY[kPolyPortoDetailFieldCount] = {20, 28, 36, 44, 52};
     static const char* kLabels[kPolyPortoDetailFieldCount] = {"TIME", "RANGE", "SRC", "REL", "LIMIT"};
 
-    d.DrawRect(kPanelX0, kPanelY0, kPanelX1, kPanelY1, true, true);
+    d.DrawRect(kPanelX0, kPanelY0, kPanelX1, kPanelY1, true, false);
     d.DrawRect(kPanelX0 + 1, kPanelY0 + 1, kPanelX1 - 1, kPanelY1 - 1, true, false);
-    DrawMicroString(d, "polyporto", 10, 15, false);
-    DrawMicroString(d, (layer & 1u) ? "B" : "A", 100, 15, false);
+    (void)layer;
 
     for(uint8_t i = 0; i < kPolyPortoDetailFieldCount; ++i)
     {
         char value_buf[16] = {};
         FormatPolyPortoDetailValue(i, express, layer, value_buf, sizeof(value_buf));
-        DrawTinyString(d, kLabels[i], kLabelX, kRowY[i], false);
+        DrawTinyString(d, kLabels[i], kLabelX, kRowY[i], true);
         if(field_focus == i)
-            DrawCenteredMicroButton(d, value_buf, kValueX0, kRowY[i] - 1, kValueX1, kRowY[i] + 7);
-        else
-            DrawCenteredTiny(d, value_buf, (kValueX0 + kValueX1) / 2, kRowY[i], false);
+            d.DrawRect(kValueX0 - 1, kRowY[i] - 1, kValueX1 + 1, kRowY[i] + 7, true, false);
+        DrawCenteredTiny(d, value_buf, (kValueX0 + kValueX1) / 2, kRowY[i], false);
     }
 }
 
@@ -336,7 +336,11 @@ static void DrawBypassButton(OledPager& d, bool enabled, bool focused)
     const int x = 2;
     const int y = 2;
     if(focused)
-        DrawRencFocusMicroString(d, label, x, y);
+    {
+        const int w = MicroStringWidth(label);
+        d.DrawRect(x - 2, y - 2, x + w + 1, y + kMicroH + 1, true, true);
+        DrawMicroString(d, label, x, y, false);
+    }
     else
         DrawMicroString(d, label, x, y, true);
 }
@@ -445,7 +449,7 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.ui_dirty = true;
             return true;
         }
-        if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && ctx.rshift)
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
         {
             engine.express.perform_express_detail_active = false;
             ui.ui_dirty = true;
@@ -558,6 +562,16 @@ void PerformExpress_Render(UiScreenCtx& ctx)
         = NormalizeFocusableExpressFocus(engine.express, layer, engine.perform_nav.perform_express_focus);
     const uint8_t focus = engine.perform_nav.perform_express_focus;
 
+    // PolyPorto detail is a dedicated page to keep navigation/readability clear.
+    if(engine.express.perform_express_detail_active)
+    {
+        DrawPolyPortoDetail(d,
+                            engine.express,
+                            layer,
+                            engine.express.perform_express_detail_field % kPolyPortoDetailFieldCount);
+        return;
+    }
+
     constexpr int kRectX0 = 42;
     constexpr int kRectX1 = 86;
     constexpr int kValueLeftCx = 20;
@@ -592,11 +606,29 @@ void PerformExpress_Render(UiScreenCtx& ctx)
 
         if(!hide_values)
         {
-            DrawCenteredTiny(d,
-                             min_buf,
-                             kValueLeftCx,
-                             cy - 3,
-                             !fixed_toggle && focus == base_focus);
+            if(fixed_toggle)
+            {
+                const int w = TinyStringWidth(min_buf);
+                int x = kValueLeftCx - (w / 2);
+                x = ClampInt(x, 0, 127 - w);
+                if(focus == base_focus)
+                {
+                    d.DrawRect(x - 3, cy - 6, x + w + 2, cy + Font5x7::H - 1, false, true);
+                    DrawTinyString(d, min_buf, x, cy - 3, true);
+                }
+                else
+                {
+                    DrawTinyString(d, min_buf, x, cy - 3, true);
+                }
+            }
+            else
+            {
+                DrawCenteredTiny(d,
+                                 min_buf,
+                                 kValueLeftCx,
+                                 cy - 3,
+                                 focus == base_focus);
+            }
         }
         DrawCenteredMicroTarget(d,
                                 ExpressTargetLabel(target),
@@ -605,14 +637,33 @@ void PerformExpress_Render(UiScreenCtx& ctx)
                                 kRectX1,
                                 y1,
                                 focus == static_cast<uint8_t>(base_focus + 1u),
-                                ctx.rshift);
+                                ctx.rshift,
+                                ExpressTargetIsPolyPorto(target));
         if(!hide_values)
         {
-            DrawCenteredTiny(d,
-                             max_buf,
-                             kValueRightCx,
-                             cy - 3,
-                             !fixed_toggle && focus == static_cast<uint8_t>(base_focus + 2u));
+            if(fixed_toggle)
+            {
+                const int w = TinyStringWidth(max_buf);
+                int x = kValueRightCx - (w / 2);
+                x = ClampInt(x, 0, 127 - w);
+                if(focus == static_cast<uint8_t>(base_focus + 2u))
+                {
+                    d.DrawRect(x - 3, cy - 6, x + w + 2, cy + Font5x7::H - 1, false, true);
+                    DrawTinyString(d, max_buf, x, cy - 3, true);
+                }
+                else
+                {
+                    DrawTinyString(d, max_buf, x, cy - 3, true);
+                }
+            }
+            else
+            {
+                DrawCenteredTiny(d,
+                                 max_buf,
+                                 kValueRightCx,
+                                 cy - 3,
+                                 focus == static_cast<uint8_t>(base_focus + 2u));
+            }
         }
 
         d.DrawLine(32, cy, kRectX0 - 1, cy, true);
@@ -624,9 +675,4 @@ void PerformExpress_Render(UiScreenCtx& ctx)
     DrawCenteredMicroText(d, "midimod", target_cx, kFooterY);
     DrawCenteredMicroText(d, "hi", kValueRightCx, kFooterY);
 
-    if(engine.express.perform_express_detail_active)
-        DrawPolyPortoDetail(d,
-                            engine.express,
-                            layer,
-                            engine.express.perform_express_detail_field % kPolyPortoDetailFieldCount);
 }

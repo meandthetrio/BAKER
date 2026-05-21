@@ -138,12 +138,12 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
                 rx1 = label_area_x1;
             if(ry0 < 0)
                 ry0 = 0;
-            if(ry1 > (kWaveY - 1))
-                ry1 = kWaveY - 1;
+            if(ry1 > kWaveY)
+                ry1 = kWaveY;
 
             if(type_focused)
             {
-                DrawDottedRect(d, rx0, ry0, rx1, ry1, true);
+                d.DrawRect(rx0, ry0, rx1, ry1, true, false);
                 const char* kTypeValues[kAdsrRowCount] = {"1shot", "loop", "adsr"};
                 const char* selected = kTypeValues[adsr_row % static_cast<uint8_t>(kAdsrRowCount)];
                 const int value_w = MiniString3x5Width(selected);
@@ -181,8 +181,8 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
             d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true, adsr_mode, wave_focused);
     }
 
-    static const char* kBottomLetters[4] = {"a", "d", "s", "r"};
-    const int bottom_y = kWaveBottomY + 2;
+    static const char* kBottomLetters[4] = {"A", "D", "S", "R"};
+    const int bottom_y = kWaveBottomY + 1;
     const int seg_w = static_cast<int>(d.Width()) / 4;
     const uint8_t stage_focus = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
     const bool loop_stage_editing
@@ -286,22 +286,8 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
 
         if(adsr_mode)
         {
-            const int w = MiniString3x5Width(kBottomLetters[i]);
-            int box_center = seg_center;
-            if(i == 0)
-                box_center = preview_x0 + (preview_w * static_cast<int>(engine.adsr.perform_adsr_env_a_x[layer])) / 100;
-            else if(i == 1)
-                box_center = preview_x0 + (preview_w * static_cast<int>(engine.adsr.perform_adsr_env_d_x[layer])) / 100;
-            else if(i == 2)
-            {
-                const int d_x
-                    = preview_x0 + (preview_w * static_cast<int>(engine.adsr.perform_adsr_env_d_x[layer])) / 100;
-                const int r_x
-                    = preview_x0 + (preview_w * static_cast<int>(engine.adsr.perform_adsr_env_r_x[layer])) / 100;
-                box_center = d_x + ((r_x - d_x) / 2);
-            }
-            else
-                box_center = preview_x0 + (preview_w * static_cast<int>(engine.adsr.perform_adsr_env_r_x[layer])) / 100;
+            const int w = TinyStringWidth(kBottomLetters[i]);
+            const int box_center = seg_center;
             const int box_w = w + 6;
             int box_x0 = box_center - (box_w / 2);
             int box_x1 = box_x0 + box_w - 1;
@@ -316,25 +302,20 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
                 box_x0 = box_x1 - box_w + 1;
             }
 
-            const int box_y0 = bottom_y - 2;
-            const int box_y1 = bottom_y + kMini3x5H + 1;
             const int value_x = box_x0 + ((box_w - w) / 2);
             const int value_y = bottom_y;
             if(!type_focused && stage_focus == static_cast<uint8_t>(i))
             {
-                if(i == 2)
-                {
-                    d.DrawRect(box_x0, box_y0, box_x1, box_y1, true, true);
-                    DrawMiniString3x5(d, kBottomLetters[i], value_x, value_y, false);
-                }
-                else
-                {
-                    DrawDottedRect(d, box_x0, box_y0, box_x1, box_y1, true);
-                    DrawMiniString3x5(d, kBottomLetters[i], value_x, value_y, true);
-                }
+                d.DrawRect(value_x - 2,
+                           bottom_y - 2,
+                           value_x + w + 1,
+                           bottom_y + Font5x7::H - 1,
+                           true,
+                           false);
+                DrawTinyString(d, kBottomLetters[i], value_x, value_y, true);
                 continue;
             }
-            DrawMiniString3x5(d, kBottomLetters[i], value_x, value_y, true);
+            DrawTinyString(d, kBottomLetters[i], value_x, value_y, true);
             continue;
         }
 
@@ -362,38 +343,30 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
             const int box_y1 = bottom_y + kMini3x5H + 1;
             const int value_x = box_x0 + ((box_w - value_w) / 2);
             const int value_y = bottom_y;
-            DrawDottedRect(d, box_x0, box_y0, box_x1, box_y1, true);
+            d.DrawRect(box_x0, box_y0, box_x1, box_y1, true, false);
             DrawMiniString3x5(d, value_buf, value_x, value_y, true);
         }
         else
         {
-            const int w = MiniString3x5Width(kBottomLetters[i]);
+            const int w = TinyStringWidth(kBottomLetters[i]);
             int x = seg_center - (w / 2);
             if(x < seg_start)
                 x = seg_start;
             if(x + w - 1 > seg_end)
                 x = seg_end - w + 1;
+            if(!stage_enabled)
+                continue;
             const bool locked_stage = PerformAdsrLoopStageLocked(shared, engine, layer, static_cast<uint8_t>(i))
                                       && loop_stage_editing;
             if(locked_stage)
                 continue;
             if(stage_enabled && !type_focused && stage_focus == static_cast<uint8_t>(i))
             {
-                d.DrawRect(x - 2, bottom_y - 1, x + w + 1, bottom_y + kMini3x5H, true, true);
-                DrawMiniString3x5(d, kBottomLetters[i], x, bottom_y, false);
+                d.DrawRect(x - 2, bottom_y - 2, x + w + 1, bottom_y + Font5x7::H - 1, true, false);
+                DrawTinyString(d, kBottomLetters[i], x, bottom_y, true);
                 continue;
             }
-            DrawMiniString3x5(d, kBottomLetters[i], x, bottom_y, true);
-            if(!stage_enabled)
-            {
-                int line_x0 = x - 1;
-                int line_x1 = x + w;
-                if(line_x0 < seg_start)
-                    line_x0 = seg_start;
-                if(line_x1 > seg_end)
-                    line_x1 = seg_end;
-                d.DrawLine(line_x0, bottom_y + 2, line_x1, bottom_y + 2, true);
-            }
+            DrawTinyString(d, kBottomLetters[i], x, bottom_y, true);
         }
     }
 }

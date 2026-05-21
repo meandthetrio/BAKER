@@ -31,6 +31,42 @@ enum ShiftMenuItem : uint8_t
 static constexpr uint32_t kShiftBootloaderHoldMs = 2000u;
 static constexpr uint32_t kShiftBootloaderLoadingOverlayMs = 3000u;
 
+static void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = TinyStringWidth(str);
+    int x0 = x - 2;
+    int y0 = y - 2;
+    int x1 = x + w + 1;
+    int y1 = y + Font5x7::H + 1;
+    if(x0 < 0) x0 = 0;
+    if(y0 < 0) y0 = 0;
+    if(x1 > 127) x1 = 127;
+    if(y1 > 63) y1 = 63;
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    DrawTinyString(d, str, x, y, false);
+}
+
+static void DrawFillSolidBorderTinyString(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = TinyStringWidth(str);
+    int x0 = x - 2;
+    int y0 = y - 2;
+    int x1 = x + w + 1;
+    int y1 = y + Font5x7::H + 1;
+    if(x0 < 0) x0 = 0;
+    if(y0 < 0) y0 = 0;
+    if(x1 > 127) x1 = 127;
+    if(y1 > 63) y1 = 63;
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    if(x1 - x0 >= 2 && y1 - y0 >= 2)
+        d.DrawRect(x0 + 1, y0 + 1, x1 - 1, y1 - 1, false, false);
+    DrawTinyString(d, str, x, y, false);
+}
+
 static const char* ShiftBootVersionLabel(daisy::System::BootInfo::Version version)
 {
     switch(version)
@@ -423,12 +459,12 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     {
         DrawTinyString(d, "SD MANAGE", 36, 8, true);
         if(ui.shift_menu_sd_manage_cursor == 0u)
-            DrawRencFocusTinyString(d, "DELETE SAMPLE", 16, 26);
+            DrawFillOnlyTinyString(d, "DELETE SAMPLE", 16, 26);
         else
             DrawTinyString(d, "DELETE SAMPLE", 16, 26, true);
 
         if(ui.shift_menu_sd_manage_cursor == 1u)
-            DrawRencFocusTinyString(d, "RENAME SAMPLE", 16, 38);
+            DrawFillOnlyTinyString(d, "RENAME SAMPLE", 16, 38);
         else
             DrawTinyString(d, "RENAME SAMPLE", 16, 38, true);
 
@@ -462,13 +498,13 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         const int label_x = 1;
         if(i == ShiftSdManage)
         {
-            if(sel) DrawRencFocusTinyString(d, "SD MANAGE", label_x, label_y);
+            if(sel) DrawFillOnlyTinyString(d, "SD MANAGE", label_x, label_y);
             else DrawTinyString(d, "SD MANAGE", label_x, label_y, true);
         }
         else if(i == ShiftVolume)
         {
             const char* label = "OUTPUT VOL";
-            if(sel) DrawRencFocusTinyString(d, label, label_x, label_y);
+            if(sel) DrawFillSolidBorderTinyString(d, label, label_x, label_y);
             else DrawTinyString(d, label, label_x, label_y, true);
 
             // Right-aligned value.
@@ -491,13 +527,13 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else if(i == ShiftSaveProject)
         {
-            if(sel) DrawRencFocusTinyString(d, "SAVE PROJECT", label_x, label_y);
+            if(sel) DrawFillOnlyTinyString(d, "SAVE PROJECT", label_x, label_y);
             else DrawTinyString(d, "SAVE PROJECT", label_x, label_y, true);
         }
         else if(i == ShiftBootVersion)
         {
             const char* label = "BOOT VER";
-            if(sel) DrawRencFocusTinyString(d, label, label_x, label_y);
+            if(sel) DrawFillOnlyTinyString(d, label, label_x, label_y);
             else DrawTinyString(d, label, label_x, label_y, true);
 
             const char* ver = ShiftBootVersionLabel(daisy::System::GetBootloaderVersion());
@@ -506,7 +542,7 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         }
         else if(i == ShiftFirmwareUpdate)
         {
-            if(sel) DrawRencFocusTinyString(d, "FIRMWARE UPDATE", label_x, label_y);
+            if(sel) DrawFillOnlyTinyString(d, "FIRMWARE UPDATE", label_x, label_y);
             else DrawTinyString(d, "FIRMWARE UPDATE", label_x, label_y, true);
         }
     }

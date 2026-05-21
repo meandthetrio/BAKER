@@ -52,7 +52,6 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
     const int y0 = wave_y;
     const int x1 = wave_x + wave_w - 1;
     const int y1 = wave_y + wave_h - 1;
-    d.DrawRect(x0, y0, x1, y1, true, false);
 
     if(!sample_loaded)
     {
@@ -63,6 +62,7 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
     if(wave_w >= 3 && wave_h >= 3)
     {
         const int preview_bottom_y = y1 - (kMini3x5H + 3);
+        d.DrawRect(x0, y0, x1, preview_bottom_y - 1, true, false);
         const int waveform_y0 = y0 + 1;
         const int waveform_y1 = preview_bottom_y - 1;
         if(waveform_y1 <= waveform_y0)
@@ -135,8 +135,8 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
         d.DrawLine(start_x, waveform_y0, start_x, waveform_y1, true);
         d.DrawLine(end_x, waveform_y0, end_x, waveform_y1, true);
 
-        // Solid divider at bottom of waveform preview area.
-        d.DrawLine(x0 + 1, preview_bottom_y, x1 - 1, preview_bottom_y, true);
+        // Dotted box for START/END region (R_SHIFT hint), while outer waveform frame stays solid.
+        DrawDottedRect(d, x0 + 1, preview_bottom_y, x1 - 1, y1 - 1, true);
 
         const int start_w = MiniString3x5Width("start");
         const int end_w = MiniString3x5Width("end");

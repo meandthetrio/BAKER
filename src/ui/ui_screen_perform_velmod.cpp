@@ -244,7 +244,8 @@ static void ModBlock_RenderCommon(OledPager& d,
             const int         x = ClampInt(kCx - w / 2, 1, 127 - w);
             if(focused)
             {
-                DrawRencFocusTinyString(d, kOff, x, kY);
+                d.DrawRect(x - 1, kY - 1, x + w, kY + Font5x7::H, true, true);
+                DrawTinyString(d, kOff, x, kY, false);
             }
             else
             {

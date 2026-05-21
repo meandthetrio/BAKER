@@ -78,6 +78,23 @@ static const char* kProjectStyleFilterLabels[kProjectStyleCount] = {
     "Noise",
 };
 
+void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = TinyStringWidth(str);
+    int x0 = x - 2;
+    int y0 = y - 2;
+    int x1 = x + w + 1;
+    int y1 = y + Font5x7::H + 1;
+    if(x0 < 0) x0 = 0;
+    if(y0 < 0) y0 = 0;
+    if(x1 > 127) x1 = 127;
+    if(y1 > 63) y1 = 63;
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    DrawTinyString(d, str, x, y, false);
+}
+
 uint8_t WrapCursor(uint8_t value, int delta, uint8_t count)
 {
     int next = static_cast<int>(value) + delta;
@@ -547,7 +564,15 @@ void DrawProjectSlotRow(OledPager& d, const AppProjectState& project, uint8_t sl
     if(focused)
     {
         const int row_w = (kProjectStyleX + TinyStringWidth("Pluck")) - kProjectNumberX;
-        DrawRencFocusFrame(d, kProjectNumberX, row_y, row_w, Font5x7::H);
+        int x0 = kProjectNumberX;
+        int y0 = row_y;
+        int x1 = kProjectNumberX + row_w;
+        int y1 = row_y + Font5x7::H;
+        if(x0 < 0) x0 = 0;
+        if(y0 < 0) y0 = 0;
+        if(x1 > 127) x1 = 127;
+        if(y1 > 63) y1 = 63;
+        d.DrawRect(x0, y0, x1, y1, true, true);
         DrawTinyString(d, number, kProjectNumberX, row_y, false);
         DrawTinyString(d, name, kProjectNameX, row_y, false);
         DrawTinyStringCaseSensitive(d, style, kProjectStyleX, row_y, false);
@@ -994,7 +1019,7 @@ void ProjectActionMenu_Render(UiScreenCtx& ctx)
 
     DrawTinyString(d, name, overlay_x0 + 4, overlay_y0 + 4, true);
     if(ui.project_action_cursor == 0u)
-        DrawRencFocusTinyString(d, "load", overlay_x0 + 8, overlay_y0 + 18);
+        DrawFillOnlyTinyString(d, "load", overlay_x0 + 8, overlay_y0 + 18);
     else
         DrawTinyString(d, "load", overlay_x0 + 8, overlay_y0 + 18, true);
 
@@ -1017,7 +1042,7 @@ void ProjectActionMenu_Render(UiScreenCtx& ctx)
     }
 
     if(ui.project_action_cursor == 2u)
-        DrawRencFocusTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 34);
+        DrawFillOnlyTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 34);
     else
         DrawTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 34, true);
 }
@@ -1107,7 +1132,7 @@ void PresetsStyleFilter_Render(UiScreenCtx& ctx)
 
     if(has_focused_option)
     {
-        DrawRencFocusTinyString(
+        DrawFillOnlyTinyString(
             d, kProjectStyleFilterLabels[focused_option], overlay_x0 + 8, focused_row_y);
     }
 }
@@ -1299,7 +1324,7 @@ void RenameProject_Render(UiScreenCtx& ctx)
     const char* action_label = show_cancel ? kRenameCancelLabel : kRenameSaveLabel;
     const int action_x = static_cast<int>(d.Width()) - TinyStringWidth(action_label) - 2;
     if(action_focused)
-        DrawRencFocusTinyString(d, action_label, action_x, kRenameSaveY);
+        DrawFillOnlyTinyString(d, action_label, action_x, kRenameSaveY);
     else
         DrawTinyString(d, action_label, action_x, kRenameSaveY, true);
 
@@ -1389,14 +1414,14 @@ void SaveProjectMenu_Render(UiScreenCtx& ctx)
 
     DrawTinyString(d, active_name, overlay_x0 + 4, overlay_y0 + 4, true);
     if(ui.save_project_menu_cursor == 0u)
-        DrawRencFocusTinyString(d, "new", overlay_x0 + 8, overlay_y0 + 18);
+        DrawFillOnlyTinyString(d, "new", overlay_x0 + 8, overlay_y0 + 18);
     else
         DrawTinyString(d, "new", overlay_x0 + 8, overlay_y0 + 18, true);
 
     if(has_overwrite)
     {
         if(ui.save_project_menu_cursor == 1u)
-            DrawRencFocusTinyString(d, "overwrite", overlay_x0 + 8, overlay_y0 + 30);
+            DrawFillOnlyTinyString(d, "overwrite", overlay_x0 + 8, overlay_y0 + 30);
         else
             DrawTinyString(d, "overwrite", overlay_x0 + 8, overlay_y0 + 30, true);
     }
@@ -1502,12 +1527,12 @@ void SaveProjectConfirm_Render(UiScreenCtx& ctx)
     DrawTinyString(d, "overwrite?", overlay_x0 + 6, overlay_y0 + 4, true);
     DrawTinyString(d, label, overlay_x0 + 6, overlay_y0 + 14, true);
     if(ui.save_project_confirm_cursor == 0u)
-        DrawRencFocusTinyString(d, "yes", overlay_x0 + 8, overlay_y0 + 26);
+        DrawFillOnlyTinyString(d, "yes", overlay_x0 + 8, overlay_y0 + 26);
     else
         DrawTinyString(d, "yes", overlay_x0 + 8, overlay_y0 + 26, true);
 
     if(ui.save_project_confirm_cursor == 1u)
-        DrawRencFocusTinyString(d, "no", overlay_x0 + 52, overlay_y0 + 26);
+        DrawFillOnlyTinyString(d, "no", overlay_x0 + 52, overlay_y0 + 26);
     else
         DrawTinyString(d, "no", overlay_x0 + 52, overlay_y0 + 26, true);
 }

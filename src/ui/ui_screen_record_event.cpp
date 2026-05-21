@@ -98,15 +98,6 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
     }
-    else if(e.type == UiInputType::BtnUp && e.id == kUiBtnPod2)
-    {
-        if(recording.record_state == RecordUiState::Review)
-        {
-            Record_StopPreview(recording);
-            ui.ui_dirty = true;
-            return true;
-        }
-    }
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {

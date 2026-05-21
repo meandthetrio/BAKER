@@ -184,6 +184,12 @@ static bool DrainUsbMidiInput(uint32_t now_ms)
     return DrainMidiHandlerInput(usb_midi, now_ms);
 }
 
+static bool DoubleFlashOn(uint32_t now_ms, uint32_t cycle_ms)
+{
+    const uint32_t phase = now_ms % cycle_ms;
+    return (phase < 90u) || (phase >= 170u && phase < 260u);
+}
+
 static void RunControlTicks(uint32_t now_ms)
 {
     const int kMaxCtrlTicksPerLoop = 3;
@@ -343,6 +349,8 @@ int main(void)
     while(1)
     {
         uint32_t now_ms = System::GetNow();
+        static bool prev_wav_load_busy = false;
+        static uint32_t load_success_flash_until_ms = 0;
 
         const uint32_t dt_ms = now_ms - last_ms;
         last_ms = now_ms;
@@ -380,16 +388,24 @@ int main(void)
                                           && (g_app.recording.record_state == RecordUiState::Review);
         const bool perform_ab_active
             = (g_app.ui.ui_active_screen == UiScreenId::PerformEngine)
-              || (g_app.ui.ui_active_screen == UiScreenId::PerformKeyzone)
-              || (g_app.ui.ui_active_screen == UiScreenId::VelocityMod)
-              || (g_app.ui.ui_active_screen == UiScreenId::VelocityMod2)
-              || (g_app.ui.ui_active_screen == UiScreenId::ModBlockA)
-              || (g_app.ui.ui_active_screen == UiScreenId::ModBlockB)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformExpress);
         const bool firmware_pairing_hold_active
             = g_app.ui.shift_menu_firmware_update_active && g_app.ui.shift_menu_bootloader_armed;
+        static constexpr uint32_t kRecordCountdownMs = 4000u;
+        const bool record_countdown_active
+            = (g_app.ui.ui_active_screen == UiScreenId::Record)
+              && (g_app.recording.record_state == RecordUiState::Countdown);
+        const bool record_recording_active
+            = (g_app.ui.ui_active_screen == UiScreenId::Record)
+              && (g_app.recording.record_state == RecordUiState::Recording);
+        const bool wav_load_busy
+            = (g_app.shared.sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0u);
+        if(prev_wav_load_busy && !wav_load_busy)
+            load_success_flash_until_ms = now_ms + 1000u;
+        prev_wav_load_busy = wav_load_busy;
+        const bool load_success_flash_active = (now_ms < load_success_flash_until_ms);
 
         // Smooth 1Hz red pulse on both LEDs while user holds R encoder in firmware pairing.
         float pairing_red = 0.0f;
@@ -407,15 +423,51 @@ int main(void)
             hw.led1.Set(pairing_red, 0.0f, 0.0f);
             hw.led2.Set(pairing_red, 0.0f, 0.0f);
         }
+        else if(record_countdown_active)
+        {
+            const uint32_t elapsed = now_ms - g_app.recording.record_countdown_start_ms;
+            const bool blink_on = (elapsed < kRecordCountdownMs) && ((elapsed % 1000u) < 220u);
+            const float r = blink_on ? 1.0f : 0.0f;
+            hw.led1.Set(r, 0.0f, 0.0f);
+            hw.led2.Set(r, 0.0f, 0.0f);
+        }
+        else if(record_recording_active)
+        {
+            hw.led1.Set(1.0f, 0.0f, 0.0f);
+            hw.led2.Set(1.0f, 0.0f, 0.0f);
+        }
+        else if(wav_load_busy)
+        {
+            // Pod channel order on this hardware maps green to the 3rd component.
+            // Fast ping-pong yellow: alternate LED1/LED2, yellow = red + green.
+            const bool left_on = ((now_ms / 70u) & 1u) == 0u;
+            if(left_on)
+            {
+                hw.led1.Set(1.0f, 0.0f, 1.0f); // yellow
+                hw.led2.Set(0.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                hw.led1.Set(0.0f, 0.0f, 0.0f);
+                hw.led2.Set(1.0f, 0.0f, 1.0f); // yellow
+            }
+        }
+        else if(load_success_flash_active)
+        {
+            const bool on = DoubleFlashOn(now_ms, 620u);
+            const float g = on ? 1.0f : 0.0f;
+            hw.led1.Set(0.0f, 0.0f, g);
+            hw.led2.Set(0.0f, 0.0f, g);
+        }
         else if(sd_browse_active || record_review_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);
-            hw.led2.Set(0.0f, 1.0f, 0.0f);
+            hw.led2.Set(0.0f, 0.0f, 1.0f);
         }
         else if(perform_ab_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);
-            hw.led2.Set(0.0f, 0.0f, 1.0f);
+            hw.led2.Set(0.0f, 1.0f, 0.0f);
         }
         else
         {

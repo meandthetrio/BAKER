@@ -610,10 +610,29 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         if(s.pcm != nullptr && s.length > 0)
         {
             if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))
+            {
                 recording.record_preview_gate = true;
+                recording.record_preview_hold = false;
+                uint32_t dur_ms = (s.sample_rate > 0u)
+                                      ? static_cast<uint32_t>((static_cast<uint64_t>(s.length) * 1000u)
+                                                              / static_cast<uint64_t>(s.sample_rate))
+                                      : 0u;
+                if(dur_ms < 80u)
+                    dur_ms = 80u;
+                if(dur_ms > 10000u)
+                    dur_ms = 10000u;
+                recording.record_preview_oneshot_until_ms = now_ms + dur_ms;
+            }
         }
     }
-    if((!record_review_active || !recording.record_preview_hold) && recording.record_preview_gate)
+    if(record_review_active
+       && recording.record_preview_gate
+       && static_cast<int32_t>(now_ms - recording.record_preview_oneshot_until_ms) >= 0)
+    {
+        if(PushPreviewNoteOff(evtq, diag, ui, 60))
+            recording.record_preview_gate = false;
+    }
+    if(!record_review_active && recording.record_preview_gate)
     {
         if(PushPreviewNoteOff(evtq, diag, ui, 60))
             recording.record_preview_gate = false;

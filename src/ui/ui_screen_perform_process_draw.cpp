@@ -149,7 +149,7 @@ void DrawProcessFxReorderOverlay(OledPager& d,
                                  int32_t selected_index,
                                  bool rshift_held)
 {
-    if(!rshift_held || selected_index < 0 || selected_index >= 4)
+    if(selected_index < 0 || selected_index >= 4)
         return;
 
     const int line_top = fader_y + 2;
@@ -162,6 +162,15 @@ void DrawProcessFxReorderOverlay(OledPager& d,
     const int fader_right = fader_x + fader_w - 5;
     const int span_x = fader_right - fader_left;
     const int line_x = (span_x > 0) ? (fader_left + (span_x * selected_index) / 3) : fader_left;
+    const int lane_x0 = line_x - 5;
+    const int lane_x1 = line_x + 5;
+    const int lane_y0 = line_top - 1;
+    const int lane_y1 = label_y + Font5x7::H + 1;
+    DrawDottedRect(d, lane_x0, lane_y0, lane_x1, lane_y1, true);
+
+    if(!rshift_held)
+        return;
+
     const int cy = line_top + ((line_bottom - line_top) / 2);
     if(selected_index > 0)
         DrawProcessReorderLeftArrow(d, line_x - 7, cy);

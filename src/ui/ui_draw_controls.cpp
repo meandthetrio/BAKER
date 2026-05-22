@@ -212,7 +212,7 @@ void DrawVerticalFadersInRect(OledPager& d,
                     const int x1 = label_x + label_w + 1;
                     const int y1 = label_y + Font5x7::H + 1;
                     d.DrawRect(x0, y0, x1, y1, true, true);
-                    DrawDottedRect(d, x0 + 1, y0 + 1, x1 - 1, y1 - 1, false);
+                    DrawDottedRect(d, x0 - 1, y0 - 1, x1 + 1, y1 + 1, true);
                     DrawTinyString(d, label, label_x, label_y, false);
                 }
                 else if(selected_label_style == 2)
@@ -223,6 +223,11 @@ void DrawVerticalFadersInRect(OledPager& d,
                 else if(selected_label_style == 3)
                 {
                     d.DrawRect(label_x - 2, label_y - 2, label_x + label_w + 1, label_y + Font5x7::H + 1, true, false);
+                    DrawTinyString(d, label, label_x, label_y, true);
+                }
+                else if(selected_label_style == 4)
+                {
+                    DrawDottedRect(d, label_x - 2, label_y - 2, label_x + label_w + 1, label_y + Font5x7::H + 1, true);
                     DrawTinyString(d, label, label_x, label_y, true);
                 }
                 else

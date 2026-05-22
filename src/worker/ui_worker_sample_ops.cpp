@@ -1,5 +1,6 @@
 #include "ui_worker_sample_ops.h"
 #include "ui_worker_internal.h"
+#include "ui_worker_project_internal.h"
 
 #include "app_state_shared.h"
 #include "app_state_ui.h"
@@ -16,6 +17,73 @@
 extern SdWorkerState s_sd;
 
 static constexpr uint32_t kSaveChunkFrames = 2048;
+
+static bool WriteProjectManifestToSlot(uint8_t project_slot, const ProjectManifestV11& manifest)
+{
+    char tmp_path[kProjectPathMax];
+    char prj_path[kProjectPathMax];
+    const char* base = s_sd.fsi.GetSDPath();
+    if(!MakeProjectSlotPath(tmp_path, sizeof(tmp_path), base, project_slot, "TMP")
+       || !MakeProjectSlotPath(prj_path, sizeof(prj_path), base, project_slot, "AKPRJ"))
+    {
+        return false;
+    }
+
+    if(f_open(&s_sd.file, tmp_path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
+        return false;
+
+    UINT bw = 0;
+    const FRESULT wr = f_write(&s_sd.file, &manifest, sizeof(manifest), &bw);
+    f_close(&s_sd.file);
+    if(wr != FR_OK || bw != sizeof(manifest))
+    {
+        f_unlink(tmp_path);
+        return false;
+    }
+
+    f_unlink(prj_path);
+    if(f_rename(tmp_path, prj_path) != FR_OK)
+    {
+        f_unlink(tmp_path);
+        return false;
+    }
+
+    return true;
+}
+
+static void ReplaceRenamedPathInProjectManifests(const char* old_path, const char* new_path)
+{
+    if(!old_path || !new_path || old_path[0] == '\0' || new_path[0] == '\0')
+        return;
+
+    const char* base = s_sd.fsi.GetSDPath();
+    for(uint8_t slot = 0; slot < kProjectSlotCount; ++slot)
+    {
+        char prj_path[kProjectPathMax];
+        if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, slot, "AKPRJ"))
+            continue;
+        if(f_open(&s_sd.file, prj_path, FA_READ) != FR_OK)
+            continue;
+
+        ProjectManifestV11 manifest{};
+        if(!ReadProjectManifestFromFile(manifest))
+            continue;
+
+        bool changed = false;
+        for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
+        {
+            if(std::strcmp(manifest.wav_path[layer], old_path) == 0)
+            {
+                std::snprintf(manifest.wav_path[layer], sizeof(manifest.wav_path[layer]), "%s", new_path);
+                changed = true;
+            }
+        }
+        if(!changed)
+            continue;
+
+        WriteProjectManifestToSlot(slot, manifest);
+    }
+}
 
 static void CloseWorkerFileIfOpen()
 {
@@ -502,11 +570,20 @@ bool RenameWavAtIndex(SdBrowserState& sd, uint16_t idx, const char* new_stem)
         return true;
     }
 
-    if(f_rename(old_path, new_path) != FR_OK)
+    char old_path_copy[kSdPathMax];
+    std::snprintf(old_path_copy, sizeof(old_path_copy), "%s", old_path);
+
+    if(f_rename(old_path_copy, new_path) != FR_OK)
     {
         SdBrowser_SetStatus(sd, "REN ERR");
         return false;
     }
+
+    const char* new_name = slash ? (new_path + (slash - old_path)) : new_path;
+    std::snprintf(sd.paths[idx], sizeof(sd.paths[idx]), "%s", new_path);
+    std::snprintf(sd.names[idx], sizeof(sd.names[idx]), "%s", new_name);
+    SdBrowser_RebuildMenu(sd);
+    ReplaceRenamedPathInProjectManifests(old_path_copy, new_path);
 
     SdBrowser_SetStatus(sd, "RENAMED");
     return true;

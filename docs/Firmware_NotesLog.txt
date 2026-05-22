@@ -1,0 +1,23 @@
+**Running Document to capture firmware edits inside of BAKER/EXPRESS**
+5/22/26:
+-- Added Retroactive.DSP Boot up logos
+-- Added Boot up LED logic (cyan)
+
+5/21/26:
+-- Built Fill/Border/Dotted logic for button guidance
+-- Record LED behavior (Red)
+-- Load Sample LED behavior (yellow waiting, green success)
+-- changed "page" LED back to BLUE
+-- changed "wav preview or play LED back to green"
+-- Fixed recorded playback behavior to 1 shot
+
+5/20/26:
+-- Built Retroactive Custom Bootloader
+-- RED LED pulsing "pairing" to website
+-- Uses "Retroactive.DSP Alias" in Bootloader mode
+-- "Alias EXT" when connecting USB C to computer
+-- Finalized website wording / instructions
+-- Built SD Manage section (rename/delete)
+-- Added R shift caps lock function in rename
+-- SELECT in Rename goes to Quick Save
+-- Double SELECT in Rename goes to CANCEL to backout

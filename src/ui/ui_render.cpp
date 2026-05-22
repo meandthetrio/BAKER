@@ -2,11 +2,14 @@
 #include "ui_screens.h"
 #include "ui_layout.h"
 #include "ui_overlay.h"
+#include "ui_boot_logo.h"
 
 using namespace daisy;
 
 static constexpr uint16_t kRenderBudgetMs = 4;
 static constexpr uint16_t kCooldownMs = 50;
+static constexpr uint32_t kBootRetroDurationMs = 900;
+static constexpr uint32_t kBootLogoDurationMs = 900;
 
 void UIRender::Init(PodDisplay* display, DaisyPod& hw)
 {
@@ -28,6 +31,9 @@ void UIRender::Init(PodDisplay* display, DaisyPod& hw)
     last_playhead_frame_[1]  = 0;
     last_playhead_active_[0] = 0;
     last_playhead_active_[1] = 0;
+    boot_splash_phase_ = BootSplashPhase::Retro;
+    boot_logo_until_ms_ = System::GetNow() + kBootRetroDurationMs;
+    boot_logo_drawn_ = false;
     blank_screen_frame_pending_ = false;
     blank_screen_display_off_ = false;
 }
@@ -76,6 +82,45 @@ void UIRender::Tick(AppState& app, const Params& params)
         return;
 
     const uint32_t now_ms = System::GetNow();
+
+    if(boot_splash_phase_ != BootSplashPhase::Done)
+    {
+        if(now_ms >= boot_logo_until_ms_)
+        {
+            if(boot_splash_phase_ == BootSplashPhase::Retro)
+            {
+                boot_splash_phase_ = BootSplashPhase::InvertedLogo;
+                boot_logo_until_ms_ = now_ms + kBootLogoDurationMs;
+                boot_logo_drawn_ = false;
+                // Clear once between splash phases so the two bitmaps never overlap.
+                oled_pager_.Fill(false);
+            }
+            else
+            {
+                boot_splash_phase_ = BootSplashPhase::Done;
+                boot_logo_drawn_ = false;
+                ui.ui_dirty = true;
+            }
+        }
+
+        if(boot_splash_phase_ != BootSplashPhase::Done)
+        {
+            if(boot_logo_drawn_ || oled_pager_.IsTransferring())
+                return;
+
+            if(boot_splash_phase_ == BootSplashPhase::Retro)
+            {
+                UiBootLogo::DrawRetro(oled_pager_);
+            }
+            else
+            {
+                UiBootLogo::Draw(oled_pager_);
+            }
+            oled_pager_.BeginFrameTransfer();
+            boot_logo_drawn_ = true;
+            return;
+        }
+    }
 
     if(blank_screen_display_off_ && !ui.ui_blank_screen_active)
     {

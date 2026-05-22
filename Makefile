@@ -23,6 +23,7 @@ CPP_SOURCES += src/ui/ui_router.cpp
 CPP_SOURCES += src/ui/ui_screen_registry.cpp
 CPP_SOURCES += src/ui/ui_draw_text.cpp
 CPP_SOURCES += src/ui/ui_draw_shapes.cpp
+CPP_SOURCES += src/ui/ui_boot_logo.cpp
 CPP_SOURCES += src/ui/ui_draw_controls.cpp
 CPP_SOURCES += src/ui/ui_screen_main.cpp
 CPP_SOURCES += src/ui/ui_screen_hud.cpp

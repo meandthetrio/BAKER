@@ -19,8 +19,16 @@ class UIRender
     void Init(PodDisplay* display, daisy::DaisyPod& hw);
     void Tick(AppState& app, const Params& params);
     void TickOledTransfer(uint32_t now_ms, bool midi_busy);
+    bool IsBootSplashActive() const { return boot_splash_phase_ != BootSplashPhase::Done; }
 
   private:
+    enum class BootSplashPhase : uint8_t
+    {
+        Retro = 0,
+        InvertedLogo,
+        Done
+    };
+
     OledPager   oled_pager_;
     uint32_t    last_ui_ms_ = 0;
     uint32_t    ui_ticks_accum_ = 0;
@@ -40,6 +48,9 @@ class UIRender
     uint32_t    last_velocity_monitor_   = 0;
     uint32_t    last_playhead_frame_[2]  = {0, 0};
     uint32_t    last_playhead_active_[2] = {0, 0};
+    uint32_t    boot_logo_until_ms_ = 0;
+    bool        boot_logo_drawn_ = false;
+    BootSplashPhase boot_splash_phase_ = BootSplashPhase::Retro;
     bool        blank_screen_frame_pending_ = false;
     bool        blank_screen_display_off_ = false;
 

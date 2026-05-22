@@ -393,6 +393,7 @@ int main(void)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformExpress);
         const bool firmware_pairing_hold_active
             = g_app.ui.shift_menu_firmware_update_active && g_app.ui.shift_menu_bootloader_armed;
+        const bool boot_splash_active = g_render.IsBootSplashActive();
         static constexpr uint32_t kRecordCountdownMs = 4000u;
         const bool record_countdown_active
             = (g_app.ui.ui_active_screen == UiScreenId::Record)
@@ -418,7 +419,22 @@ int main(void)
             pairing_red = 0.08f + 0.92f * tri;
         }
 
-        if(firmware_pairing_hold_active)
+        if(boot_splash_active)
+        {
+            // Same ping-pong behavior as WAV load, but cyan instead of yellow.
+            const bool left_on = ((now_ms / 70u) & 1u) == 0u;
+            if(left_on)
+            {
+                hw.led1.Set(0.0f, 1.0f, 1.0f); // cyan
+                hw.led2.Set(0.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                hw.led1.Set(0.0f, 0.0f, 0.0f);
+                hw.led2.Set(0.0f, 1.0f, 1.0f); // cyan
+            }
+        }
+        else if(firmware_pairing_hold_active)
         {
             hw.led1.Set(pairing_red, 0.0f, 0.0f);
             hw.led2.Set(pairing_red, 0.0f, 0.0f);

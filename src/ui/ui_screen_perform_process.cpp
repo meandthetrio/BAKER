@@ -109,6 +109,28 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 2u) & 0x03u)
                                            : static_cast<uint8_t>(engine.process.perform_process_fx_cursor & 0x03u);
     const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
+    auto apply_fx_reorder = [&](int encoder_delta) -> bool
+    {
+        if(!ctx.rshift || !main_selects_fx || encoder_delta == 0)
+            return false;
+        const int dir = (encoder_delta > 0) ? 1 : -1;
+        const int from = static_cast<int>(main_cursor - 2u);
+        const int to = from + dir;
+        if(to < 0 || to > 3)
+            return true;
+
+        const uint8_t tmp = engine.process.perform_process_fx_order[from];
+        engine.process.perform_process_fx_order[from] = engine.process.perform_process_fx_order[to];
+        engine.process.perform_process_fx_order[to] = tmp;
+        engine.process.perform_process_fx_cursor = static_cast<uint8_t>(to);
+        engine.process.perform_process_main_cursor = static_cast<uint8_t>(to + 2);
+
+        PerformParamsTargets& t = ctx.params->EditTargets();
+        for(int i = 0; i < 4; ++i)
+            t.fx_order[i] = engine.process.perform_process_fx_order[i];
+        ctx.params->PublishTargets();
+        return true;
+    };
 
     // POD2 toggles layer (same behavior as other PERFORM pages).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
@@ -167,6 +189,12 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
+        if(!engine.process.perform_process_detail_active && !engine.process.perform_process_eq_graph_active
+           && apply_fx_reorder(e.value))
+        {
+            ui.ui_dirty = true;
+            return true;
+        }
         if(engine.process.perform_process_eq_graph_active && fx_id == 1u)
         {
             PerformParamsTargets& t = ctx.params->EditTargets();
@@ -216,6 +244,12 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         static uint32_t s_last_ext_t_ms = 0u;
         const float delta = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
+        if(!engine.process.perform_process_detail_active && !engine.process.perform_process_eq_graph_active
+           && apply_fx_reorder(e.value))
+        {
+            ui.ui_dirty = true;
+            return true;
+        }
         if(engine.process.perform_process_eq_graph_active && fx_id == 1u)
         {
             ProcessEditEqGraph(ctx, delta);
@@ -240,30 +274,6 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(ctx.rshift)
         {
-            if(!main_selects_fx)
-            {
-                ui.ui_dirty = true;
-                return true;
-            }
-            // RSHIFT + R encoder reorders focused S/E/D/R lane, clamped at edges.
-            const int dir = (e.value > 0) ? 1 : -1;
-            const int from = static_cast<int>(main_cursor - 2u);
-            const int to = from + dir;
-            if(to < 0 || to > 3)
-            {
-                ui.ui_dirty = true;
-                return true;
-            }
-            const uint8_t tmp = engine.process.perform_process_fx_order[from];
-            engine.process.perform_process_fx_order[from] = engine.process.perform_process_fx_order[to];
-            engine.process.perform_process_fx_order[to] = tmp;
-            engine.process.perform_process_fx_cursor = static_cast<uint8_t>(to);
-            engine.process.perform_process_main_cursor = static_cast<uint8_t>(to + 2);
-
-            PerformParamsTargets& t = ctx.params->EditTargets();
-            for(int i = 0; i < 4; ++i)
-                t.fx_order[i] = engine.process.perform_process_fx_order[i];
-            ctx.params->PublishTargets();
             ui.ui_dirty = true;
             return true;
         }
@@ -437,7 +447,7 @@ void PerformProcess_Render(UiScreenCtx& ctx)
                                  1,
                                  1,
                                  1,
-                                 1);
+                                 2);
 
         DrawProcessFxReorderOverlay(d, fader_x, fader_y, fader_w, fader_h, selected_index, ctx.rshift);
     }

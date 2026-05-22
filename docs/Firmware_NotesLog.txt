@@ -2,6 +2,8 @@
 5/22/26:
 -- Added Retroactive.DSP Boot up logos
 -- Added Boot up LED logic (cyan)
+-- Added Project Delete option (need to remove)
+-- Fixed SD sample rename breaking Projects that used that file with old sample name
 
 5/21/26:
 -- Built Fill/Border/Dotted logic for button guidance
@@ -10,6 +12,7 @@
 -- changed "page" LED back to BLUE
 -- changed "wav preview or play LED back to green"
 -- Fixed recorded playback behavior to 1 shot
+-- Added REVERSE PLAYBACK in Engine
 
 5/20/26:
 -- Built Retroactive Custom Bootloader

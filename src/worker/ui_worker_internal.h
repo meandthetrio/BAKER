@@ -76,7 +76,11 @@ struct WavInfo
 extern SdWorkerState s_sd;
 
 bool ParseWavHeader(FIL& file, WavInfo& info);
-bool WriteWavHeader(FIL& file, uint32_t frames);
+bool WriteWavHeader(FIL& file,
+                    uint32_t frames,
+                    FRESULT* out_res = nullptr,
+                    UINT* out_bw = nullptr,
+                    uint32_t* out_requested = nullptr);
 bool IsWavName(const char* name);
 bool MakePath(char* out, size_t n, const char* base, const char* name);
 void WorkerExtractBaseName(const char* path, char* out, size_t out_n);

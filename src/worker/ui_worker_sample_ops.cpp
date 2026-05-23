@@ -16,7 +16,7 @@
 
 extern SdWorkerState s_sd;
 
-static constexpr uint32_t kSaveChunkFrames = 2048;
+static constexpr uint32_t kSaveChunkFrames = 512;
 
 static bool WriteProjectManifestToSlot(uint8_t project_slot, const ProjectManifestV11& manifest)
 {
@@ -96,16 +96,8 @@ static void CloseWorkerFileIfOpen()
 static bool SelectSaveDirectory(SdBrowserState& sd)
 {
     const char* base = s_sd.fsi.GetSDPath();
-    std::snprintf(s_sd.save_dir, sizeof(s_sd.save_dir), "%sWAV", base);
-
-    DIR dir;
-    if(f_opendir(&dir, s_sd.save_dir) == FR_OK)
-    {
-        f_closedir(&dir);
-        return true;
-    }
-
     std::snprintf(s_sd.save_dir, sizeof(s_sd.save_dir), "%s", base);
+    DIR dir;
     if(f_opendir(&dir, s_sd.save_dir) == FR_OK)
     {
         f_closedir(&dir);
@@ -114,6 +106,41 @@ static bool SelectSaveDirectory(SdBrowserState& sd)
 
     SdBrowser_SetSaveStatus(sd, "DIR ERR");
     return false;
+}
+
+static void FailActiveSave(SdBrowserState& sd,
+                           AppWorkerState* worker,
+                           const char* stage,
+                           FRESULT res,
+                           UINT bw,
+                           uint32_t requested_bytes)
+{
+    std::printf("SAVE ERR stage=%s path=%s name=%s res=%d bw=%u req=%lu written=%lu total=%lu\n",
+                stage ? stage : "?",
+                s_sd.save_path[0] != '\0' ? s_sd.save_path : "(none)",
+                s_sd.save_name[0] != '\0' ? s_sd.save_name : "(none)",
+                static_cast<int>(res),
+                static_cast<unsigned>(bw),
+                static_cast<unsigned long>(requested_bytes),
+                static_cast<unsigned long>(s_sd.save_written),
+                static_cast<unsigned long>(s_sd.save_total));
+
+    CloseWorkerFileIfOpen();
+
+    if(s_sd.save_path[0] != '\0')
+    {
+        const FRESULT unlink_res = f_unlink(s_sd.save_path);
+        std::printf("SAVE ERR cleanup path=%s unlink_res=%d\n",
+                    s_sd.save_path,
+                    static_cast<int>(unlink_res));
+    }
+
+    s_sd.save_active = false;
+    sd.save_in_progress = false;
+    sd.save_progress = 0;
+    SdBrowser_SetSaveStatus(sd, "SAVE ERR");
+    if(worker)
+        worker->ui_req_result = -1;
 }
 
 bool StartNormalize(AppUiState& ui, AppSharedState& shared)
@@ -407,10 +434,12 @@ bool StartSave(AppUiState& ui,
     }
 
     s_sd.file_open = true;
-    if(!WriteWavHeader(s_sd.file, s_sd.save_total))
+    FRESULT header_res = FR_OK;
+    UINT header_bw = 0;
+    uint32_t header_requested = 0;
+    if(!WriteWavHeader(s_sd.file, s_sd.save_total, &header_res, &header_bw, &header_requested))
     {
-        CloseWorkerFileIfOpen();
-        SdBrowser_SetSaveStatus(sd, "WRITE ERR");
+        FailActiveSave(sd, nullptr, "header", header_res, header_bw, header_requested);
         return false;
     }
 
@@ -430,12 +459,7 @@ bool SaveStep(SdBrowserState& sd, AppSharedState& shared, AppWorkerState& worker
 
     if(s_sd.save_pcm == nullptr || s_sd.save_total == 0)
     {
-        CloseWorkerFileIfOpen();
-        s_sd.save_active = false;
-        sd.save_in_progress = false;
-        sd.save_progress = 0;
-        SdBrowser_SetSaveStatus(sd, "SAVE ERR");
-        worker.ui_req_result = -1;
+        FailActiveSave(sd, &worker, "invalid-state", FR_INT_ERR, 0, 0);
         return true;
     }
 
@@ -488,12 +512,7 @@ bool SaveStep(SdBrowserState& sd, AppSharedState& shared, AppWorkerState& worker
     const FRESULT res = f_write(&s_sd.file, write_ptr, bytes, &bw);
     if(res != FR_OK || bw != bytes)
     {
-        CloseWorkerFileIfOpen();
-        s_sd.save_active = false;
-        sd.save_in_progress = false;
-        sd.save_progress = 0;
-        SdBrowser_SetSaveStatus(sd, "SAVE ERR");
-        worker.ui_req_result = -1;
+        FailActiveSave(sd, &worker, (res != FR_OK) ? "pcm-write" : "pcm-short-write", res, bw, bytes);
         return true;
     }
 
@@ -505,7 +524,13 @@ bool SaveStep(SdBrowserState& sd, AppSharedState& shared, AppWorkerState& worker
 
     if(s_sd.save_written >= s_sd.save_total)
     {
-        f_sync(&s_sd.file);
+        const FRESULT sync_res = f_sync(&s_sd.file);
+        if(sync_res != FR_OK)
+        {
+            FailActiveSave(sd, &worker, "sync", sync_res, 0, 0);
+            return true;
+        }
+
         CloseWorkerFileIfOpen();
         s_sd.save_active = false;
         sd.save_in_progress = false;

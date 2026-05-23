@@ -87,7 +87,11 @@ bool ParseWavHeader(FIL& file, WavInfo& info)
     return have_fmt && have_data;
 }
 
-bool WriteWavHeader(FIL& file, uint32_t frames)
+bool WriteWavHeader(FIL& file,
+                    uint32_t frames,
+                    FRESULT* out_res,
+                    UINT* out_bw,
+                    uint32_t* out_requested)
 {
     const uint32_t data_bytes = frames * 2u;
     const uint32_t riff_size = 36u + data_bytes;
@@ -107,10 +111,24 @@ bool WriteWavHeader(FIL& file, uint32_t frames)
     std::memcpy(hdr + 36, "data", 4);
     WriteU32LE(hdr + 40, data_bytes);
 
-    if(f_lseek(&file, 0) != FR_OK)
+    if(out_requested)
+        *out_requested = sizeof(hdr);
+
+    FRESULT res = f_lseek(&file, 0);
+    if(out_res)
+        *out_res = res;
+    if(out_bw)
+        *out_bw = 0;
+    if(res != FR_OK)
         return false;
+
     UINT bw = 0;
-    if(f_write(&file, hdr, sizeof(hdr), &bw) != FR_OK || bw != sizeof(hdr))
+    res = f_write(&file, hdr, sizeof(hdr), &bw);
+    if(out_res)
+        *out_res = res;
+    if(out_bw)
+        *out_bw = bw;
+    if(res != FR_OK || bw != sizeof(hdr))
         return false;
     return true;
 }

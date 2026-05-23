@@ -112,10 +112,11 @@
   - `kUiBtnExtEnc` confirms option.
   - `kUiBtnPodEnc` returns to `Review`.
 - Result:
-  - `SAVE` queues `SaveRenderedWavCurrent` and enters `SaveWait`.
+  - `SAVE` queues `SaveRenderedWavCurrent`, writes the WAV to SD root, and enters `SaveWait`.
   - `RECORD AGAIN` returns to `SourceSelect`.
 - Notes:
   - Save queue failure returns to `Review`.
+  - `/WAV` is not used or required for microphone saves.
 
 7. **Back confirm (`record_state == BackConfirm`)**
 - Type: confirmation state
@@ -199,5 +200,6 @@
   - Existing visible filename match shows `NAME EXISTS` and stays on this screen.
   - `kUiBtnPodEnc` with empty draft, or `cancel`, returns to `RecordRenderReview` and keeps the temp render.
 - Result:
-  - Save success returns to `RecordRenderMenu`.
+  - Save success returns to `RecordRenderMenu` after writing the WAV to SD root.
   - Save failure after worker start returns to review with the temp render preserved.
+  - Failed saves should not leave a partial WAV on the card.

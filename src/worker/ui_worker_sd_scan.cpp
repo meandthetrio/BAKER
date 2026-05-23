@@ -41,18 +41,13 @@ bool StartScan(SdBrowserState& sd, AppSharedState& shared)
     }
 
     const char* base = s_sd.fsi.GetSDPath();
-    std::snprintf(s_sd.scan_path, sizeof(s_sd.scan_path), "%sWAV", base);
-
+    std::snprintf(s_sd.scan_path, sizeof(s_sd.scan_path), "%s", base);
     if(f_opendir(&s_sd.dir, s_sd.scan_path) != FR_OK)
     {
-        std::snprintf(s_sd.scan_path, sizeof(s_sd.scan_path), "%s", base);
-        if(f_opendir(&s_sd.dir, s_sd.scan_path) != FR_OK)
-        {
-            SdBrowser_SetStatus(sd, "DIR ERR");
-            sd.scan_in_progress = false;
-            s_sd.state = LoaderState::Idle;
-            return false;
-        }
+        SdBrowser_SetStatus(sd, "DIR ERR");
+        sd.scan_in_progress = false;
+        s_sd.state = LoaderState::Idle;
+        return false;
     }
 
     s_sd.dir_open = true;

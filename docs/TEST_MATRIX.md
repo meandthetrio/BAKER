@@ -175,7 +175,8 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
   - Review shows a waveform for the temp render and `POD2` restarts playback from frame 0 each press.
   - `RERECORD` and review `BACK` both discard only the unsaved temp render and return to `RENDER`.
   - Duplicate save shows `NAME EXISTS` without overwriting.
-  - Unique save writes into the normal render-save directory, returns to `RENDER`, and leaves the loaded project/layers unchanged.
+  - Unique save writes into SD root, returns to `RENDER`, and leaves the loaded project/layers unchanged.
+  - `/WAV` is not used or required for render saves.
 - Fail
   - Preview regression, wrong capture source, wrong capture length, temp render loaded into a layer, overwrite of an existing file, or any project-state mutation.
 
@@ -284,6 +285,26 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
   - UI remains usable and the final handoff to the loaded sample completes coherently.
 - Fail
   - The UI stalls until load completion or the loaded state is only partially applied.
+
+### Mic/render WAV save to SD root
+- Setup
+  - Capture one microphone take and one render take with audible content.
+- Action
+  - Preview each take, save once with the default name and once with a custom name, then inspect the SD card root.
+- Pass
+  - Each save completes without stalling, the WAV lands in SD root, existing root WAVs still browse/load normally, and no `/WAV` or render-specific folder is created or required.
+- Fail
+  - Save stalls with `SAVE ERR`, the file lands outside SD root, or browse/load no longer sees root WAVs.
+
+### Failed save cleanup
+- Setup
+  - Use a controlled failure case if available.
+- Action
+  - Trigger a save failure and inspect the SD card contents afterward.
+- Pass
+  - The worker reports enough debug detail to distinguish write failure, short write, and sync failure, and no partial/corrupt WAV remains on the card.
+- Fail
+  - A failed save leaves a broken WAV behind or does not report which stage failed.
 
 ### Project save/load core path
 - Setup

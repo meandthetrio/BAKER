@@ -50,6 +50,11 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(active == UiScreenId::Record && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
+        // Render execute/review own BACK for capture safety and temp-render discard.
+        if((active == UiScreenId::RecordRenderExecute || active == UiScreenId::RecordRenderReview)
+           && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
         // PROCESS detail uses BACK to return from FX detail to MASTER BUS,
         // not to leave the PROCESS screen entirely.
         if(active == UiScreenId::PerformProcess && s.OnEvent && s.OnEvent(ctx, e))

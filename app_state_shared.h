@@ -55,6 +55,7 @@ struct AppSharedState
 
     struct RecordingBridgeState
     {
+        // Normal physical-input recording bridge.
         std::atomic<uint8_t> rec_source_sel{0};
         std::atomic<uint8_t> rec_monitor_enable{0};
         std::atomic<uint8_t> rec_start_req{0};
@@ -64,6 +65,22 @@ struct AppSharedState
         std::atomic<uint32_t> rec_pos{0};
         std::atomic<uint32_t> rec_length{0};
         std::atomic<uint32_t> rec_live_gen{0};
+        // Dry record/review preview bridge. UI/main only requests start/stop;
+        // audio thread owns active playback and frame position.
+        std::atomic<uint8_t> preview_start_req{0};
+        std::atomic<uint8_t> preview_stop_req{0};
+        std::atomic<uint8_t> preview_active{0};
+        std::atomic<uint32_t> preview_pos{0};
+        // Internal render-capture bridge. UI/main owns requests and finalization;
+        // audio thread owns active writes and frame-count publication.
+        std::atomic<uint8_t> render_start_req{0};
+        std::atomic<uint8_t> render_stop_req{0};
+        std::atomic<uint8_t> render_active{0};
+        std::atomic<uint8_t> render_done{0};
+        std::atomic<uint32_t> render_frames{0};
+        // `rec_*` mirrors below are reused by both normal recording and
+        // internal render capture for the live waveform/review path. Callers
+        // must ensure these flows never run at the same time.
         int16_t rec_live_min[128] = {};
         int16_t rec_live_max[128] = {};
         int16_t rec_live_last_col = -1;

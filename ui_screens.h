@@ -52,6 +52,7 @@ enum class UiScreenId : uint8_t
     CraftMenu,
     RecordRenderMenu,
     RecordRenderExecute,
+    RecordRenderReview,
     COUNT
 };
 

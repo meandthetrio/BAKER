@@ -159,6 +159,26 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
 - Fail
   - Header/footer overlap, clipped body content, or diagnostics that strand the UI.
 
+### Render bounce workflow
+- Setup
+  - Load a project with at least one audible layer in the selected render note range.
+  - If possible, enable obvious global FX and enable live monitor so both paths can be distinguished.
+- Action
+  - Open `SAMPLES -> RECORD -> RENDER`.
+  - Confirm `POD2` preview still plays the selected render note and that `hold_ms` changes the preview gate length only.
+  - Run `execute`, wait for the fixed 5-second capture, then inspect the review screen.
+  - Use `POD2` on review to preview the temp render more than once.
+  - Open the review overlay, test `RERECORD`, then repeat and test `SAVE`.
+  - In rename, try a known duplicate stem and then a unique stem.
+- Pass
+  - Capture always lasts 5.000 seconds, includes the 2 ms pre-roll, captures post-FX left output, and excludes live monitor mix.
+  - Review shows a waveform for the temp render and `POD2` restarts playback from frame 0 each press.
+  - `RERECORD` and review `BACK` both discard only the unsaved temp render and return to `RENDER`.
+  - Duplicate save shows `NAME EXISTS` without overwriting.
+  - Unique save writes into the normal render-save directory, returns to `RENDER`, and leaves the loaded project/layers unchanged.
+- Fail
+  - Preview regression, wrong capture source, wrong capture length, temp render loaded into a layer, overwrite of an existing file, or any project-state mutation.
+
 ## Audio / Voice / Playback Checks
 
 ### Note-on / note-off path

@@ -67,8 +67,14 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void CraftMenu_Render(UiScreenCtx& ctx);
 bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void RecordRenderMenu_Render(UiScreenCtx& ctx);
+void RecordRenderExecute_OnEnter(UiScreenCtx& ctx);
 bool RecordRenderExecute_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void RecordRenderExecute_Render(UiScreenCtx& ctx);
+bool RecordRenderReview_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void RecordRenderReview_Render(UiScreenCtx& ctx);
+void RecordRender_DiscardTemp(AppUiState& ui,
+                              AppRecordingState& recording,
+                              AppSharedState& shared);
 
 void Presets_OnEnter(UiScreenCtx& ctx);
 bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

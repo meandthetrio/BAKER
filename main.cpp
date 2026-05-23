@@ -411,6 +411,10 @@ int main(void)
         const bool sd_browse_active = (g_app.ui.ui_active_screen == UiScreenId::SdBrowse);
         const bool record_review_active = (g_app.ui.ui_active_screen == UiScreenId::Record)
                                           && (g_app.recording.record_state == RecordUiState::Review);
+        const bool record_render_review_active
+            = (g_app.ui.ui_active_screen == UiScreenId::RecordRenderReview)
+              && (g_app.shared.recording.rec_sample.pcm != nullptr)
+              && (g_app.shared.recording.rec_sample.length > 0u);
         const bool record_render_preview_active
             = (g_app.ui.ui_active_screen == UiScreenId::RecordRenderMenu)
               && RecordRenderPreviewAvailable();
@@ -503,7 +507,8 @@ int main(void)
             hw.led1.Set(0.0f, 0.0f, g);
             hw.led2.Set(0.0f, 0.0f, g);
         }
-        else if(sd_browse_active || record_review_active || record_render_preview_active)
+        else if(sd_browse_active || record_review_active || record_render_review_active
+                || record_render_preview_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, 0.0f, 1.0f);

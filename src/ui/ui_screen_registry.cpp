@@ -57,10 +57,15 @@ const UiScreen& GetScreen(UiScreenId id)
                                              RecordRenderMenu_OnEvent,
                                              RecordRenderMenu_Render};
     static const UiScreen record_render_execute{UiScreenId::RecordRenderExecute,
-                                                nullptr,
+                                                RecordRenderExecute_OnEnter,
                                                 nullptr,
                                                 RecordRenderExecute_OnEvent,
                                                 RecordRenderExecute_Render};
+    static const UiScreen record_render_review{UiScreenId::RecordRenderReview,
+                                               nullptr,
+                                               nullptr,
+                                               RecordRenderReview_OnEvent,
+                                               RecordRenderReview_Render};
     static const UiScreen record{UiScreenId::Record, Record_OnEnter, Record_OnExit, Record_OnEvent, Record_Render};
     static const UiScreen perform_menu{UiScreenId::PerformMenu, nullptr, nullptr, PerformMenu_OnEvent, PerformMenu_Render, PerformMenu_OnEnter};
     static const UiScreen perform_engine{UiScreenId::PerformEngine,
@@ -147,6 +152,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return record_render_menu;
         case UiScreenId::RecordRenderExecute:
             return record_render_execute;
+        case UiScreenId::RecordRenderReview:
+            return record_render_review;
         case UiScreenId::Record:
             return record;
         case UiScreenId::PerformMenu:

@@ -667,7 +667,7 @@ char RenameGridChar(uint8_t row, uint8_t col, bool uppercase)
 
 uint8_t RenameMaxLength(const AppUiState& ui)
 {
-    return ui.sample_rename_active ? kSdRenameStemMax
+    return (ui.sample_rename_active || ui.render_sample_rename_active) ? kSdRenameStemMax
                                    : static_cast<uint8_t>(kProjectNameMax - 1u);
 }
 
@@ -851,6 +851,73 @@ bool QueueRenameSampleRequest(AppUiState& ui, AppWorkerState& worker)
     ui.sample_rename_active = false;
     ui.sd_rename_mode = true;
     UiNav_Pop(ui.ui_nav);
+    ui.ui_dirty = true;
+    return true;
+}
+
+bool RenameEqualsIgnoreCase(const char* a, const char* b)
+{
+    if(!a || !b)
+        return false;
+    while(*a != '\0' && *b != '\0')
+    {
+        char ca = *a;
+        char cb = *b;
+        if(ca >= 'a' && ca <= 'z')
+            ca = static_cast<char>(ca - ('a' - 'A'));
+        if(cb >= 'a' && cb <= 'z')
+            cb = static_cast<char>(cb - ('a' - 'A'));
+        if(ca != cb)
+            return false;
+        ++a;
+        ++b;
+    }
+    return (*a == '\0') && (*b == '\0');
+}
+
+bool RenderSaveNameExistsInBrowser(const AppUiState& ui, const char* stem)
+{
+    if(!stem || stem[0] == '\0')
+        return false;
+
+    char full_name[kSdNameMax];
+    std::snprintf(full_name, sizeof(full_name), "%s.WAV", stem);
+    for(uint8_t i = 0; i < ui.sd.wav_count; ++i)
+    {
+        if(RenameEqualsIgnoreCase(ui.sd.names[i], full_name))
+            return true;
+    }
+    return false;
+}
+
+bool QueueRenderSaveRequest(AppUiState& ui, AppWorkerState& worker)
+{
+    if(!ui.render_sample_rename_active || ui.project_rename_length == 0u)
+        return false;
+
+    std::snprintf(ui.record_render_save_stem,
+                  sizeof(ui.record_render_save_stem),
+                  "%.*s",
+                  static_cast<int>(kSdRenameStemMax),
+                  ui.project_rename_draft);
+    if(ui.sd.scan_done && RenderSaveNameExistsInBrowser(ui, ui.record_render_save_stem))
+    {
+        std::snprintf(ui.record_render_status, sizeof(ui.record_render_status), "%s", "NAME EXISTS");
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    const UiReq req{UiReqType::SaveRenderedWavNamed, 0, 0};
+    if(!UiReq_Push(ui, worker, req))
+    {
+        std::snprintf(ui.record_render_status, sizeof(ui.record_render_status), "%s", "SAVE ERR");
+        ui.ui_dirty = true;
+        return false;
+    }
+
+    ui.record_render_status[0] = '\0';
+    ui.record_render_phase = RecordRenderPhase::SaveWait;
+    ui.render_sample_rename_wait_for_worker = true;
     ui.ui_dirty = true;
     return true;
 }
@@ -1154,7 +1221,7 @@ void RenameProject_OnEnter(UiScreenCtx& ctx)
     ui.ui_parent_preview_origin_fx_cursor = 0;
     ui.ui_parent_preview_origin_process_detail = false;
     ui.ui_parent_preview_origin_process_eq_graph = false;
-    if(ui.sample_rename_active)
+    if(ui.sample_rename_active || ui.render_sample_rename_active)
     {
         ui.project_rename_grid_col = 0;
         ui.project_rename_grid_row = 0;
@@ -1188,6 +1255,9 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     AppProjectState& project = *ctx.project;
+
+    if(ui.render_sample_rename_active && ui.render_sample_rename_wait_for_worker)
+        return true;
 
     if(e.type == UiInputType::EncDelta && e.value != 0)
     {
@@ -1232,6 +1302,11 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(ui.sample_rename_active)
                 ui.sample_rename_active = false;
+            if(ui.render_sample_rename_active)
+            {
+                ui.render_sample_rename_active = false;
+                ui.render_sample_rename_wait_for_worker = false;
+            }
             ui.project_rename_for_new_save = false;
             UiNav_Pop(ui.ui_nav);
             ui.ui_dirty = true;
@@ -1245,6 +1320,12 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 if(ui.project_rename_length == 0u)
                     return true;
                 return QueueRenameSampleRequest(ui, *ctx.worker);
+            }
+            if(ui.render_sample_rename_active)
+            {
+                if(ui.project_rename_length == 0u)
+                    return true;
+                return QueueRenderSaveRequest(ui, *ctx.worker);
             }
             if(ui.project_rename_for_new_save)
             {
@@ -1261,6 +1342,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(ui.project_rename_length >= RenameMaxLength(ui))
             return true;
 
+        if(ui.render_sample_rename_active)
+            ui.record_render_status[0] = '\0';
         ui.project_rename_draft[ui.project_rename_length] =
             RenameGridChar(ui.project_rename_grid_row,
                            ui.project_rename_grid_col,
@@ -1275,6 +1358,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(ui.project_rename_length > 0u)
         {
+            if(ui.render_sample_rename_active)
+                ui.record_render_status[0] = '\0';
             --ui.project_rename_length;
             ui.project_rename_draft[ui.project_rename_length] = '\0';
             ui.ui_dirty = true;
@@ -1284,6 +1369,11 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(ui.sample_rename_active)
         {
             ui.sample_rename_active = false;
+        }
+        if(ui.render_sample_rename_active)
+        {
+            ui.render_sample_rename_active = false;
+            ui.render_sample_rename_wait_for_worker = false;
         }
         ui.project_rename_for_new_save = false;
         UiNav_Pop(ui.ui_nav);
@@ -1351,6 +1441,9 @@ void RenameProject_Render(UiScreenCtx& ctx)
             }
         }
     }
+
+    if(ui.render_sample_rename_active && ui.record_render_status[0] != '\0')
+        DrawTinyString(d, ui.record_render_status, 2, 56, true);
 }
 
 bool SaveProjectMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

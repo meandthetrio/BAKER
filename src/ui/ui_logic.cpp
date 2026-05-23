@@ -5,12 +5,15 @@
 #include "plocks.h"
 #include "macros.h"
 #include "ui_screens.h"
+#include "ui_screens_internal.h"
 #include "ui_value_edit.h"
 #include "ui_overlay.h"
 #include "ui_worker.h"
 #include "sd_sample_pool.h"
 #include <atomic>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 
 using namespace daisy;
 
@@ -57,6 +60,20 @@ bool PushPreviewNoteOff(EventQueueSPSC& evtq,
                         uint8_t note)
 {
     const Event evt = Event::NoteOffEvent(note);
+    if(evtq.Push(evt))
+    {
+        diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
+    ui.ui_dirty = true;
+    return false;
+}
+
+bool PushAllNotesOff(EventQueueSPSC& evtq, AppDiagnosticsState& diag, AppUiState& ui)
+{
+    const Event evt = Event::AllNotesOffEvent();
     if(evtq.Push(evt))
     {
         diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
@@ -231,6 +248,27 @@ void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms
     ClearParentPreviewState(ui);
     ui.ui_dirty = true;
 }
+
+void FinalizeRenderCapture(AppUiState& ui,
+                           AppRecordingState& recording,
+                           AppSharedState& shared)
+{
+    const uint32_t rec_len = shared.recording.rec_length.load(std::memory_order_acquire);
+    if(rec_len == 0u)
+        return;
+
+    Sample& s = shared.recording.rec_sample;
+    s.pcm = SdRecordBuffer();
+    s.length = rec_len;
+    s.sample_rate = 48000;
+    s.root_key = ui.record_render_note;
+    s.loop_start = 0;
+    s.loop_end = rec_len;
+    s.loop_enabled = false;
+
+    shared.recording.rec_edit = SampleEdit_Default(rec_len);
+    recording.record_slot = kRecordPreviewSampleIndex;
+}
 } // namespace
 
 bool UILogic::SchedulePendingNoteOff(uint8_t note, uint32_t due_ms)
@@ -353,6 +391,51 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
         {
             diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
             ui.ui_dirty = true;
+        }
+    }
+
+    if(ui.record_render_phase == RecordRenderPhase::CaptureStarting)
+    {
+        if(!ui.record_render_all_notes_off_sent)
+        {
+            if(PushAllNotesOff(evtq, diag, ui))
+                ui.record_render_all_notes_off_sent = true;
+        }
+
+        if(shared.recording.render_active.load(std::memory_order_acquire) != 0u)
+        {
+            ui.record_render_phase = RecordRenderPhase::Capturing;
+            ui.record_render_capture_started_ms = now_ms;
+            ui.record_render_note_on_due_ms = now_ms + 2u;
+            ui.record_render_note_off_due_ms = ui.record_render_note_on_due_ms + ui.record_render_hold_ms;
+            ui.ui_dirty = true;
+        }
+    }
+
+    if(ui.record_render_phase == RecordRenderPhase::Capturing)
+    {
+        if(!ui.record_render_note_on_sent
+           && static_cast<int32_t>(now_ms - ui.record_render_note_on_due_ms) >= 0)
+        {
+            const uint8_t note = ui.record_render_note;
+            bool any_started = false;
+            for(uint8_t layer = 0; layer < 2u; ++layer)
+            {
+                if(!RenderPreviewLayerEligible(params, shared, layer, note))
+                    continue;
+                if(PushPreviewNoteOn(evtq, diag, ui, note, kRenderPreviewVelocity, layer))
+                    any_started = true;
+            }
+            if(any_started || !RenderPreviewAvailable(params, ui, shared))
+                ui.record_render_note_on_sent = true;
+        }
+
+        if(ui.record_render_note_on_sent
+           && !ui.record_render_note_off_sent
+           && static_cast<int32_t>(now_ms - ui.record_render_note_off_due_ms) >= 0)
+        {
+            if(PushPreviewNoteOff(evtq, diag, ui, ui.record_render_note))
+                ui.record_render_note_off_sent = true;
         }
     }
 
@@ -689,39 +772,28 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
     const bool record_review_active = (active_screen == UiScreenId::Record
                                        && recording.record_state == RecordUiState::Review);
-    if(record_review_active && recording.record_preview_hold && !recording.record_preview_gate)
+    const bool render_review_active = (active_screen == UiScreenId::RecordRenderReview
+                                       && ui.record_render_phase == RecordRenderPhase::Review);
+    if(recording.record_preview_gate
+       && shared.recording.preview_active.load(std::memory_order_acquire) == 0u)
     {
-        const uint8_t slot = recording.record_slot;
+        recording.record_preview_gate = false;
+    }
+    if((record_review_active || render_review_active) && recording.record_preview_hold)
+    {
         const Sample& s = shared.recording.rec_sample;
         if(s.pcm != nullptr && s.length > 0)
         {
-            if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))
-            {
-                recording.record_preview_gate = true;
-                recording.record_preview_hold = false;
-                uint32_t dur_ms = (s.sample_rate > 0u)
-                                      ? static_cast<uint32_t>((static_cast<uint64_t>(s.length) * 1000u)
-                                                              / static_cast<uint64_t>(s.sample_rate))
-                                      : 0u;
-                if(dur_ms < 80u)
-                    dur_ms = 80u;
-                if(dur_ms > 10000u)
-                    dur_ms = 10000u;
-                recording.record_preview_oneshot_until_ms = now_ms + dur_ms;
-            }
+            shared.recording.preview_start_req.store(1, std::memory_order_release);
+            recording.record_preview_gate = true;
         }
+        recording.record_preview_hold = false;
+        recording.record_preview_restart = false;
     }
-    if(record_review_active
-       && recording.record_preview_gate
-       && static_cast<int32_t>(now_ms - recording.record_preview_oneshot_until_ms) >= 0)
+    if(!record_review_active && !render_review_active && recording.record_preview_gate)
     {
-        if(PushPreviewNoteOff(evtq, diag, ui, 60))
-            recording.record_preview_gate = false;
-    }
-    if(!record_review_active && recording.record_preview_gate)
-    {
-        if(PushPreviewNoteOff(evtq, diag, ui, 60))
-            recording.record_preview_gate = false;
+        shared.recording.preview_stop_req.store(1, std::memory_order_release);
+        recording.record_preview_gate = false;
     }
 
     const bool record_render_active = (active_screen == UiScreenId::RecordRenderMenu);
@@ -778,6 +850,40 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         stop_render_preview();
     }
 
+    if((ui.record_render_phase == RecordRenderPhase::CaptureStarting
+        || ui.record_render_phase == RecordRenderPhase::Capturing)
+       && shared.recording.render_done.load(std::memory_order_acquire) != 0u)
+    {
+        shared.recording.render_done.store(0, std::memory_order_release);
+        shared.recording.render_active.store(0, std::memory_order_release);
+        shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
+        if(ui.record_render_note_on_sent && !ui.record_render_note_off_sent)
+        {
+            if(PushPreviewNoteOff(evtq, diag, ui, ui.record_render_note))
+                ui.record_render_note_off_sent = true;
+        }
+
+        if(shared.recording.rec_length.load(std::memory_order_acquire) > 0u)
+        {
+            FinalizeRenderCapture(ui, recording, shared);
+            ui.record_render_phase = RecordRenderPhase::Review;
+            ui.record_render_review_overlay_open = false;
+            if(UiNav_Active(ui.ui_nav) == UiScreenId::RecordRenderExecute)
+            {
+                UiNav_Pop(ui.ui_nav);
+                UiNav_Push(ui.ui_nav, UiScreenId::RecordRenderReview);
+            }
+        }
+        else
+        {
+            RecordRender_DiscardTemp(ui, recording, shared);
+            std::snprintf(ui.record_render_status, sizeof(ui.record_render_status), "%s", "NO AUDIO");
+            if(UiNav_Active(ui.ui_nav) == UiScreenId::RecordRenderExecute)
+                UiNav_Pop(ui.ui_nav);
+        }
+        ui.ui_dirty = true;
+    }
+
     const bool trim_preview_active = (active_screen == UiScreenId::PerformWaveEdit);
     if(trim_preview_active && ui.ui_trim_preview_hold && !ui.ui_trim_preview_gate)
     {
@@ -827,7 +933,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
     uint16_t worker_budget_us = 1500;
     if(worker.ui_req_busy
-       && worker.ui_req_active == UiReqType::SaveRenderedWavCurrent)
+       && (worker.ui_req_active == UiReqType::SaveRenderedWavCurrent
+           || worker.ui_req_active == UiReqType::SaveRenderedWavNamed))
         worker_budget_us = 6000;
     UiWorker_Tick(app.ui,
                   app.project,
@@ -864,6 +971,67 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             if(UiNav_Active(ui.ui_nav) != UiScreenId::ProjectStatus)
                 UiNav_Push(ui.ui_nav, UiScreenId::ProjectStatus);
         }
+        ui.ui_dirty = true;
+    }
+
+    if(ui.render_sample_rename_wait_for_worker)
+    {
+        if(ui.sd.save_in_progress)
+        {
+            ui.render_sample_rename_wait_for_worker = false;
+            ui.render_sample_rename_active = false;
+            if(UiNav_Active(ui.ui_nav) == UiScreenId::RenameProject)
+                UiNav_Pop(ui.ui_nav);
+            ui.ui_dirty = true;
+        }
+        else if(!worker.ui_req_busy)
+        {
+            ui.render_sample_rename_wait_for_worker = false;
+            ui.record_render_phase = RecordRenderPhase::Review;
+            if(ui.sd.save_status[0] != '\0')
+            {
+                std::snprintf(ui.record_render_status,
+                              sizeof(ui.record_render_status),
+                              "%s",
+                              ui.sd.save_status);
+            }
+            ui.ui_dirty = true;
+        }
+    }
+
+    if(ui.record_render_phase == RecordRenderPhase::SaveWait
+       && !ui.render_sample_rename_wait_for_worker
+       && !ui.sd.save_in_progress
+       && !worker.ui_req_busy)
+    {
+        const bool save_ok = (std::strncmp(ui.sd.save_status, "SAVED", 5) == 0);
+        if(save_ok)
+        {
+            RecordRender_DiscardTemp(ui, recording, shared);
+            ui.render_sample_rename_active = false;
+            ui.record_render_save_stem[0] = '\0';
+            ui.record_render_status[0] = '\0';
+            if(UiNav_Active(ui.ui_nav) == UiScreenId::RecordRenderReview)
+                UiNav_Pop(ui.ui_nav);
+        }
+        else
+        {
+            ui.record_render_phase = RecordRenderPhase::Review;
+            if(ui.sd.save_status[0] != '\0')
+            {
+                std::snprintf(ui.record_render_status,
+                              sizeof(ui.record_render_status),
+                              "%s",
+                              ui.sd.save_status);
+            }
+        }
+        ui.ui_dirty = true;
+    }
+
+    if(active_screen == UiScreenId::RecordRenderExecute
+       && (ui.record_render_phase == RecordRenderPhase::CaptureStarting
+           || ui.record_render_phase == RecordRenderPhase::Capturing))
+    {
         ui.ui_dirty = true;
     }
 }

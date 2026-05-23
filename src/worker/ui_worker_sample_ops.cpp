@@ -291,7 +291,10 @@ bool LoopFindCurrent(AppUiState& ui, AppSharedState& shared)
     return true;
 }
 
-bool StartSave(AppUiState& ui, AppSharedState& shared, bool save_recording)
+bool StartSave(AppUiState& ui,
+               AppSharedState& shared,
+               bool save_recording,
+               const char* save_stem)
 {
     SdBrowserState& sd = ui.sd;
     sd.save_in_progress = false;
@@ -335,10 +338,10 @@ bool StartSave(AppUiState& ui, AppSharedState& shared, bool save_recording)
         return false;
 
     bool found = false;
-    for(uint16_t i = 1; i <= 9999u; ++i)
+    if(save_stem && save_stem[0] != '\0')
     {
         char name[kSdNameMax];
-        std::snprintf(name, sizeof(name), "REND%04u.WAV", static_cast<unsigned>(i));
+        std::snprintf(name, sizeof(name), "%s.WAV", save_stem);
         if(!MakePath(s_sd.save_path, sizeof(s_sd.save_path), s_sd.save_dir, name))
         {
             SdBrowser_SetSaveStatus(sd, "PATH LONG");
@@ -351,12 +354,43 @@ bool StartSave(AppUiState& ui, AppSharedState& shared, bool save_recording)
         {
             std::snprintf(s_sd.save_name, sizeof(s_sd.save_name), "%s", name);
             found = true;
-            break;
         }
-        if(st != FR_OK)
+        else if(st == FR_OK)
+        {
+            SdBrowser_SetSaveStatus(sd, "NAME EXISTS");
+            return false;
+        }
+        else
         {
             SdBrowser_SetSaveStatus(sd, "STAT ERR");
             return false;
+        }
+    }
+    else
+    {
+        for(uint16_t i = 1; i <= 9999u; ++i)
+        {
+            char name[kSdNameMax];
+            std::snprintf(name, sizeof(name), "REND%04u.WAV", static_cast<unsigned>(i));
+            if(!MakePath(s_sd.save_path, sizeof(s_sd.save_path), s_sd.save_dir, name))
+            {
+                SdBrowser_SetSaveStatus(sd, "PATH LONG");
+                return false;
+            }
+
+            FILINFO fno;
+            const FRESULT st = f_stat(s_sd.save_path, &fno);
+            if(st == FR_NO_FILE)
+            {
+                std::snprintf(s_sd.save_name, sizeof(s_sd.save_name), "%s", name);
+                found = true;
+                break;
+            }
+            if(st != FR_OK)
+            {
+                SdBrowser_SetSaveStatus(sd, "STAT ERR");
+                return false;
+            }
         }
     }
 

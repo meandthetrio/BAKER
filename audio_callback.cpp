@@ -129,80 +129,222 @@ void AudioCallback_ApplySdSampleHandoffs(VoiceEngine& voice, AppSharedState& sha
 static bool     s_rec_active = false;
 static uint8_t  s_rec_source = 0;
 static uint32_t s_rec_pos = 0;
+static bool     s_preview_active = false;
+static uint32_t s_preview_pos = 0;
+static bool     s_render_active = false;
+static uint32_t s_render_pos = 0;
 static constexpr uint32_t kRecLiveWaveStride = 128u;
+
+void AudioCallback_ResetCapturePreview(AppSharedState::RecordingBridgeState& recording)
+{
+    recording.rec_live_last_col = -1;
+    for(int i = 0; i < 128; ++i)
+    {
+        recording.rec_live_min[i] = 0;
+        recording.rec_live_max[i] = 0;
+    }
+}
+
+void AudioCallback_BeginCapture(AppSharedState::RecordingBridgeState& recording, uint32_t& write_pos)
+{
+    write_pos = 0;
+    recording.rec_pos.store(0, std::memory_order_release);
+    recording.rec_length.store(0, std::memory_order_release);
+    recording.rec_active.store(1, std::memory_order_release);
+    AudioCallback_ResetCapturePreview(recording);
+}
+
+void AudioCallback_EndCapture(AppSharedState::RecordingBridgeState& recording, uint32_t write_pos)
+{
+    recording.rec_active.store(0, std::memory_order_release);
+    recording.rec_length.store(write_pos, std::memory_order_release);
+}
+
+bool AudioCallback_WriteCaptureFrame(float src,
+                                     AppSharedState::RecordingBridgeState& recording,
+                                     uint32_t& write_pos,
+                                     int16_t* dst)
+{
+    if(write_pos >= kSdSampleMaxFrames)
+        return false;
+
+    float clamped = src;
+    if(clamped > 1.0f)
+        clamped = 1.0f;
+    if(clamped < -1.0f)
+        clamped = -1.0f;
+    const int16_t s16 = static_cast<int16_t>(clamped * 32767.0f);
+    dst[write_pos] = s16;
+
+    const int col = static_cast<int>((write_pos / kRecLiveWaveStride) % 128u);
+    if(col >= 0 && col < 128)
+    {
+        if(col != recording.rec_live_last_col)
+        {
+            recording.rec_live_min[col] = s16;
+            recording.rec_live_max[col] = s16;
+            recording.rec_live_last_col = static_cast<int16_t>(col);
+        }
+        else
+        {
+            if(s16 < recording.rec_live_min[col])
+                recording.rec_live_min[col] = s16;
+            if(s16 > recording.rec_live_max[col])
+                recording.rec_live_max[col] = s16;
+        }
+    }
+
+    ++write_pos;
+    return true;
+}
 
 void AudioCallback_ProcessRecording(AudioHandle::InputBuffer in, size_t size)
 {
     if(g_app.shared.recording.rec_start_req.exchange(0, std::memory_order_acq_rel) != 0)
     {
         s_rec_source = g_app.shared.recording.rec_source_sel.load(std::memory_order_acquire) & 1u;
-        s_rec_pos = 0;
         s_rec_active = true;
-        g_app.shared.recording.rec_pos.store(0, std::memory_order_release);
-        g_app.shared.recording.rec_length.store(0, std::memory_order_release);
-        g_app.shared.recording.rec_active.store(1, std::memory_order_release);
-        g_app.shared.recording.rec_live_last_col = -1;
-        for(int i = 0; i < 128; ++i)
-        {
-            g_app.shared.recording.rec_live_min[i] = 0;
-            g_app.shared.recording.rec_live_max[i] = 0;
-        }
+        AudioCallback_BeginCapture(g_app.shared.recording, s_rec_pos);
     }
 
     if(g_app.shared.recording.rec_stop_req.exchange(0, std::memory_order_acq_rel) != 0 && s_rec_active)
     {
         s_rec_active = false;
-        g_app.shared.recording.rec_active.store(0, std::memory_order_release);
-        g_app.shared.recording.rec_length.store(s_rec_pos, std::memory_order_release);
+        AudioCallback_EndCapture(g_app.shared.recording, s_rec_pos);
     }
 
     if(s_rec_active)
     {
         int16_t* dst = SdRecordBuffer();
-        const uint32_t max_frames = kSdSampleMaxFrames;
         for(size_t i = 0; i < size; ++i)
         {
-            if(s_rec_pos >= max_frames)
-            {
-                s_rec_active = false;
-                g_app.shared.recording.rec_active.store(0, std::memory_order_release);
-                g_app.shared.recording.rec_length.store(s_rec_pos, std::memory_order_release);
-                break;
-            }
-
             const float src = (s_rec_source == static_cast<uint8_t>(RecordInputSource::Mic)) ? in[1][i]
                                                                                               : in[0][i];
-            float clamped = src;
-            if(clamped > 1.0f)
-                clamped = 1.0f;
-            if(clamped < -1.0f)
-                clamped = -1.0f;
-            const int16_t s16 = static_cast<int16_t>(clamped * 32767.0f);
-            dst[s_rec_pos] = s16;
-
-            const int col = static_cast<int>((s_rec_pos / kRecLiveWaveStride) % 128u);
-            if(col >= 0 && col < 128)
+            if(!AudioCallback_WriteCaptureFrame(src, g_app.shared.recording, s_rec_pos, dst))
             {
-                if(col != g_app.shared.recording.rec_live_last_col)
-                {
-                    g_app.shared.recording.rec_live_min[col] = s16;
-                    g_app.shared.recording.rec_live_max[col] = s16;
-                    g_app.shared.recording.rec_live_last_col = static_cast<int16_t>(col);
-                }
-                else
-                {
-                    if(s16 < g_app.shared.recording.rec_live_min[col])
-                        g_app.shared.recording.rec_live_min[col] = s16;
-                    if(s16 > g_app.shared.recording.rec_live_max[col])
-                        g_app.shared.recording.rec_live_max[col] = s16;
-                }
+                s_rec_active = false;
+                AudioCallback_EndCapture(g_app.shared.recording, s_rec_pos);
+                break;
             }
-
-            ++s_rec_pos;
         }
         g_app.shared.recording.rec_pos.store(s_rec_pos, std::memory_order_release);
         g_app.shared.recording.rec_live_gen.fetch_add(1, std::memory_order_acq_rel);
     }
+}
+
+void AudioCallback_ProcessRenderCapture(float* post_fx_left, size_t size)
+{
+    auto& recording = g_app.shared.recording;
+    if(recording.render_start_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        s_render_active = true;
+        recording.render_done.store(0, std::memory_order_release);
+        recording.render_frames.store(0, std::memory_order_release);
+        recording.render_active.store(1, std::memory_order_release);
+        AudioCallback_BeginCapture(recording, s_render_pos);
+    }
+
+    if(recording.render_stop_req.exchange(0, std::memory_order_acq_rel) != 0 && s_render_active)
+    {
+        s_render_active = false;
+        AudioCallback_EndCapture(recording, s_render_pos);
+        recording.render_frames.store(s_render_pos, std::memory_order_release);
+        recording.render_active.store(0, std::memory_order_release);
+        recording.render_done.store(1, std::memory_order_release);
+    }
+
+    if(!s_render_active)
+        return;
+
+    int16_t* dst = SdRecordBuffer();
+    for(size_t i = 0; i < size; ++i)
+    {
+        if(!AudioCallback_WriteCaptureFrame(post_fx_left[i], recording, s_render_pos, dst))
+        {
+            s_render_active = false;
+            AudioCallback_EndCapture(recording, s_render_pos);
+            recording.render_frames.store(s_render_pos, std::memory_order_release);
+            recording.render_active.store(0, std::memory_order_release);
+            recording.render_done.store(1, std::memory_order_release);
+            break;
+        }
+    }
+    recording.rec_pos.store(s_render_pos, std::memory_order_release);
+    recording.render_frames.store(s_render_pos, std::memory_order_release);
+    recording.rec_live_gen.fetch_add(1, std::memory_order_acq_rel);
+}
+
+void AudioCallback_ProcessRecordPreview(float* outL, float* outR, size_t size)
+{
+    auto& recording = g_app.shared.recording;
+    if(recording.preview_stop_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        s_preview_active = false;
+        s_preview_pos = 0;
+        recording.preview_active.store(0, std::memory_order_release);
+        recording.preview_pos.store(0, std::memory_order_release);
+    }
+
+    if(recording.preview_start_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        const Sample& sample = recording.rec_sample;
+        if(sample.pcm != nullptr && sample.length > 0u)
+        {
+            s_preview_active = true;
+            s_preview_pos = 0;
+            recording.preview_active.store(1, std::memory_order_release);
+            recording.preview_pos.store(0, std::memory_order_release);
+        }
+        else
+        {
+            s_preview_active = false;
+            s_preview_pos = 0;
+            recording.preview_active.store(0, std::memory_order_release);
+            recording.preview_pos.store(0, std::memory_order_release);
+        }
+    }
+
+    if(!s_preview_active)
+        return;
+
+    const Sample& sample = recording.rec_sample;
+    if(sample.pcm == nullptr || sample.length == 0u)
+    {
+        s_preview_active = false;
+        s_preview_pos = 0;
+        recording.preview_active.store(0, std::memory_order_release);
+        recording.preview_pos.store(0, std::memory_order_release);
+        return;
+    }
+
+    for(size_t i = 0; i < size; ++i)
+    {
+        if(s_preview_pos >= sample.length)
+        {
+            s_preview_active = false;
+            recording.preview_active.store(0, std::memory_order_release);
+            break;
+        }
+
+        const float dry = static_cast<float>(sample.pcm[s_preview_pos]) / 32768.0f;
+        float left = outL[i] + dry;
+        float right = outR[i] + dry;
+        if(left > 1.0f)
+            left = 1.0f;
+        else if(left < -1.0f)
+            left = -1.0f;
+        if(right > 1.0f)
+            right = 1.0f;
+        else if(right < -1.0f)
+            right = -1.0f;
+        outL[i] = left;
+        outR[i] = right;
+        ++s_preview_pos;
+    }
+
+    recording.preview_pos.store(s_preview_pos, std::memory_order_release);
+    if(!s_preview_active)
+        s_preview_pos = 0;
 }
 } // namespace
 
@@ -299,6 +441,8 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     const bool sd_wav_load_busy
         = (g_app.shared.sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0);
     g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy);
+    AudioCallback_ProcessRenderCapture(out[0], size);
+    AudioCallback_ProcessRecordPreview(out[0], out[1], size);
 
     const bool monitor_on = (g_app.shared.recording.rec_monitor_enable.load(std::memory_order_acquire) != 0);
     uint32_t monitor_clamp_hits = 0u;

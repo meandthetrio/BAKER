@@ -18,6 +18,7 @@ enum class UiReqType : uint8_t
     NormalizeCurrent,
     LoopFindCurrent,
     SaveRenderedWavCurrent,
+    SaveRenderedWavNamed,
     SaveProject,
     LoadProject,
     ScanProjectSlots,

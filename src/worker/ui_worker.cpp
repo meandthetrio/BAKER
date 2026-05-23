@@ -77,6 +77,7 @@ static bool PendingLoadBlockedByActiveRequest(const AppWorkerState& worker)
 {
     return worker.ui_req_busy
            && (worker.ui_req_active == UiReqType::SaveRenderedWavCurrent
+               || worker.ui_req_active == UiReqType::SaveRenderedWavNamed
                || worker.ui_req_active == UiReqType::LoadProject);
 }
 
@@ -198,6 +199,10 @@ static void StartQueuedUiRequest(AppUiState& ui,
             if(!StartSave(ui, shared, req.a != 0u))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
+        case UiReqType::SaveRenderedWavNamed:
+            if(!StartSave(ui, shared, true, ui.record_render_save_stem))
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            break;
         case UiReqType::RebuildCache:
         case UiReqType::LoadSample:
         case UiReqType::SavePreset:
@@ -296,6 +301,7 @@ static void StepActiveUiRequest(AppUiState& ui,
                 FinalizeLoadProjectRequest(project, worker);
             break;
         case UiReqType::SaveRenderedWavCurrent:
+        case UiReqType::SaveRenderedWavNamed:
             done = SaveStep(ui.sd, shared, worker, budget_us);
             worker.ui_req_progress = ui.sd.save_progress;
             if(done)

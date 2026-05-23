@@ -56,7 +56,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(recording.record_state == RecordUiState::Review)
         {
             recording.record_state = RecordUiState::BackConfirm;
-            Record_StopPreview(recording);
+            Record_StopPreview(recording, shared);
             ui.ui_dirty = true;
             return true;
         }
@@ -76,7 +76,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(ui.record_menu_armed_back_returns_to_menu)
             {
-                Record_StopPreview(recording);
+                Record_StopPreview(recording, shared);
                 shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
                 recording.record_anim_start_ms = -1.0;
                 shared.recording.rec_stop_req.store(1, std::memory_order_release);
@@ -104,6 +104,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(recording.record_state == RecordUiState::Review)
         {
             recording.record_preview_hold = true;
+            recording.record_preview_restart = recording.record_preview_gate;
             ui.ui_dirty = true;
             return true;
         }
@@ -163,7 +164,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             }
             else
             {
-                Record_StopPreview(recording);
+                Record_StopPreview(recording, shared);
                 recording.record_state = RecordUiState::SourceSelect;
                 ui.record_menu_armed_back_returns_to_menu = false;
             }
@@ -172,7 +173,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
         if(recording.record_state == RecordUiState::BackConfirm)
         {
-            Record_StopPreview(recording);
+            Record_StopPreview(recording, shared);
             shared.recording.rec_stop_req.store(1, std::memory_order_release);
             shared.recording.rec_active.store(0, std::memory_order_release);
             shared.recording.rec_length.store(0, std::memory_order_release);
@@ -199,7 +200,7 @@ void Record_OnEnter(UiScreenCtx& ctx)
     recording.record_target_index = 0;
     recording.record_slot = kRecordPreviewSampleIndex;
     recording.record_anim_start_ms = -1.0;
-    Record_StopPreview(recording);
+    Record_StopPreview(recording, shared);
     shared.recording.rec_start_req.store(0, std::memory_order_release);
     shared.recording.rec_stop_req.store(0, std::memory_order_release);
 
@@ -231,7 +232,7 @@ void Record_OnExit(UiScreenCtx& ctx)
         return;
     AppRecordingState& recording = *ctx.recording;
     AppSharedState& shared = *ctx.shared;
-    Record_StopPreview(recording);
+    Record_StopPreview(recording, shared);
     shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     recording.record_anim_start_ms = -1.0;
     shared.recording.rec_stop_req.store(1, std::memory_order_release);

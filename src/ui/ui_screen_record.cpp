@@ -58,10 +58,14 @@ static void Record_ResetLiveWave(AppSharedState& shared)
     shared.recording.rec_live_last_col = -1;
 }
 
-void Record_StopPreview(AppRecordingState& recording)
+void Record_StopPreview(AppRecordingState& recording, AppSharedState& shared)
 {
     recording.record_preview_hold = false;
     recording.record_preview_gate = false;
+    recording.record_preview_restart = false;
+    recording.record_preview_note = 60;
+    shared.recording.preview_start_req.store(0, std::memory_order_release);
+    shared.recording.preview_stop_req.store(1, std::memory_order_release);
 }
 
 static void Record_PrepareRecordingUiState(AppEngineState& engine,
@@ -69,7 +73,7 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
                                            AppSharedState& shared)
 {
     (void)engine;
-    Record_StopPreview(recording);
+    Record_StopPreview(recording, shared);
     shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     shared.recording.rec_start_req.store(0, std::memory_order_release);
     shared.recording.rec_stop_req.store(0, std::memory_order_release);
@@ -93,6 +97,47 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
 
     SampleEdit edit = SampleEdit_Default(0);
     shared.recording.rec_edit = edit;
+}
+
+void RecordRender_DiscardTemp(AppUiState& ui,
+                              AppRecordingState& recording,
+                              AppSharedState& shared)
+{
+    Record_StopPreview(recording, shared);
+    shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
+    shared.recording.render_start_req.store(0, std::memory_order_release);
+    shared.recording.render_stop_req.store(0, std::memory_order_release);
+    shared.recording.render_active.store(0, std::memory_order_release);
+    shared.recording.render_done.store(0, std::memory_order_release);
+    shared.recording.render_frames.store(0, std::memory_order_release);
+    shared.recording.rec_active.store(0, std::memory_order_release);
+    shared.recording.rec_pos.store(0, std::memory_order_release);
+    shared.recording.rec_length.store(0, std::memory_order_release);
+    Record_ResetLiveWave(shared);
+
+    Sample& s = shared.recording.rec_sample;
+    s.pcm = nullptr;
+    s.length = 0;
+    s.sample_rate = 48000;
+    s.root_key = 60;
+    s.loop_start = 0;
+    s.loop_end = 0;
+    s.loop_enabled = false;
+    shared.recording.rec_edit = SampleEdit_Default(0);
+
+    ui.record_render_phase = RecordRenderPhase::Idle;
+    ui.record_render_capture_started_ms = 0;
+    ui.record_render_all_notes_off_sent = false;
+    ui.record_render_note_on_due_ms = 0;
+    ui.record_render_note_off_due_ms = 0;
+    ui.record_render_note_on_sent = false;
+    ui.record_render_note_off_sent = false;
+    ui.record_render_review_overlay_open = false;
+    ui.record_render_review_option = 0;
+    ui.record_render_status[0] = '\0';
+    ui.render_sample_rename_wait_for_worker = false;
+    ui.render_sample_rename_active = false;
+    ui.record_render_save_stem[0] = '\0';
 }
 
 static void Record_StartRecording(UiScreenCtx& ctx)
@@ -423,7 +468,7 @@ void Record_Render(UiScreenCtx& ctx)
             if(save_ok)
             {
                 // Successful save: go back to source select (recording is no longer at risk).
-                Record_StopPreview(recording);
+                Record_StopPreview(recording, shared);
                 shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
                 recording.record_state = RecordUiState::SourceSelect;
             }

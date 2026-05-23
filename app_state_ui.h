@@ -27,6 +27,15 @@ enum class ProjectPresetsSortMode : uint8_t
     Name,
 };
 
+enum class RecordRenderPhase : uint8_t
+{
+    Idle = 0,
+    CaptureStarting,
+    Capturing,
+    Review,
+    SaveWait,
+};
+
 static constexpr uint8_t kProjectPresetsHeaderCount = 3;
 static constexpr uint8_t kProjectStyleFilterAll = 0xffu;
 static constexpr uint8_t kRenameDraftMax
@@ -68,6 +77,20 @@ struct AppUiState
     bool record_render_preview_trigger_pending = false;
     bool record_render_preview_note_active = false;
     uint8_t record_render_preview_note = 60;
+    RecordRenderPhase record_render_phase = RecordRenderPhase::Idle;
+    uint8_t record_render_note = 60;
+    uint32_t record_render_capture_started_ms = 0;
+    bool record_render_all_notes_off_sent = false;
+    uint32_t record_render_note_on_due_ms = 0;
+    uint32_t record_render_note_off_due_ms = 0;
+    bool record_render_note_on_sent = false;
+    bool record_render_note_off_sent = false;
+    bool record_render_review_overlay_open = false;
+    uint8_t record_render_review_option = 0;
+    char record_render_status[kSdStatusMax] = {};
+    bool render_sample_rename_active = false;
+    bool render_sample_rename_wait_for_worker = false;
+    char record_render_save_stem[kSdRenameStemMax + 1u] = {};
     uint8_t perform_keyzone_focus = 0; // 0=FULL/SPLIT btn, 1=vel Mod / split pt, 2=mod block A, 3=mod block B
     uint8_t velmod_focus[2] = {2u, 2u}; // 1=threshold 2=send 3=target (default send_amount; matches sim)
 

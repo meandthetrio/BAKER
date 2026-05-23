@@ -1,4 +1,5 @@
 #include "voice_engine_render_internal.h"
+#include "storage_limits.h"
 
 namespace
 {
@@ -294,7 +295,11 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
                                                  st.old_pos_frac,
                                                  st.old_gate);
 
-    setup.old_ratio = v.old_ratio * ctx.engine_tune_scale[setup.old_layer] * pitch_scale;
+    const bool old_preview_sample
+        = (FindSampleBankSlot_(v.sample) == static_cast<int>(kRecordPreviewSampleIndex));
+    const float old_pitch_ratio_scale
+        = old_preview_sample ? 1.0f : (ctx.engine_tune_scale[setup.old_layer] * pitch_scale);
+    setup.old_ratio = v.old_ratio * old_pitch_ratio_scale;
     setup.old_gain  = v.old_gain * setup.edit_gain * ctx.engine_voice_gain[setup.old_layer];
     setup.old_seam_frames
         = setup.loop_voice ? ComputeLoopSeamCrossfadeFrames(setup.start,
@@ -679,9 +684,12 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     setup.gain = gain;
     setup.use_edit = use_edit;
     setup.ratio = v.ratio;
-    // Keep the stored voice ratio unscaled so both normal render paths apply
-    // the combined layer tune + mod pitch factor exactly once.
-    setup.pitch_ratio_scale = ctx.engine_tune_scale[source_layer] * pitch_scale;
+    // The dedicated record-preview bank slot should replay neutral PCM so
+    // review preview pitch matches the captured render exactly.
+    const bool preview_sample
+        = (FindSampleBankSlot_(v.sample) == static_cast<int>(kRecordPreviewSampleIndex));
+    setup.pitch_ratio_scale
+        = preview_sample ? 1.0f : (ctx.engine_tune_scale[source_layer] * pitch_scale);
     setup.fade_step = v.fade_in_step;
     setup.env_a_step = v.env_a_step;
     setup.env_d_step = v.env_d_step;

@@ -38,6 +38,7 @@
 ## Module Map
 
 ### Audio / DSP
+- `audio_callback.cpp` `[AUDIO]` top-level audio callback orchestration, including physical input recording and post-FX/pre-monitor internal render capture.
 - `audio_engine.cpp` / `audio_engine.h` `[AUDIO]` FX and final mix layer.
 - `voice_engine.h` / `voice_engine_internal.h` `[AUDIO]` shared engine state, voice state, internal contracts.
 - `voice_engine.cpp` `[AUDIO]` engine init plus sample/edit and per-layer setter entry points.
@@ -79,7 +80,7 @@
 - `src/ui/ui_screens_internal.h` `[MAIN/UI]` cross-screen declarations and shared helper access for split screen units while the shared facade stays intentionally small.
 
 ### UI Screens
-- `src/ui/ui_screen_main.cpp` `[MAIN/UI]` Start and Presets screens.
+- `src/ui/ui_screen_main.cpp` `[MAIN/UI]` Start, Samples/Record menu shells, and RECORD > RENDER execute/review screens.
 - `src/ui/ui_screen_hud.cpp` `[MAIN/UI]` HUD screen.
 - `src/ui/ui_screen_fx.cpp` `[MAIN/UI]` FX screen.
 - `src/ui/ui_screen_mod.cpp` `[MAIN/UI]` MOD screen.
@@ -90,8 +91,9 @@
 - `src/ui/ui_screen_sd_browse.cpp` `[MAIN/UI]` SD browse screen.
 - `src/ui/ui_screen_sd_delete_confirm.cpp` `[MAIN/UI]` SD delete-confirm screen.
 - `src/ui/ui_screen_sample_edit.cpp` `[MAIN/UI]` sample-edit screen.
-- `src/ui/ui_screen_record.cpp` `[MAIN/UI]` record rendering and visual state presentation.
+- `src/ui/ui_screen_record.cpp` `[MAIN/UI]` physical-record rendering plus shared captured-render discard/reset helpers.
 - `src/ui/ui_screen_record_event.cpp` `[MAIN/UI]` record event handling and lifecycle transitions.
+- `src/ui/ui_screen_project.cpp` `[MAIN/UI]` project slot UI plus the shared rename grid used by project save, SD rename, and render WAV naming.
 - `src/ui/ui_screen_perform_menu.cpp` `[MAIN/UI]` Perform menu shell.
 - `src/ui/ui_screen_perform_engine.cpp` `[MAIN/UI]` Perform Engine screen.
 - `src/ui/ui_screen_perform_wave_edit.cpp` `[MAIN/UI]` Perform Wave Edit screen.

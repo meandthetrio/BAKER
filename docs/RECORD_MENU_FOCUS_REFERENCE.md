@@ -1,17 +1,26 @@
 # RECORD MENU FOCUS REFERENCE
 
 ## Notes
-- This file documents the CURRENT IMPLEMENTED RECORD branch only.
-- Source of truth is code (`src/ui/ui_screen_record.cpp`, `src/ui/ui_screen_record_event.cpp`, `src/ui/ui_screen_main.cpp`, `src/ui/ui_router.cpp`, `src/ui/ui_logic.cpp`, `app_state.h`).
-- RECORD is a single screen (`UiScreenId::Record`) with internal state-driven focus/actions.
+- This file documents the current RECORD and RECORD > RENDER branches.
+- Source of truth is code (`src/ui/ui_screen_record.cpp`, `src/ui/ui_screen_record_event.cpp`, `src/ui/ui_screen_main.cpp`, `src/ui/ui_screen_project.cpp`, `src/ui/ui_router.cpp`, `src/ui/ui_logic.cpp`, `app_state.h`).
+- Physical input recording still uses a single state-driven `UiScreenId::Record`.
+- Render bounce uses dedicated nav-stack screens plus the shared rename grid.
 
 ## Screen Inventory
 - Start (Main Menu entry point)
 - Record
+- RecordRenderMenu
+- RecordRenderExecute
+- RecordRenderReview
+- RenameProject (shared grid, used for render WAV naming)
 
 ## UI Tree
 - Start (Main Menu)
   - Record
+  - RecordRenderMenu
+    - RecordRenderExecute
+    - RecordRenderReview
+      - RenameProject
 
 ## Screen Reference
 
@@ -129,3 +138,66 @@
   - Success -> `SourceSelect`; failure -> `Review`.
 - Notes:
   - Reads `sd.save_in_progress`, `sd.save_status`, and request busy state.
+
+### RecordRenderMenu (`UiScreenId::RecordRenderMenu`)
+- Parent: Start (Main Menu) via `SAMPLES -> RECORD -> RENDER`.
+- Purpose: configure render-note preview and launch the internal 5-second bounce.
+
+#### Focusable Objects
+1. **Note row (`record_render_focus == 0`)**
+- `kUiEncExt` changes render MIDI note offset.
+- `kUiBtnPod2` previews the selected note on eligible loaded layers.
+
+2. **Hold row (`record_render_focus == 1`)**
+- `kUiEncExt` changes `record_render_hold_ms`.
+- This remains preview/render gate length only; it does not change capture length.
+
+3. **Execute row (`record_render_focus == 2`)**
+- `kUiBtnExtEnc` starts the internal render if recording/worker/load guards are clear.
+- Guard failure leaves the user on this screen and shows `REC BUSY` or `BUSY`.
+
+### RecordRenderExecute (`UiScreenId::RecordRenderExecute`)
+- Parent: `RecordRenderMenu`
+- Purpose: active internal bounce capture.
+- Behavior:
+  - Arms internal render capture into `SdRecordBuffer()`.
+  - Sends `AllNotesOff`, then schedules NoteOn at capture start + 2 ms.
+  - Schedules NoteOff at `2 ms + record_render_hold_ms`.
+  - Captures post-FX left output for a fixed 5.000 seconds.
+  - `kUiBtnPodEnc` BACK is ignored while capture is active.
+- Result:
+  - Successful capture transitions to `RecordRenderReview`.
+  - Zero-length capture returns to `RecordRenderMenu` with `NO AUDIO`.
+
+### RecordRenderReview (`UiScreenId::RecordRenderReview`)
+- Parent: `RecordRenderMenu`
+- Purpose: audition the temporary render and decide whether to save or discard it.
+
+#### Focusable Objects
+1. **Waveform review**
+- Displays `shared.recording.rec_sample` with the shared waveform preview renderer.
+
+2. **Preview trigger**
+- `kUiBtnPod2` plays the captured temporary render from frame 0.
+- Re-pressing `kUiBtnPod2` restarts playback.
+
+3. **Options overlay**
+- `kUiBtnExtEnc` opens `SAVE / RERECORD`.
+- `kUiEncPod` changes selection while the overlay is open.
+- `kUiBtnExtEnc` confirms the selected option.
+- `kUiBtnPodEnc` closes the overlay without leaving review.
+
+4. **Back / discard**
+- `kUiBtnPodEnc` from review discards the temporary unsaved render and returns to `RecordRenderMenu`.
+
+### RenameProject (`UiScreenId::RenameProject`, render-save mode)
+- Parent: `RecordRenderReview`
+- Purpose: shared grid UI for naming the unsaved rendered WAV.
+- Behavior:
+  - Uses WAV stem limits, not project-name limits.
+  - `kUiBtnExtEnc` on `save` queues named render save.
+  - Existing visible filename match shows `NAME EXISTS` and stays on this screen.
+  - `kUiBtnPodEnc` with empty draft, or `cancel`, returns to `RecordRenderReview` and keeps the temp render.
+- Result:
+  - Save success returns to `RecordRenderMenu`.
+  - Save failure after worker start returns to review with the temp render preserved.

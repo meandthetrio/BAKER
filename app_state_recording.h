@@ -31,5 +31,7 @@ struct AppRecordingState
     uint8_t record_slot = 0;
     bool    record_preview_hold = false;
     bool    record_preview_gate = false;
+    bool    record_preview_restart = false;
+    uint8_t record_preview_note = 60;
     uint32_t record_preview_oneshot_until_ms = 0;
 };

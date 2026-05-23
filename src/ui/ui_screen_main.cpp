@@ -8,10 +8,13 @@
 #include "app_state_shared.h"
 #include "app_state_worker.h"
 #include "oled_pager.h"
+#include "sd_sample_pool.h"
 #include "ui_input.h"
 #include "ui_layout.h"
+#include "ui_requests.h"
 
 #include <cstdio>
+#include <cstring>
 
 static constexpr int32_t kMainMenuCount = 3;
 static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "SAMPLES", "PERFORM"};
@@ -352,6 +355,114 @@ static void DrawRecordRenderMenuStyle(OledPager& d, const AppUiState& ui)
         DrawFillOnlyTinyString(d, "execute", 2, execute_y);
     else
         DrawTinyString(d, "execute", 2, execute_y, true);
+
+    if(ui.record_render_status[0] != '\0')
+    {
+        d.DrawLine(0, 54, 127, 54, true);
+        DrawTinyString(d, ui.record_render_status, 2, 57, true);
+    }
+}
+
+static void SetRecordRenderStatus(AppUiState& ui, const char* msg)
+{
+    if(!msg)
+    {
+        ui.record_render_status[0] = '\0';
+        return;
+    }
+    std::snprintf(ui.record_render_status, sizeof(ui.record_render_status), "%s", msg);
+}
+
+static void ClearRecordRenderStatus(AppUiState& ui)
+{
+    ui.record_render_status[0] = '\0';
+}
+
+static uint8_t RecordRenderMidiNoteValue(const AppUiState& ui)
+{
+    const int note = 60 + static_cast<int>(ui.record_render_note_offset);
+    if(note < 0)
+        return 0u;
+    if(note > 127)
+        return 127u;
+    return static_cast<uint8_t>(note);
+}
+
+static bool EqualsIgnoreCase(const char* a, const char* b)
+{
+    if(!a || !b)
+        return false;
+    while(*a != '\0' && *b != '\0')
+    {
+        char ca = *a;
+        char cb = *b;
+        if(ca >= 'a' && ca <= 'z')
+            ca = static_cast<char>(ca - ('a' - 'A'));
+        if(cb >= 'a' && cb <= 'z')
+            cb = static_cast<char>(cb - ('a' - 'A'));
+        if(ca != cb)
+            return false;
+        ++a;
+        ++b;
+    }
+    return (*a == '\0') && (*b == '\0');
+}
+
+static bool RecordRenderNameExistsInBrowser(const SdBrowserState& sd, const char* stem)
+{
+    if(!stem || stem[0] == '\0')
+        return false;
+
+    char full_name[kSdNameMax];
+    std::snprintf(full_name, sizeof(full_name), "%s.WAV", stem);
+    for(uint8_t i = 0; i < sd.wav_count; ++i)
+    {
+        if(EqualsIgnoreCase(sd.names[i], full_name))
+            return true;
+    }
+    return false;
+}
+
+static void BuildDefaultRenderSaveStem(const AppUiState& ui, char* out, size_t out_n)
+{
+    if(!out || out_n == 0u)
+        return;
+    out[0] = '\0';
+
+    if(ui.sd.scan_done)
+    {
+        for(uint16_t i = 1; i <= 9999u; ++i)
+        {
+            char stem[kSdRenameStemMax + 1u];
+            std::snprintf(stem, sizeof(stem), "REND%04u", static_cast<unsigned>(i));
+            if(!RecordRenderNameExistsInBrowser(ui.sd, stem))
+            {
+                std::snprintf(out, out_n, "%s", stem);
+                return;
+            }
+        }
+    }
+
+    std::snprintf(out, out_n, "%s", "RENDER");
+}
+
+static void DrawRecordRenderReviewOverlay(OledPager& d, uint8_t selected)
+{
+    const int x0 = 20;
+    const int y0 = 12;
+    const int x1 = 108;
+    const int y1 = 54;
+    d.DrawRect(x0, y0, x1, y1, false, true);
+    d.DrawRect(x0, y0, x1, y1, true, false);
+    DrawTinyString(d, "render take", x0 + 4, y0 + 4, true);
+    if((selected & 1u) == 0u)
+        DrawFillOnlyTinyString(d, "save", x0 + 8, y0 + 18);
+    else
+        DrawTinyString(d, "save", x0 + 8, y0 + 18, true);
+    if((selected & 1u) == 1u)
+        DrawFillOnlyTinyString(d, "rerecord", x0 + 8, y0 + 31);
+    else
+        DrawTinyString(d, "rerecord", x0 + 8, y0 + 31, true);
 }
 
 bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -513,7 +624,7 @@ void CraftMenu_Render(UiScreenCtx& ctx)
 
 bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.ui)
+    if(!ctx.ui || !ctx.shared || !ctx.worker)
         return false;
     if(ctx.shift)
         return false;
@@ -540,6 +651,7 @@ bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 if(next != static_cast<int>(ui.record_render_note_offset))
                 {
                     ui.record_render_note_offset = static_cast<int8_t>(next);
+                    ClearRecordRenderStatus(ui);
                     ui.ui_dirty = true;
                 }
                 return true;
@@ -552,6 +664,7 @@ bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 if(next != static_cast<int>(ui.record_render_hold_ms))
                 {
                     ui.record_render_hold_ms = static_cast<uint16_t>(next);
+                    ClearRecordRenderStatus(ui);
                     ui.ui_dirty = true;
                 }
                 return true;
@@ -563,6 +676,7 @@ bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
+        ClearRecordRenderStatus(ui);
         ui.record_render_preview_trigger_pending = true;
         ui.ui_dirty = true;
         return true;
@@ -571,6 +685,26 @@ bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc
        && (ui.record_render_focus % 3u) == 2u)
     {
+        const bool normal_rec_active
+            = (ctx.shared->recording.rec_active.load(std::memory_order_acquire) != 0u);
+        const bool render_capture_active
+            = (ctx.shared->recording.render_active.load(std::memory_order_acquire) != 0u);
+        const bool wav_load_busy
+            = (ctx.shared->sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0u);
+        if(normal_rec_active || render_capture_active)
+        {
+            SetRecordRenderStatus(ui, "REC BUSY");
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(ctx.worker->ui_req_busy || wav_load_busy || ui.record_render_phase == RecordRenderPhase::SaveWait
+           || ui.render_sample_rename_wait_for_worker)
+        {
+            SetRecordRenderStatus(ui, "BUSY");
+            ui.ui_dirty = true;
+            return true;
+        }
+        ClearRecordRenderStatus(ui);
         return UiNav_Push(ui.ui_nav, UiScreenId::RecordRenderExecute);
     }
 
@@ -585,16 +719,216 @@ void RecordRenderMenu_Render(UiScreenCtx& ctx)
     DrawRecordRenderMenuStyle(*ctx.display, *ctx.ui);
 }
 
+void RecordRenderExecute_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.shared || !ctx.recording)
+        return;
+
+    AppUiState& ui = *ctx.ui;
+    AppSharedState& shared = *ctx.shared;
+    AppRecordingState& recording = *ctx.recording;
+
+    RecordRender_DiscardTemp(ui, recording, shared);
+    ClearRecordRenderStatus(ui);
+    ui.record_render_phase = RecordRenderPhase::CaptureStarting;
+    ui.record_render_note = RecordRenderMidiNoteValue(ui);
+    ui.record_render_capture_started_ms = 0;
+    ui.record_render_all_notes_off_sent = false;
+    ui.record_render_note_on_due_ms = 0;
+    ui.record_render_note_off_due_ms = 0;
+    ui.record_render_note_on_sent = false;
+    ui.record_render_note_off_sent = false;
+    ui.record_render_review_overlay_open = false;
+    ui.record_render_review_option = 0;
+    ui.render_sample_rename_active = false;
+    ui.render_sample_rename_wait_for_worker = false;
+    ui.record_render_save_stem[0] = '\0';
+    shared.recording.render_done.store(0, std::memory_order_release);
+    shared.recording.render_frames.store(0, std::memory_order_release);
+    shared.recording.render_stop_req.store(0, std::memory_order_release);
+    shared.recording.render_start_req.store(1, std::memory_order_release);
+    ui.ui_dirty = true;
+}
+
 bool RecordRenderExecute_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    (void)ctx;
-    (void)e;
+    if(!ctx.ui)
+        return false;
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+        return true;
     return false;
 }
 
 void RecordRenderExecute_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.display)
+    if(!ctx.display || !ctx.shared)
         return;
-    DrawBlankPlaceholder(*ctx.display, "execute");
+
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+    DrawTopRightMicroLabel(d, "execute");
+    d.SetCursor(0, 0);
+    d.WriteString("CAPTURING", Font_6x8, true);
+
+    const uint32_t frames = ctx.shared->recording.rec_pos.load(std::memory_order_acquire);
+    const uint32_t pct = (frames >= kSdSampleMaxFrames) ? 100u : ((frames * 100u) / kSdSampleMaxFrames);
+    char detail[24];
+    std::snprintf(detail,
+                  sizeof(detail),
+                  "%03lu%%  %1lu.%02lus",
+                  static_cast<unsigned long>(pct),
+                  static_cast<unsigned long>(frames / 48000u),
+                  static_cast<unsigned long>(((frames % 48000u) * 100u) / 48000u));
+    DrawTinyString(d, detail, 2, 16, true);
+
+    const int bar_x = 8;
+    const int bar_y = 30;
+    const int bar_w = 112;
+    const int bar_h = 8;
+    d.DrawRect(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, true, false);
+    const int fill_w = static_cast<int>((static_cast<uint64_t>(bar_w - 2) * pct) / 100u);
+    if(fill_w > 0)
+        d.DrawRect(bar_x + 1, bar_y + 1, bar_x + fill_w, bar_y + bar_h - 1, true, true);
+
+    DrawTinyString(d, "back disabled", 2, 48, true);
+    DrawTinyString(d, "5s post-fx mono", 2, 57, true);
+}
+
+bool RecordRenderReview_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui || !ctx.shared || !ctx.recording || !ctx.worker)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+    AppSharedState& shared = *ctx.shared;
+    AppRecordingState& recording = *ctx.recording;
+
+    if(ui.record_render_phase == RecordRenderPhase::SaveWait)
+        return true;
+
+    if(ui.record_render_review_overlay_open)
+    {
+        if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+        {
+            ui.record_render_review_option
+                = static_cast<uint8_t>(WrapMenuIndex(static_cast<int32_t>(ui.record_render_review_option),
+                                                     e.value,
+                                                     2));
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+        {
+            ui.record_render_review_overlay_open = false;
+            ui.ui_dirty = true;
+            return true;
+        }
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+        {
+            ui.record_render_review_overlay_open = false;
+            if((ui.record_render_review_option & 1u) == 0u)
+            {
+                char stem[kSdRenameStemMax + 1u];
+                if(ui.record_render_save_stem[0] != '\0')
+                    std::snprintf(stem, sizeof(stem), "%s", ui.record_render_save_stem);
+                else
+                    BuildDefaultRenderSaveStem(ui, stem, sizeof(stem));
+                std::snprintf(ui.project_rename_draft, sizeof(ui.project_rename_draft), "%s", stem);
+                ui.project_rename_length = static_cast<uint8_t>(std::strlen(ui.project_rename_draft));
+                ui.render_sample_rename_active = true;
+                ui.render_sample_rename_wait_for_worker = false;
+                ClearRecordRenderStatus(ui);
+                if(UiNav_Push(ui.ui_nav, UiScreenId::RenameProject))
+                    ui.ui_dirty = true;
+            }
+            else
+            {
+                RecordRender_DiscardTemp(ui, recording, shared);
+                UiNav_Pop(ui.ui_nav);
+                ui.ui_dirty = true;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+    {
+        RecordRender_DiscardTemp(ui, recording, shared);
+        UiNav_Pop(ui.ui_nav);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        if(shared.recording.rec_sample.pcm != nullptr && shared.recording.rec_sample.length > 0u)
+        {
+            recording.record_preview_hold = true;
+            recording.record_preview_restart = recording.record_preview_gate;
+            ui.ui_dirty = true;
+        }
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        ui.record_render_review_overlay_open = true;
+        ui.record_render_review_option = 0;
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+void RecordRenderReview_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.display || !ctx.ui || !ctx.shared)
+        return;
+
+    AppUiState& ui = *ctx.ui;
+    const Sample& sample = ctx.shared->recording.rec_sample;
+    const SampleEdit* edit = (sample.length > 0u) ? &ctx.shared->recording.rec_edit : nullptr;
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+    DrawTopRightMicroLabel(d, "review");
+    d.SetCursor(0, 0);
+    d.WriteString("RENDERED WAV", Font_6x8, true);
+
+    if(ui.record_render_phase == RecordRenderPhase::SaveWait && ui.sd.save_in_progress)
+    {
+        d.SetCursor(0, 16);
+        d.WriteString("SAVING", Font_6x8, true);
+        const int bar_x = 8;
+        const int bar_y = 30;
+        const int bar_w = 112;
+        const int bar_h = 8;
+        d.DrawRect(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, true, false);
+        const int fill_w = static_cast<int>((static_cast<uint64_t>(bar_w - 2) * ui.sd.save_progress) / 100u);
+        if(fill_w > 0)
+            d.DrawRect(bar_x + 1, bar_y + 1, bar_x + fill_w, bar_y + bar_h - 1, true, true);
+        DrawTinyString(d, ui.sd.save_name, 2, 48, true);
+        return;
+    }
+
+    if(sample.length > 0u)
+        DrawWaveformPreview(d, sample, edit, 0, 12, 128, 40);
+    else
+        DrawTinyString(d, "no audio", 40, 30, true);
+
+    if(ui.record_render_status[0] != '\0')
+    {
+        DrawTinyString(d, ui.record_render_status, 2, 54, true);
+    }
+    else
+    {
+        DrawTinyString(d, "b2 play", 2, 54, true);
+        DrawTinyString(d, "r opt", 78, 54, true);
+    }
+
+    if(ui.record_render_review_overlay_open)
+        DrawRecordRenderReviewOverlay(d, ui.record_render_review_option);
 }

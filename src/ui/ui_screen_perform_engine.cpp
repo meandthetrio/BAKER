@@ -284,7 +284,10 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
     AppSharedState& shared = *ctx.shared;
     const uint8_t row = ctx.engine->perform_nav.perform_engine_row % static_cast<uint8_t>(kEngineRowCount);
     if(row == kEngineRowWave)
+    {
+        ctx.ui->wave_edit_source = WaveEditSource::PerformSlot;
         return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformWaveEdit);
+    }
     if(row == kEngineRowReverse)
     {
         const uint8_t layer = engine.perform_nav.perform_layer & 1u;

@@ -177,19 +177,27 @@
 #### Focusable Objects
 1. **Waveform review**
 - Displays `shared.recording.rec_sample` with the shared waveform preview renderer.
+- `kUiEncPod` can focus the waveform review itself.
+- Focused waveform inverts as an enterable trim target.
+- `kUiBtnExtEnc` on focused waveform opens the shared trim screen used by `PerformWaveEdit`.
 
 2. **Preview trigger**
 - `kUiBtnPod2` plays the captured temporary render from frame 0.
 - Re-pressing `kUiBtnPod2` restarts playback.
 
-3. **Options overlay**
-- `kUiBtnExtEnc` opens `SAVE / RERECORD`.
-- `kUiEncPod` changes selection while the overlay is open.
-- `kUiBtnExtEnc` confirms the selected option.
-- `kUiBtnPodEnc` closes the overlay without leaving review.
+3. **Bottom action strip**
+- `save` and `rerecord` are always visible at the bottom of the screen.
+- `kUiEncPod` cycles focus `waveform -> save -> rerecord`.
+- `kUiBtnExtEnc` confirms the focused action.
 
-4. **Back / discard**
-- `kUiBtnPodEnc` from review discards the temporary unsaved render and returns to `RecordRenderMenu`.
+4. **Trim editor**
+- When entered from render review, the trim screen edits `shared.recording.rec_edit`.
+- `kUiBtnPodEnc` cancels trim changes and returns to review.
+- `kUiBtnExtEnc` commits trim changes and returns to review.
+- Render WAV save uses the committed trim window only.
+
+5. **Back / discard**
+- `kUiBtnPodEnc` is consumed and does nothing on review.
 
 ### RenameProject (`UiScreenId::RenameProject`, render-save mode)
 - Parent: `RecordRenderReview`

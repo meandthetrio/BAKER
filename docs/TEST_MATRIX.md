@@ -168,12 +168,18 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
   - Confirm `POD2` preview still plays the selected render note and that `hold_ms` changes the preview gate length only.
   - Run `execute`, wait for the fixed 5-second capture, then inspect the review screen.
   - Use `POD2` on review to preview the temp render more than once.
-  - Open the review overlay, test `RERECORD`, then repeat and test `SAVE`.
+  - On review, move focus across waveform, `SAVE`, and `RERECORD`.
+  - Enter trim from the focused waveform, adjust start/end, cancel once, then re-enter and commit a trimmed window.
+  - After committing trim, test both `RERECORD` and `SAVE`.
   - In rename, try a known duplicate stem and then a unique stem.
 - Pass
   - Capture always lasts 5.000 seconds, includes the 2 ms pre-roll, captures post-FX left output, and excludes live monitor mix.
   - Review shows a waveform for the temp render and `POD2` restarts playback from frame 0 each press.
-  - `RERECORD` and review `BACK` both discard only the unsaved temp render and return to `RENDER`.
+  - Focus wraps `waveform -> save -> rerecord` and focused waveform enters the trim screen.
+  - Trim cancel restores the entry trim window; trim commit updates the review waveform window.
+  - `RERECORD` discards only the unsaved temp render and returns to `RENDER`.
+  - Review `BACK` does nothing and does not discard, navigate, or open an overlay.
+  - Saved render WAV contains only the committed trimmed window.
   - Duplicate save shows `NAME EXISTS` without overwriting.
   - Unique save writes into SD root, returns to `RENDER`, and leaves the loaded project/layers unchanged.
   - `/WAV` is not used or required for render saves.

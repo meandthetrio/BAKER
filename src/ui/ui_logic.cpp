@@ -867,7 +867,9 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         {
             FinalizeRenderCapture(ui, recording, shared);
             ui.record_render_phase = RecordRenderPhase::Review;
-            ui.record_render_review_overlay_open = false;
+            ui.record_render_review_focus = 0;
+            ui.render_review_trim_entry = shared.recording.rec_edit;
+            ui.render_review_trim_has_entry = false;
             if(UiNav_Active(ui.ui_nav) == UiScreenId::RecordRenderExecute)
             {
                 UiNav_Pop(ui.ui_nav);
@@ -887,18 +889,37 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     const bool trim_preview_active = (active_screen == UiScreenId::PerformWaveEdit);
     if(trim_preview_active && ui.ui_trim_preview_hold && !ui.ui_trim_preview_gate)
     {
-        const uint8_t slot = engine.perform_nav.perform_layer & 1u;
-        const Sample& s = shared.sample.publish.sd_slots[slot];
-        if(s.pcm != nullptr && s.length > 0)
+        if(ui.wave_edit_source == WaveEditSource::RenderReview)
         {
-            if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))
+            const Sample& s = shared.recording.rec_sample;
+            if(s.pcm != nullptr && s.length > 0)
+            {
+                shared.recording.preview_start_req.store(1, std::memory_order_release);
                 ui.ui_trim_preview_gate = true;
+            }
+        }
+        else
+        {
+            const uint8_t slot = engine.perform_nav.perform_layer & 1u;
+            const Sample& s = shared.sample.publish.sd_slots[slot];
+            if(s.pcm != nullptr && s.length > 0)
+            {
+                if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))
+                    ui.ui_trim_preview_gate = true;
+            }
         }
     }
     if((!trim_preview_active || !ui.ui_trim_preview_hold) && ui.ui_trim_preview_gate)
     {
-        if(PushPreviewNoteOff(evtq, diag, ui, 60))
+        if(ui.wave_edit_source == WaveEditSource::RenderReview)
+        {
+            shared.recording.preview_stop_req.store(1, std::memory_order_release);
             ui.ui_trim_preview_gate = false;
+        }
+        else if(PushPreviewNoteOff(evtq, diag, ui, 60))
+        {
+            ui.ui_trim_preview_gate = false;
+        }
     }
 
     shift_held = ui.ui_lshift_held;

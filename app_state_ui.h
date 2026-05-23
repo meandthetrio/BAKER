@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "app_state_project.h"
+#include "sample_edit.h"
 #include "sd_browser_state.h"
 #include "ui_input.h"
 #include "ui_list_menu.h"
@@ -36,6 +37,12 @@ enum class RecordRenderPhase : uint8_t
     SaveWait,
 };
 
+enum class WaveEditSource : uint8_t
+{
+    PerformSlot = 0,
+    RenderReview,
+};
+
 static constexpr uint8_t kProjectPresetsHeaderCount = 3;
 static constexpr uint8_t kProjectStyleFilterAll = 0xffu;
 static constexpr uint8_t kRenameDraftMax
@@ -53,6 +60,7 @@ struct AppUiState
     bool ui_blank_screen_active = false;
     bool ui_lshift_held = false;
     bool ui_rshift_held = false;
+    WaveEditSource wave_edit_source = WaveEditSource::PerformSlot;
     bool ui_trim_preview_hold = false;
     bool ui_trim_preview_gate = false;
     bool ui_parent_preview_active = false;
@@ -85,9 +93,10 @@ struct AppUiState
     uint32_t record_render_note_off_due_ms = 0;
     bool record_render_note_on_sent = false;
     bool record_render_note_off_sent = false;
-    bool record_render_review_overlay_open = false;
-    uint8_t record_render_review_option = 0;
+    uint8_t record_render_review_focus = 0;
     char record_render_status[kSdStatusMax] = {};
+    SampleEdit render_review_trim_entry{};
+    bool render_review_trim_has_entry = false;
     bool render_sample_rename_active = false;
     bool render_sample_rename_wait_for_worker = false;
     char record_render_save_stem[kSdRenameStemMax + 1u] = {};

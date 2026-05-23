@@ -166,7 +166,8 @@ void DrawWaveformPreview(OledPager& d,
                          int h,
                          bool on,
                          bool outline_only,
-                         bool dotted_border)
+                         bool dotted_border,
+                         bool draw_border)
 {
     if(w < 3 || h < 3)
         return;
@@ -175,10 +176,13 @@ void DrawWaveformPreview(OledPager& d,
     const int y0 = y;
     const int x1 = x + w - 1;
     const int y1 = y + h - 1;
-    if(dotted_border)
-        DrawDottedRect(d, x0, y0, x1, y1, on);
-    else
-        d.DrawRect(x0, y0, x1, y1, on, false);
+    if(draw_border)
+    {
+        if(dotted_border)
+            DrawDottedRect(d, x0, y0, x1, y1, on);
+        else
+            d.DrawRect(x0, y0, x1, y1, on, false);
+    }
 
     if(sample.pcm == nullptr || sample.length == 0)
         return;

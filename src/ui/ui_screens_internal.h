@@ -27,7 +27,8 @@ void DrawWaveformPreview(OledPager& d,
                          int h,
                          bool on = true,
                          bool outline_only = false,
-                         bool dotted_border = false);
+                         bool dotted_border = false,
+                         bool draw_border = true);
 void PublishEngineLayerParams(UiScreenCtx& ctx);
 void EngineRefreshLoadedMetadata(AppUiState& ui, AppEngineState& engine, AppSharedState& shared);
 bool ExpressUiEnabled(const AppSharedState& shared);

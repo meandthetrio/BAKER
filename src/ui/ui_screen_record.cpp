@@ -48,6 +48,91 @@ static float Clamp01(float x)
     return x;
 }
 
+void Record_RenderLiveCaptureStyle(UiScreenCtx& ctx, const char* title, float level_boost)
+{
+    if(!ctx.display || !ctx.shared)
+        return;
+
+    OledPager& d = *ctx.display;
+    if(title && title[0] != '\0')
+    {
+        d.SetCursor(0, 0);
+        d.WriteString(title, Font_6x8, true);
+    }
+
+    const uint32_t rec_pos = ctx.shared->recording.rec_pos.load(std::memory_order_acquire);
+    const int wave_y0 = Font_6x8.FontHeight + 2;
+    const int wave_y1 = 62;
+    const int wave_h = wave_y1 - wave_y0 + 1;
+    static float mist_level[128] = {};
+    static uint32_t mist_seed = 0xA5B35791u;
+    static uint32_t snap_gen = 0;
+    static int16_t snap_min[128] = {};
+    static int16_t snap_max[128] = {};
+    const uint32_t live_gen = ctx.shared->recording.rec_live_gen.load(std::memory_order_acquire);
+    if(live_gen != snap_gen)
+    {
+        uint32_t g0 = 0, g1 = 0;
+        int retry = 0;
+        do
+        {
+            g0 = ctx.shared->recording.rec_live_gen.load(std::memory_order_acquire);
+            std::memcpy(snap_min, ctx.shared->recording.rec_live_min, sizeof(snap_min));
+            std::memcpy(snap_max, ctx.shared->recording.rec_live_max, sizeof(snap_max));
+            g1 = ctx.shared->recording.rec_live_gen.load(std::memory_order_acquire);
+        } while(g0 != g1 && ++retry < 2);
+        snap_gen = g1;
+    }
+
+    if(rec_pos == 0)
+    {
+        for(int x = 0; x < 128; ++x)
+            mist_level[x] = 0.0f;
+    }
+
+    const int px = static_cast<int>((static_cast<uint64_t>(rec_pos) * 127u) / kSdSampleMaxFrames);
+    const int kTrail = 24;
+    const float boost = (level_boost > 0.0f) ? level_boost : 1.0f;
+    for(int x = 0; x < 128; ++x)
+    {
+        int16_t minv = snap_min[x];
+        int16_t maxv = snap_max[x];
+        int16_t a0 = (minv < 0) ? static_cast<int16_t>(-minv) : minv;
+        int16_t a1 = (maxv < 0) ? static_cast<int16_t>(-maxv) : maxv;
+        int16_t absmax = (a1 > a0) ? a1 : a0;
+        float near = 0.0f;
+        const int dist = (x > px) ? (x - px) : (px - x);
+        if(dist < kTrail)
+            near = 1.0f - (static_cast<float>(dist) / static_cast<float>(kTrail));
+
+        const float amp = Clamp01((static_cast<float>(absmax) / 32767.0f) * boost);
+        const float envelope = 0.26f + (0.74f * near);
+        const float target = Clamp01(amp * envelope);
+        float v = mist_level[x];
+        const float rise = 0.97f;
+        const float fall = 0.95f;
+        v += (target > v) ? ((target - v) * rise) : ((target - v) * fall);
+        mist_level[x] = v;
+        const float spike_boost = 1.0f + (near * 0.35f);
+        int h = static_cast<int>(v * static_cast<float>(wave_h) * 1.35f * spike_boost + 0.5f);
+        if(h < 0)
+            h = 0;
+        if(h > wave_h)
+            h = wave_h;
+        const int start = wave_y1 - h;
+        for(int y = start; y <= wave_y1; ++y)
+        {
+            mist_seed = mist_seed * 1664525u + 1013904223u;
+            const int frac = wave_y1 - y;
+            const int dens = 1 + (frac / 4);
+            if((mist_seed % static_cast<uint32_t>(dens)) == 0u)
+                d.DrawPixel(x, y, true);
+        }
+    }
+
+    d.DrawLine(px, wave_y0, px, wave_y1, true);
+}
+
 static void Record_ResetLiveWave(AppSharedState& shared)
 {
     for(int i = 0; i < 128; ++i)
@@ -132,9 +217,10 @@ void RecordRender_DiscardTemp(AppUiState& ui,
     ui.record_render_note_off_due_ms = 0;
     ui.record_render_note_on_sent = false;
     ui.record_render_note_off_sent = false;
-    ui.record_render_review_overlay_open = false;
-    ui.record_render_review_option = 0;
+    ui.record_render_review_focus = 0;
     ui.record_render_status[0] = '\0';
+    ui.render_review_trim_entry = SampleEdit_Default(0);
+    ui.render_review_trim_has_entry = false;
     ui.render_sample_rename_wait_for_worker = false;
     ui.render_sample_rename_active = false;
     ui.record_render_save_stem[0] = '\0';
@@ -449,7 +535,6 @@ void Record_Render(UiScreenCtx& ctx)
     BuildStatus(shared, status, sizeof(status));
 
     const uint32_t rec_len = shared.recording.rec_length.load(std::memory_order_acquire);
-    const uint32_t rec_pos = shared.recording.rec_pos.load(std::memory_order_acquire);
 
     if(recording.record_state == RecordUiState::Countdown)
     {
@@ -547,80 +632,8 @@ void Record_Render(UiScreenCtx& ctx)
 
         case RecordUiState::Recording:
         {
-            d.SetCursor(0, 0);
-            d.WriteString("RECORDING - 5 SEC MAX", Font_6x8, true);
-
-            const int wave_y0 = Font_6x8.FontHeight + 2;
-            const int wave_y1 = 62;
-            const int wave_h = wave_y1 - wave_y0 + 1;
-            static float mist_level[128] = {};
-            static uint32_t mist_seed = 0xA5B35791u;
-            static uint32_t snap_gen = 0;
-            static int16_t snap_min[128] = {};
-            static int16_t snap_max[128] = {};
-            const uint32_t live_gen = shared.recording.rec_live_gen.load(std::memory_order_acquire);
-            if(live_gen != snap_gen)
-            {
-                uint32_t g0 = 0, g1 = 0;
-                int retry = 0;
-                do
-                {
-                    g0 = shared.recording.rec_live_gen.load(std::memory_order_acquire);
-                    std::memcpy(snap_min, shared.recording.rec_live_min, sizeof(snap_min));
-                    std::memcpy(snap_max, shared.recording.rec_live_max, sizeof(snap_max));
-                    g1 = shared.recording.rec_live_gen.load(std::memory_order_acquire);
-                } while(g0 != g1 && ++retry < 2);
-                snap_gen = g1;
-            }
-
-            if(rec_pos == 0)
-            {
-                for(int x = 0; x < 128; ++x)
-                    mist_level[x] = 0.0f;
-            }
-
-            const int px = static_cast<int>((static_cast<uint64_t>(rec_pos) * 127u) / kSdSampleMaxFrames);
-            const int kTrail = 24; // slightly looser follow
             const float mic_boost = (recording.record_source_index == 1) ? 1.5f : 1.0f;
-            for(int x = 0; x < 128; ++x)
-            {
-                int16_t minv = snap_min[x];
-                int16_t maxv = snap_max[x];
-                int16_t a0 = (minv < 0) ? static_cast<int16_t>(-minv) : minv;
-                int16_t a1 = (maxv < 0) ? static_cast<int16_t>(-maxv) : maxv;
-                int16_t absmax = (a1 > a0) ? a1 : a0;
-                float near = 0.0f;
-                const int dist = (x > px) ? (x - px) : (px - x);
-                if(dist < kTrail)
-                {
-                    near = 1.0f - (static_cast<float>(dist) / static_cast<float>(kTrail));
-                }
-                const float amp = Clamp01((static_cast<float>(absmax) / 32767.0f) * mic_boost);
-                const float envelope = 0.26f + (0.74f * near); // loose mist everywhere, strongest near playhead
-                const float target = Clamp01(amp * envelope);
-                float v = mist_level[x];
-                const float rise = 0.97f;
-                const float fall = 0.95f;
-                v += (target > v) ? ((target - v) * rise) : ((target - v) * fall);
-                mist_level[x] = v;
-                const float spike_boost = 1.0f + (near * 0.35f); // largest peaks live around playhead on both sides
-                int h = static_cast<int>(v * static_cast<float>(wave_h) * 1.35f * spike_boost + 0.5f);
-                if(h < 0)
-                    h = 0;
-                if(h > wave_h)
-                    h = wave_h;
-                const int start = wave_y1 - h;
-                for(int y = start; y <= wave_y1; ++y)
-                {
-                    mist_seed = mist_seed * 1664525u + 1013904223u;
-                    const int frac = wave_y1 - y;
-                    const int dens = 1 + (frac / 4);
-                    if((mist_seed % static_cast<uint32_t>(dens)) == 0u)
-                        d.DrawPixel(x, y, true);
-                }
-            }
-
-            d.DrawLine(px, wave_y0, px, wave_y1, true);
+            Record_RenderLiveCaptureStyle(ctx, "RECORDING - 5 SEC MAX", mic_boost);
         }
         break;
 

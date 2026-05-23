@@ -47,6 +47,11 @@ enum class UiScreenId : uint8_t
     PerformExpress,
     PerformProcess,
     ProjectStatus,
+    SamplesMenu,
+    RecordMenu,
+    CraftMenu,
+    RecordRenderMenu,
+    RecordRenderExecute,
     COUNT
 };
 

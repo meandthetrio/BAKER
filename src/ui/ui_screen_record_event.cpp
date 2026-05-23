@@ -74,6 +74,16 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
         if(recording.record_state == RecordUiState::Armed)
         {
+            if(ui.record_menu_armed_back_returns_to_menu)
+            {
+                Record_StopPreview(recording);
+                shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
+                recording.record_anim_start_ms = -1.0;
+                shared.recording.rec_stop_req.store(1, std::memory_order_release);
+                ui.record_menu_armed_back_returns_to_menu = false;
+                ui.ui_dirty = true;
+                return false;
+            }
             recording.record_state = RecordUiState::SourceSelect;
             shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
             recording.record_anim_start_ms = -1.0;
@@ -116,6 +126,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             recording.record_state = RecordUiState::Countdown;
             shared.recording.rec_monitor_enable.store(1, std::memory_order_release);
             recording.record_anim_start_ms = -1.0;
+            ui.record_menu_armed_back_returns_to_menu = false;
             ui.ui_dirty = true;
             return true;
         }
@@ -154,6 +165,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             {
                 Record_StopPreview(recording);
                 recording.record_state = RecordUiState::SourceSelect;
+                ui.record_menu_armed_back_returns_to_menu = false;
             }
             ui.ui_dirty = true;
             return true;
@@ -166,6 +178,7 @@ bool Record_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             shared.recording.rec_length.store(0, std::memory_order_release);
             shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
             recording.record_state = RecordUiState::SourceSelect;
+            ui.record_menu_armed_back_returns_to_menu = false;
             ui.ui_dirty = true;
             return true;
         }
@@ -186,11 +199,29 @@ void Record_OnEnter(UiScreenCtx& ctx)
     recording.record_target_index = 0;
     recording.record_slot = kRecordPreviewSampleIndex;
     recording.record_anim_start_ms = -1.0;
-    shared.recording.rec_source_sel.store(recording.record_source_index & 1u, std::memory_order_release);
-    shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     Record_StopPreview(recording);
     shared.recording.rec_start_req.store(0, std::memory_order_release);
     shared.recording.rec_stop_req.store(0, std::memory_order_release);
+
+    if(ui.record_menu_source_override_active)
+    {
+        recording.record_source_index = ui.record_menu_source_override & 1u;
+        recording.record_state = RecordUiState::Armed;
+        shared.recording.rec_source_sel.store(recording.record_source_index & 1u,
+                                              std::memory_order_release);
+        shared.recording.rec_monitor_enable.store(1, std::memory_order_release);
+        ui.record_menu_source_override_active = false;
+        ui.record_menu_armed_back_returns_to_menu = true;
+    }
+    else
+    {
+        recording.record_state = RecordUiState::SourceSelect;
+        shared.recording.rec_source_sel.store(recording.record_source_index & 1u,
+                                              std::memory_order_release);
+        shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
+        ui.record_menu_armed_back_returns_to_menu = false;
+    }
+
     ui.ui_dirty = true;
 }
 
@@ -204,4 +235,5 @@ void Record_OnExit(UiScreenCtx& ctx)
     shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     recording.record_anim_start_ms = -1.0;
     shared.recording.rec_stop_req.store(1, std::memory_order_release);
+    ctx.ui->record_menu_armed_back_returns_to_menu = false;
 }

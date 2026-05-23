@@ -72,6 +72,30 @@ static inline bool LayerEligibleForNote(uint8_t layer, uint8_t note, uint8_t vel
                                note);
 }
 
+static inline uint8_t RecordRenderPreviewMidiNote()
+{
+    const int note = 60 + static_cast<int>(g_app.ui.record_render_note_offset);
+    if(note < 0)
+        return 0u;
+    if(note > 127)
+        return 127u;
+    return static_cast<uint8_t>(note);
+}
+
+static inline bool RecordRenderPreviewAvailable()
+{
+    const uint8_t note = RecordRenderPreviewMidiNote();
+    for(uint8_t layer = 0; layer < 2u; ++layer)
+    {
+        const Sample& s = g_app.shared.sample.publish.sd_slots[layer];
+        if(s.pcm == nullptr || s.length == 0)
+            continue;
+        if(LayerEligibleForNote(layer, note, 120u))
+            return true;
+    }
+    return false;
+}
+
 static void InitOled()
 {
     PodDisplay::Config disp_cfg;
@@ -381,11 +405,15 @@ int main(void)
         // LED2 indicator:
         // - SD BROWSE: solid GREEN.
         // - RECORD > REVIEW: solid GREEN (POD2 preview available).
+        // - RECORD > RENDER: solid GREEN when render preview is available.
         // - PERFORM A/B pages: solid BLUE.
         // - otherwise off.
         const bool sd_browse_active = (g_app.ui.ui_active_screen == UiScreenId::SdBrowse);
         const bool record_review_active = (g_app.ui.ui_active_screen == UiScreenId::Record)
                                           && (g_app.recording.record_state == RecordUiState::Review);
+        const bool record_render_preview_active
+            = (g_app.ui.ui_active_screen == UiScreenId::RecordRenderMenu)
+              && RecordRenderPreviewAvailable();
         const bool perform_ab_active
             = (g_app.ui.ui_active_screen == UiScreenId::PerformEngine)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
@@ -475,7 +503,7 @@ int main(void)
             hw.led1.Set(0.0f, 0.0f, g);
             hw.led2.Set(0.0f, 0.0f, g);
         }
-        else if(sd_browse_active || record_review_active)
+        else if(sd_browse_active || record_review_active || record_render_preview_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, 0.0f, 1.0f);

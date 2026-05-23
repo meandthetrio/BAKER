@@ -57,6 +57,18 @@ void SampleEdit_Render(UiScreenCtx& ctx);
 bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 bool MainMenu_OnEnter(UiScreenCtx& ctx);
 void MainMenu_Render(UiScreenCtx& ctx);
+bool SamplesMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+bool SamplesMenu_OnEnter(UiScreenCtx& ctx);
+void SamplesMenu_Render(UiScreenCtx& ctx);
+bool RecordMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+bool RecordMenu_OnEnter(UiScreenCtx& ctx);
+void RecordMenu_Render(UiScreenCtx& ctx);
+bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void CraftMenu_Render(UiScreenCtx& ctx);
+bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void RecordRenderMenu_Render(UiScreenCtx& ctx);
+bool RecordRenderExecute_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void RecordRenderExecute_Render(UiScreenCtx& ctx);
 
 void Presets_OnEnter(UiScreenCtx& ctx);
 bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

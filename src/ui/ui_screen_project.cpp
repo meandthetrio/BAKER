@@ -34,6 +34,7 @@ static constexpr int kProjectHeaderButtonH = kMicroH + 3;
 static constexpr int kProjectHeaderSeparatorY = 10;
 static constexpr int kProjectHeaderTextY = 2;
 static constexpr int kProjectRowsStartY = 12;
+static constexpr int kProjectFocusedRowTopExtra = 1;
 static constexpr int kProjectHeaderNumberX0 = 0;
 static constexpr int kProjectHeaderNumberX1 = 18;
 static constexpr int kProjectHeaderNameX0 = 22;
@@ -565,7 +566,7 @@ void DrawProjectSlotRow(OledPager& d, const AppProjectState& project, uint8_t sl
     {
         const int row_w = (kProjectStyleX + TinyStringWidth("Pluck")) - kProjectNumberX;
         int x0 = kProjectNumberX;
-        int y0 = row_y;
+        int y0 = row_y - kProjectFocusedRowTopExtra;
         int x1 = kProjectNumberX + row_w;
         int y1 = row_y + Font5x7::H;
         if(x0 < 0) x0 = 0;

@@ -34,6 +34,33 @@ const UiScreen& GetScreen(UiScreenId id)
                                                nullptr,
                                                SaveProjectConfirm_OnEvent,
                                                SaveProjectConfirm_Render};
+    static const UiScreen samples_menu{UiScreenId::SamplesMenu,
+                                       nullptr,
+                                       nullptr,
+                                       SamplesMenu_OnEvent,
+                                       SamplesMenu_Render,
+                                       SamplesMenu_OnEnter};
+    static const UiScreen record_menu{UiScreenId::RecordMenu,
+                                      nullptr,
+                                      nullptr,
+                                      RecordMenu_OnEvent,
+                                      RecordMenu_Render,
+                                      RecordMenu_OnEnter};
+    static const UiScreen craft_menu{UiScreenId::CraftMenu,
+                                     nullptr,
+                                     nullptr,
+                                     CraftMenu_OnEvent,
+                                     CraftMenu_Render};
+    static const UiScreen record_render_menu{UiScreenId::RecordRenderMenu,
+                                             nullptr,
+                                             nullptr,
+                                             RecordRenderMenu_OnEvent,
+                                             RecordRenderMenu_Render};
+    static const UiScreen record_render_execute{UiScreenId::RecordRenderExecute,
+                                                nullptr,
+                                                nullptr,
+                                                RecordRenderExecute_OnEvent,
+                                                RecordRenderExecute_Render};
     static const UiScreen record{UiScreenId::Record, Record_OnEnter, Record_OnExit, Record_OnEvent, Record_Render};
     static const UiScreen perform_menu{UiScreenId::PerformMenu, nullptr, nullptr, PerformMenu_OnEvent, PerformMenu_Render, PerformMenu_OnEnter};
     static const UiScreen perform_engine{UiScreenId::PerformEngine,
@@ -110,6 +137,16 @@ const UiScreen& GetScreen(UiScreenId id)
             return save_project_slots;
         case UiScreenId::SaveProjectConfirm:
             return save_project_confirm;
+        case UiScreenId::SamplesMenu:
+            return samples_menu;
+        case UiScreenId::RecordMenu:
+            return record_menu;
+        case UiScreenId::CraftMenu:
+            return craft_menu;
+        case UiScreenId::RecordRenderMenu:
+            return record_render_menu;
+        case UiScreenId::RecordRenderExecute:
+            return record_render_execute;
         case UiScreenId::Record:
             return record;
         case UiScreenId::PerformMenu:

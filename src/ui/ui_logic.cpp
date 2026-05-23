@@ -16,6 +16,8 @@ using namespace daisy;
 
 namespace
 {
+static constexpr uint8_t kRenderPreviewVelocity = 120u;
+
 void ClearParentPreviewState(AppUiState& ui)
 {
     ui.ui_parent_preview_active = false;
@@ -63,6 +65,47 @@ bool PushPreviewNoteOff(EventQueueSPSC& evtq,
 
     diag.queue_overflows.fetch_add(1, std::memory_order_relaxed);
     ui.ui_dirty = true;
+    return false;
+}
+
+uint8_t RenderPreviewMidiNote(const AppUiState& ui)
+{
+    const int note = 60 + static_cast<int>(ui.record_render_note_offset);
+    if(note < 0)
+        return 0u;
+    if(note > 127)
+        return 127u;
+    return static_cast<uint8_t>(note);
+}
+
+bool RenderPreviewLayerEligible(const Params& params,
+                                const AppSharedState& shared,
+                                uint8_t layer,
+                                uint8_t note)
+{
+    if(layer >= 2u)
+        return false;
+
+    const Sample& sample = shared.sample.publish.sd_slots[layer];
+    if(sample.pcm == nullptr || sample.length == 0)
+        return false;
+
+    const PerformParamsTargets& t = params.TargetsForUI();
+    return KeyzoneContainsNote(t.perform_keyzone_lo_note[layer],
+                               t.perform_keyzone_hi_note[layer],
+                               note);
+}
+
+bool RenderPreviewAvailable(const Params& params,
+                            const AppUiState& ui,
+                            const AppSharedState& shared)
+{
+    const uint8_t note = RenderPreviewMidiNote(ui);
+    for(uint8_t layer = 0; layer < 2u; ++layer)
+    {
+        if(RenderPreviewLayerEligible(params, shared, layer, note))
+            return true;
+    }
     return false;
 }
 
@@ -190,6 +233,39 @@ void CommitParentPreviewSelection(AppState& app, Params& params, uint32_t now_ms
 }
 } // namespace
 
+bool UILogic::SchedulePendingNoteOff(uint8_t note, uint32_t due_ms)
+{
+    PendingNoteOff* free_slot = nullptr;
+    for(size_t i = 0; i < kMaxPendingNoteOffs; ++i)
+    {
+        PendingNoteOff& slot = pending_note_offs_[i];
+        if(slot.active && slot.note == note)
+        {
+            slot.due_ms = due_ms;
+            return true;
+        }
+        if(!slot.active && free_slot == nullptr)
+            free_slot = &slot;
+    }
+
+    if(free_slot == nullptr)
+        return false;
+
+    free_slot->active = true;
+    free_slot->note = note;
+    free_slot->due_ms = due_ms;
+    return true;
+}
+
+void UILogic::CancelPendingNoteOff(uint8_t note)
+{
+    for(size_t i = 0; i < kMaxPendingNoteOffs; ++i)
+    {
+        if(pending_note_offs_[i].active && pending_note_offs_[i].note == note)
+            pending_note_offs_[i].active = false;
+    }
+}
+
 void UILogic::Init(DaisyPod& hw)
 {
     controls_.hw = &hw;
@@ -266,6 +342,11 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
         if(evtq.Push(evt))
         {
             diag.events_pushed.fetch_add(1, std::memory_order_relaxed);
+            if(ui.record_render_preview_note_active
+               && ui.record_render_preview_note == slot.note)
+            {
+                ui.record_render_preview_note_active = false;
+            }
             slot.active = false;
         }
         else
@@ -347,7 +428,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             if(e.id == kUiBtnLShift)
             {
                 ui.ui_lshift_held = true;
-                if(!blank_screen_active)
+                if(!blank_screen_active && !ui.ui_rshift_held)
                 {
                     const UiScreenId active = UiNav_Active(ui.ui_nav);
                     if(active == UiScreenId::PerformProcess
@@ -380,6 +461,11 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             else if(e.id == kUiBtnRShift)
             {
                 ui.ui_rshift_held = true;
+                if(ui.ui_lshift_held && ui.ui_parent_preview_active)
+                {
+                    ClearParentPreviewState(ui);
+                    ui.ui_dirty = true;
+                }
                 if(rename_project_active)
                     ui.ui_dirty = true;
             }
@@ -636,6 +722,60 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     {
         if(PushPreviewNoteOff(evtq, diag, ui, 60))
             recording.record_preview_gate = false;
+    }
+
+    const bool record_render_active = (active_screen == UiScreenId::RecordRenderMenu);
+    auto stop_render_preview = [&]() -> bool
+    {
+        if(!ui.record_render_preview_note_active)
+            return true;
+
+        const uint8_t note = ui.record_render_preview_note;
+        if(PushPreviewNoteOff(evtq, diag, ui, note))
+        {
+            CancelPendingNoteOff(note);
+            ui.record_render_preview_note_active = false;
+            return true;
+        }
+        return false;
+    };
+
+    if(record_render_active)
+    {
+        if(ui.record_render_preview_trigger_pending)
+        {
+            if(stop_render_preview())
+            {
+                if(RenderPreviewAvailable(params, ui, shared))
+                {
+                    const uint8_t note = RenderPreviewMidiNote(ui);
+                    bool any_started = false;
+                    for(uint8_t layer = 0; layer < 2u; ++layer)
+                    {
+                        if(!RenderPreviewLayerEligible(params, shared, layer, note))
+                            continue;
+                        if(PushPreviewNoteOn(evtq, diag, ui, note, kRenderPreviewVelocity, layer))
+                            any_started = true;
+                    }
+
+                    if(any_started && SchedulePendingNoteOff(note, now_ms + ui.record_render_hold_ms))
+                    {
+                        ui.record_render_preview_note_active = true;
+                        ui.record_render_preview_note = note;
+                    }
+                    else if(any_started)
+                    {
+                        PushPreviewNoteOff(evtq, diag, ui, note);
+                    }
+                }
+                ui.record_render_preview_trigger_pending = false;
+            }
+        }
+    }
+    else
+    {
+        ui.record_render_preview_trigger_pending = false;
+        stop_render_preview();
     }
 
     const bool trim_preview_active = (active_screen == UiScreenId::PerformWaveEdit);

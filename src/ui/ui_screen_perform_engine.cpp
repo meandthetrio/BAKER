@@ -121,199 +121,32 @@ static void ClampAndSplitTune(int total_cents, int8_t& semitones, int8_t& cents)
 
 static int LoadWordmarkWidth()
 {
-    // 5 + 1 + 3 + 1 + 3 + 1 + 4
-    return 18;
+    return MicroStringWidth("load");
 }
 
 static void DrawLoadWordmark(OledPager& d, int x, int y, bool on)
 {
-    constexpr int l_x = 0;   // width 5 (0..4)
-    constexpr int o_x = 6;   // width 3 (6..8), 1px gap after L
-    constexpr int a_x = 10;  // width 3 (10..12), 1px gap after o
-    constexpr int d_x = 14;  // width 4 (14..17), 1px gap after a
-
-    auto draw_char_3x5 = [&](char ch, int cx, int cy)
-    {
-        uint8_t rows[5] = {};
-        switch(ch)
-        {
-            case 'o':
-                rows[0] = 0b010;
-                rows[1] = 0b101;
-                rows[2] = 0b101;
-                rows[3] = 0b101;
-                rows[4] = 0b010;
-                break;
-            case 'a':
-                rows[0] = 0b010;
-                rows[1] = 0b001;
-                rows[2] = 0b011;
-                rows[3] = 0b101;
-                rows[4] = 0b111;
-                break;
-            default:
-                return;
-        }
-
-        for(int yy = 0; yy < 5; ++yy)
-        {
-            const uint8_t row = rows[yy];
-            for(int xx = 0; xx < 3; ++xx)
-            {
-                if((row >> (2 - xx)) & 1)
-                {
-                    const int px = cx + xx;
-                    const int py = cy + yy;
-                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                        d.DrawPixel(px, py, on);
-                }
-            }
-        }
-    };
-
-    auto draw_l_top_extended = [&](int cx, int cy)
-    {
-        // Extend only the top of the vertical stroke by one pixel.
-        for(int yy = -1; yy <= 6; ++yy)
-        {
-            const int py = cy + yy;
-            if(cx >= 0 && cx < 128 && py >= 0 && py < 64)
-                d.DrawPixel(cx, py, on);
-        }
-        const int foot_y = cy + 6;
-        if(foot_y >= 0 && foot_y < 64)
-        {
-            for(int xx = 0; xx < 5; ++xx)
-            {
-                const int px = cx + xx;
-                if(px >= 0 && px < 128)
-                    d.DrawPixel(px, foot_y, on);
-            }
-        }
-    };
-
-    auto draw_D_4x7 = [&](int cx, int cy)
-    {
-        const uint8_t rows[7] = {
-            0b1110,
-            0b1001,
-            0b1001,
-            0b1001,
-            0b1001,
-            0b1001,
-            0b1110,
-        };
-        for(int yy = 0; yy < 7; ++yy)
-        {
-            for(int xx = 0; xx < 4; ++xx)
-            {
-                if((rows[yy] >> (3 - xx)) & 1)
-                {
-                    const int px = cx + xx;
-                    const int py = cy + yy;
-                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                        d.DrawPixel(px, py, on);
-                }
-            }
-        }
-    };
-
-    draw_l_top_extended(x + l_x, y);
-    draw_char_3x5('o', x + o_x, y);
-    draw_char_3x5('a', x + a_x, y);
-    draw_D_4x7(x + d_x, y);
-
-    // Extended baseline from L to one pixel before D.
-    const int baseline_y = y + Font5x7::H - 1;
-    const int baseline_end_x = x + d_x - 2; // leaves one blank pixel before D
-    d.DrawLine(x, baseline_y, baseline_end_x, baseline_y, on);
+    DrawMicroString(d, "load", x, y, on);
 }
 
 static int TuneWordmarkWidth()
 {
-    // 5 + 1 + 3 + 1 + 3 + 1 + 3
-    return 17;
+    return MicroStringWidth("tune");
+}
+
+static int ReverseWordmarkWidth()
+{
+    return MicroStringWidth("rev");
+}
+
+static void DrawReverseWordmark(OledPager& d, int x, int y, bool on)
+{
+    DrawMicroString(d, "rev", x, y, on);
 }
 
 static void DrawTuneWordmark(OledPager& d, int x, int y, bool on)
 {
-    constexpr int t_x = 0;   // width 5 (0..4)
-    constexpr int u_x = 6;   // width 3 (6..8), 1px gap after T
-    constexpr int n_x = 10;  // width 3 (10..12), 1px gap after u
-    constexpr int e_x = 14;  // width 3 (14..16), 1px gap after n
-
-    auto draw_char_3x5 = [&](char ch, int cx, int cy)
-    {
-        uint8_t rows[5] = {};
-        switch(ch)
-        {
-            case 'u':
-                rows[0] = 0b101;
-                rows[1] = 0b101;
-                rows[2] = 0b101;
-                rows[3] = 0b101;
-                rows[4] = 0b011;
-                break;
-            case 'n':
-                rows[0] = 0b110;
-                rows[1] = 0b101;
-                rows[2] = 0b101;
-                rows[3] = 0b101;
-                rows[4] = 0b101;
-                break;
-            case 'e':
-                rows[0] = 0b111;
-                rows[1] = 0b100;
-                rows[2] = 0b110;
-                rows[3] = 0b100;
-                rows[4] = 0b111;
-                break;
-            default:
-                return;
-        }
-
-        for(int yy = 0; yy < 5; ++yy)
-        {
-            const uint8_t row = rows[yy];
-            for(int xx = 0; xx < 3; ++xx)
-            {
-                if((row >> (2 - xx)) & 1)
-                {
-                    const int px = cx + xx;
-                    const int py = cy + yy;
-                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                        d.DrawPixel(px, py, on);
-                }
-            }
-        }
-    };
-
-    auto draw_t = [&](int cx, int cy)
-    {
-        // T top bar.
-        for(int xx = 0; xx < 5; ++xx)
-        {
-            const int px = cx + xx;
-            if(px >= 0 && px < 128 && cy >= 0 && cy < 64)
-                d.DrawPixel(px, cy, on);
-        }
-        // T vertical stem.
-        for(int yy = 1; yy < 7; ++yy)
-        {
-            const int py = cy + yy;
-            const int px = cx + 2;
-            if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                d.DrawPixel(px, py, on);
-        }
-    };
-
-    draw_t(x + t_x, y);
-    draw_char_3x5('u', x + u_x, y + 2);
-    draw_char_3x5('n', x + n_x, y + 2);
-    draw_char_3x5('e', x + e_x, y + 2);
-
-    // Extended top line from T across u/n/e.
-    d.DrawLine(x, y, x + TuneWordmarkWidth() - 1, y, on);
+    DrawMicroString(d, "tune", x, y, on);
 }
 
 static void ToLowerCase(const char* in, char* out, size_t out_sz)
@@ -660,7 +493,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
     }
 
     const int load_w = LoadWordmarkWidth();
-    const int reverse_w = TinyStringWidth("reverse");
+    const int reverse_w = ReverseWordmarkWidth();
     const int tune_w = TuneWordmarkWidth();
     constexpr int kScreenW = 128;
     constexpr int kThirdW = kScreenW / 3;
@@ -691,7 +524,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
 
     if(row == kEngineRowLoad)
     {
-        d.DrawRect(load_x - 1, kFooterY - 1, load_x + load_w, kFooterY + Font5x7::H, true, true);
+        d.DrawRect(load_x - 1, kFooterY - 1, load_x + load_w, kFooterY + kMicroH, true, true);
         DrawLoadWordmark(d, load_x, kFooterY, false);
     }
     else
@@ -701,12 +534,12 @@ void PerformEngine_Render(UiScreenCtx& ctx)
 
     if(row == kEngineRowReverse)
     {
-        d.DrawRect(reverse_x - 1, kFooterY - 1, reverse_x + reverse_w, kFooterY + Font5x7::H, true, true);
-        DrawTinyString(d, "reverse", reverse_x, kFooterY, false);
+        d.DrawRect(reverse_x - 1, kFooterY - 1, reverse_x + reverse_w, kFooterY + kMicroH, true, true);
+        DrawReverseWordmark(d, reverse_x, kFooterY, false);
     }
     else
     {
-        DrawTinyString(d, "reverse", reverse_x, kFooterY, true);
+        DrawReverseWordmark(d, reverse_x, kFooterY, true);
     }
 
     if(row == kEngineRowTune)

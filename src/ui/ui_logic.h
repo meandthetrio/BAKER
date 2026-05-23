@@ -33,4 +33,7 @@ class UILogic
 
     static constexpr float kLpfMinHz = 80.0f;
     static constexpr float kLpfMaxHz = 12000.0f;
+
+    bool SchedulePendingNoteOff(uint8_t note, uint32_t due_ms);
+    void CancelPendingNoteOff(uint8_t note);
 };

@@ -9,12 +9,16 @@
 #include "app_state_worker.h"
 #include "oled_pager.h"
 #include "ui_input.h"
+#include "ui_layout.h"
 
 #include <cstdio>
 
 static constexpr int32_t kMainMenuCount = 3;
-static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "RECORD", "PERFORM"};
-static constexpr uint8_t kPresetsVisibleRows = 7;
+static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "SAMPLES", "PERFORM"};
+static constexpr int32_t kSamplesMenuCount = 3;
+static const char* kSamplesMenuLabels[kSamplesMenuCount] = {"RECORD", "CRAFT", "SD BROWSER"};
+static constexpr int32_t kRecordMenuCount = 3;
+static const char* kRecordMenuLabels[kRecordMenuCount] = {"LINE IN", "MICROPHONE", "RENDER"};
 
 static void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
 {
@@ -25,24 +29,21 @@ static void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
     DrawTinyString(d, str, x, y, false);
 }
 
+static int32_t WrapMenuIndex(int32_t current, int32_t delta, int32_t count)
+{
+    if(count <= 0)
+        return 0;
+    int32_t next = current + delta;
+    while(next < 0)
+        next += count;
+    while(next >= count)
+        next -= count;
+    return next;
+}
+
 static int32_t NextMenuIndex(int32_t current, int32_t delta)
 {
-    static const int32_t order[kMainMenuCount] = {0, 1, 2};
-    int32_t pos = 0;
-    for(int32_t i = 0; i < kMainMenuCount; ++i)
-    {
-        if(order[i] == current)
-        {
-            pos = i;
-            break;
-        }
-    }
-    pos += delta;
-    while(pos < 0)
-        pos += kMainMenuCount;
-    while(pos >= kMainMenuCount)
-        pos -= kMainMenuCount;
-    return order[pos];
+    return WrapMenuIndex(current, delta, kMainMenuCount);
 }
 
 constexpr int kIconW = 61;
@@ -220,6 +221,139 @@ static void DrawMainMenuFriendStyle(OledPager& d, int selected)
     }
 }
 
+static void DrawTopRightMicroLabel(OledPager& d, const char* label)
+{
+    if(!label)
+        return;
+    const int box_h = kMicroH + 4;
+    const int w = MicroStringWidth(label);
+    const int box_w = w + 4;
+    const int x = 128 - box_w;
+    d.DrawRect(x, 0, x + box_w - 1, box_h - 1, true, true);
+    DrawMicroString(d, label, x + 2, 2, false);
+}
+
+static void DrawMenuListStyle(OledPager& d,
+                              const char* const* labels,
+                              int count,
+                              int selected,
+                              const char* top_right_label)
+{
+    constexpr int kDisplayH = 64;
+    constexpr int kListLeftX = 2;
+    constexpr int kListGapY = 6;
+
+    d.Fill(false);
+    DrawTopRightMicroLabel(d, top_right_label);
+
+    const int text_h = Font5x7::H;
+    int max_label_w = 0;
+    for(int i = 0; i < count; ++i)
+    {
+        const int w = TinyStringWidth(labels[i]);
+        if(w > max_label_w)
+            max_label_w = w;
+    }
+
+    const int total_h = (count * text_h) + ((count - 1) * kListGapY);
+    const int start_y = (kDisplayH - total_h) / 2;
+    for(int i = 0; i < count; ++i)
+    {
+        const int text_x = kListLeftX;
+        const int text_y = start_y + i * (text_h + kListGapY);
+        if(i == selected)
+            DrawFillOnlyTinyString(d, labels[i], text_x, text_y);
+        else
+            DrawTinyString(d, labels[i], text_x, text_y, true);
+    }
+}
+
+static void DrawBlankPlaceholder(OledPager& d, const char* top_right_label)
+{
+    d.Fill(false);
+    DrawTopRightMicroLabel(d, top_right_label);
+}
+
+static int ClampRecordRenderInt(int v, int lo, int hi)
+{
+    if(v < lo)
+        return lo;
+    if(v > hi)
+        return hi;
+    return v;
+}
+
+static void FormatRecordRenderNoteValue(int offset, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+    if(offset > 0)
+    {
+        std::snprintf(out, out_n, "+%d", offset);
+        return;
+    }
+    std::snprintf(out, out_n, "%d", offset);
+}
+
+static void FormatRecordRenderHoldValue(int hold_ms, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+    std::snprintf(out, out_n, "%dms", hold_ms);
+}
+
+static void DrawRecordRenderValueRow(OledPager& d,
+                                     const char* label,
+                                     const char* value,
+                                     int y,
+                                     bool value_focused)
+{
+    DrawTinyString(d, label, 2, y, true);
+
+    const int value_w = TinyStringWidth(value);
+    const int box_w = value_w + 6;
+    const int box_h = Font5x7::H + 4;
+    const int box_x = 128 - box_w - 2;
+    const int box_y = y - 2;
+    d.DrawRect(box_x, box_y, box_x + box_w - 1, box_y + box_h - 1, true, value_focused);
+    DrawTinyString(d, value, box_x + 3, y, value_focused ? false : true);
+}
+
+static void DrawRecordRenderMenuStyle(OledPager& d, const AppUiState& ui)
+{
+    constexpr int kDisplayH = 64;
+    constexpr int kRowCount = 3;
+    constexpr int kListGapY = 6;
+    const int text_h = Font5x7::H;
+    const int total_h = (kRowCount * text_h) + ((kRowCount - 1) * kListGapY);
+    const int start_y = (kDisplayH - total_h) / 2;
+
+    char note_value[16];
+    char hold_value[16];
+    FormatRecordRenderNoteValue(static_cast<int>(ui.record_render_note_offset), note_value, sizeof(note_value));
+    FormatRecordRenderHoldValue(static_cast<int>(ui.record_render_hold_ms), hold_value, sizeof(hold_value));
+
+    d.Fill(false);
+    DrawTopRightMicroLabel(d, "render");
+
+    DrawRecordRenderValueRow(d,
+                             "note",
+                             note_value,
+                             start_y,
+                             (ui.record_render_focus % kRowCount) == 0u);
+    DrawRecordRenderValueRow(d,
+                             "hold",
+                             hold_value,
+                             start_y + text_h + kListGapY,
+                             (ui.record_render_focus % kRowCount) == 1u);
+
+    const int execute_y = start_y + ((text_h + kListGapY) * 2);
+    if((ui.record_render_focus % kRowCount) == 2u)
+        DrawFillOnlyTinyString(d, "execute", 2, execute_y);
+    else
+        DrawTinyString(d, "execute", 2, execute_y, true);
+}
+
 bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui)
@@ -249,7 +383,7 @@ bool MainMenu_OnEnter(UiScreenCtx& ctx)
         case 0:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Presets);
         case 1:
-            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Record);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SamplesMenu);
         case 2:
         default:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformMenu);
@@ -263,4 +397,204 @@ void MainMenu_Render(UiScreenCtx& ctx)
 
     const int selected = static_cast<int>(ctx.ui->main_menu_index % kMainMenuCount);
     DrawMainMenuFriendStyle(*ctx.display, selected);
+}
+
+bool SamplesMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        ctx.ui->samples_menu_index = static_cast<uint8_t>(
+            WrapMenuIndex(static_cast<int32_t>(ctx.ui->samples_menu_index), e.value, kSamplesMenuCount));
+        ctx.ui->ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.ui)
+        return false;
+
+    switch(ctx.ui->samples_menu_index % kSamplesMenuCount)
+    {
+        case 0:
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::RecordMenu);
+        case 1:
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::CraftMenu);
+        case 2:
+        default:
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
+    }
+}
+
+void SamplesMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    DrawMenuListStyle(*ctx.display,
+                      kSamplesMenuLabels,
+                      kSamplesMenuCount,
+                      static_cast<int>(ctx.ui->samples_menu_index % kSamplesMenuCount),
+                      "samples");
+}
+
+bool RecordMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        ctx.ui->record_menu_index = static_cast<uint8_t>(
+            WrapMenuIndex(static_cast<int32_t>(ctx.ui->record_menu_index), e.value, kRecordMenuCount));
+        ctx.ui->ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+bool RecordMenu_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.ui)
+        return false;
+
+    switch(ctx.ui->record_menu_index % kRecordMenuCount)
+    {
+        case 0:
+            ctx.ui->record_menu_source_override_active = true;
+            ctx.ui->record_menu_source_override = static_cast<uint8_t>(RecordInputSource::LineIn);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Record);
+        case 1:
+            ctx.ui->record_menu_source_override_active = true;
+            ctx.ui->record_menu_source_override = static_cast<uint8_t>(RecordInputSource::Mic);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Record);
+        case 2:
+        default:
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::RecordRenderMenu);
+    }
+}
+
+void RecordMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    DrawMenuListStyle(*ctx.display,
+                      kRecordMenuLabels,
+                      kRecordMenuCount,
+                      static_cast<int>(ctx.ui->record_menu_index % kRecordMenuCount),
+                      "record");
+}
+
+bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    (void)ctx;
+    (void)e;
+    return false;
+}
+
+void CraftMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.display)
+        return;
+    DrawBlankPlaceholder(*ctx.display, "craft");
+}
+
+bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        ui.record_render_focus = static_cast<uint8_t>(
+            WrapMenuIndex(static_cast<int32_t>(ui.record_render_focus), e.value, 3));
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+    {
+        switch(ui.record_render_focus % 3u)
+        {
+            case 0:
+            {
+                const int next = ClampRecordRenderInt(static_cast<int>(ui.record_render_note_offset) + e.value,
+                                                      -36,
+                                                      36);
+                if(next != static_cast<int>(ui.record_render_note_offset))
+                {
+                    ui.record_render_note_offset = static_cast<int8_t>(next);
+                    ui.ui_dirty = true;
+                }
+                return true;
+            }
+            case 1:
+            {
+                const int next = ClampRecordRenderInt(static_cast<int>(ui.record_render_hold_ms) + (e.value * 10),
+                                                      100,
+                                                      500);
+                if(next != static_cast<int>(ui.record_render_hold_ms))
+                {
+                    ui.record_render_hold_ms = static_cast<uint16_t>(next);
+                    ui.ui_dirty = true;
+                }
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        ui.record_render_preview_trigger_pending = true;
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc
+       && (ui.record_render_focus % 3u) == 2u)
+    {
+        return UiNav_Push(ui.ui_nav, UiScreenId::RecordRenderExecute);
+    }
+
+    return false;
+}
+
+void RecordRenderMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    DrawRecordRenderMenuStyle(*ctx.display, *ctx.ui);
+}
+
+bool RecordRenderExecute_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    (void)ctx;
+    (void)e;
+    return false;
+}
+
+void RecordRenderExecute_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.display)
+        return;
+    DrawBlankPlaceholder(*ctx.display, "execute");
 }

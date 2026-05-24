@@ -66,6 +66,7 @@ void Font5x7::GetGlyphRows(char c, uint8_t out_rows[H])
         case '7': set({0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000}); return;
         case '8': set({0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110}); return;
         case '9': set({0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100}); return;
+        case ';': set({0b00000, 0b00100, 0b00000, 0b00000, 0b00100, 0b00100, 0b01000}); return;
         default: break;
     }
 

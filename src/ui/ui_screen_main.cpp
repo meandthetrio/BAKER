@@ -19,8 +19,8 @@
 
 static constexpr int32_t kMainMenuCount = 3;
 static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "SAMPLES", "PERFORM"};
-static constexpr int32_t kSamplesMenuCount = 3;
-static const char* kSamplesMenuLabels[kSamplesMenuCount] = {"RECORD", "CRAFT", "SD BROWSER"};
+static constexpr int32_t kSamplesMenuCount = 4;
+static const char* kSamplesMenuLabels[kSamplesMenuCount] = {"RECORD", "CRAFT", "BAKE", "SD BROWSER"};
 static constexpr int32_t kRecordMenuCount = 3;
 static const char* kRecordMenuLabels[kRecordMenuCount] = {"LINE IN", "MICROPHONE", "RENDER"};
 
@@ -552,6 +552,8 @@ bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
         case 1:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::CraftMenu);
         case 2:
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::BakeMenu);
+        case 3:
         default:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
     }
@@ -620,18 +622,467 @@ void RecordMenu_Render(UiScreenCtx& ctx)
                       "record");
 }
 
+static constexpr uint8_t kCraftSlotCount = 3u;
+static constexpr uint8_t kCraftPluginCapture = 1u;
+static constexpr uint8_t kCraftPluginCount = 7u;
+static constexpr uint8_t kCraftCaptureParamCount = 6u;
+static constexpr uint8_t kCraftBaseFocusCount = kCraftSlotCount * 2u;
+static constexpr uint8_t kCraftMaxFocusCount = kCraftBaseFocusCount + kCraftCaptureParamCount;
+static constexpr int32_t kCraftCaptureRateCount = 6;
+static constexpr int32_t kCraftCaptureBitsCount = 5;
+static constexpr int32_t kCraftCaptureFilterCount = 5;
+static constexpr int32_t kCraftCaptureCurveCount = 4;
+static constexpr int kCraftDisplayW = 128;
+
+static const char* kCraftPluginLabels[kCraftPluginCount]
+    = {"----", "CAPTURE", "ALIAS", "TRANS", "BODY", "FDBK", "MULTI"};
+static const char* kCraftCaptureParamLabels[kCraftCaptureParamCount]
+    = {"RATE", "BITS", "INPUT", "FILTER", "CURVE", "AGE"};
+static const char* kCraftCaptureRateLabels[6] = {"48k", "32k", "27k", "22k", "16k", "12k"};
+static const char* kCraftCaptureBitsLabels[5] = {"16", "12", "10", "8", "6"};
+static const char* kCraftCaptureFilterLabels[5] = {"CLEAN", "SOFT", "RING", "LEAK", "BAD"};
+static const char* kCraftCaptureCurveLabels[4] = {"LIN", "COMP", "WARP", "NOISY"};
+
+static int ClampCraftInt(int v, int lo, int hi)
+{
+    if(v < lo)
+        return lo;
+    if(v > hi)
+        return hi;
+    return v;
+}
+
+static uint8_t CraftClampSlotIndex(uint8_t slot)
+{
+    return static_cast<uint8_t>(slot % kCraftSlotCount);
+}
+
+enum class CraftFocusKind : uint8_t
+{
+    Slot = 0,
+    Plugin,
+    Param,
+};
+
+struct CraftFocusTarget
+{
+    CraftFocusKind kind = CraftFocusKind::Slot;
+    uint8_t        slot = 0;
+    uint8_t        param = 0;
+};
+
+static CraftFocusTarget CraftMakeFocusTarget(CraftFocusKind kind, uint8_t slot, uint8_t param = 0u)
+{
+    CraftFocusTarget target;
+    target.kind = kind;
+    target.slot = CraftClampSlotIndex(slot);
+    target.param = param;
+    return target;
+}
+
+static bool CraftActiveSlotHasCapture(const AppUiState& ui)
+{
+    const uint8_t slot = CraftClampSlotIndex(ui.craft_active_slot);
+    return ui.craft_slot_plugin[slot] == kCraftPluginCapture;
+}
+
+static uint8_t CraftFocusCount(const AppUiState& ui)
+{
+    return static_cast<uint8_t>(kCraftBaseFocusCount + (CraftActiveSlotHasCapture(ui) ? kCraftCaptureParamCount : 0u));
+}
+
+static void CraftBuildFocusSequence(const AppUiState& ui, CraftFocusTarget* out, uint8_t* out_count)
+{
+    if(!out || !out_count)
+        return;
+
+    const uint8_t active_slot = CraftClampSlotIndex(ui.craft_active_slot);
+    const bool active_capture = ui.craft_slot_plugin[active_slot] == kCraftPluginCapture;
+    uint8_t count = 0u;
+    for(uint8_t slot = 0; slot < kCraftSlotCount; ++slot)
+    {
+        out[count++] = CraftMakeFocusTarget(CraftFocusKind::Slot, slot);
+        out[count++] = CraftMakeFocusTarget(CraftFocusKind::Plugin, slot);
+        if(active_capture && slot == active_slot)
+        {
+            for(uint8_t param = 0; param < kCraftCaptureParamCount; ++param)
+                out[count++] = CraftMakeFocusTarget(CraftFocusKind::Param, slot, param);
+        }
+    }
+    *out_count = count;
+}
+
+static bool CraftFocusTargetsEqual(const CraftFocusTarget& a, const CraftFocusTarget& b)
+{
+    return a.kind == b.kind && a.slot == b.slot && a.param == b.param;
+}
+
+static uint8_t CraftNormalizedFocusIndex(const AppUiState& ui)
+{
+    return static_cast<uint8_t>(
+        WrapMenuIndex(static_cast<int32_t>(ui.craft_focus), 0, static_cast<int32_t>(CraftFocusCount(ui))));
+}
+
+static CraftFocusTarget CraftResolvedFocusTarget(const AppUiState& ui)
+{
+    CraftFocusTarget sequence[kCraftMaxFocusCount] = {};
+    uint8_t count = 0u;
+    CraftBuildFocusSequence(ui, sequence, &count);
+    if(count == 0u)
+        return CraftMakeFocusTarget(CraftFocusKind::Slot, 0u);
+    return sequence[CraftNormalizedFocusIndex(ui)];
+}
+
+static int CraftFindFocusIndex(const AppUiState& ui, const CraftFocusTarget& target)
+{
+    CraftFocusTarget sequence[kCraftMaxFocusCount] = {};
+    uint8_t count = 0u;
+    CraftBuildFocusSequence(ui, sequence, &count);
+    for(uint8_t i = 0; i < count; ++i)
+    {
+        if(CraftFocusTargetsEqual(sequence[i], target))
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
+static int CraftClampTextX(int x, int w)
+{
+    if(w >= kCraftDisplayW)
+        return 0;
+    if(x < 0)
+        return 0;
+    const int max_x = kCraftDisplayW - w;
+    if(x > max_x)
+        return max_x;
+    return x;
+}
+
+static const char* CraftCaptureParamLabel(uint8_t param)
+{
+    if(param >= kCraftCaptureParamCount)
+        return "";
+    return kCraftCaptureParamLabels[param];
+}
+
+static void DrawCraftBorderedMicroValue(OledPager& d, const char* value, int x, int y, int cell_w)
+{
+    if(!value)
+        return;
+    const int value_w = MicroStringWidth(value);
+    const int box_w = value_w + 6;
+    const int box_h = kMicroH + 4;
+    const int box_x = CraftClampTextX(x + ((cell_w - box_w) / 2), box_w);
+    const int box_y = y - 2;
+    d.DrawRect(box_x, box_y, box_x + box_w - 1, box_y + box_h - 1, true, false);
+    DrawMicroString(d, value, box_x + 3, y, true);
+}
+
+static void DrawCraftMicroLabel(OledPager& d, const char* label, int x, int y, int cell_w)
+{
+    if(!label)
+        return;
+    const int label_w = MicroStringWidth(label);
+    const int label_x = CraftClampTextX(x + ((cell_w - label_w) / 2), label_w);
+    DrawMicroString(d, label, label_x, y, true);
+}
+
+static void FormatCraftSlotLabel(uint8_t slot, uint8_t plugin, char* out, size_t out_n)
+{
+    if(!out || out_n == 0u)
+        return;
+    (void)plugin;
+    std::snprintf(out, out_n, "SLOT%u", static_cast<unsigned>(slot + 1u));
+}
+
+static void FormatCraftCaptureValue(const AppUiState& ui, uint8_t slot, uint8_t param, char* out, size_t out_n)
+{
+    if(!out || out_n == 0u)
+        return;
+
+    const uint8_t slot_ix = CraftClampSlotIndex(slot);
+    switch(param)
+    {
+        case 0:
+            std::snprintf(out,
+                          out_n,
+                          "%s",
+                          kCraftCaptureRateLabels[ui.craft_capture_rate[slot_ix]
+                                                  % static_cast<uint8_t>(kCraftCaptureRateCount)]);
+            break;
+        case 1:
+            std::snprintf(out,
+                          out_n,
+                          "%s",
+                          kCraftCaptureBitsLabels[ui.craft_capture_bits[slot_ix]
+                                                  % static_cast<uint8_t>(kCraftCaptureBitsCount)]);
+            break;
+        case 2:
+            std::snprintf(out, out_n, "%u", static_cast<unsigned>(ui.craft_capture_input[slot_ix]));
+            break;
+        case 3:
+            std::snprintf(out,
+                          out_n,
+                          "%s",
+                          kCraftCaptureFilterLabels[ui.craft_capture_filter[slot_ix]
+                                                    % static_cast<uint8_t>(kCraftCaptureFilterCount)]);
+            break;
+        case 4:
+            std::snprintf(out,
+                          out_n,
+                          "%s",
+                          kCraftCaptureCurveLabels[ui.craft_capture_curve[slot_ix]
+                                                   % static_cast<uint8_t>(kCraftCaptureCurveCount)]);
+            break;
+        case 5:
+            std::snprintf(out, out_n, "%u", static_cast<unsigned>(ui.craft_capture_age[slot_ix]));
+            break;
+        default:
+            out[0] = '\0';
+            break;
+    }
+}
+
+static int CraftFocusIndexOrFallback(const AppUiState& ui, const CraftFocusTarget& target)
+{
+    int index = CraftFindFocusIndex(ui, target);
+    if(index >= 0)
+        return index;
+
+    if(target.kind == CraftFocusKind::Param)
+    {
+        index = CraftFindFocusIndex(ui, CraftMakeFocusTarget(CraftFocusKind::Plugin, target.slot));
+        if(index >= 0)
+            return index;
+    }
+
+    index = CraftFindFocusIndex(ui, CraftMakeFocusTarget(CraftFocusKind::Slot, target.slot));
+    if(index >= 0)
+        return index;
+    return 0;
+}
+
+static bool CraftSetFocusTarget(AppUiState& ui, const CraftFocusTarget& target)
+{
+    bool changed = false;
+    const uint8_t next_active_slot = CraftClampSlotIndex(target.slot);
+    if(ui.craft_active_slot != next_active_slot)
+    {
+        ui.craft_active_slot = next_active_slot;
+        changed = true;
+    }
+
+    const int next_focus = CraftFocusIndexOrFallback(ui, target);
+    if(ui.craft_focus != static_cast<uint8_t>(next_focus))
+    {
+        ui.craft_focus = static_cast<uint8_t>(next_focus);
+        changed = true;
+    }
+    return changed;
+}
+
 bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        CraftFocusTarget sequence[kCraftMaxFocusCount] = {};
+        uint8_t count = 0u;
+        CraftBuildFocusSequence(ui, sequence, &count);
+        if(count > 0u)
+        {
+            const uint8_t next_index = static_cast<uint8_t>(
+                WrapMenuIndex(static_cast<int32_t>(CraftNormalizedFocusIndex(ui)), e.value, static_cast<int32_t>(count)));
+            if(CraftSetFocusTarget(ui, sequence[next_index]))
+                ui.ui_dirty = true;
+        }
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+    {
+        const CraftFocusTarget target = CraftResolvedFocusTarget(ui);
+        const uint8_t slot = CraftClampSlotIndex(target.slot);
+        bool changed = false;
+        switch(target.kind)
+        {
+            case CraftFocusKind::Slot:
+                changed = CraftSetFocusTarget(ui, target);
+                if(changed)
+                    ui.ui_dirty = true;
+                return changed;
+            case CraftFocusKind::Plugin:
+            {
+                changed = CraftSetFocusTarget(ui, target);
+                const uint8_t next = static_cast<uint8_t>(
+                    WrapMenuIndex(static_cast<int32_t>(ui.craft_slot_plugin[slot]), e.value, kCraftPluginCount));
+                if(next != ui.craft_slot_plugin[slot])
+                {
+                    ui.craft_slot_plugin[slot] = next;
+                    changed = true;
+                }
+                changed = CraftSetFocusTarget(ui, target) || changed;
+                if(changed)
+                    ui.ui_dirty = true;
+                return true;
+            }
+            case CraftFocusKind::Param:
+            {
+                switch(target.param)
+                {
+                    case 0:
+                    {
+                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
+                            static_cast<int32_t>(ui.craft_capture_rate[slot]), e.value, kCraftCaptureRateCount));
+                        if(next != ui.craft_capture_rate[slot])
+                        {
+                            ui.craft_capture_rate[slot] = next;
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case 1:
+                    {
+                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
+                            static_cast<int32_t>(ui.craft_capture_bits[slot]), e.value, kCraftCaptureBitsCount));
+                        if(next != ui.craft_capture_bits[slot])
+                        {
+                            ui.craft_capture_bits[slot] = next;
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case 2:
+                    {
+                        const int next = ClampCraftInt(static_cast<int>(ui.craft_capture_input[slot]) + e.value, 0, 100);
+                        if(next != static_cast<int>(ui.craft_capture_input[slot]))
+                        {
+                            ui.craft_capture_input[slot] = static_cast<uint8_t>(next);
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case 3:
+                    {
+                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
+                            static_cast<int32_t>(ui.craft_capture_filter[slot]), e.value, kCraftCaptureFilterCount));
+                        if(next != ui.craft_capture_filter[slot])
+                        {
+                            ui.craft_capture_filter[slot] = next;
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case 4:
+                    {
+                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
+                            static_cast<int32_t>(ui.craft_capture_curve[slot]), e.value, kCraftCaptureCurveCount));
+                        if(next != ui.craft_capture_curve[slot])
+                        {
+                            ui.craft_capture_curve[slot] = next;
+                            changed = true;
+                        }
+                        break;
+                    }
+                    case 5:
+                    {
+                        const int next = ClampCraftInt(static_cast<int>(ui.craft_capture_age[slot]) + e.value, 0, 100);
+                        if(next != static_cast<int>(ui.craft_capture_age[slot]))
+                        {
+                            ui.craft_capture_age[slot] = static_cast<uint8_t>(next);
+                            changed = true;
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+                if(changed)
+                    ui.ui_dirty = true;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void CraftMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    AppUiState& ui = *ctx.ui;
+    OledPager& d = *ctx.display;
+    const uint8_t active_slot = CraftClampSlotIndex(ui.craft_active_slot);
+    const CraftFocusTarget focus = CraftResolvedFocusTarget(ui);
+
+    d.Fill(false);
+    DrawTopRightMicroLabel(d, "craft");
+
+    constexpr int kSlotY0 = 12;
+    constexpr int kSlotY1 = 21;
+    constexpr int kSlotTextY = 14;
+    constexpr int kPluginTextY = 24;
+    constexpr int kSlotX[kCraftSlotCount] = {0, 43, 86};
+    constexpr int kSlotW = 42;
+
+    for(uint8_t slot = 0; slot < kCraftSlotCount; ++slot)
+    {
+        char slot_label[16];
+        FormatCraftSlotLabel(slot, ui.craft_slot_plugin[slot], slot_label, sizeof(slot_label));
+        if(focus.kind == CraftFocusKind::Slot && focus.slot == slot)
+            d.DrawRect(kSlotX[slot], kSlotY0, kSlotX[slot] + kSlotW - 1, kSlotY1, true, false);
+        DrawCraftMicroLabel(d, slot_label, kSlotX[slot], kSlotTextY, kSlotW);
+    }
+
+    const char* active_plugin_label = kCraftPluginLabels[ui.craft_slot_plugin[active_slot] % kCraftPluginCount];
+    if(focus.kind == CraftFocusKind::Plugin && focus.slot == active_slot)
+        DrawCraftBorderedMicroValue(d, active_plugin_label, kSlotX[active_slot], kPluginTextY, kSlotW);
+    else
+        DrawCraftMicroLabel(d, active_plugin_label, kSlotX[active_slot], kPluginTextY, kSlotW);
+
+    if(ui.craft_slot_plugin[active_slot] != kCraftPluginCapture)
+        return;
+
+    constexpr int kGridX[2] = {2, 66};
+    constexpr int kGridY[3] = {36, 46, 56};
+    constexpr int kGridCellW = 60;
+    for(uint8_t param = 0; param < kCraftCaptureParamCount; ++param)
+    {
+        const int col = param % 2;
+        const int row = param / 2;
+        if(focus.kind == CraftFocusKind::Param && focus.slot == active_slot && focus.param == param)
+        {
+            char value[16];
+            FormatCraftCaptureValue(ui, active_slot, param, value, sizeof(value));
+            DrawCraftBorderedMicroValue(d, value, kGridX[col], kGridY[row], kGridCellW);
+        }
+        else
+        {
+            DrawCraftMicroLabel(d, CraftCaptureParamLabel(param), kGridX[col], kGridY[row], kGridCellW);
+        }
+    }
+}
+
+bool BakeMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     (void)ctx;
     (void)e;
     return false;
 }
 
-void CraftMenu_Render(UiScreenCtx& ctx)
+void BakeMenu_Render(UiScreenCtx& ctx)
 {
     if(!ctx.display)
         return;
-    DrawBlankPlaceholder(*ctx.display, "craft");
+    DrawBlankPlaceholder(*ctx.display, "bake");
 }
 
 bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

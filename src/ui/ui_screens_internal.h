@@ -66,6 +66,8 @@ bool RecordMenu_OnEnter(UiScreenCtx& ctx);
 void RecordMenu_Render(UiScreenCtx& ctx);
 bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void CraftMenu_Render(UiScreenCtx& ctx);
+bool BakeMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void BakeMenu_Render(UiScreenCtx& ctx);
 bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void RecordRenderMenu_Render(UiScreenCtx& ctx);
 void RecordRenderExecute_OnEnter(UiScreenCtx& ctx);

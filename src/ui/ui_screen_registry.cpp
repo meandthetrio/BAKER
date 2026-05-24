@@ -51,6 +51,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                      nullptr,
                                      CraftMenu_OnEvent,
                                      CraftMenu_Render};
+    static const UiScreen bake_menu{UiScreenId::BakeMenu,
+                                    nullptr,
+                                    nullptr,
+                                    BakeMenu_OnEvent,
+                                    BakeMenu_Render};
     static const UiScreen record_render_menu{UiScreenId::RecordRenderMenu,
                                              nullptr,
                                              nullptr,
@@ -148,6 +153,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return record_menu;
         case UiScreenId::CraftMenu:
             return craft_menu;
+        case UiScreenId::BakeMenu:
+            return bake_menu;
         case UiScreenId::RecordRenderMenu:
             return record_render_menu;
         case UiScreenId::RecordRenderExecute:

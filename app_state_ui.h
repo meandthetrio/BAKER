@@ -76,6 +76,15 @@ struct AppUiState
     uint8_t main_menu_index = 0;
     uint8_t samples_menu_index = 0;
     uint8_t record_menu_index = 0;
+    uint8_t craft_focus = 0;
+    uint8_t craft_active_slot = 0;
+    uint8_t craft_slot_plugin[3] = {0, 0, 0};
+    uint8_t craft_capture_rate[3] = {0, 0, 0};
+    uint8_t craft_capture_bits[3] = {0, 0, 0};
+    uint8_t craft_capture_input[3] = {0, 0, 0};
+    uint8_t craft_capture_filter[3] = {0, 0, 0};
+    uint8_t craft_capture_curve[3] = {0, 0, 0};
+    uint8_t craft_capture_age[3] = {0, 0, 0};
     bool record_menu_source_override_active = false;
     uint8_t record_menu_source_override = 0;
     bool record_menu_armed_back_returns_to_menu = false;

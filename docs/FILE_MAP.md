@@ -80,7 +80,7 @@
 - `src/ui/ui_screens_internal.h` `[MAIN/UI]` cross-screen declarations and shared helper access for split screen units while the shared facade stays intentionally small.
 
 ### UI Screens
-- `src/ui/ui_screen_main.cpp` `[MAIN/UI]` Start, Samples/Record menu shells, and RECORD > RENDER execute/review screens.
+- `src/ui/ui_screen_main.cpp` `[MAIN/UI]` Start, Samples/Record menu shells, the CRAFT UI/state scaffold (layout only; no offline DSP/render yet), and RECORD > RENDER execute/review screens.
 - `src/ui/ui_screen_hud.cpp` `[MAIN/UI]` HUD screen.
 - `src/ui/ui_screen_fx.cpp` `[MAIN/UI]` FX screen.
 - `src/ui/ui_screen_mod.cpp` `[MAIN/UI]` MOD screen.

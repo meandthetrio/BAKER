@@ -50,6 +50,7 @@ enum class UiScreenId : uint8_t
     SamplesMenu,
     RecordMenu,
     CraftMenu,
+    BakeMenu,
     RecordRenderMenu,
     RecordRenderExecute,
     RecordRenderReview,

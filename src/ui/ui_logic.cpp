@@ -6,6 +6,7 @@
 #include "macros.h"
 #include "ui_screens.h"
 #include "ui_screens_internal.h"
+#include "ui_screen_record_internal.h"
 #include "ui_value_edit.h"
 #include "ui_overlay.h"
 #include "ui_worker.h"
@@ -21,6 +22,23 @@ namespace
 {
 static constexpr uint8_t kRenderPreviewVelocity = 120u;
 
+void PrepareSharedRecordReview(AppUiState& ui,
+                               AppRecordingState& recording,
+                               AppSharedState& shared)
+{
+    ui.record_render_phase = RecordRenderPhase::Review;
+    ui.record_render_review_focus = 0;
+    ui.record_render_status[0] = '\0';
+    ui.render_review_trim_entry = shared.recording.rec_edit;
+    ui.render_review_trim_has_entry = false;
+    ui.render_sample_rename_active = false;
+    ui.render_sample_rename_wait_for_worker = false;
+    ui.record_render_save_stem[0] = '\0';
+    recording.record_state = RecordUiState::Armed;
+    recording.record_anim_start_ms = -1.0;
+    ui.record_menu_armed_back_returns_to_menu = false;
+}
+
 void ClearParentPreviewState(AppUiState& ui)
 {
     ui.ui_parent_preview_active = false;
@@ -31,6 +49,12 @@ void ClearParentPreviewState(AppUiState& ui)
     ui.ui_parent_preview_origin_fx_cursor = 0;
     ui.ui_parent_preview_origin_process_detail = false;
     ui.ui_parent_preview_origin_process_eq_graph = false;
+}
+
+UiScreenId ReviewParentScreen(const AppUiState& ui)
+{
+    return (ui.ui_nav.top > 0u) ? ui.ui_nav.stack[ui.ui_nav.top - 1u]
+                                : UiScreenId::COUNT;
 }
 
 bool PushPreviewNoteOn(EventQueueSPSC& evtq,
@@ -268,6 +292,32 @@ void FinalizeRenderCapture(AppUiState& ui,
 
     shared.recording.rec_edit = SampleEdit_Default(rec_len);
     recording.record_slot = kRecordPreviewSampleIndex;
+}
+
+void MaybeReturnToCraftAfterLoad(AppUiState& ui)
+{
+    if(!ui.craft_browser_open)
+        return;
+    if(!ui.craft_browser_wait_for_load)
+        return;
+    if(UiNav_Active(ui.ui_nav) != UiScreenId::SdBrowse)
+        return;
+    if(ui.sd.load_in_progress)
+        return;
+    if(std::strncmp(ui.sd.status, "LOADED", 6) != 0)
+        return;
+
+    std::snprintf(ui.craft_loaded_path,
+                  sizeof(ui.craft_loaded_path),
+                  "%s",
+                  ui.sd.last_loaded_path);
+    ExtractBaseName(ui.sd.last_loaded_path,
+                    ui.craft_loaded_name,
+                    sizeof(ui.craft_loaded_name));
+    ui.craft_browser_open = false;
+    ui.craft_browser_wait_for_load = false;
+    UiNav_Pop(ui.ui_nav);
+    ui.ui_dirty = true;
 }
 } // namespace
 
@@ -724,7 +774,14 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         UiRouter_DispatchEvent(ctx, e);
     }
 
+    MaybeReturnToCraftAfterLoad(ui);
+
     const UiScreenId active_screen = UiNav_Active(ui.ui_nav);
+    if(active_screen != UiScreenId::SdBrowse)
+    {
+        ui.craft_browser_open = false;
+        ui.craft_browser_wait_for_load = false;
+    }
     if(active_screen != ui.ui_active_screen)
     {
         ui.ui_active_screen = active_screen;
@@ -760,7 +817,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             shared.recording.rec_edit = edit;
 
             recording.record_slot = kRecordPreviewSampleIndex;
-            recording.record_state = RecordUiState::Review;
+            PrepareSharedRecordReview(ui, recording, shared);
+            UiNav_Push(ui.ui_nav, UiScreenId::RecordRenderReview);
             ui.ui_dirty = true;
         }
         else
@@ -1028,12 +1086,19 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         const bool save_ok = (std::strncmp(ui.sd.save_status, "SAVED", 5) == 0);
         if(save_ok)
         {
+            const bool physical_review = (ReviewParentScreen(ui) == UiScreenId::Record);
             RecordRender_DiscardTemp(ui, recording, shared);
             ui.render_sample_rename_active = false;
             ui.record_render_save_stem[0] = '\0';
             ui.record_render_status[0] = '\0';
             if(UiNav_Active(ui.ui_nav) == UiScreenId::RecordRenderReview)
                 UiNav_Pop(ui.ui_nav);
+            if(physical_review)
+            {
+                ui.record_menu_index = recording.record_source_index & 1u;
+                if(UiNav_Active(ui.ui_nav) == UiScreenId::Record)
+                    UiNav_Pop(ui.ui_nav);
+            }
         }
         else
         {

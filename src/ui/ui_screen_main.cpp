@@ -477,6 +477,11 @@ static void DrawRecordRenderReviewActions(OledPager& d, uint8_t focus)
         DrawMicroString(d, kRerecordLabel, rerecord_x, y, true);
 }
 
+static bool RecordRenderReviewReturnsToPhysicalRecord(const AppUiState& ui)
+{
+    return (ui.ui_nav.top > 0u) && (ui.ui_nav.stack[ui.ui_nav.top - 1u] == UiScreenId::Record);
+}
+
 bool MainMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui)
@@ -626,9 +631,10 @@ static constexpr uint8_t kCraftSlotCount = 3u;
 static constexpr uint8_t kCraftPluginCapture = 1u;
 static constexpr uint8_t kCraftPluginCount = 7u;
 static constexpr uint8_t kCraftCaptureParamCount = 6u;
-static constexpr uint8_t kCraftFocusSlot = 0u;
-static constexpr uint8_t kCraftFocusPlugin = 1u;
-static constexpr uint8_t kCraftFocusParamStart = 2u;
+static constexpr uint8_t kCraftFocusLoad = 0u;
+static constexpr uint8_t kCraftFocusSlot = 1u;
+static constexpr uint8_t kCraftFocusPlugin = 2u;
+static constexpr uint8_t kCraftFocusParamStart = 3u;
 static constexpr int32_t kCraftCaptureRateCount = 6;
 static constexpr int32_t kCraftCaptureBitsCount = 5;
 static constexpr int32_t kCraftCaptureFilterCount = 5;
@@ -636,14 +642,14 @@ static constexpr int32_t kCraftCaptureCurveCount = 4;
 static constexpr int32_t kCraftSlotNameCount = 3;
 
 static const char* kCraftPluginLabels[kCraftPluginCount]
-    = {"----", "CAPTURE", "ALIAS", "TRANS", "BODY", "FDBK", "MULTI"};
-static const char* kCraftSlotNames[kCraftSlotNameCount] = {"One", "Two", "Three"};
+    = {"----", "capture", "alias", "trans", "body", "fdbk", "multi"};
+static const char* kCraftSlotNames[kCraftSlotNameCount] = {"one", "two", "three"};
 static const char* kCraftCaptureParamLabels[kCraftCaptureParamCount]
-    = {"RATE", "BITS", "INPUT", "FILTER", "CURVE", "AGE"};
+    = {"rate", "bits", "input", "filter", "curve", "age"};
 static const char* kCraftCaptureRateLabels[6] = {"48k", "32k", "27k", "22k", "16k", "12k"};
 static const char* kCraftCaptureBitsLabels[5] = {"16", "12", "10", "8", "6"};
-static const char* kCraftCaptureFilterLabels[5] = {"CLEAN", "SOFT", "RING", "LEAK", "BAD"};
-static const char* kCraftCaptureCurveLabels[4] = {"LIN", "COMP", "WARP", "NOISY"};
+static const char* kCraftCaptureFilterLabels[5] = {"clean", "soft", "ring", "leak", "bad"};
+static const char* kCraftCaptureCurveLabels[4] = {"lin", "comp", "warp", "noisy"};
 
 static int ClampCraftInt(int v, int lo, int hi)
 {
@@ -690,55 +696,86 @@ static const char* CraftCaptureParamLabel(uint8_t param)
     return kCraftCaptureParamLabels[param];
 }
 
-static int CraftTinyWidth(const char* text)
+static int CraftMicroTextWidth(const char* text)
 {
-    return TinyStringWidthCaseSensitiveTightColons(text);
+    return MicroStringWidth(text);
 }
 
-static int CraftVelModTextWidth(const char* text)
+static int CraftTinyTextWidth(const char* text)
 {
     return TinyStringWidth(text);
 }
 
-static void DrawCraftTinyValue(OledPager& d, const char* value, int x, int y)
+static void LowercaseAsciiInPlace(char* text)
 {
-    if(!value)
+    if(!text)
         return;
-    DrawTinyStringCaseSensitive(d, value, x, y, true);
+    for(size_t i = 0; text[i] != '\0'; ++i)
+    {
+        if(text[i] >= 'A' && text[i] <= 'Z')
+            text[i] = static_cast<char>(text[i] - 'A' + 'a');
+    }
 }
 
-static void DrawCraftTinyFocusedValueBox(OledPager& d, const char* value, int x, int y)
+static void DrawCraftMicroValue(OledPager& d, const char* value, int x, int y)
 {
     if(!value)
         return;
-    const int value_w = CraftTinyWidth(value);
+    DrawMicroString(d, value, x, y, true);
+}
+
+static void DrawCraftMicroFocusedValueBox(OledPager& d, const char* value, int x, int y)
+{
+    if(!value)
+        return;
+    const int value_w = CraftMicroTextWidth(value);
     const int box_w = value_w + 6;
-    const int box_h = Font5x7::H + 4;
+    const int box_h = kMicroH + 4;
     const int box_x = x;
     const int box_y = y - 2;
     d.DrawRect(box_x, box_y, box_x + box_w - 1, box_y + box_h - 1, true, false);
-    DrawTinyStringCaseSensitive(d, value, box_x + 3, y, true);
+    DrawMicroString(d, value, box_x + 3, y, true);
 }
 
-static void DrawCraftTinyLabel(OledPager& d, const char* label, int x, int y)
+static void DrawCraftMicroInvertedValueBox(OledPager& d, const char* value, int x, int y)
+{
+    if(!value)
+        return;
+    const int value_w = CraftMicroTextWidth(value);
+    const int box_w = value_w + 6;
+    const int box_h = kMicroH + 4;
+    const int box_x = x;
+    const int box_y = y - 2;
+    d.DrawRect(box_x, box_y, box_x + box_w - 1, box_y + box_h - 1, true, true);
+    DrawMicroString(d, value, box_x + 3, y, false);
+}
+
+static void DrawCraftMicroLabel(OledPager& d, const char* label, int x, int y)
+{
+    if(!label)
+        return;
+    DrawMicroString(d, label, x, y, true);
+}
+
+static void DrawCraftTinyCaseSensitiveLabel(OledPager& d, const char* label, int x, int y)
 {
     if(!label)
         return;
     DrawTinyStringCaseSensitive(d, label, x, y, true);
 }
 
-static void DrawCraftVelModText(OledPager& d, const char* text, int x, int y)
+static void DrawCraftTinyLabel(OledPager& d, const char* label, int x, int y)
 {
-    if(!text)
+    if(!label)
         return;
-    DrawTinyString(d, text, x, y, true);
+    DrawTinyString(d, label, x, y, true);
 }
 
-static void DrawCraftVelModFocusedValueBox(OledPager& d, const char* value, int x, int y)
+static void DrawCraftTinyFocusedValueBox(OledPager& d, const char* value, int x, int y)
 {
     if(!value)
         return;
-    const int value_w = CraftVelModTextWidth(value);
+    const int value_w = CraftTinyTextWidth(value);
     const int box_w = value_w + 6;
     const int box_h = Font5x7::H + 4;
     const int box_x = x;
@@ -792,6 +829,27 @@ static void FormatCraftCaptureValue(const AppUiState& ui, uint8_t slot, uint8_t 
         default:
             out[0] = '\0';
             break;
+    }
+    LowercaseAsciiInPlace(out);
+}
+
+static void FormatCraftLoadText(const AppUiState& ui, char* out, size_t out_n)
+{
+    if(!out || out_n == 0u)
+        return;
+
+    std::snprintf(out,
+                  out_n,
+                  "%s",
+                  (ui.craft_loaded_name[0] != '\0') ? ui.craft_loaded_name : "load");
+    LowercaseAsciiInPlace(out);
+
+    constexpr int kMaxWidth = 92;
+    size_t len = std::strlen(out);
+    while(len > 0u && CraftMicroTextWidth(out) > kMaxWidth)
+    {
+        out[len - 1u] = '\0';
+        --len;
     }
 }
 
@@ -929,6 +987,25 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        if(CraftNormalizedFocusIndex(ui) != kCraftFocusLoad)
+            return false;
+
+        ui.sd_delete_mode = false;
+        ui.sd_rename_mode = false;
+        ui.sample_rename_active = false;
+        ui.craft_browser_open = false;
+        ui.craft_browser_wait_for_load = false;
+        if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))
+        {
+            ui.craft_browser_open = true;
+            ui.ui_dirty = true;
+            return true;
+        }
+        return false;
+    }
+
     return false;
 }
 
@@ -943,28 +1020,38 @@ void CraftMenu_Render(UiScreenCtx& ctx)
     const uint8_t active_slot = CraftClampSlotIndex(ui.craft_active_slot);
     const char* active_slot_name = kCraftSlotNames[active_slot % kCraftSlotNameCount];
     const char* active_plugin_label = kCraftPluginLabels[ui.craft_slot_plugin[active_slot] % kCraftPluginCount];
+    char load_label[sizeof(ui.craft_loaded_name)];
+    FormatCraftLoadText(ui, load_label, sizeof(load_label));
 
     d.Fill(false);
     DrawTopRightMicroLabel(d, "craft");
 
     constexpr int kTopLabelX = 2;
+    constexpr int kLoadY = 2;
     constexpr int kTopY = 12;
     constexpr int kTopValueX = 56;
     constexpr int kPluginLabelX = 2;
     constexpr int kPluginY = 22;
     constexpr int kPluginValueX = 56;
+    constexpr int kTinySlotLabelY = 10;
+    constexpr int kTinyPluginLabelY = 20;
 
-    DrawCraftTinyLabel(d, "Slot#:", kTopLabelX, kTopY);
+    if(focus == kCraftFocusLoad)
+        DrawCraftMicroInvertedValueBox(d, load_label, kTopLabelX, kLoadY);
+    else
+        DrawCraftMicroValue(d, load_label, kTopLabelX + 3, kLoadY);
+
+    DrawCraftTinyCaseSensitiveLabel(d, "slot#:", kTopLabelX, kTinySlotLabelY);
     if(focus == kCraftFocusSlot)
         DrawCraftTinyFocusedValueBox(d, active_slot_name, kTopValueX, kTopY);
     else
-        DrawCraftTinyValue(d, active_slot_name, kTopValueX + 3, kTopY);
+        DrawCraftMicroValue(d, active_slot_name, kTopValueX + 3, kTopY);
 
-    DrawCraftVelModText(d, "plugin:", kPluginLabelX, kPluginY);
+    DrawCraftTinyLabel(d, "plugin:", kPluginLabelX, kTinyPluginLabelY);
     if(focus == kCraftFocusPlugin)
-        DrawCraftVelModFocusedValueBox(d, active_plugin_label, kPluginValueX, kPluginY);
+        DrawCraftMicroFocusedValueBox(d, active_plugin_label, kPluginValueX, kPluginY);
     else
-        DrawCraftVelModText(d, active_plugin_label, kPluginValueX + 3, kPluginY);
+        DrawCraftMicroValue(d, active_plugin_label, kPluginValueX + 3, kPluginY);
 
     if(ui.craft_slot_plugin[active_slot] != kCraftPluginCapture)
         return;
@@ -979,11 +1066,14 @@ void CraftMenu_Render(UiScreenCtx& ctx)
         {
             char value[16];
             FormatCraftCaptureValue(ui, active_slot, param, value, sizeof(value));
-            DrawCraftVelModFocusedValueBox(d, value, kGridX[col], kGridY[row]);
+            if(param == 0u || param == 1u || param == 2u || param == 5u)
+                DrawCraftTinyFocusedValueBox(d, value, kGridX[col], kGridY[row]);
+            else
+                DrawCraftMicroFocusedValueBox(d, value, kGridX[col], kGridY[row]);
         }
         else
         {
-            DrawCraftVelModText(d, CraftCaptureParamLabel(param), kGridX[col], kGridY[row]);
+            DrawCraftMicroLabel(d, CraftCaptureParamLabel(param), kGridX[col], kGridY[row]);
         }
     }
 }
@@ -1218,8 +1308,11 @@ bool RecordRenderReview_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
         else
         {
+            const bool physical_review = RecordRenderReviewReturnsToPhysicalRecord(ui);
             RecordRender_DiscardTemp(ui, recording, shared);
             UiNav_Pop(ui.ui_nav);
+            if(physical_review)
+                Record_RestoreArmedSource(ui, recording, shared);
             ui.ui_dirty = true;
         }
         return true;

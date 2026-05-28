@@ -153,6 +153,22 @@ void Record_StopPreview(AppRecordingState& recording, AppSharedState& shared)
     shared.recording.preview_stop_req.store(1, std::memory_order_release);
 }
 
+void Record_RestoreArmedSource(AppUiState& ui,
+                               AppRecordingState& recording,
+                               AppSharedState& shared)
+{
+    Record_StopPreview(recording, shared);
+    recording.record_state = RecordUiState::Armed;
+    recording.record_anim_start_ms = -1.0;
+    shared.recording.rec_source_sel.store(recording.record_source_index & 1u,
+                                          std::memory_order_release);
+    shared.recording.rec_start_req.store(0, std::memory_order_release);
+    shared.recording.rec_stop_req.store(0, std::memory_order_release);
+    shared.recording.rec_monitor_enable.store(1, std::memory_order_release);
+    ui.record_menu_armed_back_returns_to_menu = false;
+    ui.ui_dirty = true;
+}
+
 static void Record_PrepareRecordingUiState(AppEngineState& engine,
                                            AppRecordingState& recording,
                                            AppSharedState& shared)
@@ -665,12 +681,21 @@ void Record_Render(UiScreenCtx& ctx)
             const char* b = "RECORD AGAIN";
             const bool sa = (recording.record_target_index == 0);
             const bool sb = !sa;
-            d.DrawRect(8, 20, 119, 31, true, sa);
-            d.SetCursor(44, 22);
-            d.WriteString(a, Font_6x8, !sa);
-            d.DrawRect(8, 36, 119, 47, true, sb);
-            d.SetCursor(24, 38);
-            d.WriteString(b, Font_6x8, !sb);
+            static constexpr int kBoxX0 = 8;
+            static constexpr int kBoxX1 = 119;
+            static constexpr int kFirstBoxY0 = 20;
+            static constexpr int kFirstBoxY1 = 31;
+            static constexpr int kSecondBoxY0 = 36;
+            static constexpr int kSecondBoxY1 = 47;
+            const int label_a_x = kBoxX0 + ((kBoxX1 - kBoxX0 + 1) - TinyStringWidth(a)) / 2;
+            const int label_b_x = kBoxX0 + ((kBoxX1 - kBoxX0 + 1) - TinyStringWidth(b)) / 2;
+            const int label_a_y = kFirstBoxY0 + ((kFirstBoxY1 - kFirstBoxY0 + 1) - Font5x7::H) / 2;
+            const int label_b_y = kSecondBoxY0 + ((kSecondBoxY1 - kSecondBoxY0 + 1) - Font5x7::H) / 2;
+
+            d.DrawRect(kBoxX0, kFirstBoxY0, kBoxX1, kFirstBoxY1, true, sa);
+            DrawTinyString(d, a, label_a_x, label_a_y, !sa);
+            d.DrawRect(kBoxX0, kSecondBoxY0, kBoxX1, kSecondBoxY1, true, sb);
+            DrawTinyString(d, b, label_b_x, label_b_y, !sb);
         }
         break;
 

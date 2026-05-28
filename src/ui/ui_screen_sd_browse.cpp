@@ -168,6 +168,8 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             sd.load_in_progress = true;
             sd.load_progress = 0;
             SdBrowser_SetStatus(sd, "LOADING");
+            if(ctx.ui->craft_browser_open)
+                ctx.ui->craft_browser_wait_for_load = true;
             if(ctx.engine->layer.engine_load_from_perform)
                 UiNav_Pop(ctx.ui->ui_nav);
             ctx.ui->ui_dirty = true;

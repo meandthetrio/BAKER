@@ -21,6 +21,7 @@ enum class UiScreenId : uint8_t
     Fx,
     Mod,
     Macro,
+    SdManageMenu,
     SdBrowse,
     SdDeleteConfirm,
     SampleEdit,

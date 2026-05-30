@@ -153,6 +153,18 @@ void Record_StopPreview(AppRecordingState& recording, AppSharedState& shared)
     shared.recording.preview_stop_req.store(1, std::memory_order_release);
 }
 
+void Record_ApplyMonitorState(const AppUiState& ui,
+                              const AppRecordingState& recording,
+                              AppSharedState& shared)
+{
+    const bool mic_source = (recording.record_source_index
+                             == static_cast<uint8_t>(RecordInputSource::Mic));
+    const bool active_state = (recording.record_state == RecordUiState::Countdown)
+                              || (recording.record_state == RecordUiState::Recording);
+    const uint8_t enabled = (ui.settings_mic_monitor_enabled && mic_source && active_state) ? 1u : 0u;
+    shared.recording.rec_monitor_enable.store(enabled, std::memory_order_release);
+}
+
 void Record_RestoreArmedSource(AppUiState& ui,
                                AppRecordingState& recording,
                                AppSharedState& shared)
@@ -164,18 +176,18 @@ void Record_RestoreArmedSource(AppUiState& ui,
                                           std::memory_order_release);
     shared.recording.rec_start_req.store(0, std::memory_order_release);
     shared.recording.rec_stop_req.store(0, std::memory_order_release);
-    shared.recording.rec_monitor_enable.store(1, std::memory_order_release);
+    Record_ApplyMonitorState(ui, recording, shared);
     ui.record_menu_armed_back_returns_to_menu = false;
     ui.ui_dirty = true;
 }
 
-static void Record_PrepareRecordingUiState(AppEngineState& engine,
+static void Record_PrepareRecordingUiState(AppUiState& ui,
+                                           AppEngineState& engine,
                                            AppRecordingState& recording,
                                            AppSharedState& shared)
 {
     (void)engine;
     Record_StopPreview(recording, shared);
-    shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     shared.recording.rec_start_req.store(0, std::memory_order_release);
     shared.recording.rec_stop_req.store(0, std::memory_order_release);
     shared.recording.rec_active.store(0, std::memory_order_release);
@@ -198,6 +210,7 @@ static void Record_PrepareRecordingUiState(AppEngineState& engine,
 
     SampleEdit edit = SampleEdit_Default(0);
     shared.recording.rec_edit = edit;
+    Record_ApplyMonitorState(ui, recording, shared);
 }
 
 void RecordRender_DiscardTemp(AppUiState& ui,
@@ -205,7 +218,6 @@ void RecordRender_DiscardTemp(AppUiState& ui,
                               AppSharedState& shared)
 {
     Record_StopPreview(recording, shared);
-    shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
     shared.recording.render_start_req.store(0, std::memory_order_release);
     shared.recording.render_stop_req.store(0, std::memory_order_release);
     shared.recording.render_active.store(0, std::memory_order_release);
@@ -240,6 +252,7 @@ void RecordRender_DiscardTemp(AppUiState& ui,
     ui.render_sample_rename_wait_for_worker = false;
     ui.render_sample_rename_active = false;
     ui.record_render_save_stem[0] = '\0';
+    Record_ApplyMonitorState(ui, recording, shared);
 }
 
 static void Record_StartRecording(UiScreenCtx& ctx)
@@ -255,11 +268,10 @@ static void Record_StartRecording(UiScreenCtx& ctx)
                             ? static_cast<uint8_t>(RecordInputSource::Mic)
                             : static_cast<uint8_t>(RecordInputSource::LineIn);
     shared.recording.rec_source_sel.store(src, std::memory_order_release);
-    Record_PrepareRecordingUiState(engine, recording, shared);
-    // Keep input monitor live while recording.
-    shared.recording.rec_monitor_enable.store(1, std::memory_order_release);
+    Record_PrepareRecordingUiState(ui, engine, recording, shared);
     shared.recording.rec_start_req.store(1, std::memory_order_release);
     recording.record_state = RecordUiState::Recording;
+    Record_ApplyMonitorState(ui, recording, shared);
     ui.ui_dirty = true;
 }
 
@@ -570,13 +582,14 @@ void Record_Render(UiScreenCtx& ctx)
             {
                 // Successful save: go back to source select (recording is no longer at risk).
                 Record_StopPreview(recording, shared);
-                shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
                 recording.record_state = RecordUiState::SourceSelect;
+                Record_ApplyMonitorState(ui, recording, shared);
             }
             else
             {
                 // On failure, return to review so user can retry/save again.
                 recording.record_state = RecordUiState::Review;
+                Record_ApplyMonitorState(ui, recording, shared);
             }
             ui.ui_dirty = true;
         }

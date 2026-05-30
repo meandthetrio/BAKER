@@ -20,7 +20,7 @@
 static constexpr int32_t kMainMenuCount = 3;
 static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "SAMPLES", "PERFORM"};
 static constexpr int32_t kSamplesMenuCount = 4;
-static const char* kSamplesMenuLabels[kSamplesMenuCount] = {"RECORD", "CRAFT", "BAKE", "SD BROWSER"};
+static const char* kSamplesMenuLabels[kSamplesMenuCount] = {"RECORD", "CRAFT", "BAKE", "SD MANAGER"};
 static constexpr int32_t kRecordMenuCount = 3;
 static const char* kRecordMenuLabels[kRecordMenuCount] = {"LINE IN", "MICROPHONE", "RENDER"};
 
@@ -560,7 +560,12 @@ bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::BakeMenu);
         case 3:
         default:
-            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
+            ctx.ui->sd_manage_context_active = true;
+            ctx.ui->sd_manage_menu_cursor = 0u;
+            ctx.ui->sd_delete_mode = false;
+            ctx.ui->sd_rename_mode = false;
+            ctx.ui->sample_rename_active = false;
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdManageMenu);
     }
 }
 
@@ -995,6 +1000,7 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         ui.sd_delete_mode = false;
         ui.sd_rename_mode = false;
         ui.sample_rename_active = false;
+        ui.sd_manage_context_active = false;
         ui.craft_browser_open = false;
         ui.craft_browser_wait_for_load = false;
         if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))

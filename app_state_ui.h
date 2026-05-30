@@ -131,14 +131,14 @@ struct AppUiState
 
     // SHIFT menu and destructive browser flow state.
     uint8_t shift_menu_cursor = 0;
-    bool shift_menu_edit_volume = false;
-    bool shift_menu_sd_manage_active = false;
-    uint8_t shift_menu_sd_manage_cursor = 0;
+    bool settings_mic_monitor_enabled = false;
     bool shift_menu_firmware_update_active = false;
     bool shift_menu_bootloader_armed = false;
     uint32_t shift_menu_bootloader_arm_start_ms = 0;
     bool shift_menu_bootloader_loading = false;
     uint32_t shift_menu_bootloader_loading_start_ms = 0;
+    bool sd_manage_context_active = false;
+    uint8_t sd_manage_menu_cursor = 0;
     bool sd_delete_mode = false;
     uint16_t sd_delete_index = 0;
     char sd_delete_name[kSdNameMax] = {};

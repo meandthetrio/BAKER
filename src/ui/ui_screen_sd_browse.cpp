@@ -39,6 +39,74 @@ static void DrawFillOnlyString6x8(OledPager& d, const char* str, int x, int y)
     d.WriteString(str, Font_6x8, false);
 }
 
+bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        const uint8_t count = 2u;
+        uint8_t cur = ui.sd_manage_menu_cursor;
+        if(e.value > 0)
+            cur = static_cast<uint8_t>((cur + 1u) % count);
+        else if(e.value < 0)
+            cur = static_cast<uint8_t>((cur + count - 1u) % count);
+        if(cur != ui.sd_manage_menu_cursor)
+        {
+            ui.sd_manage_menu_cursor = cur;
+            ui.ui_dirty = true;
+        }
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        const bool do_delete = (ui.sd_manage_menu_cursor == 0u);
+        ui.sd_manage_context_active = true;
+        ui.sd_delete_mode = do_delete;
+        ui.sd_rename_mode = !do_delete;
+        ui.sample_rename_active = false;
+        SdBrowser_SetStatus(ui.sd, do_delete ? "DEL:SELECT" : "REN:SELECT");
+        if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))
+            ui.ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+void SdManageMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    AppUiState& ui = *ctx.ui;
+    OledPager& d = *ctx.display;
+    d.Fill(false);
+
+    DrawTinyString(d, "SD MANAGER", 34, 8, true);
+    if(ui.sd_manage_menu_cursor == 0u)
+        DrawFillOnlyString6x8(d, "DELETE SAMPLE", 16, 24);
+    else
+    {
+        d.SetCursor(16, 24);
+        d.WriteString("DELETE SAMPLE", Font_6x8, true);
+    }
+
+    if(ui.sd_manage_menu_cursor == 1u)
+        DrawFillOnlyString6x8(d, "RENAME SAMPLE", 16, 38);
+    else
+    {
+        d.SetCursor(16, 38);
+        d.WriteString("RENAME SAMPLE", Font_6x8, true);
+    }
+}
+
 static void EnsureScanRequested(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.worker)
@@ -232,7 +300,7 @@ void SdBrowse_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const char* header_label = "sd browse";
+    const char* header_label = ctx.ui->sd_manage_context_active ? "sd manager" : "sd browse";
     const int header_w = TinyStringWidth(header_label);
     const int box_w = header_w + 2;
     const int box_h = 9;

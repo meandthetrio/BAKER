@@ -32,16 +32,6 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
-        // Special case: when editing SETTINGS->VOLUME, "BACK" should exit edit mode
-        // without leaving the SETTINGS screen.
-        if(active == UiScreenId::ShiftMenu
-           && ctx.ui->shift_menu_edit_volume)
-        {
-            ctx.ui->shift_menu_edit_volume = false;
-            ctx.ui->ui_dirty = true;
-            return;
-        }
-
         // SHIFT uses BACK to cancel pending bootloader arm before leaving.
         if(active == UiScreenId::ShiftMenu && s.OnEvent && s.OnEvent(ctx, e))
             return;

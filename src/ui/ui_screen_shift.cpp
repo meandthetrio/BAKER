@@ -20,10 +20,9 @@
 
 enum ShiftMenuItem : uint8_t
 {
-    ShiftSdManage = 0,
+    ShiftSaveProject = 0,
     ShiftVolume,
-    ShiftSaveProject,
-    ShiftBootVersion,
+    ShiftMicMonitor,
     ShiftFirmwareUpdate,
     ShiftCount
 };
@@ -48,7 +47,7 @@ static void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
     DrawTinyString(d, str, x, y, false);
 }
 
-static void DrawFillSolidBorderTinyString(OledPager& d, const char* str, int x, int y)
+static void DrawOutlineTinyString(OledPager& d, const char* str, int x, int y)
 {
     if(!str)
         return;
@@ -61,22 +60,8 @@ static void DrawFillSolidBorderTinyString(OledPager& d, const char* str, int x, 
     if(y0 < 0) y0 = 0;
     if(x1 > 127) x1 = 127;
     if(y1 > 63) y1 = 63;
-    d.DrawRect(x0, y0, x1, y1, true, true);
-    if(x1 - x0 >= 2 && y1 - y0 >= 2)
-        d.DrawRect(x0 + 1, y0 + 1, x1 - 1, y1 - 1, false, false);
-    DrawTinyString(d, str, x, y, false);
-}
-
-static const char* ShiftBootVersionLabel(daisy::System::BootInfo::Version version)
-{
-    switch(version)
-    {
-        case daisy::System::BootInfo::Version::LT_v6_0: return "<6.0";
-        case daisy::System::BootInfo::Version::NONE: return "NONE";
-        case daisy::System::BootInfo::Version::v6_0: return "6.0";
-        case daisy::System::BootInfo::Version::v6_1: return "6.1+";
-        default: return "?";
-    }
+    d.DrawRect(x0, y0, x1, y1, true, false);
+    DrawTinyString(d, str, x, y, true);
 }
 
 static void ClearShiftBootloaderState(AppUiState& ui)
@@ -108,8 +93,6 @@ void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
     // Returning to SHIFT should cancel any SD delete mode.
     ctx.ui->sd_delete_mode = false;
     ctx.ui->sd_rename_mode = false;
-    ctx.ui->shift_menu_sd_manage_active = false;
-    ctx.ui->shift_menu_edit_volume = false;
     ClearShiftBootloaderState(*ctx.ui);
 }
 
@@ -121,45 +104,6 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppUiState& ui = *ctx.ui;
-    if(ui.shift_menu_sd_manage_active)
-    {
-        if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
-        {
-            const uint8_t count = 2u;
-            uint8_t cur = ui.shift_menu_sd_manage_cursor;
-            if(e.value > 0)
-                cur = static_cast<uint8_t>((cur + 1u) % count);
-            else if(e.value < 0)
-                cur = static_cast<uint8_t>((cur + count - 1u) % count);
-            if(cur != ui.shift_menu_sd_manage_cursor)
-            {
-                ui.shift_menu_sd_manage_cursor = cur;
-                ui.ui_dirty = true;
-            }
-            return true;
-        }
-        if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
-        {
-            const bool do_delete = (ui.shift_menu_sd_manage_cursor == 0u);
-            ui.sd_delete_mode = do_delete;
-            ui.sd_rename_mode = !do_delete;
-            ui.shift_menu_sd_manage_active = false;
-            ui.shift_menu_edit_volume = false;
-            SdBrowser_SetStatus(ui.sd, do_delete ? "DEL:SELECT" : "REN:SELECT");
-            UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse);
-            ui.ui_dirty = true;
-            return true;
-        }
-        if(e.type == UiInputType::BtnDown
-           && (e.id == kUiBtnPodEnc || e.id == kUiBtnPod2))
-        {
-            ui.shift_menu_sd_manage_active = false;
-            ui.ui_dirty = true;
-            return true;
-        }
-        return true;
-    }
-
     if(ui.shift_menu_bootloader_loading)
     {
         if(e.type == UiInputType::BtnDown
@@ -230,8 +174,8 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
-        // R encoder turn adjusts value when editing VOLUME.
-        if(ui.shift_menu_edit_volume && e.id == kUiEncExt)
+        // R encoder turn adjusts OUTPUT VOL directly while that row is focused.
+        if(ui.shift_menu_cursor == ShiftVolume && e.id == kUiEncExt)
         {
             if(!ctx.params)
                 return true;
@@ -266,8 +210,8 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
-        // L encoder turn scrolls between settings rows when not editing.
-        if(!ui.shift_menu_edit_volume && e.id == kUiEncPod)
+        // L encoder turn scrolls between settings rows.
+        if(e.id == kUiEncPod)
         {
             uint8_t cur = ui.shift_menu_cursor;
             if(e.value > 0)
@@ -288,29 +232,6 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // EXT encoder click = select.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(ui.shift_menu_cursor == ShiftSdManage)
-        {
-            // SD MANAGE: enter SD management section.
-            ui.shift_menu_sd_manage_active = true;
-            ui.shift_menu_sd_manage_cursor = 0u;
-            ui.ui_dirty = true;
-            return true;
-        }
-        if(ui.shift_menu_cursor == ShiftVolume)
-        {
-            if(ui.shift_menu_edit_volume && ctx.params)
-            {
-                auto& t = ctx.params->EditTargets();
-                t.master_level = 1.0f; // UNITY
-                ctx.params->PublishTargets();
-                ui.ui_dirty = true;
-                return true;
-            }
-            // VOLUME: toggle edit mode.
-            ui.shift_menu_edit_volume = !ui.shift_menu_edit_volume;
-            ui.ui_dirty = true;
-            return true;
-        }
         if(ui.shift_menu_cursor == ShiftSaveProject)
         {
             if(!project.metadata_scan_complete && !project.metadata_scan_requested)
@@ -325,8 +246,14 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ui.ui_dirty = true;
             return true;
         }
-        if(ui.shift_menu_cursor == ShiftBootVersion)
+        if(ui.shift_menu_cursor == ShiftVolume)
         {
+            return true;
+        }
+        if(ui.shift_menu_cursor == ShiftMicMonitor)
+        {
+            ui.settings_mic_monitor_enabled = !ui.settings_mic_monitor_enabled;
+            ui.ui_dirty = true;
             return true;
         }
         if(ui.shift_menu_cursor == ShiftFirmwareUpdate)
@@ -338,7 +265,6 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
-    // L encoder click backs out one level when editing volume.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
         if(ui.shift_menu_bootloader_armed)
@@ -346,12 +272,6 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             CancelShiftBootloaderArm(ui);
             ui.ui_dirty = true;
             return true; // consume so BACK acts as cancel-first for bootloader arm
-        }
-        if(ui.shift_menu_edit_volume)
-        {
-            ui.shift_menu_edit_volume = false;
-            ui.ui_dirty = true;
-            return true; // consume so router doesn't pop screen
         }
     }
 
@@ -365,15 +285,8 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
     }
 
-    // POD2 also cancels volume edit (optional)
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(ui.shift_menu_edit_volume)
-        {
-            ui.shift_menu_edit_volume = false;
-            ui.ui_dirty = true;
-            return true;
-        }
         if(ui.shift_menu_bootloader_armed)
         {
             CancelShiftBootloaderArm(ui);
@@ -455,22 +368,6 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     }
     else
     {
-    if(ui.shift_menu_sd_manage_active)
-    {
-        DrawTinyString(d, "SD MANAGE", 36, 8, true);
-        if(ui.shift_menu_sd_manage_cursor == 0u)
-            DrawFillOnlyTinyString(d, "DELETE SAMPLE", 16, 26);
-        else
-            DrawTinyString(d, "DELETE SAMPLE", 16, 26, true);
-
-        if(ui.shift_menu_sd_manage_cursor == 1u)
-            DrawFillOnlyTinyString(d, "RENAME SAMPLE", 16, 38);
-        else
-            DrawTinyString(d, "RENAME SAMPLE", 16, 38, true);
-
-        return;
-    }
-
     // Compute volume percent for display (0..200 with boost).
     uint32_t vol_pct = 0;
     if(ctx.params)
@@ -496,16 +393,17 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         const bool sel = (ui.shift_menu_cursor == (uint8_t)i);
         const int label_y = row_y0 + i * kRowPitch;
         const int label_x = 1;
-        if(i == ShiftSdManage)
+        if(i == ShiftSaveProject)
         {
-            if(sel) DrawFillOnlyTinyString(d, "SD MANAGE", label_x, label_y);
-            else DrawTinyString(d, "SD MANAGE", label_x, label_y, true);
+            if(sel) DrawFillOnlyTinyString(d, "SAVE PROJECT", label_x, label_y);
+            else DrawTinyString(d, "SAVE PROJECT", label_x, label_y, true);
         }
         else if(i == ShiftVolume)
         {
             const char* label = "OUTPUT VOL";
-            if(sel) DrawFillSolidBorderTinyString(d, label, label_x, label_y);
-            else DrawTinyString(d, label, label_x, label_y, true);
+            const int volume_label_x = label_x + 1;
+            if(sel) DrawOutlineTinyString(d, label, volume_label_x, label_y);
+            else DrawTinyString(d, label, volume_label_x, label_y, true);
 
             // Right-aligned value.
             char buf[8];
@@ -525,20 +423,15 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
             const int val_w = TinyStringWidth(buf);
             DrawTinyString(d, buf, screen_w - val_w - 1, label_y, true);
         }
-        else if(i == ShiftSaveProject)
+        else if(i == ShiftMicMonitor)
         {
-            if(sel) DrawFillOnlyTinyString(d, "SAVE PROJECT", label_x, label_y);
-            else DrawTinyString(d, "SAVE PROJECT", label_x, label_y, true);
-        }
-        else if(i == ShiftBootVersion)
-        {
-            const char* label = "BOOT VER";
+            const char* label = "MIC MONITOR";
             if(sel) DrawFillOnlyTinyString(d, label, label_x, label_y);
             else DrawTinyString(d, label, label_x, label_y, true);
 
-            const char* ver = ShiftBootVersionLabel(daisy::System::GetBootloaderVersion());
-            const int val_w = TinyStringWidth(ver);
-            DrawTinyString(d, ver, screen_w - val_w - 1, label_y, true);
+            const char* value = ui.settings_mic_monitor_enabled ? "ON" : "OFF";
+            const int val_w = TinyStringWidth(value);
+            DrawTinyString(d, value, screen_w - val_w - 1, label_y, true);
         }
         else if(i == ShiftFirmwareUpdate)
         {

@@ -695,7 +695,6 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             {
                 // Reset SHIFT menu state on entry.
                 ui.shift_menu_cursor = 0;
-                ui.shift_menu_edit_volume = false;
                 ui.shift_menu_bootloader_armed = false;
                 ui.shift_menu_bootloader_arm_start_ms = 0;
                 ui.shift_menu_bootloader_loading = false;
@@ -800,7 +799,6 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     if(recording.record_state == RecordUiState::Recording
        && shared.recording.rec_active.load(std::memory_order_acquire) == 0)
     {
-        shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
         const uint32_t rec_len = shared.recording.rec_length.load(std::memory_order_acquire);
         if(rec_len > 0)
         {
@@ -818,12 +816,14 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
             recording.record_slot = kRecordPreviewSampleIndex;
             PrepareSharedRecordReview(ui, recording, shared);
+            Record_ApplyMonitorState(ui, recording, shared);
             UiNav_Push(ui.ui_nav, UiScreenId::RecordRenderReview);
             ui.ui_dirty = true;
         }
         else
         {
             recording.record_state = RecordUiState::SourceSelect;
+            Record_ApplyMonitorState(ui, recording, shared);
             ui.ui_dirty = true;
         }
     }
@@ -914,7 +914,6 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     {
         shared.recording.render_done.store(0, std::memory_order_release);
         shared.recording.render_active.store(0, std::memory_order_release);
-        shared.recording.rec_monitor_enable.store(0, std::memory_order_release);
         if(ui.record_render_note_on_sent && !ui.record_render_note_off_sent)
         {
             if(PushPreviewNoteOff(evtq, diag, ui, ui.record_render_note))
@@ -933,6 +932,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 UiNav_Pop(ui.ui_nav);
                 UiNav_Push(ui.ui_nav, UiScreenId::RecordRenderReview);
             }
+            Record_ApplyMonitorState(ui, recording, shared);
         }
         else
         {

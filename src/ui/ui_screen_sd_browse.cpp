@@ -27,7 +27,8 @@ namespace
 static constexpr uint8_t kSdManageVisibleRows = 6;
 static constexpr uint8_t kSdManageActionCount = 2;
 static constexpr int kSdManageRowPitch = Font5x7::H + 2;
-static constexpr int kSdManageNumberX = 1;
+static constexpr int kSdManageNumberX = 2;
+static constexpr int kSdManageRowBoxX = 1;
 static constexpr int kSdManageNameX = 25;
 static constexpr int kSdManageStyleX = 95;
 static constexpr int kSdManageFocusedRowTopExtra = 1;
@@ -513,10 +514,10 @@ void DrawSdManageRow(OledPager& d,
 
     if(focused)
     {
-        const int row_w = (kSdManageStyleX + TinyStringWidth("Pluck")) - kSdManageNumberX;
-        int x0 = kSdManageNumberX;
+        const int row_w = (kSdManageStyleX + TinyStringWidth("Pluck")) - kSdManageRowBoxX;
+        int x0 = kSdManageRowBoxX;
         int y0 = row_y - kSdManageFocusedRowTopExtra;
-        int x1 = kSdManageNumberX + row_w;
+        int x1 = kSdManageRowBoxX + row_w;
         int y1 = row_y + Font5x7::H;
         if(x0 < 0) x0 = 0;
         if(y0 < 0) y0 = 0;
@@ -524,13 +525,13 @@ void DrawSdManageRow(OledPager& d,
         if(y1 > 63) y1 = 63;
         d.DrawRect(x0, y0, x1, y1, true, true);
         DrawTinyString(d, number, kSdManageNumberX, row_y, false);
-        DrawTinyString(d, name, kSdManageNameX, row_y, false);
+        DrawTinyStringCaseSensitive(d, name, kSdManageNameX, row_y, false);
         DrawTinyStringCaseSensitive(d, kSdManageStylePlaceholder, kSdManageStyleX, row_y, false);
         return;
     }
 
     DrawTinyString(d, number, kSdManageNumberX, row_y, true);
-    DrawTinyString(d, name, kSdManageNameX, row_y, true);
+    DrawTinyStringCaseSensitive(d, name, kSdManageNameX, row_y, true);
     DrawTinyStringCaseSensitive(d, kSdManageStylePlaceholder, kSdManageStyleX, row_y, true);
 }
 
@@ -758,7 +759,7 @@ void SdManageActionMenu_Render(UiScreenCtx& ctx)
     d.DrawRect(kSdManageOverlayX0, kSdManageOverlayY0, kSdManageOverlayX1, kSdManageOverlayY1, false, true);
     d.DrawRect(kSdManageOverlayX0, kSdManageOverlayY0, kSdManageOverlayX1, kSdManageOverlayY1, true, false);
 
-    DrawTinyString(d, name, kSdManageOverlayX0 + 4, kSdManageOverlayY0 + 4, true);
+    DrawTinyStringCaseSensitive(d, name, kSdManageOverlayX0 + 4, kSdManageOverlayY0 + 4, true);
     if(ui.sd_manage_action_cursor == 0u)
         DrawFillOnlyTinyString(d, "rename", kSdManageOverlayRenameX, kSdManageOverlayActionY);
     else

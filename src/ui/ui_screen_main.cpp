@@ -22,7 +22,7 @@ static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "SAMPLES", "PERFORM
 static constexpr int32_t kSamplesMenuCount = 4;
 static const char* kSamplesMenuLabels[kSamplesMenuCount] = {"RECORD", "CRAFT", "BAKE", "SD MANAGER"};
 static constexpr int32_t kRecordMenuCount = 3;
-static const char* kRecordMenuLabels[kRecordMenuCount] = {"LINE IN", "MICROPHONE", "RENDER"};
+static const char* kRecordMenuLabels[kRecordMenuCount] = {"LINE IN", "MICROPHONE", "PERFORM"};
 
 static void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
 {
@@ -243,7 +243,15 @@ static void DrawTopRightMicroLabel(OledPager& d, const char* label)
     const int box_w = w + 4;
     const int x = 128 - box_w;
     d.DrawRect(x, 0, x + box_w - 1, box_h - 1, true, true);
-    DrawMicroString(d, label, x + 2, 2, false);
+    const int text_x = x + 2;
+    if(std::strcmp(label, "samples") == 0)
+    {
+        DrawMicroString(d, "sam", text_x, 2, false);
+        DrawMicroString(d, "p", text_x + (3 * kMicroAdvance) + 1, 2, false);
+        DrawMicroString(d, "les", text_x + (4 * kMicroAdvance), 2, false);
+        return;
+    }
+    DrawMicroString(d, label, text_x, 2, false);
 }
 
 static void DrawMenuListStyle(OledPager& d,
@@ -328,8 +336,9 @@ static void DrawRecordRenderValueRow(OledPager& d,
     const int box_h = Font5x7::H + 4;
     const int box_x = 128 - box_w - 2;
     const int box_y = y - 2;
-    d.DrawRect(box_x, box_y, box_x + box_w - 1, box_y + box_h - 1, true, value_focused);
-    DrawTinyString(d, value, box_x + 3, y, value_focused ? false : true);
+    if(value_focused)
+        d.DrawRect(box_x, box_y, box_x + box_w - 1, box_y + box_h - 1, true, false);
+    DrawTinyString(d, value, box_x + 3, y, true);
 }
 
 static void DrawRecordRenderMenuStyle(OledPager& d, const AppUiState& ui)
@@ -347,7 +356,7 @@ static void DrawRecordRenderMenuStyle(OledPager& d, const AppUiState& ui)
     FormatRecordRenderHoldValue(static_cast<int>(ui.record_render_hold_ms), hold_value, sizeof(hold_value));
 
     d.Fill(false);
-    DrawTopRightMicroLabel(d, "render");
+    DrawTopRightMicroLabel(d, "perform");
 
     DrawRecordRenderValueRow(d,
                              "note",
@@ -1308,6 +1317,11 @@ bool RecordRenderReview_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 BuildDefaultRenderSaveStem(ui, stem, sizeof(stem));
             std::snprintf(ui.project_rename_draft, sizeof(ui.project_rename_draft), "%s", stem);
             ui.project_rename_length = static_cast<uint8_t>(std::strlen(ui.project_rename_draft));
+            if(ui.project_rename_length > 10u)
+            {
+                ui.project_rename_length = 10u;
+                ui.project_rename_draft[ui.project_rename_length] = '\0';
+            }
             ui.render_sample_rename_active = true;
             ui.render_sample_rename_wait_for_worker = false;
             ClearRecordRenderStatus(ui);

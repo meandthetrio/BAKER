@@ -185,74 +185,28 @@ void DrawTinyStringCaseSensitive(OledPager& d, const char* str, int x, int y, bo
     {
         const char ch = str[i];
 
-        if(ch == 'H' || ch == 'L' || ch == '#')
+        if(ch == '#')
         {
-            if(ch == '#')
+            static constexpr uint8_t kSharpRows[Font5x7::H] = {
+                0b01010,
+                0b11111,
+                0b01010,
+                0b11111,
+                0b01010,
+                0b01010,
+                0b00000,
+            };
+            for(int yy = 0; yy < Font5x7::H; ++yy)
             {
-                static constexpr uint8_t kSharpRows[Font5x7::H] = {
-                    0b01010,
-                    0b11111,
-                    0b01010,
-                    0b11111,
-                    0b01010,
-                    0b01010,
-                    0b00000,
-                };
-                for(int yy = 0; yy < Font5x7::H; ++yy)
+                const uint8_t row = kSharpRows[yy];
+                for(int xx = 0; xx < Font5x7::W; ++xx)
                 {
-                    const uint8_t row = kSharpRows[yy];
-                    for(int xx = 0; xx < Font5x7::W; ++xx)
+                    if((row >> (Font5x7::W - 1 - xx)) & 1u)
                     {
-                        if((row >> (Font5x7::W - 1 - xx)) & 1u)
-                        {
-                            const int px = pen_x + xx;
-                            const int py = y + yy;
-                            if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                                d.DrawPixel(px, py, on);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                static constexpr int kTallUpperH = 9;
-                static constexpr uint8_t kTallHRows[kTallUpperH] = {
-                    0b10001,
-                    0b10001,
-                    0b10001,
-                    0b10001,
-                    0b11111,
-                    0b10001,
-                    0b10001,
-                    0b10001,
-                    0b10001,
-                };
-                static constexpr uint8_t kTallLRows[kTallUpperH] = {
-                    0b10000,
-                    0b10000,
-                    0b10000,
-                    0b10000,
-                    0b10000,
-                    0b10000,
-                    0b10000,
-                    0b10000,
-                    0b11111,
-                };
-                const uint8_t* rows = (ch == 'H') ? kTallHRows : kTallLRows;
-                const int glyph_y = y - 2;
-
-                for(int yy = 0; yy < kTallUpperH; ++yy)
-                {
-                    const uint8_t row = rows[yy];
-                    for(int xx = 0; xx < Font5x7::W; ++xx)
-                    {
-                        if((row >> (Font5x7::W - 1 - xx)) & 1u)
-                        {
-                            const int px = pen_x + xx;
-                            const int py = glyph_y + yy;
-                            if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                                d.DrawPixel(px, py, on);
-                        }
+                        const int px = pen_x + xx;
+                        const int py = y + yy;
+                        if(px >= 0 && px < 128 && py >= 0 && py < 64)
+                            d.DrawPixel(px, py, on);
                     }
                 }
             }

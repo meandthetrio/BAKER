@@ -26,7 +26,8 @@ static constexpr uint8_t kSaveProjectMenuOptionCount = 2;
 static constexpr int kProjectRowPitch = Font5x7::H + 2;
 static constexpr int kStyleFilterRowPitch = Font5x7::H + 1;
 static constexpr int kStyleFilterRowsStartY = 16;
-static constexpr int kProjectNumberX = 1;
+static constexpr int kProjectNumberX = 2;
+static constexpr int kProjectRowBoxX = 1;
 static constexpr int kProjectNameX = 25;
 static constexpr int kProjectStyleX = 95;
 static constexpr int kProjectHeaderButtonY = 0;
@@ -47,13 +48,14 @@ static constexpr int kProjectOverlayX1 = 115;
 static constexpr int kProjectOverlayY1 = 54;
 static constexpr uint8_t kRenameCols = 9;
 static constexpr uint8_t kRenameRows = 4;
+static constexpr uint8_t kRenameUiMaxLength = 10;
 static constexpr int kRenameNameX = 2;
 static constexpr int kRenameNameY = 8;
-static constexpr int kRenameSaveY = 0;
-static constexpr int kRenameGridX = 2;
-static constexpr int kRenameGridY = 22;
-static constexpr int kRenameGridXPitch = 14;
-static constexpr int kRenameGridYPitch = 10;
+static constexpr int kRenameSaveY = 1;
+static constexpr int kRenameGridX = 9;
+static constexpr int kRenameGridY = 20;
+static constexpr int kRenameGridXPitch = 13;
+static constexpr int kRenameGridYPitch = 11;
 static const char kRenameGrid[kRenameRows][kRenameCols + 1] = {
     "abcdefghi",
     "jklmnopqr",
@@ -94,6 +96,58 @@ void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
     if(y1 > 63) y1 = 63;
     d.DrawRect(x0, y0, x1, y1, true, true);
     DrawTinyString(d, str, x, y, false);
+}
+
+void DrawFillOnlyTinyStringCaseSensitive(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+    const int w = TinyStringWidth(str);
+    int x0 = x - 2;
+    int y0 = y - 2;
+    int x1 = x + w + 1;
+    int y1 = y + Font5x7::H + 1;
+    if(x0 < 0) x0 = 0;
+    if(y0 < 0) y0 = 0;
+    if(x1 > 127) x1 = 127;
+    if(y1 > 63) y1 = 63;
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    DrawTinyStringCaseSensitive(d, str, x, y, false);
+}
+
+void DrawInvertedAltTinyString(OledPager& d, const char* str, int x, int y)
+{
+    if(!str)
+        return;
+
+    int inner_x0 = x - 1;
+    int inner_y0 = y - 1;
+    int inner_x1 = x + Font5x7::W;
+    int inner_y1 = y + Font5x7::H;
+
+    int gap_x0 = inner_x0 - 1;
+    int gap_y0 = inner_y0 - 1;
+    int gap_x1 = inner_x1 + 1;
+    int gap_y1 = inner_y1 + 1;
+
+    int dotted_x0 = gap_x0 - 1;
+    int dotted_y0 = gap_y0 - 1;
+    int dotted_x1 = gap_x1 + 1;
+    int dotted_y1 = gap_y1 + 1;
+
+    if(gap_x0 < 0) gap_x0 = 0;
+    if(gap_y0 < 0) gap_y0 = 0;
+    if(gap_x1 > 127) gap_x1 = 127;
+    if(gap_y1 > 63) gap_y1 = 63;
+    if(inner_x0 < 0) inner_x0 = 0;
+    if(inner_y0 < 0) inner_y0 = 0;
+    if(inner_x1 > 127) inner_x1 = 127;
+    if(inner_y1 > 63) inner_y1 = 63;
+
+    d.DrawRect(gap_x0, gap_y0, gap_x1, gap_y1, false, true);
+    d.DrawRect(inner_x0, inner_y0, inner_x1, inner_y1, true, true);
+    DrawDottedRect(d, dotted_x0, dotted_y0, dotted_x1, dotted_y1, true);
+    DrawTinyStringCaseSensitive(d, str, x, y, false);
 }
 
 uint8_t WrapCursor(uint8_t value, int delta, uint8_t count)
@@ -564,10 +618,10 @@ void DrawProjectSlotRow(OledPager& d, const AppProjectState& project, uint8_t sl
 
     if(focused)
     {
-        const int row_w = (kProjectStyleX + TinyStringWidth("Pluck")) - kProjectNumberX;
-        int x0 = kProjectNumberX;
+        const int row_w = (kProjectStyleX + TinyStringWidth("Pluck")) - kProjectRowBoxX;
+        int x0 = kProjectRowBoxX;
         int y0 = row_y - kProjectFocusedRowTopExtra;
-        int x1 = kProjectNumberX + row_w;
+        int x1 = kProjectRowBoxX + row_w;
         int y1 = row_y + Font5x7::H;
         if(x0 < 0) x0 = 0;
         if(y0 < 0) y0 = 0;
@@ -575,13 +629,13 @@ void DrawProjectSlotRow(OledPager& d, const AppProjectState& project, uint8_t sl
         if(y1 > 63) y1 = 63;
         d.DrawRect(x0, y0, x1, y1, true, true);
         DrawTinyString(d, number, kProjectNumberX, row_y, false);
-        DrawTinyString(d, name, kProjectNameX, row_y, false);
+        DrawTinyStringCaseSensitive(d, name, kProjectNameX, row_y, false);
         DrawTinyStringCaseSensitive(d, style, kProjectStyleX, row_y, false);
         return;
     }
 
     DrawTinyString(d, number, kProjectNumberX, row_y, true);
-    DrawTinyString(d, name, kProjectNameX, row_y, true);
+    DrawTinyStringCaseSensitive(d, name, kProjectNameX, row_y, true);
     DrawTinyStringCaseSensitive(d, style, kProjectStyleX, row_y, true);
 }
 
@@ -665,10 +719,23 @@ char RenameGridChar(uint8_t row, uint8_t col, bool uppercase)
     return c;
 }
 
+bool RenameGridHasShiftAlt(uint8_t row, uint8_t col)
+{
+    const char c = kRenameGrid[row % kRenameRows][col % kRenameCols];
+    return c >= 'a' && c <= 'z';
+}
+
 uint8_t RenameMaxLength(const AppUiState& ui)
 {
-    return (ui.sample_rename_active || ui.render_sample_rename_active) ? kSdRenameStemMax
-                                   : static_cast<uint8_t>(kProjectNameMax - 1u);
+    (void)ui;
+    return kRenameUiMaxLength;
+}
+
+void ClampRenameDraft(AppUiState& ui)
+{
+    if(ui.project_rename_length > kRenameUiMaxLength)
+        ui.project_rename_length = kRenameUiMaxLength;
+    ui.project_rename_draft[ui.project_rename_length] = '\0';
 }
 
 void RequestProjectSlotMetadata(AppUiState& ui,
@@ -805,7 +872,7 @@ bool QueueNamedSaveRequest(AppUiState& ui,
     std::snprintf(ui.pending_named_save_name,
                   sizeof(ui.pending_named_save_name),
                   "%.*s",
-                  static_cast<int>(kProjectNameMax - 1u),
+                  static_cast<int>(kRenameUiMaxLength),
                   ui.project_rename_draft);
     ui.project_rename_for_new_save = false;
 
@@ -826,7 +893,7 @@ bool QueueRenameRequest(AppUiState& ui, AppProjectState& project, AppWorkerState
     std::snprintf(project.pending_rename_name,
                   sizeof(project.pending_rename_name),
                   "%.*s",
-                  static_cast<int>(kProjectNameMax - 1u),
+                  static_cast<int>(kRenameUiMaxLength),
                   ui.project_rename_draft);
 
     const UiReq req{UiReqType::RenameProject, project.pending_rename_slot, 0};
@@ -899,7 +966,7 @@ bool QueueRenderSaveRequest(AppUiState& ui, AppWorkerState& worker)
     std::snprintf(ui.record_render_save_stem,
                   sizeof(ui.record_render_save_stem),
                   "%.*s",
-                  static_cast<int>(kSdRenameStemMax),
+                  static_cast<int>(kRenameUiMaxLength),
                   ui.project_rename_draft);
     if(ui.sd.scan_done && RenderSaveNameExistsInBrowser(ui, ui.record_render_save_stem))
     {
@@ -1086,7 +1153,7 @@ void ProjectActionMenu_Render(UiScreenCtx& ctx)
     d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, false, true);
     d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, true, false);
 
-    DrawTinyString(d, name, overlay_x0 + 4, overlay_y0 + 4, true);
+    DrawTinyStringCaseSensitive(d, name, overlay_x0 + 4, overlay_y0 + 4, true);
     if(ui.project_action_cursor == 0u)
         DrawFillOnlyTinyString(d, "load", overlay_x0 + 8, overlay_y0 + 18);
     else
@@ -1224,6 +1291,7 @@ void RenameProject_OnEnter(UiScreenCtx& ctx)
     ui.ui_parent_preview_origin_process_eq_graph = false;
     if(ui.sample_rename_active || ui.render_sample_rename_active)
     {
+        ClampRenameDraft(ui);
         ui.project_rename_grid_col = 0;
         ui.project_rename_grid_row = 0;
         ui.project_rename_focus = ProjectRenameFocus::Grid;
@@ -1243,6 +1311,7 @@ void RenameProject_OnEnter(UiScreenCtx& ctx)
                       project.slot_names[slot]);
     }
     ui.project_rename_length = static_cast<uint8_t>(std::strlen(ui.project_rename_draft));
+    ClampRenameDraft(ui);
     ui.project_rename_grid_col = 0;
     ui.project_rename_grid_row = 0;
     ui.project_rename_focus = ProjectRenameFocus::Grid;
@@ -1414,7 +1483,7 @@ void RenameProject_Render(UiScreenCtx& ctx)
     const bool action_focused = (ui.project_rename_focus == ProjectRenameFocus::Save)
                                 || (ui.project_rename_focus == ProjectRenameFocus::Cancel);
     const char* action_label = show_cancel ? kRenameCancelLabel : kRenameSaveLabel;
-    const int action_x = static_cast<int>(d.Width()) - TinyStringWidth(action_label) - 2;
+    const int action_x = static_cast<int>(d.Width()) - TinyStringWidth(action_label) - 3;
     if(action_focused)
         DrawFillOnlyTinyString(d, action_label, action_x, kRenameSaveY);
     else
@@ -1424,17 +1493,20 @@ void RenameProject_Render(UiScreenCtx& ctx)
     {
         for(uint8_t col = 0; col < kRenameCols; ++col)
         {
-            char label[2] = {RenameGridChar(row, col, ctx.rshift), '\0'};
-            const int x = kRenameGridX + static_cast<int>(col) * kRenameGridXPitch;
-            const int y = kRenameGridY + static_cast<int>(row) * kRenameGridYPitch;
             const bool focused = (ui.project_rename_focus == ProjectRenameFocus::Grid)
                                  && (row == ui.project_rename_grid_row)
                                  && (col == ui.project_rename_grid_col);
+            const bool has_shift_alt = RenameGridHasShiftAlt(row, col);
+            const bool show_shift_alt = focused && has_shift_alt && ctx.rshift;
+            char label[2] = {RenameGridChar(row, col, show_shift_alt), '\0'};
+            const int x = kRenameGridX + static_cast<int>(col) * kRenameGridXPitch;
+            const int y = kRenameGridY + static_cast<int>(row) * kRenameGridYPitch;
             if(focused)
             {
-                const int w = TinyStringWidth(label);
-                DrawDottedRect(d, x - 3, y - 3, x + w + 2, y + Font5x7::H + 2, true);
-                DrawTinyStringCaseSensitive(d, label, x, y, true);
+                if(show_shift_alt || !has_shift_alt)
+                    DrawFillOnlyTinyStringCaseSensitive(d, label, x, y);
+                else
+                    DrawInvertedAltTinyString(d, label, x, y);
             }
             else
             {
@@ -1507,7 +1579,7 @@ void SaveProjectMenu_Render(UiScreenCtx& ctx)
     d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, false, true);
     d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, true, false);
 
-    DrawTinyString(d, active_name, overlay_x0 + 4, overlay_y0 + 4, true);
+    DrawTinyStringCaseSensitive(d, active_name, overlay_x0 + 4, overlay_y0 + 4, true);
     if(ui.save_project_menu_cursor == 0u)
         DrawFillOnlyTinyString(d, "new", overlay_x0 + 8, overlay_y0 + 18);
     else

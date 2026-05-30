@@ -42,8 +42,11 @@ bool ExpressUiTargetLocked(const AppSharedState& shared,
 bool ProjectStatus_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void ProjectStatus_Render(UiScreenCtx& ctx);
 
+void SdManageMenu_OnEnter(UiScreenCtx& ctx);
 bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdManageMenu_Render(UiScreenCtx& ctx);
+bool SdManageActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void SdManageActionMenu_Render(UiScreenCtx& ctx);
 
 void SdBrowse_OnEnter(UiScreenCtx& ctx);
 bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

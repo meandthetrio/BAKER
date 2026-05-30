@@ -303,9 +303,7 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
 
     ctx.engine->layer.engine_load_target_layer = engine.perform_nav.perform_layer & 1u;
     ctx.engine->layer.engine_load_from_perform = true;
-    ctx.ui->sd_manage_context_active = false;
     ctx.ui->sd_delete_mode = false;
-    ctx.ui->sd_rename_mode = false;
     ctx.ui->sample_rename_active = false;
     return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
 }

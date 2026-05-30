@@ -50,8 +50,10 @@ bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx)
 
     SdBrowser_SetStatus(sd, "DELETING");
 
-    ui.sd_delete_mode = true;
+    ui.sd_delete_mode = false;
     UiNav_Pop(ui.ui_nav);
+    if(UiNav_Active(ui.ui_nav) == UiScreenId::SdManageActionMenu)
+        UiNav_Pop(ui.ui_nav);
     ui.ui_dirty = true;
     return true;
 }

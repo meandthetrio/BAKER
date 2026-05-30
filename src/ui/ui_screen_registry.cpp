@@ -116,10 +116,15 @@ const UiScreen& GetScreen(UiScreenId id)
     static const UiScreen mod{UiScreenId::Mod, nullptr, nullptr, Mod_OnEvent, Mod_Render};
     static const UiScreen macro{UiScreenId::Macro, nullptr, nullptr, Macro_OnEvent, Macro_Render};
     static const UiScreen sd_manage{UiScreenId::SdManageMenu,
-                                    nullptr,
+                                    SdManageMenu_OnEnter,
                                     nullptr,
                                     SdManageMenu_OnEvent,
                                     SdManageMenu_Render};
+    static const UiScreen sd_manage_actions{UiScreenId::SdManageActionMenu,
+                                            nullptr,
+                                            nullptr,
+                                            SdManageActionMenu_OnEvent,
+                                            SdManageActionMenu_Render};
     static const UiScreen sd{UiScreenId::SdBrowse, SdBrowse_OnEnter, nullptr, SdBrowse_OnEvent, SdBrowse_Render};
     static const UiScreen sd_del_confirm{UiScreenId::SdDeleteConfirm,
                                         nullptr,
@@ -204,6 +209,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return macro;
         case UiScreenId::SdManageMenu:
             return sd_manage;
+        case UiScreenId::SdManageActionMenu:
+            return sd_manage_actions;
         case UiScreenId::SdBrowse:
             return sd;
         case UiScreenId::SdDeleteConfirm:

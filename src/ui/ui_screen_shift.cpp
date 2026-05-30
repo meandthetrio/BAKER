@@ -92,7 +92,6 @@ void ShiftMenu_OnScreenEnter(UiScreenCtx& ctx)
         return;
     // Returning to SHIFT should cancel any SD delete mode.
     ctx.ui->sd_delete_mode = false;
-    ctx.ui->sd_rename_mode = false;
     ClearShiftBootloaderState(*ctx.ui);
 }
 

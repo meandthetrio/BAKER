@@ -560,11 +560,15 @@ bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::BakeMenu);
         case 3:
         default:
-            ctx.ui->sd_manage_context_active = true;
-            ctx.ui->sd_manage_menu_cursor = 0u;
             ctx.ui->sd_delete_mode = false;
-            ctx.ui->sd_rename_mode = false;
             ctx.ui->sample_rename_active = false;
+            ctx.ui->sd_manage_focus_index = kProjectPresetsHeaderCount;
+            ctx.ui->sd_manage_top_row = 0u;
+            ctx.ui->sd_manage_sort_mode = ProjectPresetsSortMode::Number;
+            ctx.ui->sd_manage_sort_descending = false;
+            ctx.ui->sd_manage_visible_count = 0u;
+            ctx.ui->sd_manage_current_index = 0u;
+            ctx.ui->sd_manage_action_cursor = 0u;
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdManageMenu);
     }
 }
@@ -998,9 +1002,7 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return false;
 
         ui.sd_delete_mode = false;
-        ui.sd_rename_mode = false;
         ui.sample_rename_active = false;
-        ui.sd_manage_context_active = false;
         ui.craft_browser_open = false;
         ui.craft_browser_wait_for_load = false;
         if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))

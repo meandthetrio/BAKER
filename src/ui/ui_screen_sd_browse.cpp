@@ -16,12 +16,41 @@
 #include "sd_browser_state.h"
 #include "sample_edit.h"
 
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 
 using namespace daisy;
 
-static void DrawFillOnlyString6x8(OledPager& d, const char* str, int x, int y)
+namespace
+{
+static constexpr uint8_t kSdManageVisibleRows = 6;
+static constexpr uint8_t kSdManageActionCount = 2;
+static constexpr int kSdManageRowPitch = Font5x7::H + 2;
+static constexpr int kSdManageNumberX = 1;
+static constexpr int kSdManageNameX = 25;
+static constexpr int kSdManageStyleX = 95;
+static constexpr int kSdManageFocusedRowTopExtra = 1;
+static constexpr int kSdManageRowsStartY = 12;
+static constexpr int kSdManageHeaderButtonY = 0;
+static constexpr int kSdManageHeaderButtonH = kMicroH + 3;
+static constexpr int kSdManageHeaderTextY = 2;
+static constexpr int kSdManageHeaderNumberX0 = 0;
+static constexpr int kSdManageHeaderNumberX1 = 18;
+static constexpr int kSdManageHeaderNameX0 = 22;
+static constexpr int kSdManageHeaderNameX1 = 76;
+static constexpr int kSdManageHeaderStyleX0 = 80;
+static constexpr int kSdManageHeaderStyleX1 = 127;
+static constexpr int kSdManageOverlayX0 = 16;
+static constexpr int kSdManageOverlayY0 = 10;
+static constexpr int kSdManageOverlayX1 = 115;
+static constexpr int kSdManageOverlayY1 = 46;
+static constexpr int kSdManageOverlayActionY = kSdManageOverlayY0 + 18;
+static constexpr int kSdManageOverlayRenameX = kSdManageOverlayX0 + 8;
+static constexpr int kSdManageOverlayDeleteX = kSdManageOverlayX0 + 48;
+static const char kSdManageStylePlaceholder[] = "----";
+
+void DrawFillOnlyString6x8(OledPager& d, const char* str, int x, int y)
 {
     if(!str)
         return;
@@ -39,93 +68,34 @@ static void DrawFillOnlyString6x8(OledPager& d, const char* str, int x, int y)
     d.WriteString(str, Font_6x8, false);
 }
 
-bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
 {
-    if(!ctx.ui)
-        return false;
-    if(ctx.shift)
-        return false;
-
-    AppUiState& ui = *ctx.ui;
-
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
-    {
-        const uint8_t count = 2u;
-        uint8_t cur = ui.sd_manage_menu_cursor;
-        if(e.value > 0)
-            cur = static_cast<uint8_t>((cur + 1u) % count);
-        else if(e.value < 0)
-            cur = static_cast<uint8_t>((cur + count - 1u) % count);
-        if(cur != ui.sd_manage_menu_cursor)
-        {
-            ui.sd_manage_menu_cursor = cur;
-            ui.ui_dirty = true;
-        }
-        return true;
-    }
-
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
-    {
-        const bool do_delete = (ui.sd_manage_menu_cursor == 0u);
-        ui.sd_manage_context_active = true;
-        ui.sd_delete_mode = do_delete;
-        ui.sd_rename_mode = !do_delete;
-        ui.sample_rename_active = false;
-        SdBrowser_SetStatus(ui.sd, do_delete ? "DEL:SELECT" : "REN:SELECT");
-        if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))
-            ui.ui_dirty = true;
-        return true;
-    }
-
-    return false;
+    if(!str)
+        return;
+    const int w = TinyStringWidth(str);
+    int x0 = x - 2;
+    int y0 = y - 2;
+    int x1 = x + w + 1;
+    int y1 = y + Font5x7::H + 1;
+    if(x0 < 0) x0 = 0;
+    if(y0 < 0) y0 = 0;
+    if(x1 > 127) x1 = 127;
+    if(y1 > 63) y1 = 63;
+    d.DrawRect(x0, y0, x1, y1, true, true);
+    DrawTinyString(d, str, x, y, false);
 }
 
-void SdManageMenu_Render(UiScreenCtx& ctx)
+uint8_t WrapCursor(uint8_t value, int delta, uint8_t count)
 {
-    if(!ctx.ui || !ctx.display)
-        return;
-
-    AppUiState& ui = *ctx.ui;
-    OledPager& d = *ctx.display;
-    d.Fill(false);
-
-    DrawTinyString(d, "SD MANAGER", 34, 8, true);
-    if(ui.sd_manage_menu_cursor == 0u)
-        DrawFillOnlyString6x8(d, "DELETE SAMPLE", 16, 24);
-    else
-    {
-        d.SetCursor(16, 24);
-        d.WriteString("DELETE SAMPLE", Font_6x8, true);
-    }
-
-    if(ui.sd_manage_menu_cursor == 1u)
-        DrawFillOnlyString6x8(d, "RENAME SAMPLE", 16, 38);
-    else
-    {
-        d.SetCursor(16, 38);
-        d.WriteString("RENAME SAMPLE", Font_6x8, true);
-    }
+    int next = static_cast<int>(value) + delta;
+    while(next < 0)
+        next += count;
+    while(next >= static_cast<int>(count))
+        next -= count;
+    return static_cast<uint8_t>(next);
 }
 
-static void EnsureScanRequested(UiScreenCtx& ctx)
-{
-    if(!ctx.ui || !ctx.worker)
-        return;
-
-    SdBrowserState& sd = ctx.ui->sd;
-    if(sd.scan_in_progress || sd.scan_done)
-        return;
-
-    UiReq req{UiReqType::ScanSdWavs, 0, 0};
-    if(UiReq_Push(*ctx.ui, *ctx.worker, req))
-    {
-        sd.scan_in_progress = true;
-        SdBrowser_SetStatus(sd, "SCANNING");
-        ctx.ui->ui_dirty = true;
-    }
-}
-
-static void BuildRenameDraftFromName(const char* name, char* out, size_t out_n)
+void BuildRenameDraftFromName(const char* name, char* out, size_t out_n)
 {
     if(!out || out_n == 0u)
         return;
@@ -145,6 +115,659 @@ static void BuildRenameDraftFromName(const char* name, char* out, size_t out_n)
         if(wav_ext)
             ext[0] = '\0';
     }
+}
+
+void BuildSdManageSlotNumber(uint8_t sample_index, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+    std::snprintf(out, out_n, "%u.", static_cast<unsigned>(sample_index + 1u));
+}
+
+void BuildSdManageDisplayName(const SdBrowserState& sd, uint8_t sample_index, char* out, size_t out_n)
+{
+    if(!out || out_n == 0)
+        return;
+    out[0] = '\0';
+    if(sample_index >= sd.wav_count)
+        return;
+    BuildRenameDraftFromName(sd.names[sample_index], out, out_n);
+}
+
+char ToAsciiLower(char c)
+{
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+}
+
+int CompareSdManageNames(const SdBrowserState& sd, uint8_t lhs_index, uint8_t rhs_index)
+{
+    char lhs[kSdNameMax];
+    char rhs[kSdNameMax];
+    BuildSdManageDisplayName(sd, lhs_index, lhs, sizeof(lhs));
+    BuildSdManageDisplayName(sd, rhs_index, rhs, sizeof(rhs));
+
+    for(size_t i = 0;; ++i)
+    {
+        const char lc = ToAsciiLower(lhs[i]);
+        const char rc = ToAsciiLower(rhs[i]);
+        if(lc < rc)
+            return -1;
+        if(lc > rc)
+            return 1;
+        if(lc == '\0')
+            break;
+    }
+
+    if(lhs_index < rhs_index)
+        return -1;
+    if(lhs_index > rhs_index)
+        return 1;
+    return 0;
+}
+
+int FindVisibleSdManageIndex(const AppUiState& ui, uint8_t sample_index)
+{
+    for(uint8_t i = 0; i < ui.sd_manage_visible_count; ++i)
+    {
+        if(ui.sd_manage_visible_order[i] == sample_index)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
+uint8_t SdManageFocusCount(const AppUiState& ui)
+{
+    return static_cast<uint8_t>(kProjectPresetsHeaderCount + ui.sd_manage_visible_count);
+}
+
+uint8_t SdManageMaxTopRow(const AppUiState& ui)
+{
+    return (ui.sd_manage_visible_count > kSdManageVisibleRows)
+               ? static_cast<uint8_t>(ui.sd_manage_visible_count - kSdManageVisibleRows)
+               : 0u;
+}
+
+void ClampSdManageTopRow(AppUiState& ui)
+{
+    const uint8_t max_top = SdManageMaxTopRow(ui);
+    if(ui.sd_manage_top_row > max_top)
+        ui.sd_manage_top_row = max_top;
+}
+
+void EnsureSdManageRowVisible(AppUiState& ui, uint8_t row_index)
+{
+    ClampSdManageTopRow(ui);
+    if(row_index < ui.sd_manage_top_row)
+        ui.sd_manage_top_row = row_index;
+    else if(row_index >= static_cast<uint8_t>(ui.sd_manage_top_row + kSdManageVisibleRows))
+        ui.sd_manage_top_row = static_cast<uint8_t>(row_index - (kSdManageVisibleRows - 1u));
+    ClampSdManageTopRow(ui);
+}
+
+void SyncCurrentSdManageIndexToFocusedRow(AppUiState& ui)
+{
+    if(ui.sd_manage_focus_index < kProjectPresetsHeaderCount || ui.sd_manage_visible_count == 0u)
+        return;
+
+    uint8_t row_index = static_cast<uint8_t>(ui.sd_manage_focus_index - kProjectPresetsHeaderCount);
+    if(row_index >= ui.sd_manage_visible_count)
+        row_index = static_cast<uint8_t>(ui.sd_manage_visible_count - 1u);
+    ui.sd_manage_focus_index = static_cast<uint8_t>(kProjectPresetsHeaderCount + row_index);
+    ui.sd_manage_current_index = ui.sd_manage_visible_order[row_index];
+}
+
+void RebuildVisibleSdManageOrder(AppUiState& ui, const SdBrowserState& sd)
+{
+    const bool row_focus = ui.sd_manage_focus_index >= kProjectPresetsHeaderCount;
+    const uint8_t selected_index = ui.sd_manage_current_index;
+
+    ui.sd_manage_visible_count = sd.wav_count;
+    for(uint8_t i = 0; i < sd.wav_count; ++i)
+        ui.sd_manage_visible_order[i] = i;
+
+    for(uint8_t i = 0; i < sd.wav_count; ++i)
+    {
+        for(uint8_t j = static_cast<uint8_t>(i + 1u); j < sd.wav_count; ++j)
+        {
+            bool swap = false;
+            if(ui.sd_manage_sort_mode == ProjectPresetsSortMode::Number)
+            {
+                swap = ui.sd_manage_sort_descending
+                           ? (ui.sd_manage_visible_order[i] < ui.sd_manage_visible_order[j])
+                           : (ui.sd_manage_visible_order[i] > ui.sd_manage_visible_order[j]);
+            }
+            else
+            {
+                const int cmp = CompareSdManageNames(sd,
+                                                     ui.sd_manage_visible_order[i],
+                                                     ui.sd_manage_visible_order[j]);
+                swap = ui.sd_manage_sort_descending ? (cmp < 0) : (cmp > 0);
+            }
+
+            if(swap)
+            {
+                const uint8_t tmp = ui.sd_manage_visible_order[i];
+                ui.sd_manage_visible_order[i] = ui.sd_manage_visible_order[j];
+                ui.sd_manage_visible_order[j] = tmp;
+            }
+        }
+    }
+
+    if(ui.sd_manage_visible_count == 0u)
+    {
+        ui.sd_manage_top_row = 0u;
+        ui.sd_manage_current_index = 0u;
+        if(row_focus)
+            ui.sd_manage_focus_index = static_cast<uint8_t>(kProjectPresetsHeaderCount - 1u);
+        return;
+    }
+
+    int selected_visible_index = FindVisibleSdManageIndex(ui, selected_index);
+    if(selected_visible_index < 0)
+    {
+        selected_visible_index = 0;
+        ui.sd_manage_current_index = ui.sd_manage_visible_order[0];
+    }
+
+    if(row_focus)
+    {
+        ui.sd_manage_focus_index = static_cast<uint8_t>(kProjectPresetsHeaderCount + selected_visible_index);
+        EnsureSdManageRowVisible(ui, static_cast<uint8_t>(selected_visible_index));
+    }
+    else
+    {
+        ClampSdManageTopRow(ui);
+    }
+}
+
+void MoveSdManageFocus(AppUiState& ui, int delta)
+{
+    if(delta == 0)
+        return;
+
+    const uint8_t focus_count = SdManageFocusCount(ui);
+    if(focus_count == 0u)
+        return;
+
+    const int step = (delta > 0) ? 1 : -1;
+    int remaining = (delta > 0) ? delta : -delta;
+    while(remaining-- > 0)
+    {
+        if(ui.sd_manage_focus_index < kProjectPresetsHeaderCount)
+        {
+            ui.sd_manage_focus_index = WrapCursor(ui.sd_manage_focus_index, step, focus_count);
+            if(ui.sd_manage_focus_index >= kProjectPresetsHeaderCount)
+            {
+                const uint8_t row_index = static_cast<uint8_t>(
+                    ui.sd_manage_focus_index - kProjectPresetsHeaderCount);
+                EnsureSdManageRowVisible(ui, row_index);
+            }
+            continue;
+        }
+
+        uint8_t row_index = static_cast<uint8_t>(ui.sd_manage_focus_index - kProjectPresetsHeaderCount);
+        if(step > 0)
+        {
+            if(row_index + 1u >= ui.sd_manage_visible_count)
+            {
+                ui.sd_manage_focus_index = WrapCursor(ui.sd_manage_focus_index, step, focus_count);
+                continue;
+            }
+
+            ++row_index;
+            if(ui.sd_manage_visible_count > kSdManageVisibleRows
+               && row_index >= static_cast<uint8_t>(ui.sd_manage_top_row + kSdManageVisibleRows))
+                ++ui.sd_manage_top_row;
+            ui.sd_manage_focus_index = static_cast<uint8_t>(kProjectPresetsHeaderCount + row_index);
+        }
+        else
+        {
+            if(row_index == 0u)
+            {
+                ui.sd_manage_focus_index = WrapCursor(ui.sd_manage_focus_index, step, focus_count);
+                continue;
+            }
+
+            --row_index;
+            if(row_index < ui.sd_manage_top_row && ui.sd_manage_top_row > 0u)
+                --ui.sd_manage_top_row;
+            ui.sd_manage_focus_index = static_cast<uint8_t>(kProjectPresetsHeaderCount + row_index);
+        }
+    }
+
+    ClampSdManageTopRow(ui);
+}
+
+int ProjectHeaderGlyphWidth(const char* glyph)
+{
+    if(!glyph)
+        return 0;
+    if(std::strcmp(glyph, "#") == 0)
+        return 5;
+    if(std::strcmp(glyph, "v") == 0 || std::strcmp(glyph, "^") == 0)
+        return 5;
+    return MicroStringWidth(glyph);
+}
+
+void DrawProjectHeaderGlyph(OledPager& d, const char* glyph, int x, int y, bool on)
+{
+    if(!glyph || glyph[0] == '\0')
+        return;
+
+    if(std::strcmp(glyph, "#") == 0)
+    {
+        static constexpr uint8_t kHashRows[kMicroH] = {
+            0b01010,
+            0b11111,
+            0b01010,
+            0b11111,
+            0b01010,
+            0b0000,
+        };
+        for(int yy = 0; yy < kMicroH; ++yy)
+        {
+            const uint8_t row = kHashRows[yy];
+            for(int xx = 0; xx < 5; ++xx)
+            {
+                if((row >> (4 - xx)) & 1u)
+                    d.DrawPixel(x + xx, y + yy, on);
+            }
+        }
+        return;
+    }
+
+    if(std::strcmp(glyph, "v") == 0)
+    {
+        static constexpr uint8_t kDownRows[kMicroH] = {
+            0b00000,
+            0b10001,
+            0b01010,
+            0b00100,
+            0b00000,
+            0b00000,
+        };
+        for(int yy = 0; yy < kMicroH; ++yy)
+        {
+            const uint8_t row = kDownRows[yy];
+            for(int xx = 0; xx < 5; ++xx)
+            {
+                if((row >> (4 - xx)) & 1u)
+                    d.DrawPixel(x + xx, y + yy, on);
+            }
+        }
+        return;
+    }
+
+    if(std::strcmp(glyph, "^") == 0)
+    {
+        static constexpr uint8_t kUpRows[kMicroH] = {
+            0b00100,
+            0b01010,
+            0b10001,
+            0b00000,
+            0b00000,
+            0b00000,
+        };
+        for(int yy = 0; yy < kMicroH; ++yy)
+        {
+            const uint8_t row = kUpRows[yy];
+            for(int xx = 0; xx < 5; ++xx)
+            {
+                if((row >> (4 - xx)) & 1u)
+                    d.DrawPixel(x + xx, y + yy, on);
+            }
+        }
+        return;
+    }
+
+    DrawMicroString(d, glyph, x, y, on);
+}
+
+void DrawProjectHeaderButton(OledPager& d,
+                             int x0,
+                             int x1,
+                             const char* label,
+                             bool focused,
+                             bool draw_arrow,
+                             bool arrow_descending)
+{
+    const int arrow_w = draw_arrow ? ProjectHeaderGlyphWidth("v") + 1 : 0;
+    const int label_w = ProjectHeaderGlyphWidth(label);
+    const int content_w = arrow_w + label_w;
+    const int box_w = content_w + 6;
+    int box_x0 = x0 + ((x1 - x0 + 1) - box_w) / 2;
+    int box_x1 = box_x0 + box_w;
+    if(box_x0 < x0)
+    {
+        box_x0 = x0;
+        box_x1 = x0 + box_w;
+    }
+    if(box_x1 > x1)
+    {
+        box_x1 = x1;
+        box_x0 = x1 - box_w;
+    }
+
+    d.DrawRect(box_x0,
+               kSdManageHeaderButtonY,
+               box_x1,
+               kSdManageHeaderButtonY + kSdManageHeaderButtonH,
+               focused,
+               true);
+    d.DrawRect(box_x0,
+               kSdManageHeaderButtonY,
+               box_x1,
+               kSdManageHeaderButtonY + kSdManageHeaderButtonH,
+               true,
+               false);
+
+    const bool text_on = !focused;
+    int text_x = box_x0 + 3;
+    if(draw_arrow)
+    {
+        DrawProjectHeaderGlyph(d,
+                               arrow_descending ? "^" : "v",
+                               text_x,
+                               kSdManageHeaderTextY,
+                               text_on);
+        text_x += arrow_w;
+    }
+    DrawProjectHeaderGlyph(d, label, text_x, kSdManageHeaderTextY, text_on);
+}
+
+void DrawSdManageHeaderRow(OledPager& d, const AppUiState& ui)
+{
+    DrawProjectHeaderButton(d,
+                            kSdManageHeaderNumberX0,
+                            kSdManageHeaderNumberX1,
+                            "#",
+                            ui.sd_manage_focus_index == 0u,
+                            ui.sd_manage_sort_mode == ProjectPresetsSortMode::Number,
+                            ui.sd_manage_sort_descending);
+    DrawProjectHeaderButton(d,
+                            kSdManageHeaderNameX0,
+                            kSdManageHeaderNameX1,
+                            "name",
+                            ui.sd_manage_focus_index == 1u,
+                            ui.sd_manage_sort_mode == ProjectPresetsSortMode::Name,
+                            ui.sd_manage_sort_descending);
+    DrawProjectHeaderButton(d,
+                            kSdManageHeaderStyleX0,
+                            kSdManageHeaderStyleX1,
+                            "style",
+                            ui.sd_manage_focus_index == 2u,
+                            false,
+                            false);
+}
+
+void DrawSdManageRow(OledPager& d,
+                     const SdBrowserState& sd,
+                     uint8_t sample_index,
+                     int row_y,
+                     bool focused)
+{
+    char number[5];
+    char name[kSdNameMax];
+    BuildSdManageSlotNumber(sample_index, number, sizeof(number));
+    BuildSdManageDisplayName(sd, sample_index, name, sizeof(name));
+
+    if(focused)
+    {
+        const int row_w = (kSdManageStyleX + TinyStringWidth("Pluck")) - kSdManageNumberX;
+        int x0 = kSdManageNumberX;
+        int y0 = row_y - kSdManageFocusedRowTopExtra;
+        int x1 = kSdManageNumberX + row_w;
+        int y1 = row_y + Font5x7::H;
+        if(x0 < 0) x0 = 0;
+        if(y0 < 0) y0 = 0;
+        if(x1 > 127) x1 = 127;
+        if(y1 > 63) y1 = 63;
+        d.DrawRect(x0, y0, x1, y1, true, true);
+        DrawTinyString(d, number, kSdManageNumberX, row_y, false);
+        DrawTinyString(d, name, kSdManageNameX, row_y, false);
+        DrawTinyStringCaseSensitive(d, kSdManageStylePlaceholder, kSdManageStyleX, row_y, false);
+        return;
+    }
+
+    DrawTinyString(d, number, kSdManageNumberX, row_y, true);
+    DrawTinyString(d, name, kSdManageNameX, row_y, true);
+    DrawTinyStringCaseSensitive(d, kSdManageStylePlaceholder, kSdManageStyleX, row_y, true);
+}
+
+void RenderSdManageList(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    AppUiState& ui = *ctx.ui;
+    SdBrowserState& sd = ui.sd;
+    OledPager& d = *ctx.display;
+    RebuildVisibleSdManageOrder(ui, sd);
+    d.Fill(false);
+
+    DrawSdManageHeaderRow(d, ui);
+
+    if(!sd.sd_ok)
+    {
+        DrawTinyString(d, "sd err", 46, 28, true);
+        return;
+    }
+    if(sd.scan_in_progress && sd.wav_count == 0u)
+    {
+        DrawTinyString(d, "scanning", 38, 28, true);
+        return;
+    }
+    if(ui.sd_manage_visible_count == 0u)
+    {
+        DrawTinyString(d, "none", 52, 28, true);
+        return;
+    }
+
+    ClampSdManageTopRow(ui);
+    const uint8_t top_row = ui.sd_manage_top_row;
+    for(uint8_t row = 0; row < kSdManageVisibleRows; ++row)
+    {
+        const uint8_t visible_index = static_cast<uint8_t>(top_row + row);
+        if(visible_index >= ui.sd_manage_visible_count)
+            break;
+
+        const uint8_t sample_index = ui.sd_manage_visible_order[visible_index];
+        const int row_y = kSdManageRowsStartY + static_cast<int>(row) * kSdManageRowPitch;
+        const bool focused = (ui.sd_manage_focus_index
+                              == static_cast<uint8_t>(kProjectPresetsHeaderCount + visible_index));
+        DrawSdManageRow(d, sd, sample_index, row_y, focused);
+    }
+}
+
+void ActivateSdManageHeader(AppUiState& ui)
+{
+    if(ui.sd_manage_focus_index == 0u)
+    {
+        if(ui.sd_manage_sort_mode == ProjectPresetsSortMode::Number)
+            ui.sd_manage_sort_descending = !ui.sd_manage_sort_descending;
+        else
+        {
+            ui.sd_manage_sort_mode = ProjectPresetsSortMode::Number;
+            ui.sd_manage_sort_descending = false;
+        }
+        ui.ui_dirty = true;
+    }
+    else if(ui.sd_manage_focus_index == 1u)
+    {
+        if(ui.sd_manage_sort_mode == ProjectPresetsSortMode::Name)
+            ui.sd_manage_sort_descending = !ui.sd_manage_sort_descending;
+        else
+        {
+            ui.sd_manage_sort_mode = ProjectPresetsSortMode::Name;
+            ui.sd_manage_sort_descending = false;
+        }
+        ui.ui_dirty = true;
+    }
+}
+
+void EnsureScanRequested(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.worker)
+        return;
+
+    SdBrowserState& sd = ctx.ui->sd;
+    if(sd.scan_in_progress || sd.scan_done)
+        return;
+
+    UiReq req{UiReqType::ScanSdWavs, 0, 0};
+    if(UiReq_Push(*ctx.ui, *ctx.worker, req))
+    {
+        sd.scan_in_progress = true;
+        SdBrowser_SetStatus(sd, "SCANNING");
+        ctx.ui->ui_dirty = true;
+    }
+}
+
+bool BeginSampleRenameFromSdManage(UiScreenCtx& ctx, uint8_t sample_index)
+{
+    if(!ctx.ui)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+    if(sample_index >= ui.sd.wav_count)
+        return true;
+
+    ui.sample_rename_active = true;
+    ui.sample_rename_index = sample_index;
+    BuildRenameDraftFromName(ui.sd.names[sample_index],
+                             ui.project_rename_draft,
+                             sizeof(ui.project_rename_draft));
+    ui.project_rename_length = static_cast<uint8_t>(std::strlen(ui.project_rename_draft));
+    if(UiNav_Push(ui.ui_nav, UiScreenId::RenameProject))
+        ui.ui_dirty = true;
+    return true;
+}
+} // namespace
+
+void SdManageMenu_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.ui)
+        return;
+
+    EnsureScanRequested(ctx);
+    RebuildVisibleSdManageOrder(*ctx.ui, ctx.ui->sd);
+    if(ctx.ui->sd_manage_focus_index >= SdManageFocusCount(*ctx.ui))
+        ctx.ui->sd_manage_focus_index = kProjectPresetsHeaderCount;
+    SyncCurrentSdManageIndexToFocusedRow(*ctx.ui);
+}
+
+bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+    RebuildVisibleSdManageOrder(ui, ui.sd);
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        MoveSdManageFocus(ui, e.value);
+        SyncCurrentSdManageIndexToFocusedRow(ui);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        if(ui.sd_manage_focus_index < kProjectPresetsHeaderCount)
+        {
+            ActivateSdManageHeader(ui);
+            return true;
+        }
+
+        if(ui.sd_manage_visible_count == 0u)
+            return true;
+
+        ui.sd_manage_action_cursor = 0u;
+        if(UiNav_Push(ui.ui_nav, UiScreenId::SdManageActionMenu))
+            ui.ui_dirty = true;
+        return true;
+    }
+
+    return false;
+}
+
+void SdManageMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    RenderSdManageList(ctx);
+}
+
+bool SdManageActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+    RebuildVisibleSdManageOrder(ui, ui.sd);
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        ui.sd_manage_action_cursor = WrapCursor(ui.sd_manage_action_cursor,
+                                                e.value,
+                                                kSdManageActionCount);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        const uint8_t sample_index = ui.sd_manage_current_index;
+        if(sample_index >= ui.sd.wav_count)
+            return true;
+
+        if(ui.sd_manage_action_cursor == 0u)
+            return BeginSampleRenameFromSdManage(ctx, sample_index);
+
+        if(ui.sd_manage_action_cursor == 1u)
+        {
+            ui.sd_delete_mode = true;
+            ui.sd_delete_index = sample_index;
+            ExtractBaseName(ui.sd.paths[sample_index],
+                            ui.sd_delete_name,
+                            sizeof(ui.sd_delete_name));
+            if(UiNav_Push(ui.ui_nav, UiScreenId::SdDeleteConfirm))
+                ui.ui_dirty = true;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void SdManageActionMenu_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    AppUiState& ui = *ctx.ui;
+    OledPager& d = *ctx.display;
+    RenderSdManageList(ctx);
+
+    char name[kSdNameMax];
+    BuildSdManageDisplayName(ui.sd, ui.sd_manage_current_index, name, sizeof(name));
+    d.DrawRect(kSdManageOverlayX0, kSdManageOverlayY0, kSdManageOverlayX1, kSdManageOverlayY1, false, true);
+    d.DrawRect(kSdManageOverlayX0, kSdManageOverlayY0, kSdManageOverlayX1, kSdManageOverlayY1, true, false);
+
+    DrawTinyString(d, name, kSdManageOverlayX0 + 4, kSdManageOverlayY0 + 4, true);
+    if(ui.sd_manage_action_cursor == 0u)
+        DrawFillOnlyTinyString(d, "rename", kSdManageOverlayRenameX, kSdManageOverlayActionY);
+    else
+        DrawTinyString(d, "rename", kSdManageOverlayRenameX, kSdManageOverlayActionY, true);
+
+    if(ui.sd_manage_action_cursor == 1u)
+        DrawFillOnlyTinyString(d, "delete", kSdManageOverlayDeleteX, kSdManageOverlayActionY);
+    else
+        DrawTinyString(d, "delete", kSdManageOverlayDeleteX, kSdManageOverlayActionY, true);
 }
 
 void SdBrowse_OnEnter(UiScreenCtx& ctx)
@@ -192,31 +815,6 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(sd.wav_count > 0 && !sd.scan_in_progress)
         {
             const uint16_t idx = sd.menu.cursor;
-
-            if(ctx.ui->sd_delete_mode)
-            {
-                ctx.ui->sd_delete_index = idx;
-                ExtractBaseName(sd.paths[idx],
-                                ctx.ui->sd_delete_name,
-                                sizeof(ctx.ui->sd_delete_name));
-                UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdDeleteConfirm);
-                ctx.ui->ui_dirty = true;
-                return true;
-            }
-            if(ctx.ui->sd_rename_mode)
-            {
-                ctx.ui->sample_rename_active = true;
-                ctx.ui->sample_rename_index = idx;
-                BuildRenameDraftFromName(sd.names[idx],
-                                         ctx.ui->project_rename_draft,
-                                         sizeof(ctx.ui->project_rename_draft));
-                ctx.ui->project_rename_length =
-                    static_cast<uint8_t>(std::strlen(ctx.ui->project_rename_draft));
-                if(UiNav_Push(ctx.ui->ui_nav, UiScreenId::RenameProject))
-                    ctx.ui->ui_dirty = true;
-                return true;
-            }
-
             const uint8_t layer_count = static_cast<uint8_t>(
                 sizeof(ctx.engine->layer.engine_sample_path) / sizeof(ctx.engine->layer.engine_sample_path[0]));
             if(ctx.engine->layer.engine_load_target_layer < layer_count)
@@ -300,7 +898,7 @@ void SdBrowse_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    const char* header_label = ctx.ui->sd_manage_context_active ? "sd manager" : "sd browse";
+    const char* header_label = "sd browse";
     const int header_w = TinyStringWidth(header_label);
     const int box_w = header_w + 2;
     const int box_h = 9;

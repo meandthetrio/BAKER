@@ -849,8 +849,9 @@ bool QueueRenameSampleRequest(AppUiState& ui, AppWorkerState& worker)
         return false;
 
     ui.sample_rename_active = false;
-    ui.sd_rename_mode = true;
     UiNav_Pop(ui.ui_nav);
+    if(UiNav_Active(ui.ui_nav) == UiScreenId::SdManageActionMenu)
+        UiNav_Pop(ui.ui_nav);
     ui.ui_dirty = true;
     return true;
 }

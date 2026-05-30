@@ -65,9 +65,7 @@ bool Hud_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
         if(item.screen == UiScreenId::SdBrowse)
         {
-            ctx.ui->sd_manage_context_active = false;
             ctx.ui->sd_delete_mode = false;
-            ctx.ui->sd_rename_mode = false;
             ctx.ui->sample_rename_active = false;
         }
         if(item.screen != UiScreenId::COUNT && UiNav_Push(ctx.ui->ui_nav, item.screen))

@@ -211,3 +211,4 @@
   - Save success returns to `RecordRenderMenu` after writing the WAV to SD root.
   - Save failure after worker start returns to review with the temp render preserved.
   - Failed saves should not leave a partial WAV on the card.
+  - Saved renders stay unclassified by default; sample style is managed later in `SD MANAGER` via the hidden filename suffix feature.

@@ -1,4 +1,5 @@
 #include "ui_worker_internal.h"
+#include "sample_style.h"
 
 #include <cstdio>
 #include <cstring>
@@ -176,12 +177,5 @@ void WorkerExtractBaseName(const char* path, char* out, size_t out_n)
     out[0] = '\0';
     if(!path || path[0] == '\0')
         return;
-
-    const char* name = path;
-    for(const char* p = path; *p; ++p)
-    {
-        if(*p == '/' || *p == '\\')
-            name = p + 1;
-    }
-    std::snprintf(out, out_n, "%s", name);
+    BuildSampleDisplayName(path, out, out_n);
 }

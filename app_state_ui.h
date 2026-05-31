@@ -45,6 +45,7 @@ enum class WaveEditSource : uint8_t
 
 static constexpr uint8_t kProjectPresetsHeaderCount = 3;
 static constexpr uint8_t kProjectStyleFilterAll = 0xffu;
+static constexpr uint8_t kSampleStyleFilterAll = 0xffu;
 static constexpr uint8_t kRenameDraftMax
     = (kProjectNameMax > (kSdRenameStemMax + 1u)) ? kProjectNameMax
                                                    : static_cast<uint8_t>(kSdRenameStemMax + 1u);
@@ -140,16 +141,20 @@ struct AppUiState
     bool sd_delete_mode = false;
     uint16_t sd_delete_index = 0;
     char sd_delete_name[kSdNameMax] = {};
+    uint8_t sd_delete_confirm_cursor = 1u;
     bool sample_rename_active = false;
     uint16_t sample_rename_index = 0;
     uint8_t sd_manage_focus_index = kProjectPresetsHeaderCount;
     uint8_t sd_manage_top_row = 0;
     ProjectPresetsSortMode sd_manage_sort_mode = ProjectPresetsSortMode::Number;
     bool sd_manage_sort_descending = false;
+    uint8_t sd_manage_style_filter = kSampleStyleFilterAll;
+    uint8_t sd_manage_style_picker_cursor = 0;
     uint8_t sd_manage_visible_order[kSdMaxFiles] = {};
     uint8_t sd_manage_visible_count = 0;
     uint8_t sd_manage_current_index = 0;
     uint8_t sd_manage_action_cursor = 0;
+    uint8_t sd_manage_style_cursor = 0;
     uint8_t presets_focus_index = kProjectPresetsHeaderCount;
     uint8_t presets_top_row = 0;
     ProjectPresetsSortMode presets_sort_mode = ProjectPresetsSortMode::Number;

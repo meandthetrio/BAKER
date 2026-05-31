@@ -149,25 +149,6 @@ static void DrawTuneWordmark(OledPager& d, int x, int y, bool on)
     DrawMicroString(d, "tune", x, y, on);
 }
 
-static void ToLowerCase(const char* in, char* out, size_t out_sz)
-{
-    if(out_sz == 0)
-        return;
-    out[0] = '\0';
-    if(!in)
-        return;
-
-    size_t j = 0;
-    for(size_t i = 0; in[i] != '\0' && j + 1 < out_sz; ++i)
-    {
-        char c = in[i];
-        if(c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c - 'A' + 'a');
-        out[j++] = c;
-    }
-    out[j] = '\0';
-}
-
 static constexpr uint8_t kPerformLayerCount = 2;
 
 static int ClampInt(int v, int lo, int hi)
@@ -446,8 +427,6 @@ void PerformEngine_Render(UiScreenCtx& ctx)
         const char* name = engine.layer.engine_sample_name[layer];
         if(name == nullptr)
             name = "";
-        char name_buf[40];
-        ToLowerCase(name, name_buf, sizeof(name_buf));
         char clipped[40];
         clipped[0] = '\0';
         const int max_name_w = box_x - kTopTextX - 1; // keep clear of the header box.
@@ -456,11 +435,11 @@ void PerformEngine_Render(UiScreenCtx& ctx)
             const int char_advance = Font5x7::W + 1;
             const int max_chars = (max_name_w + 1) / char_advance;
             int i = 0;
-            for(; name_buf[i] != '\0' && i < max_chars && i + 1 < static_cast<int>(sizeof(clipped)); ++i)
-                clipped[i] = name_buf[i];
+            for(; name[i] != '\0' && i < max_chars && i + 1 < static_cast<int>(sizeof(clipped)); ++i)
+                clipped[i] = name[i];
             clipped[i] = '\0';
         }
-        DrawTinyString(d, clipped, kTopTextX, kTopTextY, true);
+        DrawTinyStringCaseSensitive(d, clipped, kTopTextX, kTopTextY, true);
     }
 
     constexpr int kWaveX = 0;

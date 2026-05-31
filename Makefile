@@ -68,6 +68,7 @@ CPP_SOURCES += src/worker/ui_worker_project_load.cpp
 CPP_SOURCES += src/worker/ui_worker_project_manifest.cpp
 CPP_SOURCES += src/worker/ui_worker_wav.cpp
 CPP_SOURCES += src/storage/sd_browser_state.cpp
+CPP_SOURCES += src/storage/sample_style.cpp
 CPP_SOURCES += src/storage/sd_sample_pool.cpp
 CPP_SOURCES += src/ui/oled_pager.cpp
 CPP_SOURCES += voice_engine.cpp

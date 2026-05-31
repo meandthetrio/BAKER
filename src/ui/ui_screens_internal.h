@@ -47,12 +47,15 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdManageMenu_Render(UiScreenCtx& ctx);
 bool SdManageActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdManageActionMenu_Render(UiScreenCtx& ctx);
+bool SdManageStyleFilter_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void SdManageStyleFilter_Render(UiScreenCtx& ctx);
 
 void SdBrowse_OnEnter(UiScreenCtx& ctx);
 bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdBrowse_Render(UiScreenCtx& ctx);
 
-bool SdDeleteConfirm_OnEnter(UiScreenCtx& ctx);
+void SdDeleteConfirm_OnEnter(UiScreenCtx& ctx);
+bool SdDeleteConfirm_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdDeleteConfirm_Render(UiScreenCtx& ctx);
 
 bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

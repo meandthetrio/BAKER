@@ -575,6 +575,8 @@ bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
             ctx.ui->sd_manage_top_row = 0u;
             ctx.ui->sd_manage_sort_mode = ProjectPresetsSortMode::Number;
             ctx.ui->sd_manage_sort_descending = false;
+            ctx.ui->sd_manage_style_filter = kSampleStyleFilterAll;
+            ctx.ui->sd_manage_style_picker_cursor = 0u;
             ctx.ui->sd_manage_visible_count = 0u;
             ctx.ui->sd_manage_current_index = 0u;
             ctx.ui->sd_manage_action_cursor = 0u;
@@ -860,7 +862,6 @@ static void FormatCraftLoadText(const AppUiState& ui, char* out, size_t out_n)
                   out_n,
                   "%s",
                   (ui.craft_loaded_name[0] != '\0') ? ui.craft_loaded_name : "load");
-    LowercaseAsciiInPlace(out);
 
     constexpr int kMaxWidth = 92;
     size_t len = std::strlen(out);

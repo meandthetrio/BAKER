@@ -18,6 +18,125 @@ extern SdWorkerState s_sd;
 
 static constexpr uint32_t kSaveChunkFrames = 512;
 
+static void ReplaceRenamedPathInProjectManifests(const char* old_path, const char* new_path);
+
+namespace
+{
+char ToAsciiUpper(char c)
+{
+    if(c >= 'a' && c <= 'z')
+        return static_cast<char>(c - ('a' - 'A'));
+    return c;
+}
+
+bool EqualsIgnoreCase(const char* a, const char* b)
+{
+    if(!a || !b)
+        return false;
+
+    while(*a != '\0' && *b != '\0')
+    {
+        if(ToAsciiUpper(*a) != ToAsciiUpper(*b))
+            return false;
+        ++a;
+        ++b;
+    }
+    return (*a == '\0') && (*b == '\0');
+}
+
+const char* BasenameStart(const char* path)
+{
+    if(!path)
+        return nullptr;
+
+    const char* base = path;
+    for(const char* p = path; *p != '\0'; ++p)
+    {
+        if(*p == '/' || *p == '\\')
+            base = p + 1;
+    }
+    return base;
+}
+
+bool SanitizeSampleRenameStem(const char* input, char* out, size_t out_n)
+{
+    if(!out || out_n == 0u)
+        return false;
+
+    out[0] = '\0';
+    if(!input || input[0] == '\0')
+        return false;
+
+    if(!BuildSampleDisplayName(input, out, out_n))
+        return false;
+    const size_t len = std::strlen(out);
+    if(len >= 2u && out[len - 2u] == '@' && SampleStyleFromCode(out[len - 1u]) != SampleStyle::None)
+        out[len - 2u] = '\0';
+    return out[0] != '\0';
+}
+
+bool RenameSampleAtIndexToPath(SdBrowserState& sd, uint16_t idx, const char* new_path)
+{
+    if(idx >= sd.wav_count || !new_path || new_path[0] == '\0')
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    const char* old_path = sd.paths[idx];
+    if(!old_path || old_path[0] == '\0')
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    if(std::strcmp(new_path, old_path) == 0)
+    {
+        SdBrowser_SetStatus(sd, "RENAMED");
+        return true;
+    }
+
+    FILINFO info{};
+    const FRESULT stat_res = f_stat(new_path, &info);
+    if(stat_res == FR_OK && !EqualsIgnoreCase(new_path, old_path))
+    {
+        SdBrowser_SetStatus(sd, "NAME EXISTS");
+        return false;
+    }
+    if(stat_res != FR_OK && stat_res != FR_NO_FILE && stat_res != FR_NO_PATH)
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    char old_path_copy[kSdPathMax];
+    const int old_copy_written = std::snprintf(old_path_copy, sizeof(old_path_copy), "%s", old_path);
+    if(old_copy_written < 0 || old_copy_written >= static_cast<int>(sizeof(old_path_copy)))
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    if(f_rename(old_path_copy, new_path) != FR_OK)
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    const char* new_name = BasenameStart(new_path);
+    if(!new_name || !SdBrowser_SetWavFileAtIndex(sd, idx, new_name, new_path))
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    SdBrowser_RebuildMenu(sd);
+    ReplaceRenamedPathInProjectManifests(old_path_copy, new_path);
+    SdBrowser_SetStatus(sd, "RENAMED");
+    return true;
+}
+} // namespace
+
 static bool WriteProjectManifestToSlot(uint8_t project_slot, const ProjectManifestV11& manifest)
 {
     char tmp_path[kProjectPathMax];
@@ -581,69 +700,46 @@ bool RenameWavAtIndex(SdBrowserState& sd, uint16_t idx, const char* new_stem)
         return false;
     }
 
-    const char* old_path = sd.paths[idx];
-    if(!old_path || old_path[0] == '\0')
+    char sanitized_stem[kSdNameMax];
+    if(!SanitizeSampleRenameStem(new_stem, sanitized_stem, sizeof(sanitized_stem)))
     {
         SdBrowser_SetStatus(sd, "REN ERR");
         return false;
-    }
-
-    const char* slash = old_path;
-    for(const char* p = old_path; *p != '\0'; ++p)
-    {
-        if(*p == '/' || *p == '\\')
-            slash = p + 1;
-    }
-    const char* dot = nullptr;
-    for(const char* p = slash; *p != '\0'; ++p)
-    {
-        if(*p == '.')
-            dot = p;
-    }
-    const char* ext = dot ? dot : ".wav";
-
-    char dir[kSdPathMax];
-    dir[0] = '\0';
-    const size_t old_len = std::strlen(old_path);
-    const size_t base_off = static_cast<size_t>(slash - old_path);
-    if(base_off > 0u)
-    {
-        const size_t dir_len = (base_off < old_len) ? base_off : old_len;
-        if(dir_len + 1u >= sizeof(dir))
-        {
-            SdBrowser_SetStatus(sd, "REN ERR");
-            return false;
-        }
-        std::snprintf(dir, sizeof(dir), "%.*s", static_cast<int>(dir_len), old_path);
     }
 
     char new_path[kSdPathMax];
-    if(dir[0] != '\0')
-        std::snprintf(new_path, sizeof(new_path), "%s%s%s", dir, new_stem, ext);
-    else
-        std::snprintf(new_path, sizeof(new_path), "%s%s", new_stem, ext);
-
-    if(std::strncmp(new_path, old_path, sizeof(new_path)) == 0)
-    {
-        SdBrowser_SetStatus(sd, "RENAMED");
-        return true;
-    }
-
-    char old_path_copy[kSdPathMax];
-    std::snprintf(old_path_copy, sizeof(old_path_copy), "%s", old_path);
-
-    if(f_rename(old_path_copy, new_path) != FR_OK)
+    if(!BuildStyledSamplePathFromStem(sd.paths[idx],
+                                      sanitized_stem,
+                                      sd.styles[idx],
+                                      new_path,
+                                      sizeof(new_path)))
     {
         SdBrowser_SetStatus(sd, "REN ERR");
         return false;
     }
 
-    const char* new_name = slash ? (new_path + (slash - old_path)) : new_path;
-    std::snprintf(sd.paths[idx], sizeof(sd.paths[idx]), "%s", new_path);
-    std::snprintf(sd.names[idx], sizeof(sd.names[idx]), "%s", new_name);
-    SdBrowser_RebuildMenu(sd);
-    ReplaceRenamedPathInProjectManifests(old_path_copy, new_path);
+    return RenameSampleAtIndexToPath(sd, idx, new_path);
+}
 
-    SdBrowser_SetStatus(sd, "RENAMED");
-    return true;
+bool UpdateWavStyleAtIndex(SdBrowserState& sd, uint16_t idx, SampleStyle desired_style)
+{
+    if(!EnsureSdMountedInternal(sd) || idx >= sd.wav_count)
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+    if(sd.paths[idx][0] == '\0')
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    char new_path[kSdPathMax];
+    if(!BuildStyledSamplePath(sd.paths[idx], desired_style, new_path, sizeof(new_path)))
+    {
+        SdBrowser_SetStatus(sd, "REN ERR");
+        return false;
+    }
+
+    return RenameSampleAtIndexToPath(sd, idx, new_path);
 }

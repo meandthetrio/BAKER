@@ -24,6 +24,7 @@ enum class UiReqType : uint8_t
     ScanProjectSlots,
     RenameProject,
     RenameWavIndex,
+    UpdateWavStyleIndex,
     UpdateProjectStyle,
     COUNT
 };

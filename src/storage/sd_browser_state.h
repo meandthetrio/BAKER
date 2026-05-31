@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "sample_style.h"
 #include "storage_limits.h"
 #include "ui_list_menu.h"
 
@@ -21,7 +22,9 @@ struct SdBrowserState
     bool scan_done = false;
     uint8_t wav_count = 0;
     char names[kSdMaxFiles][kSdNameMax] = {};
+    char display_names[kSdMaxFiles][kSdNameMax] = {};
     char paths[kSdMaxFiles][kSdPathMax] = {};
+    SampleStyle styles[kSdMaxFiles] = {};
     UiMenuItem items[kSdMaxFiles] = {};
     UiListMenu menu{};
     bool menu_inited = false;
@@ -47,5 +50,6 @@ void SdBrowser_SetStatus(SdBrowserState& s, const char* msg);
 void SdBrowser_SetSaveStatus(SdBrowserState& s, const char* msg);
 void SdBrowser_SetSaveName(SdBrowserState& s, const char* name);
 void SdBrowser_RebuildMenu(SdBrowserState& s);
+bool SdBrowser_SetWavFileAtIndex(SdBrowserState& s, uint16_t idx, const char* name, const char* path);
 bool SdBrowser_AddWavFile(SdBrowserState& s, const char* name, const char* path);
 void SdBrowser_RemoveWavAtIndex(SdBrowserState& s, uint16_t idx);

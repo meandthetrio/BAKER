@@ -5,6 +5,7 @@
 #include "params.h"
 #include "oled_pager.h"
 #include "sample_edit.h"
+#include "sample_style.h"
 
 #include <cstdio>
 
@@ -31,14 +32,7 @@ void ExtractBaseName(const char* path, char* out, size_t out_n)
     out[0] = '\0';
     if(!path || path[0] == '\0')
         return;
-
-    const char* base = path;
-    for(const char* p = path; *p != '\0'; ++p)
-    {
-        if(*p == '/' || *p == '\\')
-            base = p + 1;
-    }
-    std::snprintf(out, out_n, "%s", base);
+    BuildSampleDisplayName(path, out, out_n);
 }
 
 static uint8_t ClampDriveMode(int value)

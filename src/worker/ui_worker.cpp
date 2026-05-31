@@ -184,6 +184,11 @@ static void StartQueuedUiRequest(AppUiState& ui,
                 worker.ui_req_result = -1;
             FinishRequest(worker, worker.project_restore);
             break;
+        case UiReqType::UpdateWavStyleIndex:
+            if(!UpdateWavStyleAtIndex(ui.sd, req.a, static_cast<SampleStyle>(req.b)))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
+            break;
         case UiReqType::UpdateProjectStyle:
             if(!UpdateProjectStyle(ui, project, worker))
                 worker.ui_req_result = -1;

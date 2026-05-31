@@ -103,11 +103,8 @@ bool ScanStep(SdBrowserState& sd)
             return true;
         }
 
-        const uint8_t idx = sd.wav_count;
-        std::snprintf(sd.names[idx], sizeof(sd.names[idx]), "%.*s",
-                      (int)sizeof(sd.names[idx]) - 1,
-                      fno.fname);
-        if(!MakePath(sd.paths[idx], sizeof(sd.paths[idx]), s_sd.scan_path, fno.fname))
+        char path[kSdPathMax];
+        if(!MakePath(path, sizeof(path), s_sd.scan_path, fno.fname))
         {
             SdBrowser_SetStatus(sd, "PATH TOO LONG");
             sd.scan_in_progress = false;
@@ -118,7 +115,17 @@ bool ScanStep(SdBrowserState& sd)
             SdBrowser_RebuildMenu(sd);
             return true;
         }
-        sd.wav_count++;
+        if(!SdBrowser_AddWavFile(sd, fno.fname, path))
+        {
+            SdBrowser_SetStatus(sd, "LIST ERR");
+            sd.scan_in_progress = false;
+            sd.scan_done = true;
+            f_closedir(&s_sd.dir);
+            s_sd.dir_open = false;
+            s_sd.state = LoaderState::Idle;
+            SdBrowser_RebuildMenu(sd);
+            return true;
+        }
     }
 
     return false;

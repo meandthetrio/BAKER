@@ -24,8 +24,6 @@ static constexpr uint8_t kStyleFilterVisibleRows = 5;
 static constexpr uint8_t kProjectActionCount = 3;
 static constexpr uint8_t kSaveProjectMenuOptionCount = 2;
 static constexpr int kProjectRowPitch = Font5x7::H + 2;
-static constexpr int kStyleFilterRowPitch = Font5x7::H + 1;
-static constexpr int kStyleFilterRowsStartY = 16;
 static constexpr int kProjectNumberX = 2;
 static constexpr int kProjectRowBoxX = 1;
 static constexpr int kProjectNameX = 25;
@@ -66,20 +64,75 @@ static const char kRenameSaveLabel[] = "save";
 static const char kRenameCancelLabel[] = "cancel";
 static const char kSaveProjectNoneLabel[] = "none";
 static const char kProjectStylePlaceholder[] = "----";
+static const char kProjectMaxStyleLabel[] = "Water";
 static const char* kProjectStyleLabels[kProjectStyleCount] = {
     "----",
-    "Pad",
-    "Pluck",
-    "lead",
-    "Noise",
+    "Fire",
+    "Earth",
+    "Wind",
+    "Water",
 };
 static const char* kProjectStyleFilterLabels[kProjectStyleCount] = {
     "all",
-    "Pad",
-    "Pluck",
-    "lead",
-    "Noise",
+    "Fire",
+    "Earth",
+    "Wind",
+    "Water",
 };
+
+int CenterTinyLabelXInBand(int x0, int x1, const char* label)
+{
+    const int w = TinyStringWidth(label);
+    return x0 + ((x1 - x0 + 1) - w) / 2;
+}
+
+int CenterTinyLabelYInBand(int y0, int y1)
+{
+    return y0 + ((y1 - y0 + 1) - Font5x7::H) / 2;
+}
+
+void ComputeStyleFilterOptionPosition(int overlay_x0,
+                                      int overlay_y0,
+                                      int overlay_x1,
+                                      int overlay_y1,
+                                      const char* label,
+                                      uint8_t option,
+                                      int& out_x,
+                                      int& out_y)
+{
+    const int content_x0 = overlay_x0 + 4;
+    const int content_x1 = overlay_x1 - 4;
+    const int content_y0 = overlay_y0 + 4;
+    const int content_y1 = overlay_y1 - 4;
+    const int content_mid_x = content_x0 + ((content_x1 - content_x0 + 1) / 2);
+    const int col_x0[2] = {content_x0, content_mid_x};
+    const int col_x1[2] = {content_mid_x - 1, content_x1};
+    const int content_h = content_y1 - content_y0 + 1;
+    const int row_y0[3] = {
+        content_y0,
+        content_y0 + content_h / 3,
+        content_y0 + (2 * content_h) / 3,
+    };
+    const int row_y1[3] = {
+        row_y0[1] - 1,
+        row_y0[2] - 1,
+        content_y1,
+    };
+
+    if(option == 0u)
+    {
+        out_x = CenterTinyLabelXInBand(content_x0, content_x1, label);
+        out_y = CenterTinyLabelYInBand(row_y0[0], row_y1[0]);
+        return;
+    }
+
+    const uint8_t grid_index = static_cast<uint8_t>(option - 1u);
+    const uint8_t row = static_cast<uint8_t>(1u + (grid_index / 2u));
+    const uint8_t col = static_cast<uint8_t>(grid_index % 2u);
+
+    out_x = CenterTinyLabelXInBand(col_x0[col], col_x1[col], label);
+    out_y = CenterTinyLabelYInBand(row_y0[row], row_y1[row]);
+}
 
 void DrawFillOnlyTinyString(OledPager& d, const char* str, int x, int y)
 {
@@ -536,7 +589,7 @@ void DrawProjectHeaderButton(OledPager& d,
                              bool arrow_descending,
                              bool filter_active)
 {
-    (void)filter_active;
+    const bool active = focused || filter_active;
     const int arrow_w = draw_arrow ? ProjectHeaderGlyphWidth("v") + 1 : 0;
     const int label_w = ProjectHeaderGlyphWidth(label);
     const int content_w = arrow_w + label_w;
@@ -558,7 +611,7 @@ void DrawProjectHeaderButton(OledPager& d,
                kProjectHeaderButtonY,
                box_x1,
                kProjectHeaderButtonY + kProjectHeaderButtonH,
-               focused,
+               active,
                true);
     d.DrawRect(box_x0,
                kProjectHeaderButtonY,
@@ -567,7 +620,7 @@ void DrawProjectHeaderButton(OledPager& d,
                true,
                false);
 
-    const bool text_on = !focused;
+    const bool text_on = !active;
     int text_x = box_x0 + 3;
     if(draw_arrow)
     {
@@ -618,7 +671,8 @@ void DrawProjectSlotRow(OledPager& d, const AppProjectState& project, uint8_t sl
 
     if(focused)
     {
-        const int row_w = (kProjectStyleX + TinyStringWidth("Pluck")) - kProjectRowBoxX;
+        const int row_w = (kProjectStyleX + TinyStringWidth(kProjectMaxStyleLabel))
+                          - kProjectRowBoxX;
         int x0 = kProjectRowBoxX;
         int y0 = row_y - kProjectFocusedRowTopExtra;
         int x1 = kProjectRowBoxX + row_w;
@@ -1163,14 +1217,9 @@ void ProjectActionMenu_Render(UiScreenCtx& ctx)
     const int style_label_y = overlay_y0 + 18;
     if(ui.project_action_cursor == 1u)
     {
-        const int style_label_w = TinyStringWidth("Pluck");
-        d.DrawRect(style_label_x - 4,
-                   style_label_y - 2,
-                   style_label_x + style_label_w + 3,
-                   style_label_y + Font5x7::H + 1,
-                   true,
-                   false);
-        DrawTinyStringCaseSensitive(d, style, style_label_x, style_label_y, true);
+        const int style_label_w = TinyStringWidth(kProjectMaxStyleLabel);
+        DrawRencFocusFrame(d, style_label_x, style_label_y, style_label_w, Font5x7::H);
+        DrawTinyStringCaseSensitive(d, style, style_label_x, style_label_y, false);
     }
     else
     {
@@ -1178,9 +1227,9 @@ void ProjectActionMenu_Render(UiScreenCtx& ctx)
     }
 
     if(ui.project_action_cursor == 2u)
-        DrawFillOnlyTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 34);
+        DrawFillOnlyTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 32);
     else
-        DrawTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 34, true);
+        DrawTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 32, true);
 }
 
 bool PresetsStyleFilter_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
@@ -1230,46 +1279,42 @@ void PresetsStyleFilter_Render(UiScreenCtx& ctx)
     const int overlay_y1 = 63;
     d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, false, true);
     d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, true, false);
-    DrawTinyString(d, "style filter", overlay_x0 + 4, overlay_y0 + 4, true);
 
     const uint8_t option_count = ProjectStyleOptionCount();
-    const uint8_t visible_rows = (option_count < kStyleFilterVisibleRows) ? option_count : kStyleFilterVisibleRows;
-    uint8_t top_row = 0u;
-    if(visible_rows > 0u && ui.presets_style_picker_cursor >= visible_rows)
-        top_row = static_cast<uint8_t>(ui.presets_style_picker_cursor - (visible_rows - 1u));
-    const uint8_t max_top = (option_count > visible_rows)
-                                ? static_cast<uint8_t>(option_count - visible_rows)
-                                : 0u;
-    if(top_row > max_top)
-        top_row = max_top;
-
     uint8_t focused_option = 0u;
-    int     focused_row_y = 0;
-    bool    has_focused_option = false;
+    int focused_x = 0;
+    int focused_y = 0;
+    bool has_focused_option = false;
 
-    for(uint8_t row = 0; row < visible_rows; ++row)
+    for(uint8_t option = 0; option < option_count; ++option)
     {
-        const uint8_t option = static_cast<uint8_t>(top_row + row);
-        if(option >= option_count)
-            break;
-
-        const int row_y = overlay_y0 + kStyleFilterRowsStartY
-                          + static_cast<int>(row) * kStyleFilterRowPitch;
+        int option_x = 0;
+        int option_y = 0;
+        ComputeStyleFilterOptionPosition(overlay_x0,
+                                         overlay_y0,
+                                         overlay_x1,
+                                         overlay_y1,
+                                         kProjectStyleFilterLabels[option],
+                                         option,
+                                         option_x,
+                                         option_y);
         if(option == ui.presets_style_picker_cursor)
         {
             focused_option = option;
-            focused_row_y = row_y;
+            focused_x = option_x;
+            focused_y = option_y;
             has_focused_option = true;
             continue;
         }
 
-        DrawTinyStringCaseSensitive(d, kProjectStyleFilterLabels[option], overlay_x0 + 8, row_y, true);
+        DrawTinyStringCaseSensitive(
+            d, kProjectStyleFilterLabels[option], option_x, option_y, true);
     }
 
     if(has_focused_option)
     {
-        DrawFillOnlyTinyString(
-            d, kProjectStyleFilterLabels[focused_option], overlay_x0 + 8, focused_row_y);
+        DrawFillOnlyTinyStringCaseSensitive(
+            d, kProjectStyleFilterLabels[focused_option], focused_x, focused_y);
     }
 }
 

@@ -125,13 +125,17 @@ const UiScreen& GetScreen(UiScreenId id)
                                             nullptr,
                                             SdManageActionMenu_OnEvent,
                                             SdManageActionMenu_Render};
+    static const UiScreen sd_manage_style_filter{UiScreenId::SdManageStyleFilter,
+                                                 nullptr,
+                                                 nullptr,
+                                                 SdManageStyleFilter_OnEvent,
+                                                 SdManageStyleFilter_Render};
     static const UiScreen sd{UiScreenId::SdBrowse, SdBrowse_OnEnter, nullptr, SdBrowse_OnEvent, SdBrowse_Render};
     static const UiScreen sd_del_confirm{UiScreenId::SdDeleteConfirm,
+                                        SdDeleteConfirm_OnEnter,
                                         nullptr,
-                                        nullptr,
-                                        nullptr,
-                                        SdDeleteConfirm_Render,
-                                        SdDeleteConfirm_OnEnter};
+                                        SdDeleteConfirm_OnEvent,
+                                        SdDeleteConfirm_Render};
     static const UiScreen se{UiScreenId::SampleEdit, nullptr, nullptr, SampleEdit_OnEvent, SampleEdit_Render};
     static const UiScreen shift{UiScreenId::ShiftMenu,
                                ShiftMenu_OnScreenEnter,
@@ -211,6 +215,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return sd_manage;
         case UiScreenId::SdManageActionMenu:
             return sd_manage_actions;
+        case UiScreenId::SdManageStyleFilter:
+            return sd_manage_style_filter;
         case UiScreenId::SdBrowse:
             return sd;
         case UiScreenId::SdDeleteConfirm:

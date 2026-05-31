@@ -110,6 +110,7 @@ const char* WorkerStateValue(const AppWorkerState& worker_state)
             case UiReqType::ScanProjectSlots: return "scan projects";
             case UiReqType::RenameProject: return "rename project";
             case UiReqType::RenameWavIndex: return "rename sample";
+            case UiReqType::UpdateWavStyleIndex: return "style sample";
             default: return "working";
         }
     }

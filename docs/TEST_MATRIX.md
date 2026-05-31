@@ -302,6 +302,28 @@ Use this file as the practical validation guide for ADSR_V2. Keep it focused on 
 - Fail
   - Save stalls with `SAVE ERR`, the file lands outside SD root, or browse/load no longer sees root WAVs.
 
+### Sample style filename suffix behavior
+- Notes
+  - Sample classifications live only in the WAV filename as a hidden suffix immediately before the extension.
+  - Supported suffixes are `@H` = `hot`, `@D` = `dry`, `@W` = `wet`, and `@C` = `cold`.
+  - Unclassified samples keep no suffix.
+  - The UI should hide both the `.wav`/`.WAV` extension and the hidden style suffix.
+  - WAV metadata chunks are intentionally not used for this feature.
+  - Manual computer-side renames must preserve the hidden suffix if the classification should survive.
+- Setup
+  - Put at least one unclassified WAV and one suffixed WAV on the SD card.
+- Action
+  - Scan the SD card, inspect `SD MANAGER`, rename a styled sample, and change style through the style picker.
+- Pass
+  - `Kick.wav` displays as `Kick` with `----`.
+  - `Kick@H.wav` displays as `Kick` with `hot`.
+  - Renaming `Kick@H.wav` to `Boom` produces `Boom@H.wav`.
+  - Changing `Kick@W.wav` to unclassified produces `Kick.wav`.
+  - Changing style updates any project manifest references that used the old path.
+  - Record/render saves still land as unclassified WAVs until manually styled in `SD MANAGER`.
+- Fail
+  - Visible casing changes unexpectedly, the UI shows `.wav` or `@X`, style changes do not rename the real file, or project references keep the old path.
+
 ### Failed save cleanup
 - Setup
   - Use a controlled failure case if available.

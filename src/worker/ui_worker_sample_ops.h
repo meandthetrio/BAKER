@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "sample_style.h"
+
 struct AppSharedState;
 struct AppUiState;
 struct AppWorkerState;
@@ -21,3 +23,4 @@ bool SaveStep(SdBrowserState& sd,
               uint16_t budget_us);
 bool DeleteWavAtIndex(SdBrowserState& sd, uint16_t idx);
 bool RenameWavAtIndex(SdBrowserState& sd, uint16_t idx, const char* new_stem);
+bool UpdateWavStyleAtIndex(SdBrowserState& sd, uint16_t idx, SampleStyle desired_style);

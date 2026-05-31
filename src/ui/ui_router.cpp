@@ -62,6 +62,10 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(active == UiScreenId::RenameProject && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
+        // Sample delete confirm uses BACK as explicit cancel so it can clear state.
+        if(active == UiScreenId::SdDeleteConfirm && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
         if(UiNav_Pop(ctx.ui->ui_nav))
             ctx.ui->ui_dirty = true;
         return;

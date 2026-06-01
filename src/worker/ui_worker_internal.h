@@ -106,6 +106,7 @@ bool StartLoadPath(AppUiState& ui, AppSharedState& shared, const char* path, uin
 
 bool ReadProjectManifestFromFile(ProjectManifestV11& manifest);
 bool ScanProjectSlots(AppUiState& ui, AppProjectState& project);
+bool DeleteProject(AppUiState& ui, AppProjectState& project, AppWorkerState& worker);
 bool RenameProject(AppUiState& ui, AppProjectState& project, AppWorkerState& worker);
 bool UpdateProjectStyle(AppUiState& ui, AppProjectState& project, AppWorkerState& worker);
 bool SaveProject(AppUiState& ui,

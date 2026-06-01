@@ -9,6 +9,7 @@ enum class ProjectAction : uint8_t
     Load,
     Rename,
     Style,
+    Delete,
 };
 
 static constexpr uint8_t kProjectSlotCount = 64;

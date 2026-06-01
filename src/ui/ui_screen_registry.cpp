@@ -9,6 +9,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                               nullptr,
                                               ProjectActionMenu_OnEvent,
                                               ProjectActionMenu_Render};
+    static const UiScreen project_delete_confirm{UiScreenId::ProjectDeleteConfirm,
+                                                 ProjectDeleteConfirm_OnEnter,
+                                                 nullptr,
+                                                 ProjectDeleteConfirm_OnEvent,
+                                                 ProjectDeleteConfirm_Render};
     static const UiScreen presets_style_filter{UiScreenId::PresetsStyleFilter,
                                                nullptr,
                                                nullptr,
@@ -151,6 +156,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return presets;
         case UiScreenId::ProjectActionMenu:
             return project_action_menu;
+        case UiScreenId::ProjectDeleteConfirm:
+            return project_delete_confirm;
         case UiScreenId::PresetsStyleFilter:
             return presets_style_filter;
         case UiScreenId::RenameProject:

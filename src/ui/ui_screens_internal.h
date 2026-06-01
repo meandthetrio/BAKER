@@ -58,6 +58,10 @@ void SdDeleteConfirm_OnEnter(UiScreenCtx& ctx);
 bool SdDeleteConfirm_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdDeleteConfirm_Render(UiScreenCtx& ctx);
 
+void ProjectDeleteConfirm_OnEnter(UiScreenCtx& ctx);
+bool ProjectDeleteConfirm_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void ProjectDeleteConfirm_Render(UiScreenCtx& ctx);
+
 bool SampleEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SampleEdit_Render(UiScreenCtx& ctx);
 
@@ -91,6 +95,7 @@ void RecordRender_DiscardTemp(AppUiState& ui,
 void Presets_OnEnter(UiScreenCtx& ctx);
 bool Presets_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void Presets_Render(UiScreenCtx& ctx);
+void RebuildVisibleProjectOrderFromMetadata(AppUiState& ui, AppProjectState& project);
 bool ProjectActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void ProjectActionMenu_Render(UiScreenCtx& ctx);
 bool PresetsStyleFilter_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

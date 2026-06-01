@@ -30,6 +30,7 @@ enum class UiScreenId : uint8_t
     ShiftMenu,
     Presets,      // HOME -> PRESETS
     ProjectActionMenu,
+    ProjectDeleteConfirm,
     PresetsStyleFilter,
     RenameProject,
     SaveProjectMenu,

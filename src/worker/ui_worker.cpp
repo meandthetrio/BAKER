@@ -174,6 +174,11 @@ static void StartQueuedUiRequest(AppUiState& ui,
                 worker.ui_req_result = -1;
             FinishRequest(worker, worker.project_restore);
             break;
+        case UiReqType::DeleteProject:
+            if(!DeleteProject(ui, project, worker))
+                worker.ui_req_result = -1;
+            FinishRequest(worker, worker.project_restore);
+            break;
         case UiReqType::RenameProject:
             if(!RenameProject(ui, project, worker))
                 worker.ui_req_result = -1;

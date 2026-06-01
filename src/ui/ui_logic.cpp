@@ -1052,6 +1052,22 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         ui.ui_dirty = true;
     }
 
+    if(ui.project_delete_pending
+       && worker.ui_req_done_count != ui.project_delete_pending_done_count)
+    {
+        ui.project_delete_pending = false;
+        if(worker.ui_req_result < 0)
+        {
+            if(UiNav_Active(ui.ui_nav) != UiScreenId::ProjectStatus)
+                UiNav_Push(ui.ui_nav, UiScreenId::ProjectStatus);
+        }
+        else
+        {
+            RebuildVisibleProjectOrderFromMetadata(ui, app.project);
+        }
+        ui.ui_dirty = true;
+    }
+
     if(ui.render_sample_rename_wait_for_worker)
     {
         if(ui.sd.save_in_progress)

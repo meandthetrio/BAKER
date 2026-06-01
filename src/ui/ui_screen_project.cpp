@@ -21,7 +21,7 @@ namespace
 {
 static constexpr uint8_t kPresetsVisibleRows = 6;
 static constexpr uint8_t kStyleFilterVisibleRows = 5;
-static constexpr uint8_t kProjectActionCount = 3;
+static constexpr uint8_t kProjectActionCount = 4;
 static constexpr uint8_t kSaveProjectMenuOptionCount = 2;
 static constexpr int kProjectRowPitch = Font5x7::H + 2;
 static constexpr int kProjectNumberX = 2;
@@ -1057,6 +1057,11 @@ void BuildRenameDisplayText(const AppProjectState& project,
 }
 } // namespace
 
+void RebuildVisibleProjectOrderFromMetadata(AppUiState& ui, AppProjectState& project)
+{
+    RebuildVisibleProjectOrder(ui, project);
+}
+
 void Presets_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.project || !ctx.worker)
@@ -1171,12 +1176,25 @@ bool ProjectActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
 
-        ui.project_rename_for_new_save = false;
-        if(project.slot_has_file[slot] && UiNav_Push(ui.ui_nav, UiScreenId::RenameProject))
+        if(ui.project_action_cursor == 2u)
         {
-            ui.ui_dirty = true;
+            ui.project_rename_for_new_save = false;
+            if(project.slot_has_file[slot] && UiNav_Push(ui.ui_nav, UiScreenId::RenameProject))
+            {
+                ui.ui_dirty = true;
+                return true;
+            }
             return true;
         }
+
+        if(project.slot_has_file[slot])
+        {
+            ui.project_delete_mode = true;
+            ui.project_delete_slot = slot;
+            if(UiNav_Push(ui.ui_nav, UiScreenId::ProjectDeleteConfirm))
+                ui.ui_dirty = true;
+        }
+        ui.project_rename_for_new_save = false;
         return true;
     }
 
@@ -1230,6 +1248,11 @@ void ProjectActionMenu_Render(UiScreenCtx& ctx)
         DrawFillOnlyTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 32);
     else
         DrawTinyString(d, "rename", overlay_x0 + 8, overlay_y0 + 32, true);
+
+    if(ui.project_action_cursor == 3u && slot_has_file)
+        DrawFillOnlyTinyString(d, "delete", style_label_x, overlay_y0 + 32);
+    else
+        DrawTinyString(d, "delete", style_label_x, overlay_y0 + 32, true);
 }
 
 bool PresetsStyleFilter_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

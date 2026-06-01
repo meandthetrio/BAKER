@@ -111,6 +111,15 @@ static void CacheProjectSlotStyle(AppProjectState& project, uint8_t slot, Projec
     project.slot_styles[slot] = style;
 }
 
+static void ClearProjectSlotMetadata(AppProjectState& project, uint8_t slot)
+{
+    if(slot >= kProjectSlotCount)
+        return;
+    project.slot_has_file[slot] = false;
+    project.slot_names[slot][0] = '\0';
+    project.slot_styles[slot] = ProjectStyleId::None;
+}
+
 static bool ReadExistingProjectMetadata(uint8_t slot,
                                         char* out_name,
                                         size_t out_name_n,
@@ -787,6 +796,42 @@ bool RenameProject(AppUiState& ui, AppProjectState& project, AppWorkerState& wor
     project.slot_has_file[project_slot] = true;
     project.metadata_scan_complete = true;
     SetProjectSlotStatus(project, project_slot, "RENAMED");
+    ui.ui_dirty = true;
+    return true;
+}
+
+bool DeleteProject(AppUiState& ui, AppProjectState& project, AppWorkerState& worker)
+{
+    const uint8_t project_slot = RequestedProjectSlot(worker);
+    if(project_slot >= kProjectSlotCount || !project.slot_has_file[project_slot])
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    if(!EnsureSdMounted(ui))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    const char* base = s_sd.fsi.GetSDPath();
+    char prj_path[kProjectPathMax];
+    if(!MakeProjectSlotPath(prj_path, sizeof(prj_path), base, project_slot, "AKPRJ"))
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    if(f_unlink(prj_path) != FR_OK)
+    {
+        SetProjectSlotStatus(project, project_slot, "ERR");
+        return false;
+    }
+
+    ClearProjectSlotMetadata(project, project_slot);
+    project.metadata_scan_complete = true;
+    SetProjectSlotStatus(project, project_slot, "DELETED");
     ui.ui_dirty = true;
     return true;
 }

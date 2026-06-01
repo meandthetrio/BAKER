@@ -50,6 +50,7 @@ CPP_SOURCES += src/ui/ui_screen_perform_process_draw.cpp
 CPP_SOURCES += src/ui/ui_screen_status.cpp
 CPP_SOURCES += src/ui/ui_screen_sd_browse.cpp
 CPP_SOURCES += src/ui/ui_screen_sd_delete_confirm.cpp
+CPP_SOURCES += src/ui/ui_screen_project_delete_confirm.cpp
 CPP_SOURCES += src/ui/ui_screen_sample_edit.cpp
 CPP_SOURCES += src/ui/ui_screen_project.cpp
 CPP_SOURCES += src/ui/ui_list_menu.cpp

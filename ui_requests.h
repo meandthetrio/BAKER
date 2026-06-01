@@ -22,6 +22,7 @@ enum class UiReqType : uint8_t
     SaveProject,
     LoadProject,
     ScanProjectSlots,
+    DeleteProject,
     RenameProject,
     RenameWavIndex,
     UpdateWavStyleIndex,

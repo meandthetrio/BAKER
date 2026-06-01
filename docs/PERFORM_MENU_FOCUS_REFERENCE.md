@@ -476,7 +476,7 @@
 - Result:
   - Moves parameter focus.
 - Notes:
-  - Param count: SAT 4, MOD 4, DELAY 4 (LTM/RTM/FBK/MIX), REVERB 5.
+  - Param count: SAT 3, EQ 1, DELAY 3 (LTM/RTM/FBK), REVERB 5 (Pre/Dmp/Dcy/Mod/Mode).
 
 5. **Detail mode parameter edit (`kUiEncExt`)**
 - Type: in-screen submenu edit
@@ -494,54 +494,55 @@
 - Purpose: edit SAT-specific params.
 - Behavior:
   - POD encoder selects param index.
-  - EXT encoder edits drive/reso, bump/smpl, mix, mode.
+  - EXT encoder edits drive/reso, bump/smpl, and mode.
 - Result:
   - Updates SAT params (`sat_*`).
 - Notes:
   - Bit mode uses 3-state reso selector (`CRUSH`, `STATIC`, `HISS`).
+  - `sat_mix` remains on the main PROCESS quick fader, not in SAT detail.
 
-7. **FX detail submenu: MODULATION**
-- Type: in-screen submenu
-- Purpose: edit MOD-specific params.
+7. **FX detail submenu: EQ**
+- Type: graph/detail mode
+- Purpose: edit EQ tilt, center, and Q.
 - Behavior:
-  - POD encoder selects param index.
-  - EXT encoder edits depth/wow, speed/rate, mix, mode.
+  - `kUiBtnExtEnc` enters the EQ graph screen instead of a multi-fader detail view.
+  - POD encoder edits `eq_center_norm`.
+  - EXT encoder edits `eq_tilt_db`; with `RSHIFT`, EXT edits `eq_q`.
 - Result:
-  - Updates MOD params (`mod_*`, `lfo_depth`, `mod_rate_hz`, `tape_rate`).
-- Notes:
-  - Dual algorithm behavior (`mod_mode`).
+  - Updates EQ params (`eq_center_norm`, `eq_tilt_db`, `eq_q`).
 
 8. **FX detail submenu: DELAY**
 - Type: in-screen submenu
 - Purpose: edit DELAY-specific params.
 - Behavior:
   - POD encoder selects param index.
-  - EXT encoder edits L time, R time, feedback, mix. With **RSHIFT** held, turning the EXT encoder while **LTM** or **RTM** is focused moves **both** `delay_time_l` and `delay_time_r` together (each clamped 0..1).
+  - EXT encoder edits L time, R time, and feedback. With **RSHIFT** held, turning the EXT encoder while **LTM** or **RTM** is focused moves **both** `delay_time_l` and `delay_time_r` together (each clamped 0..1).
 - Result:
   - Updates DELAY params (`delay_*`).
 - Notes:
   - Stereo **dual delay**: independent L/R tap times (each 0–1000 ms at 48 kHz from `delay_time_l` / `delay_time_r` 0..1), shared feedback per channel (L tap → L feedback, R → R), shared wet mix.
+  - `delay_mix` remains on the main PROCESS quick fader, not in DELAY detail.
 
 9. **FX detail submenu: REVERB**
 - Type: in-screen submenu
 - Purpose: edit REVERB-specific params.
 - Behavior:
   - POD encoder selects param index.
-  - EXT encoder edits pre, damp, decay, direction, mix.
+  - EXT encoder edits pre, damp, decay, mod, and the single `Mode` slot.
 - Result:
   - Updates REVERB params (`reverb_*`).
 - Notes:
-  - Direction toggles `reverb_reverse`.
-  - Phase A Baker reverb keeps the existing 5-field REVERB detail screen unchanged:
+  - Phase A Baker reverb detail screen exposes four faders plus one right-side mode slot:
     - `Pre` = pre-delay amount into the tank
     - `Dmp` = high-frequency damping / tail softening inside the feedback loop
     - `Dcy` = overall tank decay / feedback amount
-    - `Wet` = reverb wet mix
-  - The current Baker backend is denser internally than the original 4-line version, but the visible REVERB controls and their meanings stay unchanged.
+    - `Mod` = movement/modulation amount in the tank
+    - `Mode` = shows the active `MIX` or `SEND` label on the right; when focused, a single bordered box appears and EXT scroll toggles between them
+  - `reverb_mix` remains on the main PROCESS quick fader, not as a fader inside REVERB detail; the right-side mode slot changes how that amount behaves.
+  - The current Baker backend is denser internally than the original 4-line version, but the visible REVERB controls above stay unchanged.
   - Phase A.1 refines `Dmp` so the full sweep is more evenly useful on bright material:
     - low `Dmp` stays brighter and livelier
     - high `Dmp` gets softer/darker without collapsing into a blunt treble cut
-  - `DIR` remains published and visible for UI continuity, but Phase A does not add a reverse-reverb DSP path; toggling it is currently a safe placeholder/pass-through control.
 
 #### Render Notes
 - Main PROCESS view now matches the simulator layout intent:

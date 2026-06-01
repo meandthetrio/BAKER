@@ -375,9 +375,9 @@ Run these only when the build clearly exposes the route or when a current task s
 ### PROCESS reverb
 - Suggested coverage
   - `Start -> Perform -> Process` path if present
-  - `Wet`, `Pre`, `Dmp`, and `Dcy` sanity
+  - `MIX` / `SEND` mode selection plus reverb amount, `Pre`, `Dmp`, and `Dcy` sanity
 - Pass
-  - Controls still map to expected user-facing behavior and the tail remains stable.
+  - Controls still map to expected user-facing behavior in both modes and the tail remains stable.
 
 ### Keygroups, velocity layers, and parameter locks
 - Suggested coverage

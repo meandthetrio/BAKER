@@ -7,7 +7,7 @@
 #include "macros.h"
 #include "mod_matrix.h"
 
-static constexpr uint16_t kProjectManifestVersion = 16;
+static constexpr uint16_t kProjectManifestVersion = 17;
 static constexpr uint8_t kProjectPathMax = 64;
 static constexpr uint8_t kProjectSampleLayerCount = 2;
 
@@ -317,7 +317,8 @@ struct ProjectDelayState
 struct ProjectReverbState
 {
     uint8_t reverb_on = 0;
-    uint8_t pad[3] = {};
+    uint8_t reverb_fader_mode = 0;
+    uint8_t pad[2] = {};
     float   reverb_mix = 0.0f;
     float   reverb_pre = 0.5f;
     float   reverb_damp = 0.5f;

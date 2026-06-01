@@ -51,16 +51,6 @@ static void ProcessEnsureValidMainCursor(const AppSharedState& shared,
     }
 }
 
-static bool ProcessDetailParamLocked(const AppSharedState& shared,
-                                     const AppEngineState& engine,
-                                     uint8_t layer,
-                                     uint8_t fx_id,
-                                     uint8_t param)
-{
-    return fx_id == 3u && param == 4u
-           && ExpressUiTargetLocked(shared, engine, layer, kExpressReverb);
-}
-
 static void ProcessEnsureValidDetailParam(const AppSharedState& shared,
                                           AppEngineState& engine,
                                           uint8_t layer,
@@ -73,21 +63,10 @@ static void ProcessEnsureValidDetailParam(const AppSharedState& shared,
         return;
 
     engine.process.perform_process_detail_param[cursor] %= count;
-    if(!ProcessDetailParamLocked(shared,
-                                 engine,
-                                 layer,
-                                 fx_id,
-                                 engine.process.perform_process_detail_param[cursor]))
-        return;
-
-    for(uint8_t next = 0; next < count; ++next)
-    {
-        if(!ProcessDetailParamLocked(shared, engine, layer, fx_id, next))
-        {
-            engine.process.perform_process_detail_param[cursor] = next;
-            return;
-        }
-    }
+    (void)shared;
+    (void)engine;
+    (void)layer;
+    (void)fx_id;
 }
 } // namespace
 
@@ -174,7 +153,9 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 else
                 {
                     engine.process.perform_process_detail_active = true;
-                    if(fid == 2u && engine.process.perform_process_detail_param[c] > 3u)
+                    const uint8_t detail_count = ProcessDetailParamCount(fid);
+                    if(detail_count > 0u
+                       && engine.process.perform_process_detail_param[c] >= detail_count)
                         engine.process.perform_process_detail_param[c] = 0u;
                 }
             }
@@ -208,19 +189,11 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             int idx = static_cast<int>(engine.process.perform_process_detail_param[cursor]) + e.value;
             const int count = static_cast<int>(ProcessDetailParamCount(fx_id));
-            do
-            {
-                while(idx < 0)
-                    idx += count;
-                while(idx >= count)
-                    idx -= count;
-                engine.process.perform_process_detail_param[cursor] = static_cast<uint8_t>(idx);
-                idx += (e.value < 0) ? -1 : 1;
-            } while(ProcessDetailParamLocked(shared,
-                                             engine,
-                                             layer,
-                                             fx_id,
-                                             engine.process.perform_process_detail_param[cursor]));
+            while(idx < 0)
+                idx += count;
+            while(idx >= count)
+                idx -= count;
+            engine.process.perform_process_detail_param[cursor] = static_cast<uint8_t>(idx);
             ui.ui_dirty = true;
             return true;
         }
@@ -260,11 +233,6 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(engine.process.perform_process_detail_active)
         {
             const uint8_t pidx = engine.process.perform_process_detail_param[cursor];
-            if(ProcessDetailParamLocked(shared, engine, layer, fx_id, pidx))
-            {
-                ui.ui_dirty = true;
-                return true;
-            }
             const bool changed = ProcessEditFxDetail(ctx, e, fx_id, pidx, delta);
             if(changed)
                 ctx.params->PublishTargets();
@@ -358,8 +326,7 @@ void PerformProcess_Render(UiScreenCtx& ctx)
         const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
         const uint8_t pidx = engine.process.perform_process_detail_param[cursor];
         const PerformParamsTargets& t = ctx.params->TargetsForUI();
-        const bool hide_locked_reverb = ProcessDetailParamLocked(shared, engine, layer, fx_id, 4u);
-        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift, hide_locked_reverb);
+        DrawFxDetailScreen(d, t, fx_id, pidx, ctx.now_ms, ctx.rshift);
         return;
     }
 

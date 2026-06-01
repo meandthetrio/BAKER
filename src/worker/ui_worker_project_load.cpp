@@ -78,6 +78,9 @@ static void PublishProjectPerformParams(Params& params,
     if(process_reverb_state)
     {
         t.reverb_on = (process_reverb_state->reverb_on != 0u);
+        t.reverb_fader_mode = (process_reverb_state->reverb_fader_mode == 0u)
+                                  ? kReverbFaderModeSend
+                                  : kReverbFaderModeMix;
         t.reverb_mix = ClampProjectFloat(process_reverb_state->reverb_mix, 0.0f, 1.0f);
         t.reverb_pre = ClampProjectFloat(process_reverb_state->reverb_pre, 0.0f, 1.0f);
         t.reverb_damp = ClampProjectFloat(process_reverb_state->reverb_damp, 0.0f, 1.0f);
@@ -350,11 +353,15 @@ bool ReadProjectLoadManifest(AppUiState& ui,
 
 void PrepareProjectLoadManifest(ProjectManifestV11& manifest)
 {
+    if(manifest.version == 16u)
+        manifest.reverb.reverb_fader_mode = 0u;
+
     SanitizeProjectFxOrder(manifest.fx_order);
     ClampProjectSatState(manifest.sat);
     ClampProjectEqState(manifest.eq);
     ClampProjectDelayState(manifest.delay);
     ClampProjectReverbState(manifest.reverb);
+    manifest.version = kProjectManifestVersion;
     for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
     {
         for(uint8_t row = 0; row < ProjectExpressState::kRowCount; ++row)

@@ -35,10 +35,10 @@ uint8_t ProcessDetailParamCount(uint8_t fx_id)
 {
     switch(fx_id)
     {
-        case 0: return 4; // SAT + mode toggle
+        case 0: return 3; // SAT/RESO BUMP/SMPL + mode toggle
         case 1: return 1; // EQ: graph only (no classic detail)
-        case 2: return 4; // DELAY: LTM RTM FBK MIX
-        case 3: return 5; // REVERB
+        case 2: return 3; // DELAY: LTM RTM FBK
+        case 3: return 5; // REVERB: Pre Dmp Dcy Mod + mode slot
         default: return 3;
     }
 }
@@ -194,13 +194,6 @@ static bool ProcessEditSatDetail(PerformParamsTargets& t,
 
     if(pidx == 2)
     {
-        t.sat_mix = Clamp01(t.sat_mix + delta);
-        t.sat_on = (t.sat_mix > 0.001f);
-        return true;
-    }
-
-    if(pidx == 3)
-    {
         const int dir = (e.value > 0) ? 1 : -1;
         int steps = (e.value > 0) ? e.value : -e.value;
         while(steps-- > 0)
@@ -247,17 +240,13 @@ static bool ProcessEditDelayDetail(UiScreenCtx& ctx, PerformParamsTargets& t, ui
         return true;
     }
 
-    if(pidx == 3)
-    {
-        t.delay_mix = Clamp01(t.delay_mix + delta);
-        t.delay_on = (t.delay_mix > 0.001f);
-        return true;
-    }
-
     return false;
 }
 
-static bool ProcessEditReverbDetail(PerformParamsTargets& t, uint8_t pidx, float delta)
+static bool ProcessEditReverbDetail(PerformParamsTargets& t,
+                                    const UiInputEvent& e,
+                                    uint8_t pidx,
+                                    float delta)
 {
     if(pidx == 0)
     {
@@ -285,8 +274,12 @@ static bool ProcessEditReverbDetail(PerformParamsTargets& t, uint8_t pidx, float
 
     if(pidx == 4)
     {
-        t.reverb_mix = Clamp01(t.reverb_mix + delta);
-        t.reverb_on = (t.reverb_mix > 0.001f);
+        const int dir = (e.value > 0) ? 1 : -1;
+        int mode = static_cast<int>(t.reverb_fader_mode & 0x01u);
+        int steps = (e.value > 0) ? e.value : -e.value;
+        while(steps-- > 0)
+            mode = (dir > 0) ? ((mode + 1) & 0x01) : ((mode == 0) ? 1 : 0);
+        t.reverb_fader_mode = static_cast<uint8_t>(mode);
         return true;
     }
 
@@ -305,6 +298,6 @@ bool ProcessEditFxDetail(UiScreenCtx& ctx,
         case 0: return ProcessEditSatDetail(t, e, pidx, delta);
         case 2: return ProcessEditDelayDetail(ctx, t, pidx, delta);
         case 3:
-        default: return ProcessEditReverbDetail(t, pidx, delta);
+        default: return ProcessEditReverbDetail(t, e, pidx, delta);
     }
 }

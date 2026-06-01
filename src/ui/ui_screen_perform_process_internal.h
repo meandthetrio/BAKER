@@ -48,8 +48,7 @@ void DrawFxDetailScreen(OledPager& d,
                         uint8_t fx_id,
                         uint8_t selected_param,
                         uint32_t now_ms,
-                        bool rshift_held,
-                        bool hide_locked_reverb = false);
+                        bool rshift_held);
 
 // Edit / parameter adjustment (ui_screen_perform_process_edit.cpp).
 float UiDeltaNormAccelerated(int enc_delta, uint32_t t_ms, uint32_t& last_t_ms, float base_step);

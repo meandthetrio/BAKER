@@ -301,6 +301,7 @@ void ClampProjectDelayState(ProjectDelayState& delay)
 void ClampProjectReverbState(ProjectReverbState& reverb)
 {
     reverb.reverb_on = (reverb.reverb_on != 0u) ? 1u : 0u;
+    reverb.reverb_fader_mode = (reverb.reverb_fader_mode == 0u) ? 0u : 1u;
     reverb.reverb_mix = ClampProjectFloat(reverb.reverb_mix, 0.0f, 1.0f);
     reverb.reverb_pre = ClampProjectFloat(reverb.reverb_pre, 0.0f, 1.0f);
     reverb.reverb_damp = ClampProjectFloat(reverb.reverb_damp, 0.0f, 1.0f);
@@ -510,6 +511,7 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     manifest.delay.delay_feedback = targets.delay_feedback;
     ClampProjectDelayState(manifest.delay);
     manifest.reverb.reverb_on = targets.reverb_on ? 1u : 0u;
+    manifest.reverb.reverb_fader_mode = targets.reverb_fader_mode;
     manifest.reverb.reverb_mix = targets.reverb_mix;
     manifest.reverb.reverb_pre = targets.reverb_pre;
     manifest.reverb.reverb_damp = targets.reverb_damp;

@@ -139,6 +139,7 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
 {
     const bool  feed = p.reverb_on;
     const float mix  = p.reverb_on ? p.reverb_mix : reverb_tail_mix_;
+    const bool  mix_mode = (p.reverb_fader_mode == kReverbFaderModeMix);
     float       peak = wet_peak;
 
     // Fixed-size stack scratch buffers sized to the hardware audio block
@@ -159,8 +160,13 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
             const float wetL = tmpL[i] - l;
             const float wetR = tmpR[i] - r;
 
-            const float rl = l + wetL * mix;
-            const float rr = r + wetR * mix;
+            float rl = l + wetL * mix;
+            float rr = r + wetR * mix;
+            if(mix_mode)
+            {
+                rl = l * (1.0f - mix) + wetL * mix;
+                rr = r * (1.0f - mix) + wetR * mix;
+            }
 
             const float abs_rl = std::fabs(rl - l);
             const float abs_rr = std::fabs(rr - r);

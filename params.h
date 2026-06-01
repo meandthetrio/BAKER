@@ -6,6 +6,9 @@
 #include "express_state.h"
 #include "keygroups.h"
 
+static constexpr uint8_t kReverbFaderModeSend = 0u;
+static constexpr uint8_t kReverbFaderModeMix = 1u;
+
 struct PerformParamsTargets
 {
     static constexpr uint8_t kLayerCount = 2;
@@ -19,6 +22,7 @@ struct PerformParamsTargets
 
     float delay_mix  = 0.0f;
     float reverb_mix = 0.0f;
+    uint8_t reverb_fader_mode = kReverbFaderModeSend;
     float sat_drive  = 0.0f;
     float sat_mix    = 0.0f;
     float sat_bump   = 0.5f;
@@ -90,6 +94,7 @@ struct PerformParamsCurrent
 
     float delay_mix  = 0.0f;
     float reverb_mix = 0.0f;
+    uint8_t reverb_fader_mode = kReverbFaderModeSend;
     float sat_drive  = 0.0f;
     float sat_mix    = 0.0f;
     float sat_bump   = 0.5f;

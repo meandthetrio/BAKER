@@ -37,7 +37,7 @@ uint8_t ProcessDetailParamCount(uint8_t fx_id)
     {
         case 0: return 3; // SAT/RESO BUMP/SMPL + mode toggle
         case 1: return 1; // EQ: graph only (no classic detail)
-        case 2: return 3; // DELAY: LTM RTM FBK
+        case 2: return 4; // DELAY: LTM RTM FBK + mode slot
         case 3: return 5; // REVERB: Pre Dmp Dcy Mod + mode slot
         default: return 3;
     }
@@ -204,7 +204,11 @@ static bool ProcessEditSatDetail(PerformParamsTargets& t,
     return false;
 }
 
-static bool ProcessEditDelayDetail(UiScreenCtx& ctx, PerformParamsTargets& t, uint8_t pidx, float delta)
+static bool ProcessEditDelayDetail(UiScreenCtx& ctx,
+                                   PerformParamsTargets& t,
+                                   const UiInputEvent& e,
+                                   uint8_t pidx,
+                                   float delta)
 {
     if(pidx == 0)
     {
@@ -237,6 +241,17 @@ static bool ProcessEditDelayDetail(UiScreenCtx& ctx, PerformParamsTargets& t, ui
     if(pidx == 2)
     {
         t.delay_feedback = Clamp01(t.delay_feedback + delta);
+        return true;
+    }
+
+    if(pidx == 3)
+    {
+        const int dir = (e.value > 0) ? 1 : -1;
+        int mode = static_cast<int>(t.delay_fader_mode & 0x01u);
+        int steps = (e.value > 0) ? e.value : -e.value;
+        while(steps-- > 0)
+            mode = (dir > 0) ? ((mode + 1) & 0x01) : ((mode == 0) ? 1 : 0);
+        t.delay_fader_mode = static_cast<uint8_t>(mode);
         return true;
     }
 
@@ -296,7 +311,7 @@ bool ProcessEditFxDetail(UiScreenCtx& ctx,
     switch(fx_id)
     {
         case 0: return ProcessEditSatDetail(t, e, pidx, delta);
-        case 2: return ProcessEditDelayDetail(ctx, t, pidx, delta);
+        case 2: return ProcessEditDelayDetail(ctx, t, e, pidx, delta);
         case 3:
         default: return ProcessEditReverbDetail(t, e, pidx, delta);
     }

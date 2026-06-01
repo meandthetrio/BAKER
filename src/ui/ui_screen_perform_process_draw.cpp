@@ -341,13 +341,17 @@ static void DrawProcessDelayDetail(OledPager& d,
     constexpr int kDisplayH = 64;
     constexpr int kDelayFaderCount = 3;
     constexpr int kMargin = 2;
+    constexpr int kModeGap = 3;
 
     const int block_y = Font5x7::H + 4;
     int block_h = kDisplayH - block_y - kMargin;
     if(block_h < 3)
         block_h = 3;
     const int fader_x = kMargin;
-    const int fader_w = kDisplayW - (kMargin * 2);
+    const int mode_w = TinyStringWidth("SEND") + 6;
+    const int mode_h = Font5x7::H + 4;
+    const int mode_x = kDisplayW - kMargin - mode_w;
+    const int fader_w = mode_x - fader_x - kModeGap;
     if(fader_w <= 4)
         return;
 
@@ -431,6 +435,23 @@ static void DrawProcessDelayDetail(OledPager& d,
         DrawTinyString(d, fader_labels[1], lb_x0[1] + 1, lb_y0[1] + 1, true);
         DrawDottedRect(d, lb_x0[1] - 1, lb_y0[1] - 1, lb_x1[1] + 1, lb_y1[1] + 1, true);
     }
+
+    const uint8_t active_mode = (t.delay_fader_mode == kDelayFaderModeMix)
+                                    ? kDelayFaderModeMix
+                                    : kDelayFaderModeSend;
+    const bool mode_focused = (selected_param == 3u);
+    const char* label = (active_mode == kDelayFaderModeMix) ? "MIX" : "SEND";
+    const int label_w = TinyStringWidth(label);
+    const int box_y = block_y + ((block_h - mode_h) / 2);
+    int label_x = mode_x + ((mode_w - label_w) / 2);
+    if(label_x < mode_x + 1)
+        label_x = mode_x + 1;
+    const int mode_label_y = box_y + ((mode_h - Font5x7::H) / 2);
+
+    if(mode_focused)
+        d.DrawRect(mode_x, box_y, mode_x + mode_w - 1, box_y + mode_h - 1, true, false);
+
+    DrawTinyString(d, label, label_x, mode_label_y, true);
 }
 
 static void DrawProcessReverbDetail(OledPager& d,

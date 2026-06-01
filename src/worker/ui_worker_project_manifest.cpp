@@ -66,9 +66,10 @@ static bool ProjectManifestValid(const ProjectManifestV11& m)
     return ManifestMagicVersionOk(m.magic, m.version, kProjectManifestVersion);
 }
 
-static bool ProjectManifestValidCurrentLayoutV16(const ProjectManifestV11& m)
+static bool ProjectManifestValidCurrentLayoutLegacy(const ProjectManifestV11& m)
 {
-    return ManifestMagicVersionOk(m.magic, m.version, 16u);
+    return ManifestMagicVersionOk(m.magic, m.version, 16u)
+           || ManifestMagicVersionOk(m.magic, m.version, 17u);
 }
 
 static bool ProjectManifestValid(const ProjectManifestV14Legacy& m)
@@ -874,7 +875,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     manifest.project_style = ProjectStyleToStored(ProjectStyleFromStored(manifest.project_style));
 
     return (manifest_size == sizeof(ProjectManifestV11) && rd == FR_OK && br == sizeof(manifest)
-            && (ProjectManifestValid(manifest) || ProjectManifestValidCurrentLayoutV16(manifest)))
+            && (ProjectManifestValid(manifest) || ProjectManifestValidCurrentLayoutLegacy(manifest)))
            || (manifest_size == sizeof(ProjectManifestV15Legacy) && rd == FR_OK
                && br == sizeof(ProjectManifestV15Legacy))
            || (manifest_size == sizeof(ProjectManifestV14Legacy) && rd == FR_OK

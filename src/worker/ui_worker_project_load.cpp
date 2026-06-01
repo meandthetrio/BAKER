@@ -70,6 +70,9 @@ static void PublishProjectPerformParams(Params& params,
     if(process_delay_state)
     {
         t.delay_on = (process_delay_state->delay_on != 0u);
+        t.delay_fader_mode = (process_delay_state->delay_fader_mode == 0u)
+                                 ? kDelayFaderModeSend
+                                 : kDelayFaderModeMix;
         t.delay_mix = ClampProjectFloat(process_delay_state->delay_mix, 0.0f, 1.0f);
         t.delay_time_l = ClampProjectFloat(process_delay_state->delay_time_l, 0.0f, 1.0f);
         t.delay_time_r = ClampProjectFloat(process_delay_state->delay_time_r, 0.0f, 1.0f);
@@ -354,7 +357,14 @@ bool ReadProjectLoadManifest(AppUiState& ui,
 void PrepareProjectLoadManifest(ProjectManifestV11& manifest)
 {
     if(manifest.version == 16u)
+    {
+        manifest.delay.delay_fader_mode = 0u;
         manifest.reverb.reverb_fader_mode = 0u;
+    }
+    else if(manifest.version == 17u)
+    {
+        manifest.delay.delay_fader_mode = 0u;
+    }
 
     SanitizeProjectFxOrder(manifest.fx_order);
     ClampProjectSatState(manifest.sat);

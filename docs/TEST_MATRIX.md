@@ -372,6 +372,13 @@ Run these only when the build clearly exposes the route or when a current task s
 - Pass
   - Audible modulation and macro changes apply immediately and remain stable under note playback.
 
+### PROCESS delay
+- Suggested coverage
+  - `Start -> Perform -> Process` path if present
+  - `MIX` / `SEND` mode selection plus delay amount, `LTM`, `RTM`, and `FBK` sanity
+- Pass
+  - Controls still map to expected user-facing behavior in both modes, RSHIFT-linked time editing still behaves correctly, and the tail remains stable.
+
 ### PROCESS reverb
 - Suggested coverage
   - `Start -> Perform -> Process` path if present

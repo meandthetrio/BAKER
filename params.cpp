@@ -132,6 +132,9 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
 
     // Bools snap immediately
     current.delay_on  = t.delay_on;
+    current.delay_fader_mode = (t.delay_fader_mode == kDelayFaderModeMix)
+                                   ? kDelayFaderModeMix
+                                   : kDelayFaderModeSend;
     current.reverb_on = t.reverb_on;
     current.reverb_fader_mode = (t.reverb_fader_mode == kReverbFaderModeMix)
                                     ? kReverbFaderModeMix

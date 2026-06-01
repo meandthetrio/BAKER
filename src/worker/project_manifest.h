@@ -7,7 +7,7 @@
 #include "macros.h"
 #include "mod_matrix.h"
 
-static constexpr uint16_t kProjectManifestVersion = 17;
+static constexpr uint16_t kProjectManifestVersion = 18;
 static constexpr uint8_t kProjectPathMax = 64;
 static constexpr uint8_t kProjectSampleLayerCount = 2;
 
@@ -307,7 +307,8 @@ struct ProjectEqState
 struct ProjectDelayState
 {
     uint8_t delay_on = 0;
-    uint8_t pad[3] = {};
+    uint8_t delay_fader_mode = 0;
+    uint8_t pad[2] = {};
     float   delay_mix = 0.0f;
     float   delay_time_l = 0.5f;
     float   delay_time_r = 0.5f;

@@ -96,6 +96,7 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
 {
     const bool  feed = p.delay_on;
     const float mix  = p.delay_on ? p.delay_mix : delay_tail_mix_;
+    const bool  mix_mode = (p.delay_fader_mode == kDelayFaderModeMix);
     float       peak = wet_peak;
 
     // Hoist the write index into a local for the duration of the block so the
@@ -118,8 +119,13 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
         g_delay_buf_R[wr] = inR + dR * fb;
         wr                = (wr + 1) % kDelayMaxSamples;
 
-        const float dl_out = l + dL * mix;
-        const float dr_out = r + dR * mix;
+        float dl_out = l + dL * mix;
+        float dr_out = r + dR * mix;
+        if(feed && mix_mode)
+        {
+            dl_out = l * (1.0f - mix) + dL * mix;
+            dr_out = r * (1.0f - mix) + dR * mix;
+        }
 
         const float abs_dl = std::fabs(dl_out - l);
         const float abs_dr = std::fabs(dr_out - r);

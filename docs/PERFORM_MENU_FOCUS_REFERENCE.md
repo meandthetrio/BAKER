@@ -476,7 +476,7 @@
 - Result:
   - Moves parameter focus.
 - Notes:
-  - Param count: SAT 3, EQ 1, DELAY 3 (LTM/RTM/FBK), REVERB 5 (Pre/Dmp/Dcy/Mod/Mode).
+  - Param count: SAT 3, EQ 1, DELAY 4 (LTM/RTM/FBK/Mode), REVERB 5 (Pre/Dmp/Dcy/Mod/Mode).
 
 5. **Detail mode parameter edit (`kUiEncExt`)**
 - Type: in-screen submenu edit
@@ -516,12 +516,17 @@
 - Purpose: edit DELAY-specific params.
 - Behavior:
   - POD encoder selects param index.
-  - EXT encoder edits L time, R time, and feedback. With **RSHIFT** held, turning the EXT encoder while **LTM** or **RTM** is focused moves **both** `delay_time_l` and `delay_time_r` together (each clamped 0..1).
+  - EXT encoder edits L time, R time, feedback, and the single `Mode` slot. With **RSHIFT** held, turning the EXT encoder while **LTM** or **RTM** is focused moves **both** `delay_time_l` and `delay_time_r` together (each clamped 0..1).
 - Result:
   - Updates DELAY params (`delay_*`).
 - Notes:
-  - Stereo **dual delay**: independent L/R tap times (each 0–1000 ms at 48 kHz from `delay_time_l` / `delay_time_r` 0..1), shared feedback per channel (L tap → L feedback, R → R), shared wet mix.
-  - `delay_mix` remains on the main PROCESS quick fader, not in DELAY detail.
+  - Stereo **dual delay**: independent L/R tap times (each 0–1000 ms at 48 kHz from `delay_time_l` / `delay_time_r` 0..1), shared feedback per channel (L tap → L feedback, R → R), shared wet amount.
+  - The delay detail screen exposes three faders plus one right-side mode slot:
+    - `LTM` = left delay tap time
+    - `RTM` = right delay tap time
+    - `FBK` = shared feedback amount
+    - `Mode` = shows the active `MIX` or `SEND` label on the right; when focused, a single bordered box appears and EXT scroll toggles between them
+  - `delay_mix` remains on the main PROCESS quick fader, not in DELAY detail; the right-side mode slot changes how that amount behaves.
 
 9. **FX detail submenu: REVERB**
 - Type: in-screen submenu

@@ -292,6 +292,7 @@ void ClampProjectSatState(ProjectSatState& sat)
 void ClampProjectDelayState(ProjectDelayState& delay)
 {
     delay.delay_on = (delay.delay_on != 0u) ? 1u : 0u;
+    delay.delay_fader_mode = (delay.delay_fader_mode == 0u) ? 0u : 1u;
     delay.delay_mix = ClampProjectFloat(delay.delay_mix, 0.0f, 1.0f);
     delay.delay_time_l = ClampProjectFloat(delay.delay_time_l, 0.0f, 1.0f);
     delay.delay_time_r = ClampProjectFloat(delay.delay_time_r, 0.0f, 1.0f);
@@ -505,6 +506,7 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     ClampProjectEqState(manifest.eq);
 
     manifest.delay.delay_on = targets.delay_on ? 1u : 0u;
+    manifest.delay.delay_fader_mode = targets.delay_fader_mode;
     manifest.delay.delay_mix = targets.delay_mix;
     manifest.delay.delay_time_l = targets.delay_time_l;
     manifest.delay.delay_time_r = targets.delay_time_r;

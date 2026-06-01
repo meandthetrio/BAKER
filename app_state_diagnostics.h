@@ -19,6 +19,24 @@ enum DiagGainProbe : uint8_t
     kDiagGainProbeCount
 };
 
+enum DiagAudioBucket : uint8_t
+{
+    kDiagAudioBucketCallbackTotal = 0,
+    kDiagAudioBucketCallbackPreVoice,
+    kDiagAudioBucketVoiceRender,
+    kDiagAudioBucketFxTotal,
+    kDiagAudioBucketSat,
+    kDiagAudioBucketEq,
+    kDiagAudioBucketDelay,
+    kDiagAudioBucketReverb,
+    kDiagAudioBucketMaster,
+    kDiagAudioBucketRenderCapture,
+    kDiagAudioBucketRecordPreview,
+    kDiagAudioBucketMonitor,
+    kDiagAudioBucketFinalPeak,
+    kDiagAudioBucketCount
+};
+
 static constexpr float kDiagGainFloorDb = -99.9f;
 
 inline uint32_t DiagnosticsFloatToBits(float value)
@@ -95,6 +113,8 @@ struct AppDiagnosticsState
     std::atomic<uint32_t> audio_cycles_peak{0};
     std::atomic<uint32_t> audio_budget_cycles{0};
     std::atomic<uint32_t> audio_late_count{0};
+    std::atomic<uint32_t> audio_bucket_cycles_last[kDiagAudioBucketCount]{};
+    std::atomic<uint32_t> audio_bucket_cycles_peak[kDiagAudioBucketCount]{};
     std::atomic<uint32_t> last_voice_packed{0};
     std::atomic<uint32_t> last_sample_index{0};
     std::atomic<uint32_t> last_vel_layer{0};
@@ -123,3 +143,23 @@ struct AppDiagnosticsState
     std::atomic<uint32_t> master_softclip_hits{0};
     std::atomic<uint32_t> monitor_clamp_hits{0};
 };
+
+inline void DiagnosticsStoreCycleBucket(AppDiagnosticsState& diagnostics,
+                                        DiagAudioBucket       bucket,
+                                        uint32_t              cycles)
+{
+    const uint8_t index = static_cast<uint8_t>(bucket);
+    diagnostics.audio_bucket_cycles_last[index].store(cycles, std::memory_order_relaxed);
+    const uint32_t prev_peak
+        = diagnostics.audio_bucket_cycles_peak[index].load(std::memory_order_relaxed);
+    if(cycles > prev_peak)
+        diagnostics.audio_bucket_cycles_peak[index].store(cycles, std::memory_order_relaxed);
+}
+
+inline void DiagnosticsResetAudioCyclePeaks(AppDiagnosticsState& diagnostics)
+{
+    diagnostics.audio_cycles_peak.store(0u, std::memory_order_relaxed);
+    diagnostics.audio_late_count.store(0u, std::memory_order_relaxed);
+    for(uint8_t i = 0; i < kDiagAudioBucketCount; ++i)
+        diagnostics.audio_bucket_cycles_peak[i].store(0u, std::memory_order_relaxed);
+}

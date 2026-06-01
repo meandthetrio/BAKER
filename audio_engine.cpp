@@ -280,6 +280,13 @@ void AudioEngine::ProcessBlock(const float* inL,
                                const PerformParamsCurrent& p,
                                bool sd_wav_load_busy)
 {
+    const uint32_t fx_total_start = DWT->CYCCNT;
+    uint32_t       sat_cycles     = 0u;
+    uint32_t       eq_cycles      = 0u;
+    uint32_t       delay_cycles   = 0u;
+    uint32_t       reverb_cycles  = 0u;
+    uint32_t       master_cycles  = 0u;
+
     // Master level can exceed unity for user "BOOST" (e.g. 0..2.0).
     // Clamp here as a last line of defense (UI/params should also clamp).
     float level = p.master_level;
@@ -413,19 +420,35 @@ void AudioEngine::ProcessBlock(const float* inL,
         {
             case 0:
                 if(sat_run)
+                {
+                    const uint32_t stage_start = DWT->CYCCNT;
                     ProcessSatBlock_(outL, outR, size, pre);
+                    sat_cycles += DWT->CYCCNT - stage_start;
+                }
                 break;
             case 1:
                 if(eq_run)
+                {
+                    const uint32_t stage_start = DWT->CYCCNT;
                     ProcessEqBlock_(outL, outR, size, 1.0f);
+                    eq_cycles += DWT->CYCCNT - stage_start;
+                }
                 break;
             case 2:
                 if(!sd_wav_load_busy && (delay_active_ || delay_tailing_))
+                {
+                    const uint32_t stage_start = DWT->CYCCNT;
                     ProcessDelayBlock_(outL, outR, size, p, len_l, len_r, delay_fb, delay_wet_peak);
+                    delay_cycles += DWT->CYCCNT - stage_start;
+                }
                 break;
             case 3:
                 if(!sd_wav_load_busy && (reverb_active_ || reverb_tailing_))
+                {
+                    const uint32_t stage_start = DWT->CYCCNT;
                     ProcessReverbBlock_(outL, outR, size, p, reverb_wet_peak);
+                    reverb_cycles += DWT->CYCCNT - stage_start;
+                }
                 break;
             default:
                 break;
@@ -449,7 +472,9 @@ void AudioEngine::ProcessBlock(const float* inL,
     }
 
     // Final gain stage (and soft-clip safety when BOOST is engaged).
+    const uint32_t master_start = DWT->CYCCNT;
     ApplyMasterBlock_(outL, outR, size, level, bypass_comp);
+    master_cycles = DWT->CYCCNT - master_start;
 
     // During SDRAM WAV load, delay/reverb stages are skipped; freeze tail bookkeeping too
     // (otherwise wet_peak stays 0 and tails collapse incorrectly).
@@ -494,5 +519,17 @@ void AudioEngine::ProcessBlock(const float* inL,
         {
             reverb_active_ = false;
         }
+    }
+
+    if(diagnostics_)
+    {
+        DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketSat, sat_cycles);
+        DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketEq, eq_cycles);
+        DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketDelay, delay_cycles);
+        DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketReverb, reverb_cycles);
+        DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketMaster, master_cycles);
+        DiagnosticsStoreCycleBucket(*diagnostics_,
+                                    kDiagAudioBucketFxTotal,
+                                    DWT->CYCCNT - fx_total_start);
     }
 }

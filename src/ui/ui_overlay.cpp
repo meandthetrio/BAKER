@@ -71,6 +71,27 @@ void FormatPercentValue(char buf[16], uint32_t value)
     std::snprintf(buf, 16, "%lu%%", static_cast<unsigned long>(value));
 }
 
+uint32_t ClampPercentFromCycles(uint32_t cycles, uint32_t budget_cycles)
+{
+    if(budget_cycles == 0u)
+        return 0u;
+
+    uint32_t pct = (cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
+    if(pct > 999u)
+        pct = 999u;
+    return pct;
+}
+
+uint32_t LoadBucketPeakPercent(const AppDiagnosticsState& diag,
+                               DiagAudioBucket            bucket,
+                               uint32_t                   budget_cycles)
+{
+    const uint8_t index = static_cast<uint8_t>(bucket);
+    const uint32_t cycles
+        = diag.audio_bucket_cycles_peak[index].load(std::memory_order_relaxed);
+    return ClampPercentFromCycles(cycles, budget_cycles);
+}
+
 void FormatSignedValue(char buf[16], int value)
 {
     std::snprintf(buf, 16, "%+d", value);
@@ -169,6 +190,66 @@ void UiOverlay_Render(const AppUiState& ui,
 
     switch(diag.overlay.page)
     {
+        case kDiagOverlayPageCpuA:
+        {
+            FormatPercentValue(value0,
+                               ClampPercentFromCycles(
+                                   diag.audio_cycles_peak.load(std::memory_order_relaxed),
+                                   budget_cycles));
+            FormatPercentValue(value1,
+                               LoadBucketPeakPercent(
+                                   diag, kDiagAudioBucketCallbackPreVoice, budget_cycles));
+            FormatPercentValue(value2,
+                               LoadBucketPeakPercent(
+                                   diag, kDiagAudioBucketVoiceRender, budget_cycles));
+            FormatPercentValue(value3,
+                               LoadBucketPeakPercent(
+                                   diag, kDiagAudioBucketFxTotal, budget_cycles));
+            FormatUnsignedValue(value4, diag.audio_late_count.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value5, diag.voices_active.load(std::memory_order_relaxed));
+            const OverlayMetric metrics[] = {
+                {"callback pk", value0},
+                {"pre-voice pk", value1},
+                {"voice pk", value2},
+                {"fx total pk", value3},
+                {"late count", value4},
+                {"active voices", value5},
+            };
+            DrawOverlayPage(oled, "cpu a", metrics, 6);
+            return;
+        }
+        case kDiagOverlayPageCpuFx:
+        {
+            FormatPercentValue(value0,
+                               LoadBucketPeakPercent(diag, kDiagAudioBucketSat, budget_cycles));
+            FormatPercentValue(value1,
+                               LoadBucketPeakPercent(diag, kDiagAudioBucketEq, budget_cycles));
+            FormatPercentValue(value2,
+                               LoadBucketPeakPercent(diag, kDiagAudioBucketDelay, budget_cycles));
+            FormatPercentValue(value3,
+                               LoadBucketPeakPercent(
+                                   diag, kDiagAudioBucketReverb, budget_cycles));
+            FormatPercentValue(value4,
+                               LoadBucketPeakPercent(
+                                   diag, kDiagAudioBucketMaster, budget_cycles));
+            FormatPercentValue(value5,
+                               LoadBucketPeakPercent(
+                                   diag, kDiagAudioBucketRenderCapture, budget_cycles));
+            FormatPercentValue(value6,
+                               LoadBucketPeakPercent(
+                                   diag, kDiagAudioBucketMonitor, budget_cycles));
+            const OverlayMetric metrics[] = {
+                {"sat pk", value0},
+                {"eq pk", value1},
+                {"delay pk", value2},
+                {"reverb pk", value3},
+                {"master pk", value4},
+                {"capture pk", value5},
+                {"monitor pk", value6},
+            };
+            DrawOverlayPage(oled, "cpu fx", metrics, 7);
+            return;
+        }
         case kDiagOverlayPageActivity:
         {
             FormatUnsignedValue(value0, diag.events_pushed.load(std::memory_order_relaxed));

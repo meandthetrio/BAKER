@@ -661,10 +661,21 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
         if(diag.overlay.modal_active)
         {
+            if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+            {
+                const uint8_t page_count = kDiagOverlayPageCount;
+                uint8_t next_page = diag.overlay.page;
+                if(e.value > 0)
+                    next_page = static_cast<uint8_t>((next_page + 1u) % page_count);
+                else
+                    next_page = static_cast<uint8_t>((next_page + page_count - 1u) % page_count);
+                diag.overlay.page = next_page;
+                ui.ui_dirty = true;
+                continue;
+            }
             if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
             {
-                diag.overlay.page = static_cast<uint8_t>((diag.overlay.page + 1u)
-                                                         % kDiagOverlayPageCount);
+                DiagnosticsResetAudioCyclePeaks(diag);
                 ui.ui_dirty = true;
                 continue;
             }

@@ -368,7 +368,6 @@ int main(void)
     hw.StartAudio(AudioCallback);
 
     last_ms = System::GetNow();
-    uint32_t last_peak_reset_ms = last_ms;
 
     while(1)
     {
@@ -393,12 +392,6 @@ int main(void)
 
         const uint32_t loop_mode = g_app.diag.loop_mode.load(std::memory_order_relaxed);
         g_voice.SetLoopMode(loop_mode == 0 ? LoopMode::Forward : LoopMode::PingPong);
-
-        if((now_ms - last_peak_reset_ms) >= 100)
-        {
-            g_app.diag.audio_cycles_peak.store(0, std::memory_order_relaxed);
-            last_peak_reset_ms = now_ms;
-        }
 
         // UI tick owns UI state + drawing; never polls hardware directly.
         g_ui.UiTick(g_app, g_params, g_evtq, now_ms);

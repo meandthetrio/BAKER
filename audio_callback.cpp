@@ -353,6 +353,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                    size_t                    size)
 {
     const uint32_t start_cycles = DWT->CYCCNT;
+    uint32_t       bucket_start = 0u;
 
     AudioCallback_ApplySdSampleHandoffs(g_voice, g_app.shared);
     AudioCallback_ProcessRecording(in, size);
@@ -432,7 +433,14 @@ void AudioCallback(AudioHandle::InputBuffer  in,
         g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
     }
     g_voice.ProcessEvents(g_evtq);
+    DiagnosticsStoreCycleBucket(g_app.diag,
+                                kDiagAudioBucketCallbackPreVoice,
+                                DWT->CYCCNT - start_cycles);
+
+    bucket_start = DWT->CYCCNT;
     g_voice.RenderBlock(out[0], out[1], size);
+    DiagnosticsStoreCycleBucket(
+        g_app.diag, kDiagAudioBucketVoiceRender, DWT->CYCCNT - bucket_start);
 
     PerformParamsCurrent fx_params = voice_params;
     float drive = fx_params.sat_drive;
@@ -440,12 +448,23 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     fx_params.sat_drive = drive;
     const bool sd_wav_load_busy
         = (g_app.shared.sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0);
+    bucket_start = DWT->CYCCNT;
     g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy);
+    DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketFxTotal, DWT->CYCCNT - bucket_start);
+
+    bucket_start = DWT->CYCCNT;
     AudioCallback_ProcessRenderCapture(out[0], size);
+    DiagnosticsStoreCycleBucket(
+        g_app.diag, kDiagAudioBucketRenderCapture, DWT->CYCCNT - bucket_start);
+
+    bucket_start = DWT->CYCCNT;
     AudioCallback_ProcessRecordPreview(out[0], out[1], size);
+    DiagnosticsStoreCycleBucket(
+        g_app.diag, kDiagAudioBucketRecordPreview, DWT->CYCCNT - bucket_start);
 
     const bool monitor_on = (g_app.shared.recording.rec_monitor_enable.load(std::memory_order_acquire) != 0);
     uint32_t monitor_clamp_hits = 0u;
+    bucket_start = DWT->CYCCNT;
     if(monitor_on)
     {
         const uint8_t src = g_app.shared.recording.rec_source_sel.load(std::memory_order_acquire) & 1u;
@@ -480,7 +499,9 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     }
     if(monitor_clamp_hits > 0u)
         g_app.diag.monitor_clamp_hits.fetch_add(monitor_clamp_hits, std::memory_order_relaxed);
+    DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketMonitor, DWT->CYCCNT - bucket_start);
 
+    bucket_start = DWT->CYCCNT;
     float out_peak = 0.0f;
     for(size_t i = 0; i < size; ++i)
     {
@@ -493,12 +514,15 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     }
     DiagnosticsAccumulatePeakAtomic(
         g_app.diag.gain_probe_peak_bits[kDiagGainProbeOutFinal], out_peak);
+    DiagnosticsStoreCycleBucket(
+        g_app.diag, kDiagAudioBucketFinalPeak, DWT->CYCCNT - bucket_start);
 
     const uint32_t used = DWT->CYCCNT - start_cycles;
     g_app.diag.audio_cycles_last.store(used, std::memory_order_relaxed);
     const uint32_t prev_peak = g_app.diag.audio_cycles_peak.load(std::memory_order_relaxed);
     if(used > prev_peak)
         g_app.diag.audio_cycles_peak.store(used, std::memory_order_relaxed);
+    DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketCallbackTotal, used);
 
     const uint32_t budget = g_app.diag.audio_budget_cycles.load(std::memory_order_relaxed);
     if(budget > 0 && used > budget)

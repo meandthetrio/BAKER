@@ -270,8 +270,10 @@ static void ProjectManifestUpgrade(ProjectManifestV8& dst, const ProjectManifest
         dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
     }
     CopySharedSeqModTail(dst, src);
-    for(size_t i = 0; i < 4; ++i)
-        dst.fx_order[i] = static_cast<uint8_t>(i);
+    dst.fx_order[0] = 0u;
+    dst.fx_order[1] = 2u;
+    dst.fx_order[2] = 3u;
+    dst.fx_order[3] = 1u;
 }
 
 static void ProjectManifestUpgrade(ProjectManifestV9& dst, const ProjectManifestV8& src)

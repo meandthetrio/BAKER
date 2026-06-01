@@ -92,10 +92,14 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(!ctx.rshift || !main_selects_fx || encoder_delta == 0)
             return false;
-        const int dir = (encoder_delta > 0) ? 1 : -1;
         const int from = static_cast<int>(main_cursor - 2u);
+        if(from < 0 || from > 3)
+            return true;
+        if(engine.process.perform_process_fx_order[from] == 1u)
+            return true;
+        const int dir = (encoder_delta > 0) ? 1 : -1;
         const int to = from + dir;
-        if(to < 0 || to > 3)
+        if(to < 0 || to > 2)
             return true;
 
         const uint8_t tmp = engine.process.perform_process_fx_order[from];
@@ -260,10 +264,9 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 t.sat_drive = Clamp01(t.sat_drive + delta);
                 t.sat_on = (t.sat_drive > 0.001f);
                 break;
-            case 1: // E = EQ wet
-                t.eq_mix = Clamp01(t.eq_mix + delta);
-                t.eq_on  = (t.eq_mix > 0.001f);
-                break;
+            case 1: // EQ lane is label-only in PROCESS main
+                ui.ui_dirty = true;
+                return true;
             case 2: // D = delay wet
                 t.delay_mix = Clamp01(t.delay_mix + delta);
                 t.delay_on = (t.delay_mix > 0.001f);
@@ -367,10 +370,13 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     // Keep right half for FX faders.
     constexpr int kPaneX = 60;
     constexpr int kPaneW = 64;
-    const char* labels[4] = {"S", "E", "D", "R"};
+    const char* labels[4] = {"S", "", "D", "R"};
     float values[4] = {};
     bool hide_rails[4] = {false, false, false, false};
     bool hide_handles[4] = {false, false, false, false};
+    int label_y_offsets[4] = {0, 0, 0, 0};
+    int rail_bottom_clearance[4] = {0, 0, 0, 0};
+    int lane_x[4] = {};
     for(int i = 0; i < 4; ++i)
     {
         const uint8_t fx_id = engine.process.perform_process_fx_order[i];
@@ -378,15 +384,32 @@ void PerformProcess_Render(UiScreenCtx& ctx)
                                         && ExpressUiTargetLocked(shared, engine, layer, kExpressReverb);
         switch(fx_id)
         {
-            case 0: labels[i] = "S"; values[i] = Clamp01(t.sat_drive); break;
-            case 1: labels[i] = "E"; values[i] = Clamp01(t.eq_mix); break;
-            case 2: labels[i] = "D"; values[i] = Clamp01(t.delay_mix); break;
+            case 0:
+                labels[i] = "S";
+                values[i] = Clamp01(t.sat_drive);
+                label_y_offsets[i] = -2;
+                rail_bottom_clearance[i] = 3;
+                break;
+            case 1:
+                labels[i] = "";
+                values[i] = 1.0f;
+                hide_rails[i] = true;
+                hide_handles[i] = true;
+                break;
+            case 2:
+                labels[i] = "D";
+                values[i] = Clamp01(t.delay_mix);
+                label_y_offsets[i] = -2;
+                rail_bottom_clearance[i] = 3;
+                break;
             case 3:
             default:
                 labels[i] = "R";
                 values[i] = Clamp01(t.reverb_mix);
                 hide_rails[i] = hide_locked_reverb;
                 hide_handles[i] = hide_locked_reverb;
+                label_y_offsets[i] = -2;
+                rail_bottom_clearance[i] = 3;
                 break;
         }
     }
@@ -397,6 +420,21 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     const int fader_h = box_h - 2;
     if(fader_w > 4 && fader_h > 4)
     {
+        const int32_t shared_selected_index
+            = (selected_index >= 0 && selected_index < 4
+               && engine.process.perform_process_fx_order[selected_index] != 1u)
+                  ? selected_index
+                  : -1;
+        const int fader_left = fader_x + 4;
+        const int fader_right = fader_x + fader_w - 5;
+        const int span_x = fader_right - fader_left;
+        for(int i = 0; i < 4; ++i)
+        {
+            lane_x[i] = fader_left;
+            if(i > 0 && span_x > 0)
+                lane_x[i] = fader_left + (span_x * i) / 3;
+        }
+
         DrawVerticalFadersInRect(d,
                                  fader_x,
                                  fader_y,
@@ -405,8 +443,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
                                  labels,
                                  values,
                                  4,
-                                 true,
-                                 selected_index,
+                                 (shared_selected_index >= 0),
+                                 shared_selected_index,
                                  nullptr,
                                  nullptr,
                                  hide_rails,
@@ -414,8 +452,48 @@ void PerformProcess_Render(UiScreenCtx& ctx)
                                  1,
                                  1,
                                  1,
-                                 2);
+                                 1,
+                                 label_y_offsets,
+                                 rail_bottom_clearance);
 
         DrawProcessFxReorderOverlay(d, fader_x, fader_y, fader_w, fader_h, selected_index, ctx.rshift);
+
+        for(int i = 0; i < 4; ++i)
+        {
+            if(engine.process.perform_process_fx_order[i] != 1u)
+                continue;
+
+            const int lane_left = (i == 0) ? fader_x + 1 : ((lane_x[i - 1] + lane_x[i]) / 2) + 1;
+            const int lane_right = (i == 3) ? (fader_x + fader_w - 2)
+                                            : ((lane_x[i] + lane_x[i + 1]) / 2) - 1;
+            const int lane_top = fader_y + 1;
+            const int lane_bottom = fader_y + fader_h - 2;
+            const bool focused = (selected_index == i);
+            if(lane_right < lane_left || lane_bottom < lane_top)
+                break;
+
+            if(focused)
+            {
+                const int focus_left = lane_left + 1;
+                const int focus_top = lane_top + 1;
+                const int focus_right = lane_right - 1;
+                const int focus_bottom = lane_bottom - 1;
+                if(focus_right >= focus_left && focus_bottom >= focus_top)
+                    d.DrawRect(focus_left, focus_top, focus_right, focus_bottom, true, true);
+            }
+
+            const char* top_label = "E";
+            const char* bottom_label = "Q";
+            const int top_w = TinyStringWidthCaseSensitiveTightColons(top_label);
+            const int bottom_w = TinyStringWidthCaseSensitiveTightColons(bottom_label);
+            const int lane_cx = lane_left + ((lane_right - lane_left) / 2);
+            const int gap = 4;
+            const int total_h = (Font5x7::H * 2) + gap;
+            const int top_y = lane_top + ((lane_bottom - lane_top - total_h) / 2);
+            const int bottom_y = top_y + Font5x7::H + gap;
+            DrawTinyStringCaseSensitive(d, top_label, lane_cx - (top_w / 2), top_y, !focused);
+            DrawTinyStringCaseSensitive(d, bottom_label, lane_cx - (bottom_w / 2), bottom_y, !focused);
+            break;
+        }
     }
 }

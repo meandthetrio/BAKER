@@ -351,7 +351,7 @@ void AudioEngine::ProcessBlock(const float* inL,
     if(!sd_wav_load_busy)
         ReverbUpdateParamsDattorro_(p);
 
-    const bool eq_run = (p.eq_on && p.eq_mix > 1e-5f);
+    const bool eq_run = true;
     if(eq_run && !eq_run_prev_)
         tilt_eq_.Reset();
     eq_run_prev_ = eq_run;
@@ -417,7 +417,7 @@ void AudioEngine::ProcessBlock(const float* inL,
                 break;
             case 1:
                 if(eq_run)
-                    ProcessEqBlock_(outL, outR, size, p.eq_mix);
+                    ProcessEqBlock_(outL, outR, size, 1.0f);
                 break;
             case 2:
                 if(!sd_wav_load_busy && (delay_active_ || delay_tailing_))

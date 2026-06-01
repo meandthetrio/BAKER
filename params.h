@@ -22,7 +22,7 @@ struct PerformParamsTargets
     bool  delay_on  = false;
     bool  reverb_on = false;
     bool  sat_on    = false;
-    bool  eq_on     = false;
+    bool  eq_on     = true;
 
     float delay_mix  = 0.0f;
     uint8_t delay_fader_mode = kDelayFaderModeSend;
@@ -34,7 +34,7 @@ struct PerformParamsTargets
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit
-    float eq_mix          = 0.0f;
+    float eq_mix          = 1.0f;
     float eq_center_norm  = 0.5f;
     float eq_tilt_db      = 0.0f;
     float eq_q            = 1.2f; // peaking Q both bells, UI range 0.5..1.7
@@ -83,7 +83,7 @@ struct PerformParamsTargets
         = {kExpressPolyPortoSourceClosest, kExpressPolyPortoSourceClosest};
     uint16_t express_poly_porto_release_ms[kLayerCount]
         = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
-    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
+    uint8_t fx_order[4] = {0, 2, 3, 1}; // ids: 0=SAT,1=EQ,2=DELAY,3=REVERB; default EQ last
 };
 
 struct PerformParamsCurrent
@@ -95,7 +95,7 @@ struct PerformParamsCurrent
     bool  delay_on  = false;
     bool  reverb_on = false;
     bool  sat_on    = false;
-    bool  eq_on     = false;
+    bool  eq_on     = true;
 
     float delay_mix  = 0.0f;
     uint8_t delay_fader_mode = kDelayFaderModeSend;
@@ -107,7 +107,7 @@ struct PerformParamsCurrent
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit
-    float eq_mix          = 0.0f;
+    float eq_mix          = 1.0f;
     float eq_center_norm  = 0.5f;
     float eq_tilt_db      = 0.0f;
     float eq_q            = 1.2f; // peaking Q both bells, UI range 0.5..1.7
@@ -156,7 +156,7 @@ struct PerformParamsCurrent
         = {kExpressPolyPortoSourceClosest, kExpressPolyPortoSourceClosest};
     uint16_t express_poly_porto_release_ms[kLayerCount]
         = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
-    uint8_t fx_order[4] = {0, 1, 2, 3}; // 0=SAT,1=EQ,2=DELAY,3=REVERB
+    uint8_t fx_order[4] = {0, 2, 3, 1}; // ids: 0=SAT,1=EQ,2=DELAY,3=REVERB; default EQ last
 };
 
 class Params

@@ -107,7 +107,7 @@ struct AppEngineState
     struct PerformProcessState
     {
         uint8_t perform_process_fx_cursor = 0;
-        uint8_t perform_process_fx_order[4] = {0, 1, 2, 3};
+        uint8_t perform_process_fx_order[4] = {0, 2, 3, 1};
         uint8_t perform_process_main_cursor = 2;
         uint16_t perform_process_vol_pct[2] = {100u, 100u};
         bool    perform_process_vol_muted[2] = {false, false};

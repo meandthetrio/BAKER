@@ -351,8 +351,8 @@ void ClampProjectEqState(ProjectEqState& eq)
         return value;
     };
 
-    eq.eq_on = (eq.eq_on != 0u) ? 1u : 0u;
-    eq.eq_mix = clamp01(eq.eq_mix);
+    eq.eq_on = 1u;
+    eq.eq_mix = 1.0f;
     eq.eq_center_norm = clamp01(eq.eq_center_norm);
     eq.eq_tilt_db = clamp_eq_tilt(eq.eq_tilt_db);
     eq.eq_q = clamp_eq_q(eq.eq_q);
@@ -363,23 +363,31 @@ void SanitizeProjectFxOrder(uint8_t* fx_order)
     if(!fx_order)
         return;
 
-    bool seen[4] = {false, false, false, false};
-    uint8_t next_missing = 0u;
-    for(uint8_t i = 0; i < 4; ++i)
+    uint8_t normalized[4] = {0u, 2u, 3u, 1u};
+    uint8_t count = 0u;
+    auto append_unique = [&](uint8_t fx)
     {
-        const uint8_t fx = fx_order[i];
-        if(fx < 4u && !seen[fx])
+        if(fx == 1u || fx > 3u || count >= 3u)
+            return;
+        for(uint8_t i = 0; i < count; ++i)
         {
-            seen[fx] = true;
-            continue;
+            if(normalized[i] == fx)
+                return;
         }
+        normalized[count++] = fx;
+    };
 
-        while(next_missing < 4u && seen[next_missing])
-            ++next_missing;
-        fx_order[i] = (next_missing < 4u) ? next_missing : static_cast<uint8_t>(i);
-        if(fx_order[i] < 4u)
-            seen[fx_order[i]] = true;
-    }
+    for(uint8_t i = 0; i < 4; ++i)
+        append_unique(fx_order[i]);
+
+    append_unique(0u);
+    append_unique(2u);
+    append_unique(3u);
+
+    fx_order[0] = normalized[0];
+    fx_order[1] = normalized[1];
+    fx_order[2] = normalized[2];
+    fx_order[3] = 1u;
 }
 
 static void CollectProjectLayerState(ProjectManifestV11& manifest,

@@ -24,7 +24,9 @@ void DrawVerticalFadersInRect(OledPager& d,
                               int selected_label_box_y_offset = 0,
                               int selected_label_box_extra_bottom = 0,
                               int selected_label_box_bottom_clip_extra = 0,
-                              int selected_label_style = 0); // 0=renc, 1=fill+dotted outer, 2=fill-only, 3=border-only, 4=dotted-only
+                              int selected_label_style = 0,
+                              const int* label_y_offsets = nullptr,
+                              const int* rail_bottom_clearance = nullptr); // 0=renc, 1=fill+dotted outer, 2=fill-only, 3=border-only, 4=dotted-only
 
 void DrawDelayDetailFaders(OledPager& d,
                            int x,

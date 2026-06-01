@@ -434,6 +434,7 @@
   - Selects volume block or FX lane.
 - Notes:
   - FX lanes map through `perform_process_fx_order`.
+  - EQ is fixed to the last FX lane; only SAT, DELAY, and REVERB move.
 
 2. **Volume block controls (VOL A / VOL B)**
 - Type: level + mute controls
@@ -456,17 +457,24 @@
 - Type: quick edit + entry action
 - Purpose: quick-adjust selected FX primary parameter; enter detail.
 - Behavior:
-  - `kUiEncExt` edits quick parameter for selected lane (`sat_drive`/`lfo_depth`/`delay_mix`/`reverb_mix`).
+  - `kUiEncExt` edits quick parameter for selected lane (`sat_drive`/`delay_mix`/`reverb_mix`).
+  - When EQ is focused in the main PROCESS lane, `kUiEncExt` does nothing.
   - `kUiBtnExtEnc` enters detail mode for selected lane.
   - `RShift + kUiEncExt` reorders FX lanes.
 - Result:
   - Publishes FX values/order.
 - Notes:
   - Project recall persists only canonical `fx_order[4]`; `perform_process_fx_order` is a mirrored UI copy re-derived from the restored canonical order, and `perform_process_fx_cursor`, `perform_process_main_cursor`, `perform_process_detail_active`, `perform_process_eq_graph_active`, and `perform_process_detail_param` are not serialized.
+  - Canonical FX order is always `SAT/DELAY/REVERB/EQ` with the first three lanes reorderable; EQ is always forced into the last lane on load/save/UI sync.
   - SAT recall likewise persists only canonical `sat_on`, `sat_mode`, `sat_mix`, `sat_drive`, `sat_bump`, `sat_bit_reso`, and `sat_bit_smpl` from the published params block; PROCESS detail cursor/helper state is not serialized.
+  - Focus styling in the main PROCESS FX lanes is label-only:
+    - `SAT`, `DELAY`, and `REVERB` use the inverted filled label with the dotted outer outline
+    - that dotted outline sits outside a full `1 px` ring of off pixels and never touches the inverted label box
+    - those three lanes lift the letter label by `2 px` and shorten the fader by `5 px` total at the bottom so the focus box does not touch the rail/handle
   - EQ recall likewise persists only canonical `eq_on`, `eq_mix`, `eq_center_norm`, `eq_tilt_db`, and `eq_q` from the published params block; PROCESS graph/detail cursor/helper state is not serialized.
+  - `eq_on` and `eq_mix` are compatibility-only fields now normalized to `true` and `1.0`; the PROCESS main lane no longer exposes an EQ blend/bypass control.
   - `perform_process_fx_cursor` tracks selected lane when main cursor is on FX.
-  - Reorder is adjacent-swap and clamps at edges (no wrap).
+  - Reorder is adjacent-swap across SAT/DELAY/REVERB only and clamps at edges (no wrap). `RShift` shows reorder arrows only; there is no full-lane dotted reorder frame. When EQ is focused, reorder mode is unavailable.
 
 4. **Detail mode parameter cursor (`perform_process_detail_param[cursor]`)**
 - Type: per-FX parameter selector
@@ -510,6 +518,10 @@
   - EXT encoder edits `eq_tilt_db`; with `RSHIFT`, EXT edits `eq_q`.
 - Result:
   - Updates EQ params (`eq_center_norm`, `eq_tilt_db`, `eq_q`).
+- Notes:
+  - In the main PROCESS lane, EQ is a label-only slot rendered as vertical `E` / `Q` text instead of a fader.
+  - Focused EQ lane uses a filled/inverted column treatment; unfocused EQ lane shows text only.
+  - EQ is always active at full strength; the main PROCESS lane no longer provides EQ mix or bypass.
 
 8. **FX detail submenu: DELAY**
 - Type: in-screen submenu
@@ -557,7 +569,8 @@
   - existing right-side FX lane and in-screen detail rendering remain in place
 - Navigation and behavior are unchanged:
   - same main cursor order: `VOL A -> VOL B -> FX lanes`
-  - same quick FX edit, FX reorder, detail entry/exit, and parent-preview behavior
+  - same quick FX edit, detail entry/exit, and parent-preview behavior
+  - FX reorder remains available only for SAT/DELAY/REVERB, with EQ fixed last
   - same existing Daisy PROCESS publish path and parameter ownership
 
 10. **Layer toggle (`perform_layer`)**

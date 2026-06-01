@@ -79,14 +79,11 @@ void DrawVerticalFadersInRect(OledPager& d,
                               int selected_label_box_y_offset,
                               int selected_label_box_extra_bottom,
                               int selected_label_box_bottom_clip_extra,
-                              int selected_label_style)
+                              int selected_label_style,
+                              const int* label_y_offsets,
+                              const int* rail_bottom_clearance)
 {
     if(w <= 2 || h <= 2 || count <= 0)
-        return;
-    const int label_y = y + h - Font5x7::H - 1;
-    int line_top = y + 2;
-    int line_bottom = label_y - 2;
-    if(line_bottom <= line_top)
         return;
 
     // Keep edge lanes far enough from bounds so 7px handles stay centered on rails.
@@ -96,9 +93,17 @@ void DrawVerticalFadersInRect(OledPager& d,
         return;
 
     const int span_x = fader_right - fader_left;
-    const int span_y = line_bottom - line_top;
     for(int f = 0; f < count; ++f)
     {
+        const int label_y = y + h - Font5x7::H - 1
+                            + ((label_y_offsets != nullptr) ? label_y_offsets[f] : 0);
+        const int line_top = y + 2;
+        const int line_bottom = label_y - 2
+                                - ((rail_bottom_clearance != nullptr) ? rail_bottom_clearance[f] : 0);
+        if(line_bottom <= line_top)
+            continue;
+        const int span_y = line_bottom - line_top;
+
         int line_x = fader_left;
         if(count > 1 && span_x > 0)
             line_x = fader_left + (span_x * f) / (count - 1);
@@ -212,7 +217,7 @@ void DrawVerticalFadersInRect(OledPager& d,
                     const int x1 = label_x + label_w + 1;
                     const int y1 = label_y + Font5x7::H + 1;
                     d.DrawRect(x0, y0, x1, y1, true, true);
-                    DrawDottedRect(d, x0 - 1, y0 - 1, x1 + 1, y1 + 1, true);
+                    DrawDottedRect(d, x0 - 2, y0 - 2, x1 + 2, y1 + 2, true);
                     DrawTinyString(d, label, label_x, label_y, false);
                 }
                 else if(selected_label_style == 2)

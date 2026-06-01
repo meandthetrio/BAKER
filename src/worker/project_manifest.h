@@ -229,7 +229,7 @@ struct ProjectManifestV8
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     uint8_t  seq_running = 1;
     uint8_t  plock_apply_enabled = 1;
     uint8_t  lfo_wave = 0;
@@ -281,7 +281,7 @@ struct ProjectManifestV9
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState sat{};
     uint8_t  seq_running = 1;
     uint8_t  plock_apply_enabled = 1;
@@ -296,9 +296,9 @@ struct ProjectManifestV9
 
 struct ProjectEqState
 {
-    uint8_t eq_on = 0;
+    uint8_t eq_on = 1;
     uint8_t pad[3] = {};
-    float   eq_mix = 0.0f;
+    float   eq_mix = 1.0f;
     float   eq_center_norm = 0.5f;
     float   eq_tilt_db = 0.0f;
     float   eq_q = 1.2f;
@@ -406,7 +406,7 @@ struct ProjectManifestV10
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState sat{};
     ProjectEqState  eq{};
     uint8_t  seq_running = 1;
@@ -448,7 +448,7 @@ struct ProjectManifestV11Legacy
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState   sat{};
     ProjectEqState    eq{};
     ProjectDelayState delay{};
@@ -492,7 +492,7 @@ struct ProjectManifestV12Legacy
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState   sat{};
     ProjectEqState    eq{};
     ProjectDelayState delay{};
@@ -537,7 +537,7 @@ struct ProjectManifestV14Legacy
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState   sat{};
     ProjectEqState    eq{};
     ProjectDelayState delay{};
@@ -583,7 +583,7 @@ struct ProjectManifestV15Legacy
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState   sat{};
     ProjectEqState    eq{};
     ProjectDelayState delay{};
@@ -630,7 +630,7 @@ struct ProjectManifestV11
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState   sat{};
     ProjectEqState    eq{};
     ProjectDelayState delay{};
@@ -679,7 +679,7 @@ struct ProjectManifestV13Legacy
     float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
     float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
     float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
-    uint8_t  fx_order[4] = {0, 1, 2, 3};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
     ProjectSatState   sat{};
     ProjectEqState    eq{};
     ProjectDelayState delay{};

@@ -51,8 +51,8 @@ static void PublishProjectPerformParams(Params& params,
     }
     if(process_eq_state)
     {
-        t.eq_on = (process_eq_state->eq_on != 0u);
-        t.eq_mix = ClampProjectFloat(process_eq_state->eq_mix, 0.0f, 1.0f);
+        t.eq_on = true;
+        t.eq_mix = 1.0f;
         t.eq_center_norm = ClampProjectFloat(process_eq_state->eq_center_norm, 0.0f, 1.0f);
         if(process_eq_state->eq_tilt_db < -kTiltEqTiltMaxDb)
             t.eq_tilt_db = -kTiltEqTiltMaxDb;

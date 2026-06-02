@@ -373,6 +373,10 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
                                                       size_t i,
                                                       RenderNormalVoiceLoopState& st)
 {
+    uint32_t fetch_start = 0u;
+    if(ctx.fetch_cycles)
+        fetch_start = DWT->CYCCNT;
+
     const float ratio = st.ratio * setup.pitch_ratio_scale;
     bool used_seam_xfade = false;
     float s = VoiceRenderFetch_VoiceStream(v.sample,
@@ -402,6 +406,13 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
                                                 setup.start,
                                                 setup.end,
                                                 sample_rate_);
+    if(ctx.fetch_cycles)
+        *ctx.fetch_cycles += DWT->CYCCNT - fetch_start;
+
+    uint32_t envmix_start = 0u;
+    if(ctx.envmix_cycles)
+        envmix_start = DWT->CYCCNT;
+
     s *= st.env_level;
     const float fin = VoicePlayback_FadeInMultiplier(st.fade);
     s *= fin;
@@ -411,7 +422,11 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
     layer_bus[i] += s;
 
     if(StopFade_AdvanceAndFinishIfDone_(v, st.stop_fade))
+    {
+        if(ctx.envmix_cycles)
+            *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
         return true;
+    }
 
     if(!AdvancePos(st.pos_frame,
                    st.pos_frac,
@@ -456,6 +471,8 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
         {
             v.state = VoiceState::Idle;
             ClearPolyPortoVoice_(v);
+            if(ctx.envmix_cycles)
+                *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
             return true;
         }
     }
@@ -485,6 +502,8 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
             st.ratio = ComputeRatioFromSemitoneDelta(st.glide_target_semitones);
         }
     }
+    if(ctx.envmix_cycles)
+        *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
     return false;
 }
 
@@ -536,6 +555,9 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
     p.fade_end_threshold   = setup.loop_fade_end_threshold;
 
     // Phase 1: fetch + boundary-fade + pos advance for the whole batch.
+    uint32_t fetch_start = 0u;
+    if(ctx.fetch_cycles)
+        fetch_start = DWT->CYCCNT;
     const size_t eos_idx = VoiceRenderFetch_VoiceStreamBatch(p,
                                                              st.pos_frame,
                                                              st.pos_frac,
@@ -543,6 +565,8 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
                                                              st.gate,
                                                              N,
                                                              buf);
+    if(ctx.fetch_cycles)
+        *ctx.fetch_cycles += DWT->CYCCNT - fetch_start;
 
     // Phase 2: ramp + mix. Matches the per-sample order of operations in
     // RenderNormalVoice_ProcessOneSample_:
@@ -565,6 +589,9 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
     float   sf_step      = st.stop_fade.step;
     int32_t sf_remaining = st.stop_fade.remaining;
 
+    uint32_t envmix_start = 0u;
+    if(ctx.envmix_cycles)
+        envmix_start = DWT->CYCCNT;
     for(size_t i = 0; i < N; ++i)
     {
         const float fin = fade_saturated ? 1.0f : fade;
@@ -588,6 +615,8 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
                 st.stop_fade.level     = 0.0f;
                 st.stop_fade.step      = sf_step;
                 FinishStopFade_(v);
+                if(ctx.envmix_cycles)
+                    *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
                 return;
             }
         }
@@ -616,6 +645,8 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
 
         env += env_delta;
     }
+    if(ctx.envmix_cycles)
+        *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
 
     // Commit local ramp state. pos/dir/gate were already committed in-place
     // by VoiceRenderFetch_VoiceStreamBatch. env_stage is finalized by the

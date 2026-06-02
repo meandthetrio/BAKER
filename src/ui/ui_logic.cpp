@@ -676,6 +676,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
             {
                 DiagnosticsResetAudioCyclePeaks(diag);
+                DiagnosticsResetVoiceCyclePeaks(diag);
                 UiOverlay_ResetCpuRecent();
                 ui.ui_dirty = true;
                 continue;

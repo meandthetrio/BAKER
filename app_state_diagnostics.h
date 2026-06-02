@@ -37,6 +37,20 @@ enum DiagAudioBucket : uint8_t
     kDiagAudioBucketCount
 };
 
+enum DiagVoiceBucket : uint8_t
+{
+    kDiagVoiceBucketRenderTotal = 0,
+    kDiagVoiceBucketFixedSetup,
+    kDiagVoiceBucketClearBuffers,
+    kDiagVoiceBucketActiveVoicesTotal,
+    kDiagVoiceBucketNormalVoices,
+    kDiagVoiceBucketStealVoices,
+    kDiagVoiceBucketFetch,
+    kDiagVoiceBucketEnvMix,
+    kDiagVoiceBucketLayerMix,
+    kDiagVoiceBucketCount
+};
+
 static constexpr float kDiagGainFloorDb = -99.9f;
 
 inline uint32_t DiagnosticsFloatToBits(float value)
@@ -115,6 +129,8 @@ struct AppDiagnosticsState
     std::atomic<uint32_t> audio_late_count{0};
     std::atomic<uint32_t> audio_bucket_cycles_last[kDiagAudioBucketCount]{};
     std::atomic<uint32_t> audio_bucket_cycles_peak[kDiagAudioBucketCount]{};
+    std::atomic<uint32_t> voice_bucket_cycles_last[kDiagVoiceBucketCount]{};
+    std::atomic<uint32_t> voice_bucket_cycles_peak[kDiagVoiceBucketCount]{};
     std::atomic<uint32_t> last_voice_packed{0};
     std::atomic<uint32_t> last_sample_index{0};
     std::atomic<uint32_t> last_vel_layer{0};
@@ -162,4 +178,22 @@ inline void DiagnosticsResetAudioCyclePeaks(AppDiagnosticsState& diagnostics)
     diagnostics.audio_late_count.store(0u, std::memory_order_relaxed);
     for(uint8_t i = 0; i < kDiagAudioBucketCount; ++i)
         diagnostics.audio_bucket_cycles_peak[i].store(0u, std::memory_order_relaxed);
+}
+
+inline void DiagnosticsStoreVoiceCycleBucket(AppDiagnosticsState& diagnostics,
+                                             DiagVoiceBucket      bucket,
+                                             uint32_t             cycles)
+{
+    const uint8_t index = static_cast<uint8_t>(bucket);
+    diagnostics.voice_bucket_cycles_last[index].store(cycles, std::memory_order_relaxed);
+    const uint32_t prev_peak
+        = diagnostics.voice_bucket_cycles_peak[index].load(std::memory_order_relaxed);
+    if(cycles > prev_peak)
+        diagnostics.voice_bucket_cycles_peak[index].store(cycles, std::memory_order_relaxed);
+}
+
+inline void DiagnosticsResetVoiceCyclePeaks(AppDiagnosticsState& diagnostics)
+{
+    for(uint8_t i = 0; i < kDiagVoiceBucketCount; ++i)
+        diagnostics.voice_bucket_cycles_peak[i].store(0u, std::memory_order_relaxed);
 }

@@ -15,6 +15,7 @@ enum DiagnosticsOverlayPage : uint8_t
     kDiagOverlayPageSys = 0,
     kDiagOverlayPageCpuA,
     kDiagOverlayPageCpuFx,
+    kDiagOverlayPageVoiceCpu,
     kDiagOverlayPageActivity,
     kDiagOverlayPageLayerAndMix,
     kDiagOverlayPageOutputAndClamps,

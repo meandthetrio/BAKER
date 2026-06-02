@@ -407,6 +407,8 @@ class VoiceEngine
         uint32_t* playhead_frame;
         uint32_t* playhead_active;
         float* playhead_metric;
+        uint32_t* fetch_cycles;
+        uint32_t* envmix_cycles;
     };
 
     struct RenderNormalVoicePerBlockSetup

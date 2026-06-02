@@ -1,5 +1,6 @@
 #include "voice_engine_internal.h"
 
+#include "app_state_diagnostics.h"
 #include "build_config.h"
 
 #include <cmath>
@@ -154,7 +155,23 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     if(!outL || !outR || size == 0)
         return;
 
+    const bool diag_on = diagnostics_ != nullptr;
+    uint32_t render_total_start = 0u;
+    uint32_t fixed_setup_cycles = 0u;
+    uint32_t clear_buffers_cycles = 0u;
+    uint32_t active_voices_cycles = 0u;
+    uint32_t normal_voices_cycles = 0u;
+    uint32_t steal_voices_cycles = 0u;
+    uint32_t fetch_cycles = 0u;
+    uint32_t envmix_cycles = 0u;
+    uint32_t layer_mix_cycles = 0u;
+    if(diag_on)
+        render_total_start = DWT->CYCCNT;
+
     const LoopMode loop_mode = GetLoopMode();
+    uint32_t setup_start = 0u;
+    if(diag_on)
+        setup_start = DWT->CYCCNT;
     SnapshotMacroState_();
     SnapshotPLockState_();
 
@@ -226,10 +243,19 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     lfo_.TickBlock(size);
     const float lfo_src = lfo_val * depth;
     RefreshBlockState_(size);
+    if(diag_on)
+        fixed_setup_cycles += DWT->CYCCNT - setup_start;
 
+    uint32_t clear_start = 0u;
+    if(diag_on)
+        clear_start = DWT->CYCCNT;
     std::memset(outL, 0, sizeof(float) * size);
     std::memset(outR, 0, sizeof(float) * size);
+    if(diag_on)
+        clear_buffers_cycles = DWT->CYCCNT - clear_start;
 
+    if(diag_on)
+        setup_start = DWT->CYCCNT;
     for(uint8_t layer = 0u; layer < kEngineLayerCount; ++layer)
     {
         if(emphasis_dirty_[layer])
@@ -238,6 +264,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             emphasis_dirty_[layer] = false;
         }
     }
+    if(diag_on)
+        fixed_setup_cycles += DWT->CYCCNT - setup_start;
 
     uint32_t active = 0;
     uint32_t clip_block = 0;
@@ -260,6 +288,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         playhead_frame,
         playhead_active,
         playhead_metric,
+        diag_on ? &fetch_cycles : nullptr,
+        diag_on ? &envmix_cycles : nullptr,
     };
 
     for(size_t vi = 0; vi < kMaxVoices; vi++)
@@ -267,6 +297,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         Voice& v = voices_[vi];
         if(v.state == VoiceState::Idle)
             continue;
+
+        const bool is_steal_voice = (v.state == VoiceState::StealFadeOut);
+        const uint32_t active_start = diag_on ? DWT->CYCCNT : 0u;
 
         StopFadeState stop_fade{};
         stop_fade.active = v.stop_fade_active;
@@ -314,7 +347,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             pitch_scale = pitch_mod_lut_[lut_idx];
         }
 
-        if(v.state == VoiceState::StealFadeOut)
+        if(is_steal_voice)
         {
             layer_active[v.old_source_layer & 1u] = true;
             RenderStealFadeOutVoice_(v, render_ctx, pitch_scale, stop_fade);
@@ -323,6 +356,16 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         {
             layer_active[v.source_layer & 1u] = true;
             RenderNormalVoice_(v, render_ctx, pitch_scale, stop_fade);
+        }
+
+        if(diag_on)
+        {
+            const uint32_t voice_cycles = DWT->CYCCNT - active_start;
+            active_voices_cycles += voice_cycles;
+            if(is_steal_voice)
+                steal_voices_cycles += voice_cycles;
+            else
+                normal_voices_cycles += voice_cycles;
         }
     }
 
@@ -337,7 +380,12 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         !layer_active[0] && state_mag_a < kEmphasisStateEpsilon,
         !layer_active[1] && state_mag_b < kEmphasisStateEpsilon,
     };
+    uint32_t layer_mix_start = 0u;
+    if(diag_on)
+        layer_mix_start = DWT->CYCCNT;
     RenderBlockMixLayers_(outL, outR, size, mix_scale, clip_block, layer_skip);
+    if(diag_on)
+        layer_mix_cycles = DWT->CYCCNT - layer_mix_start;
 
     WriteRenderDebug_(clip_block,
                       rate_hz,
@@ -347,5 +395,29 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
                       active,
                       playhead_frame,
                       playhead_active);
+
+    if(diag_on)
+    {
+        const uint32_t render_total_cycles = DWT->CYCCNT - render_total_start;
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketRenderTotal, render_total_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketFixedSetup, fixed_setup_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketClearBuffers, clear_buffers_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketActiveVoicesTotal, active_voices_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketNormalVoices, normal_voices_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketStealVoices, steal_voices_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketFetch, fetch_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketEnvMix, envmix_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketLayerMix, layer_mix_cycles);
+    }
+
     audio_sample_counter_ += static_cast<uint64_t>(size);
 }

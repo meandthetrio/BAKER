@@ -32,6 +32,8 @@ uint32_t s_cpu_recent_window_max_callback = 0u;
 uint32_t s_cpu_displayed_now_callback = 0u;
 uint32_t s_cpu_recent_window_max_cycles[kDiagAudioBucketCount]{};
 uint32_t s_cpu_displayed_now_cycles[kDiagAudioBucketCount]{};
+uint32_t s_voice_recent_window_max_cycles[kDiagVoiceBucketCount]{};
+uint32_t s_voice_displayed_now_cycles[kDiagVoiceBucketCount]{};
 uint32_t s_cpu_recent_window_start_ms = 0u;
 
 int FontStringWidth(const char* str)
@@ -99,6 +101,11 @@ void ResetCpuRecentState_()
         s_cpu_recent_window_max_cycles[i] = 0u;
         s_cpu_displayed_now_cycles[i] = 0u;
     }
+    for(uint8_t i = 0; i < kDiagVoiceBucketCount; ++i)
+    {
+        s_voice_recent_window_max_cycles[i] = 0u;
+        s_voice_displayed_now_cycles[i] = 0u;
+    }
     s_cpu_recent_window_start_ms = 0u;
 }
 
@@ -117,6 +124,12 @@ void UpdateCpuRecentState_(const AppDiagnosticsState& diag, uint32_t now_ms)
         if(cycles > s_cpu_recent_window_max_cycles[i])
             s_cpu_recent_window_max_cycles[i] = cycles;
     }
+    for(uint8_t i = 0; i < kDiagVoiceBucketCount; ++i)
+    {
+        const uint32_t cycles = diag.voice_bucket_cycles_last[i].load(std::memory_order_relaxed);
+        if(cycles > s_voice_recent_window_max_cycles[i])
+            s_voice_recent_window_max_cycles[i] = cycles;
+    }
 
     if((now_ms - s_cpu_recent_window_start_ms) < kCpuRecentWindowMs)
         return;
@@ -127,6 +140,11 @@ void UpdateCpuRecentState_(const AppDiagnosticsState& diag, uint32_t now_ms)
     {
         s_cpu_displayed_now_cycles[i] = s_cpu_recent_window_max_cycles[i];
         s_cpu_recent_window_max_cycles[i] = 0u;
+    }
+    for(uint8_t i = 0; i < kDiagVoiceBucketCount; ++i)
+    {
+        s_voice_displayed_now_cycles[i] = s_voice_recent_window_max_cycles[i];
+        s_voice_recent_window_max_cycles[i] = 0u;
     }
     s_cpu_recent_window_start_ms = now_ms;
 }
@@ -147,6 +165,22 @@ uint32_t LoadBucketPeakPercent_(const AppDiagnosticsState& diag,
     return CyclesToPct_(cycles, budget_cycles);
 }
 
+uint32_t LoadVoiceBucketNowPercent_(DiagVoiceBucket bucket, uint32_t budget_cycles)
+{
+    const uint8_t index = static_cast<uint8_t>(bucket);
+    return CyclesToPct_(s_voice_displayed_now_cycles[index], budget_cycles);
+}
+
+uint32_t LoadVoiceBucketPeakPercent_(const AppDiagnosticsState& diag,
+                                     DiagVoiceBucket            bucket,
+                                     uint32_t                   budget_cycles)
+{
+    const uint8_t index = static_cast<uint8_t>(bucket);
+    const uint32_t cycles
+        = diag.voice_bucket_cycles_peak[index].load(std::memory_order_relaxed);
+    return CyclesToPct_(cycles, budget_cycles);
+}
+
 void FormatNowPeakValue(char buf[16], uint32_t now_pct, uint32_t peak_pct)
 {
     std::snprintf(buf,
@@ -164,6 +198,16 @@ void FormatBucketNowPeakValue(char                    buf[16],
     FormatNowPeakValue(buf,
                        LoadBucketNowPercent_(bucket, budget_cycles),
                        LoadBucketPeakPercent_(diag, bucket, budget_cycles));
+}
+
+void FormatVoiceBucketNowPeakValue(char                    buf[16],
+                                   const AppDiagnosticsState& diag,
+                                   DiagVoiceBucket            bucket,
+                                   uint32_t                   budget_cycles)
+{
+    FormatNowPeakValue(buf,
+                       LoadVoiceBucketNowPercent_(bucket, budget_cycles),
+                       LoadVoiceBucketPeakPercent_(diag, bucket, budget_cycles));
 }
 
 void FormatSignedValue(char buf[16], int value)
@@ -321,6 +365,28 @@ void UiOverlay_Render(const AppUiState& ui,
                 {"monitor pk", value6},
             };
             DrawOverlayPage(oled, "cpu fx", metrics, 7);
+            return;
+        }
+        case kDiagOverlayPageVoiceCpu:
+        {
+            FormatVoiceBucketNowPeakValue(value0, diag, kDiagVoiceBucketRenderTotal, budget_cycles);
+            FormatVoiceBucketNowPeakValue(value1, diag, kDiagVoiceBucketFixedSetup, budget_cycles);
+            FormatVoiceBucketNowPeakValue(
+                value2, diag, kDiagVoiceBucketActiveVoicesTotal, budget_cycles);
+            FormatVoiceBucketNowPeakValue(value3, diag, kDiagVoiceBucketStealVoices, budget_cycles);
+            FormatVoiceBucketNowPeakValue(value4, diag, kDiagVoiceBucketFetch, budget_cycles);
+            FormatVoiceBucketNowPeakValue(value5, diag, kDiagVoiceBucketEnvMix, budget_cycles);
+            FormatVoiceBucketNowPeakValue(value6, diag, kDiagVoiceBucketLayerMix, budget_cycles);
+            const OverlayMetric metrics[] = {
+                {"total pk", value0},
+                {"fixed pk", value1},
+                {"active pk", value2},
+                {"steal pk", value3},
+                {"fetch pk", value4},
+                {"envmix pk", value5},
+                {"mix pk", value6},
+            };
+            DrawOverlayPage(oled, "voice cpu", metrics, 7);
             return;
         }
         case kDiagOverlayPageActivity:

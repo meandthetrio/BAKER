@@ -47,6 +47,8 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdManageMenu_Render(UiScreenCtx& ctx);
 bool SdManageActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdManageActionMenu_Render(UiScreenCtx& ctx);
+bool SdManageTrimChoice_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void SdManageTrimChoice_Render(UiScreenCtx& ctx);
 bool SdManageStyleFilter_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void SdManageStyleFilter_Render(UiScreenCtx& ctx);
 

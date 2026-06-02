@@ -11,11 +11,18 @@
 #include "sample_edit.h"
 #include "ui_input.h"
 
+#include <cstdio>
+
 namespace
 {
 bool WaveEditIsRenderReview(const AppUiState& ui)
 {
     return ui.wave_edit_source == WaveEditSource::RenderReview;
+}
+
+bool WaveEditIsSdManage(const AppUiState& ui)
+{
+    return ui.wave_edit_source == WaveEditSource::SdManage;
 }
 
 void StartTrimPreview(AppUiState& ui)
@@ -32,6 +39,8 @@ const Sample& WaveEditActiveSample(AppUiState& ui, AppEngineState& engine, AppSh
 {
     if(WaveEditIsRenderReview(ui))
         return shared.recording.rec_sample;
+    if(WaveEditIsSdManage(ui))
+        return shared.sd_manage.sample;
 
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
@@ -44,6 +53,8 @@ SampleEdit WaveEditActiveEdit(const AppUiState& ui,
 {
     if(WaveEditIsRenderReview(ui))
         return shared.recording.rec_edit;
+    if(WaveEditIsSdManage(ui))
+        return shared.sd_manage.edit;
 
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     return shared.sample.edit.sd_edit_slots[layer];
@@ -57,6 +68,11 @@ void WaveEditWriteEdit(const AppUiState& ui,
     if(WaveEditIsRenderReview(ui))
     {
         shared.recording.rec_edit = edit;
+        return;
+    }
+    if(WaveEditIsSdManage(ui))
+    {
+        shared.sd_manage.edit = edit;
         return;
     }
 
@@ -77,7 +93,7 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
     AppEngineState& engine = *ctx.engine;
     AppDiagnosticsState& diag = *ctx.diag;
     AppSharedState& shared = *ctx.shared;
-    if(!WaveEditIsRenderReview(ui))
+    if(!WaveEditIsRenderReview(ui) && !WaveEditIsSdManage(ui))
         EngineRefreshLoadedMetadata(ui, engine, shared);
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     const Sample& sample = WaveEditActiveSample(ui, engine, shared);
@@ -85,10 +101,28 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
     SampleEdit edit = WaveEditActiveEdit(ui, engine, shared);
     SampleEdit_Clamp(edit, sample.length);
 
+    const uint32_t selected_frames = sample_loaded
+                                         ? ((edit.end_frame >= edit.start_frame)
+                                                ? (edit.end_frame - edit.start_frame + 1u)
+                                                : 0u)
+                                         : 0u;
+    const uint32_t sample_rate = (sample.sample_rate > 0u) ? sample.sample_rate : 48000u;
+    const uint32_t tenths = (sample_loaded && sample_rate > 0u)
+                                ? ((selected_frames * 10u) + (sample_rate / 2u)) / sample_rate
+                                : 0u;
+    char length_buf[16];
+    std::snprintf(length_buf,
+                  sizeof(length_buf),
+                  "%lu.%lus",
+                  static_cast<unsigned long>(tenths / 10u),
+                  static_cast<unsigned long>(tenths % 10u));
+    DrawMicroString(d, "sample length", 2, 1, true);
+    DrawTinyString(d, length_buf, 73, 0, true);
+
     const int wave_x = 0;
-    const int wave_y = 0;
+    const int wave_y = 12;
     const int wave_w = 128;
-    const int wave_h = 64;
+    const int wave_h = 52;
     const int x0 = wave_x;
     const int y0 = wave_y;
     const int x1 = wave_x + wave_w - 1;
@@ -96,7 +130,7 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
 
     if(!sample_loaded)
     {
-        DrawTinyString(d, "no sample", 2, 2, true);
+        DrawTinyString(d, "no sample", 2, wave_y + 2, true);
         return;
     }
 
@@ -224,7 +258,9 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
 
         const uint32_t ph_active = WaveEditIsRenderReview(ui)
                                        ? shared.recording.preview_active.load(std::memory_order_relaxed)
-                                       : diag.playhead_active[layer].load(std::memory_order_relaxed);
+                                       : (WaveEditIsSdManage(ui)
+                                              ? 0u
+                                              : diag.playhead_active[layer].load(std::memory_order_relaxed));
         if(ph_active != 0u)
         {
             const uint32_t ph_frame = WaveEditIsRenderReview(ui)
@@ -256,6 +292,14 @@ void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
         ui.render_review_trim_entry = edit;
         ui.render_review_trim_has_entry = true;
     }
+    else if(WaveEditIsSdManage(ui))
+    {
+        SampleEdit edit = shared.sd_manage.edit;
+        SampleEdit_Clamp(edit, shared.sd_manage.sample.length);
+        shared.sd_manage.edit = edit;
+        ui.sd_manage_trim_entry = edit;
+        ui.sd_manage_trim_has_entry = true;
+    }
     else
     {
         for(uint8_t slot = 0; slot < kSdSampleSlots; ++slot)
@@ -282,6 +326,21 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
         SampleEdit_Clamp(edit, sample.length);
         shared.recording.rec_edit = edit;
         ui.render_review_trim_has_entry = false;
+    }
+    else if(WaveEditIsSdManage(ui))
+    {
+        SampleEdit edit = shared.sd_manage.edit;
+        const Sample& sample = shared.sd_manage.sample;
+        SampleEdit_Clamp(edit, sample.length);
+        shared.sd_manage.edit = edit;
+        ui.sd_manage_trim_has_entry = false;
+        ui.sd_manage_trim_choice_cursor = 0u;
+        if(UiNav_Push(ui.ui_nav, UiScreenId::SdManageTrimChoice))
+        {
+            ui.ui_dirty = true;
+            return true;
+        }
+        return false;
     }
     else
     {
@@ -310,16 +369,19 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppEngineState& engine = *ctx.engine;
     AppSharedState& shared = *ctx.shared;
     const bool render_review = WaveEditIsRenderReview(ui);
+    const bool sd_manage = WaveEditIsSdManage(ui);
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
-    Sample& sample = render_review ? shared.recording.rec_sample : shared.sample.publish.sd_slots[layer];
-    if(!render_review)
+    Sample& sample = render_review ? shared.recording.rec_sample
+                                   : (sd_manage ? shared.sd_manage.sample
+                                                : shared.sample.publish.sd_slots[layer]);
+    if(!render_review && !sd_manage)
         shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
     if(sample.pcm == nullptr || sample.length == 0)
         return false;
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(ctx.rshift && !render_review)
+        if(ctx.rshift && !render_review && !sd_manage)
         {
             StopTrimPreview(ui);
             engine.perform_nav.perform_layer ^= 1u;
@@ -353,6 +415,15 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 shared.recording.rec_edit = ui.render_review_trim_entry;
                 SampleEdit_Clamp(shared.recording.rec_edit, shared.recording.rec_sample.length);
                 ui.render_review_trim_has_entry = false;
+            }
+        }
+        else if(sd_manage)
+        {
+            if(ui.sd_manage_trim_has_entry)
+            {
+                shared.sd_manage.edit = ui.sd_manage_trim_entry;
+                SampleEdit_Clamp(shared.sd_manage.edit, shared.sd_manage.sample.length);
+                ui.sd_manage_trim_has_entry = false;
             }
         }
         else if(engine.wave_edit.perform_wave_edit_has_entry)

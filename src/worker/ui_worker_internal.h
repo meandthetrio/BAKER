@@ -25,6 +25,18 @@ enum class LoaderState : uint8_t
     Load,
 };
 
+enum class LoadTarget : uint8_t
+{
+    LiveSlot = 0,
+    SdManage,
+};
+
+enum class SaveFinalizeMode : uint8_t
+{
+    AddNew = 0,
+    ReplaceExisting,
+};
+
 struct SdWorkerState
 {
     daisy::SdmmcHandler sdmmc;
@@ -41,6 +53,7 @@ struct SdWorkerState
     uint32_t sample_frames = 0;
     uint16_t load_index = 0;
     uint8_t loading_slot = 0;
+    LoadTarget load_target = LoadTarget::LiveSlot;
     LoaderState state = LoaderState::Idle;
     bool norm_active = false;
     uint8_t norm_slot = 0;
@@ -59,6 +72,8 @@ struct SdWorkerState
     char save_dir[kSdPathMax] = {};
     char save_path[kSdPathMax] = {};
     char save_name[kSdNameMax] = {};
+    SaveFinalizeMode save_finalize_mode = SaveFinalizeMode::AddNew;
+    char save_replace_path[kSdPathMax] = {};
     uint8_t project_restore_pending_mask = 0;
     char project_restore_path[kSdSampleSlots][kProjectPathMax] = {};
 };

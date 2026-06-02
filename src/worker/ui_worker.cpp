@@ -78,6 +78,8 @@ static bool PendingLoadBlockedByActiveRequest(const AppWorkerState& worker)
     return worker.ui_req_busy
            && (worker.ui_req_active == UiReqType::SaveRenderedWavCurrent
                || worker.ui_req_active == UiReqType::SaveRenderedWavNamed
+               || worker.ui_req_active == UiReqType::SaveSdManageTrimNamed
+               || worker.ui_req_active == UiReqType::ReplaceSdManageTrimCurrent
                || worker.ui_req_active == UiReqType::LoadProject);
 }
 
@@ -132,6 +134,15 @@ static void StartQueuedUiRequest(AppUiState& ui,
             break;
         case UiReqType::LoadWavIndex:
             if(!StartLoadInternal(ui.sd, shared, req.a))
+            {
+                ui.sd.load_in_progress = false;
+                ui.sd.load_progress = 0;
+                SdWavLoad_SetBusy(shared, ui.sd, false);
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            }
+            break;
+        case UiReqType::LoadWavIndexSdManage:
+            if(!StartLoadSdManage(ui.sd, shared, req.a))
             {
                 ui.sd.load_in_progress = false;
                 ui.sd.load_progress = 0;
@@ -200,11 +211,33 @@ static void StartQueuedUiRequest(AppUiState& ui,
             FinishRequest(worker, worker.project_restore);
             break;
         case UiReqType::SaveRenderedWavCurrent:
-            if(!StartSave(ui, shared, req.a != 0u))
+            if(!StartSave(ui,
+                          shared,
+                          (req.a != 0u) ? SampleSaveSource::Recording
+                                        : SampleSaveSource::LiveSlot))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::SaveRenderedWavNamed:
-            if(!StartSave(ui, shared, true, ui.record_render_save_stem))
+            if(!StartSave(ui,
+                          shared,
+                          SampleSaveSource::Recording,
+                          ui.record_render_save_stem))
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            break;
+        case UiReqType::SaveSdManageTrimNamed:
+            if(!StartSave(ui,
+                          shared,
+                          SampleSaveSource::SdManage,
+                          ui.sd_manage_save_stem))
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            break;
+        case UiReqType::ReplaceSdManageTrimCurrent:
+            if(ui.sd_manage_edit_index >= ui.sd.wav_count
+               || !StartSave(ui,
+                             shared,
+                             SampleSaveSource::SdManage,
+                             nullptr,
+                             ui.sd.paths[ui.sd_manage_edit_index]))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::RebuildCache:
@@ -271,6 +304,7 @@ static void StepActiveUiRequest(AppUiState& ui,
             }
             break;
         case UiReqType::LoadWavIndex:
+        case UiReqType::LoadWavIndexSdManage:
             done = LoadStepInternal(ui.sd,
                                     worker,
                                     engine,
@@ -306,6 +340,8 @@ static void StepActiveUiRequest(AppUiState& ui,
             break;
         case UiReqType::SaveRenderedWavCurrent:
         case UiReqType::SaveRenderedWavNamed:
+        case UiReqType::SaveSdManageTrimNamed:
+        case UiReqType::ReplaceSdManageTrimCurrent:
             done = SaveStep(ui.sd, shared, worker, budget_us);
             worker.ui_req_progress = ui.sd.save_progress;
             if(done)

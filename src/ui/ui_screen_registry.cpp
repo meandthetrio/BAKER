@@ -130,6 +130,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                             nullptr,
                                             SdManageActionMenu_OnEvent,
                                             SdManageActionMenu_Render};
+    static const UiScreen sd_manage_trim_choice{UiScreenId::SdManageTrimChoice,
+                                                nullptr,
+                                                nullptr,
+                                                SdManageTrimChoice_OnEvent,
+                                                SdManageTrimChoice_Render};
     static const UiScreen sd_manage_style_filter{UiScreenId::SdManageStyleFilter,
                                                  nullptr,
                                                  nullptr,
@@ -222,6 +227,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return sd_manage;
         case UiScreenId::SdManageActionMenu:
             return sd_manage_actions;
+        case UiScreenId::SdManageTrimChoice:
+            return sd_manage_trim_choice;
         case UiScreenId::SdManageStyleFilter:
             return sd_manage_style_filter;
         case UiScreenId::SdBrowse:

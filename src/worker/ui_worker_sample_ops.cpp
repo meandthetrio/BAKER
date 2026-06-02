@@ -135,6 +135,26 @@ bool RenameSampleAtIndexToPath(SdBrowserState& sd, uint16_t idx, const char* new
     SdBrowser_SetStatus(sd, "RENAMED");
     return true;
 }
+
+bool BuildReplaceTempPath(const char* original_path, char* out_path, size_t out_path_n)
+{
+    if(!original_path || !out_path || out_path_n == 0u)
+        return false;
+
+    const char* base = BasenameStart(original_path);
+    if(!base)
+        return false;
+
+    const size_t dir_len = static_cast<size_t>(base - original_path);
+    if(dir_len + std::strlen("__SDTRIM_TMP.WAV") + 1u > out_path_n)
+        return false;
+
+    if(dir_len > 0u)
+        std::memcpy(out_path, original_path, dir_len);
+    out_path[dir_len] = '\0';
+    std::snprintf(out_path + dir_len, out_path_n - dir_len, "%s", "__SDTRIM_TMP.WAV");
+    return true;
+}
 } // namespace
 
 static bool WriteProjectManifestToSlot(uint8_t project_slot, const ProjectManifestV11& manifest)
@@ -439,8 +459,9 @@ bool LoopFindCurrent(AppUiState& ui, AppSharedState& shared)
 
 bool StartSave(AppUiState& ui,
                AppSharedState& shared,
-               bool save_recording,
-               const char* save_stem)
+               SampleSaveSource save_source,
+               const char* save_stem,
+               const char* replace_path)
 {
     SdBrowserState& sd = ui.sd;
     sd.save_in_progress = false;
@@ -455,36 +476,72 @@ bool StartSave(AppUiState& ui,
     }
 
     const uint8_t slot = shared.sample.publish.sd_current_slot.load(std::memory_order_relaxed) & 1u;
-    const Sample& sample = save_recording ? shared.recording.rec_sample
-                                          : shared.sample.publish.sd_slots[slot];
-    if(sample.pcm == nullptr || sample.length == 0)
+    const Sample* sample = nullptr;
+    SampleEdit edit{};
+    switch(save_source)
+    {
+        case SampleSaveSource::Recording:
+            sample = &shared.recording.rec_sample;
+            edit = shared.recording.rec_edit;
+            break;
+        case SampleSaveSource::SdManage:
+            sample = &shared.sd_manage.sample;
+            edit = shared.sd_manage.edit;
+            break;
+        case SampleSaveSource::LiveSlot:
+        default:
+            sample = &shared.sample.publish.sd_slots[slot];
+            edit = shared.sample.edit.sd_edit_slots[slot];
+            break;
+    }
+    if(!sample || sample->pcm == nullptr || sample->length == 0)
     {
         SdBrowser_SetSaveStatus(sd, "NO SAMPLE");
         return false;
     }
 
-    SampleEdit edit = save_recording ? shared.recording.rec_edit
-                                     : shared.sample.edit.sd_edit_slots[slot];
-    SampleEdit_Clamp(edit, sample.length);
-    if(edit.end_frame <= edit.start_frame || edit.end_frame > sample.length)
+    SampleEdit_Clamp(edit, sample->length);
+    if(edit.end_frame <= edit.start_frame || edit.end_frame > sample->length)
     {
         SdBrowser_SetSaveStatus(sd, "BAD RANGE");
         return false;
     }
 
     s_sd.save_slot = slot;
-    s_sd.save_pcm = sample.pcm;
+    s_sd.save_pcm = sample->pcm;
     s_sd.save_start = edit.start_frame;
     s_sd.save_end = edit.end_frame;
     s_sd.save_total = edit.end_frame - edit.start_frame;
     s_sd.save_written = 0;
     s_sd.save_gain = edit.gain;
+    s_sd.save_finalize_mode = (replace_path && replace_path[0] != '\0') ? SaveFinalizeMode::ReplaceExisting
+                                                                        : SaveFinalizeMode::AddNew;
+    s_sd.save_replace_path[0] = '\0';
 
     if(!SelectSaveDirectory(sd))
         return false;
 
     bool found = false;
-    if(save_stem && save_stem[0] != '\0')
+    if(s_sd.save_finalize_mode == SaveFinalizeMode::ReplaceExisting)
+    {
+        if(!BuildReplaceTempPath(replace_path, s_sd.save_path, sizeof(s_sd.save_path)))
+        {
+            SdBrowser_SetSaveStatus(sd, "PATH LONG");
+            return false;
+        }
+
+        std::snprintf(s_sd.save_replace_path, sizeof(s_sd.save_replace_path), "%s", replace_path);
+        const char* original_name = BasenameStart(replace_path);
+        if(!original_name || original_name[0] == '\0')
+        {
+            SdBrowser_SetSaveStatus(sd, "PATH ERR");
+            return false;
+        }
+        std::snprintf(s_sd.save_name, sizeof(s_sd.save_name), "%s", original_name);
+        f_unlink(s_sd.save_path);
+        found = true;
+    }
+    else if(save_stem && save_stem[0] != '\0')
     {
         char name[kSdNameMax];
         std::snprintf(name, sizeof(name), "%s.WAV", save_stem);
@@ -654,6 +711,27 @@ bool SaveStep(SdBrowserState& sd, AppSharedState& shared, AppWorkerState& worker
         s_sd.save_active = false;
         sd.save_in_progress = false;
         sd.save_progress = 100;
+        if(s_sd.save_finalize_mode == SaveFinalizeMode::ReplaceExisting)
+        {
+            const FRESULT unlink_res = f_unlink(s_sd.save_replace_path);
+            if(unlink_res != FR_OK && unlink_res != FR_NO_FILE)
+            {
+                FailActiveSave(sd, &worker, "replace-unlink", unlink_res, 0, 0);
+                return true;
+            }
+
+            const FRESULT rename_res = f_rename(s_sd.save_path, s_sd.save_replace_path);
+            if(rename_res != FR_OK)
+            {
+                FailActiveSave(sd, &worker, "replace-rename", rename_res, 0, 0);
+                return true;
+            }
+
+            SdBrowser_SetSaveStatus(sd, "REPLACED");
+            SdBrowser_SetSaveName(sd, s_sd.save_name);
+            return true;
+        }
+
         SdBrowser_SetSaveStatus(sd, "SAVED");
         SdBrowser_SetSaveName(sd, s_sd.save_name);
         SdBrowser_AddWavFile(sd, s_sd.save_name, s_sd.save_path);

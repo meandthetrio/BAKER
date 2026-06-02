@@ -88,6 +88,12 @@ struct AppSharedState
         SampleEdit rec_edit{};
     } recording{};
 
+    struct SdManageTrimState
+    {
+        Sample sample{};
+        SampleEdit edit{};
+    } sd_manage{};
+
     struct PerformanceSharedState
     {
         struct ModulationState

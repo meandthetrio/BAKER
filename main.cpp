@@ -25,6 +25,7 @@
 #include "sd_sample_pool.h"
 #include "audio_callback.h"
 #include <cmath>
+#include <cstring>
 
 using namespace daisy;
 
@@ -373,6 +374,7 @@ int main(void)
     {
         uint32_t now_ms = System::GetNow();
         static bool prev_wav_load_busy = false;
+        static bool prev_sd_manage_trim_save_busy = false;
         static uint32_t load_success_flash_until_ms = 0;
 
         const uint32_t dt_ms = now_ms - last_ms;
@@ -428,9 +430,16 @@ int main(void)
               && (g_app.recording.record_state == RecordUiState::Recording);
         const bool wav_load_busy
             = (g_app.shared.sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0u);
+        const bool sd_manage_trim_save_busy = g_app.ui.sd_manage_trim_save_busy;
         if(prev_wav_load_busy && !wav_load_busy)
             load_success_flash_until_ms = now_ms + 1000u;
         prev_wav_load_busy = wav_load_busy;
+        if(prev_sd_manage_trim_save_busy && !sd_manage_trim_save_busy
+           && std::strncmp(g_app.ui.sd.save_status, "SAVED", 5) == 0)
+        {
+            load_success_flash_until_ms = now_ms + 1000u;
+        }
+        prev_sd_manage_trim_save_busy = sd_manage_trim_save_busy;
         const bool load_success_flash_active = (now_ms < load_success_flash_until_ms);
 
         // Smooth 1Hz red pulse on both LEDs while user holds R encoder in firmware pairing.
@@ -477,7 +486,7 @@ int main(void)
             hw.led1.Set(1.0f, 0.0f, 0.0f);
             hw.led2.Set(1.0f, 0.0f, 0.0f);
         }
-        else if(wav_load_busy)
+        else if(wav_load_busy || sd_manage_trim_save_busy)
         {
             // Pod channel order on this hardware maps green to the 3rd component.
             // Fast ping-pong yellow: alternate LED1/LED2, yellow = red + green.

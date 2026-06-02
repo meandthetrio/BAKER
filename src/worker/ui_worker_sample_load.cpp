@@ -29,6 +29,7 @@ static bool FailLoadStart(SdBrowserState& sd, const char* status)
 static bool StartLoadFromPathInternal(SdBrowserState& sd,
                                       AppSharedState& shared,
                                       const char* path,
+                                      LoadTarget load_target,
                                       uint8_t loading_slot,
                                       uint16_t load_index)
 {
@@ -68,6 +69,7 @@ static bool StartLoadFromPathInternal(SdBrowserState& sd,
     }
 
     std::snprintf(sd.last_loaded_path, sizeof(sd.last_loaded_path), "%s", path);
+    s_sd.load_target = load_target;
     s_sd.loading_slot = loading_slot & 1u;
     s_sd.state = LoaderState::Load;
     s_sd.file_open = true;
@@ -93,7 +95,17 @@ bool StartLoadInternal(SdBrowserState& sd, AppSharedState& shared, uint16_t inde
 
     const uint8_t current_slot = shared.sample.publish.sd_current_slot.load(std::memory_order_acquire);
     const uint8_t next_slot = current_slot ^ 1u;
-    return StartLoadFromPathInternal(sd, shared, sd.paths[index], next_slot, index);
+    return StartLoadFromPathInternal(sd, shared, sd.paths[index], LoadTarget::LiveSlot, next_slot, index);
+}
+
+bool StartLoadSdManage(SdBrowserState& sd, AppSharedState& shared, uint16_t index)
+{
+    s_sd.state = LoaderState::Idle;
+    sd.load_pending = false;
+    if(index >= sd.wav_count)
+        return FailLoadStart(sd, "BAD IDX");
+
+    return StartLoadFromPathInternal(sd, shared, sd.paths[index], LoadTarget::SdManage, 0u, index);
 }
 
 bool StartLoadPath(AppUiState& ui, AppSharedState& shared, const char* path, uint8_t target_slot)
@@ -102,7 +114,7 @@ bool StartLoadPath(AppUiState& ui, AppSharedState& shared, const char* path, uin
     ui.sd.load_pending = false;
     if(!path || path[0] == '\0')
         return FailLoadStart(ui.sd, "BAD PATH");
-    return StartLoadFromPathInternal(ui.sd, shared, path, target_slot, 0xFFFFu);
+    return StartLoadFromPathInternal(ui.sd, shared, path, LoadTarget::LiveSlot, target_slot, 0xFFFFu);
 }
 
 void ClearProjectRestoreStateInternal(ProjectRestoreState& project_restore)
@@ -136,7 +148,12 @@ static bool StartNextProjectRestoreLoadInternal(SdBrowserState& sd,
         }
 
         engine.perform_nav.perform_layer = slot;
-        if(!StartLoadFromPathInternal(sd, shared, s_sd.project_restore_path[slot], slot, 0xFFFFu))
+        if(!StartLoadFromPathInternal(sd,
+                                      shared,
+                                      s_sd.project_restore_path[slot],
+                                      LoadTarget::LiveSlot,
+                                      slot,
+                                      0xFFFFu))
             return false;
 
         s_sd.project_restore_pending_mask &= static_cast<uint8_t>(~bit);
@@ -177,7 +194,9 @@ bool LoadStepInternal(SdBrowserState& sd,
         bytes_to_read = (bytes_left >= 2) ? 2 : bytes_left;
 
     UINT br = 0;
-    uint8_t* dst = reinterpret_cast<uint8_t*>(SdSampleBuffer(s_sd.loading_slot));
+    int16_t* sample_dst = (s_sd.load_target == LoadTarget::SdManage) ? SdManageBuffer()
+                                                                     : SdSampleBuffer(s_sd.loading_slot);
+    uint8_t* dst = reinterpret_cast<uint8_t*>(sample_dst);
     const FRESULT res = f_read(&s_sd.file, dst + s_sd.bytes_loaded, bytes_to_read, &br);
     if(res != FR_OK || br == 0)
     {
@@ -204,39 +223,54 @@ bool LoadStepInternal(SdBrowserState& sd,
         f_close(&s_sd.file);
         s_sd.file_open = false;
 
-        Sample& samp = shared.sample.publish.sd_slots[s_sd.loading_slot];
-        samp.pcm = SdSampleBuffer(s_sd.loading_slot);
-        samp.length = s_sd.sample_frames;
-        samp.sample_rate = 48000;
-        samp.root_key = 60;
-        samp.loop_start = 0;
-        samp.loop_end = s_sd.sample_frames;
-        samp.loop_enabled = false;
-
         SampleEdit edit = SampleEdit_Default(s_sd.sample_frames);
-        const uint8_t edit_bit = static_cast<uint8_t>(1u << (s_sd.loading_slot & 1u));
-        const bool is_project_restore_load = (project_restore.project_edit_pending_mask & edit_bit) != 0u;
-        if(is_project_restore_load)
+        if(s_sd.load_target == LoadTarget::SdManage)
         {
-            edit = project_restore.project_pending_edit[s_sd.loading_slot & 1u];
-            SampleEdit_Clamp(edit, s_sd.sample_frames);
-            project_restore.project_edit_pending_mask &= static_cast<uint8_t>(~edit_bit);
+            Sample& samp = shared.sd_manage.sample;
+            samp.pcm = SdManageBuffer();
+            samp.length = s_sd.sample_frames;
+            samp.sample_rate = 48000;
+            samp.root_key = 60;
+            samp.loop_start = 0;
+            samp.loop_end = s_sd.sample_frames;
+            samp.loop_enabled = false;
+            shared.sd_manage.edit = edit;
         }
-        shared.sample.edit.sd_edit_slots[s_sd.loading_slot] = edit;
-        if(!is_project_restore_load)
+        else
         {
-            engine.adsr.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
-            engine.adsr.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
-        }
-        shared.sample.edit.sd_edit_pending = edit;
-        shared.sample.edit.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);
-        shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
-        shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
+            Sample& samp = shared.sample.publish.sd_slots[s_sd.loading_slot];
+            samp.pcm = SdSampleBuffer(s_sd.loading_slot);
+            samp.length = s_sd.sample_frames;
+            samp.sample_rate = 48000;
+            samp.root_key = 60;
+            samp.loop_start = 0;
+            samp.loop_end = s_sd.sample_frames;
+            samp.loop_enabled = false;
 
-        const uint32_t next_gen = shared.sample.publish.sd_published_gen.fetch_add(1, std::memory_order_acq_rel) + 1u;
-        (void)next_gen;
-        shared.sample.publish.sd_published_slot.store(s_sd.loading_slot, std::memory_order_release);
-        shared.sample.publish.sd_published_ready.store(1, std::memory_order_release);
+            const uint8_t edit_bit = static_cast<uint8_t>(1u << (s_sd.loading_slot & 1u));
+            const bool is_project_restore_load = (project_restore.project_edit_pending_mask & edit_bit) != 0u;
+            if(is_project_restore_load)
+            {
+                edit = project_restore.project_pending_edit[s_sd.loading_slot & 1u];
+                SampleEdit_Clamp(edit, s_sd.sample_frames);
+                project_restore.project_edit_pending_mask &= static_cast<uint8_t>(~edit_bit);
+            }
+            shared.sample.edit.sd_edit_slots[s_sd.loading_slot] = edit;
+            if(!is_project_restore_load)
+            {
+                engine.adsr.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
+                engine.adsr.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
+            }
+            shared.sample.edit.sd_edit_pending = edit;
+            shared.sample.edit.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);
+            shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
+            shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
+
+            const uint32_t next_gen = shared.sample.publish.sd_published_gen.fetch_add(1, std::memory_order_acq_rel) + 1u;
+            (void)next_gen;
+            shared.sample.publish.sd_published_slot.store(s_sd.loading_slot, std::memory_order_release);
+            shared.sample.publish.sd_published_ready.store(1, std::memory_order_release);
+        }
         s_sd.state = LoaderState::Idle;
 
         sd.load_in_progress = false;
@@ -244,7 +278,9 @@ bool LoadStepInternal(SdBrowserState& sd,
         sd.load_progress = 100;
         sd.last_loaded_index = s_sd.load_index;
         SdBrowser_SetStatus(sd, "LOADED");
-        if(worker.ui_req_busy && worker.ui_req_active == UiReqType::LoadProject
+        if(s_sd.load_target == LoadTarget::LiveSlot
+           && worker.ui_req_busy
+           && worker.ui_req_active == UiReqType::LoadProject
            && s_sd.project_restore_pending_mask != 0u)
         {
             if(StartNextProjectRestoreLoadInternal(sd, engine, project_restore, shared))

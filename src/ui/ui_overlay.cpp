@@ -239,11 +239,14 @@ const char* WorkerStateValue(const AppWorkerState& worker_state)
         {
             case UiReqType::ScanSdWavs: return "scan samples";
             case UiReqType::LoadWavIndex: return "load sample";
+            case UiReqType::LoadWavIndexSdManage: return "load sample";
             case UiReqType::DeleteWavIndex: return "delete sample";
             case UiReqType::NormalizeCurrent: return "normalize";
             case UiReqType::LoopFindCurrent: return "find loop";
             case UiReqType::SaveRenderedWavCurrent: return "render sample";
             case UiReqType::SaveRenderedWavNamed: return "render sample";
+            case UiReqType::SaveSdManageTrimNamed: return "trim sample";
+            case UiReqType::ReplaceSdManageTrimCurrent: return "trim sample";
             case UiReqType::SaveProject: return "save project";
             case UiReqType::LoadProject: return "load project";
             case UiReqType::ScanProjectSlots: return "scan projects";

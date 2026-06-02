@@ -23,6 +23,7 @@ enum class UiScreenId : uint8_t
     Macro,
     SdManageMenu,
     SdManageActionMenu,
+    SdManageTrimChoice,
     SdManageStyleFilter,
     SdBrowse,
     SdDeleteConfirm,

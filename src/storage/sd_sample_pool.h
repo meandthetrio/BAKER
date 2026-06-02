@@ -8,4 +8,5 @@ static constexpr uint32_t kSdSampleMaxFrames = 240000; // 5 seconds @ 48kHz
 
 int16_t* SdSampleBuffer(uint8_t slot);
 int16_t* SdRecordBuffer();
+int16_t* SdManageBuffer();
 uint32_t SdSampleMaxFrames();

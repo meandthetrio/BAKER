@@ -26,7 +26,7 @@ namespace
 {
 static constexpr uint8_t kSdManageVisibleRows = 6;
 static constexpr uint8_t kSdManageStyleFilterVisibleRows = 5;
-static constexpr uint8_t kSdManageActionCount = 3;
+static constexpr uint8_t kSdManageActionCount = 4;
 static constexpr int kSdManageRowPitch = Font5x7::H + 2;
 static constexpr int kSdManageNumberX = 2;
 static constexpr int kSdManageRowBoxX = 1;
@@ -51,6 +51,7 @@ static constexpr int kSdManageOverlayTopActionY = kSdManageOverlayY0 + 18;
 static constexpr int kSdManageOverlayBottomActionY = kSdManageOverlayY0 + 32;
 static constexpr int kSdManageOverlayLeftActionX = kSdManageOverlayX0 + 8;
 static constexpr int kSdManageOverlayStyleX = kSdManageOverlayX0 + 55;
+static constexpr int kSdManageOverlayRightActionX = kSdManageOverlayX0 + 58;
 static const char kSdManageMaxStyleLabel[] = "Cold";
 static const char* kSdManageStyleFilterLabels[kSampleStyleOptionCount] = {
     "all",
@@ -184,6 +185,20 @@ void BuildRenameDraftFromName(const char* name, char* out, size_t out_n)
     if(!name || name[0] == '\0')
         return;
     BuildSampleDisplayName(name, out, out_n);
+}
+
+void BuildSdManageTrimDraft(const char* name, char* out, size_t out_n)
+{
+    char stem[kSdNameMax];
+    BuildRenameDraftFromName(name, stem, sizeof(stem));
+    if(stem[0] == '\0')
+    {
+        if(out && out_n > 0u)
+            out[0] = '\0';
+        return;
+    }
+
+    std::snprintf(out, out_n, "%s_trim", stem);
 }
 
 void BuildSdManageSlotNumber(uint8_t sample_index, char* out, size_t out_n)
@@ -773,12 +788,83 @@ bool BeginSampleRenameFromSdManage(UiScreenCtx& ctx, uint8_t sample_index)
         ui.ui_dirty = true;
     return true;
 }
+
+void ResetSdManageTrimFlow(AppUiState& ui, AppSharedState& shared)
+{
+    ui.sd_manage_edit_active = false;
+    ui.sd_manage_edit_wait_for_load = false;
+    ui.sd_manage_trim_rename_active = false;
+    ui.sd_manage_trim_wait_for_worker = false;
+    ui.sd_manage_trim_save_busy = false;
+    ui.sd_manage_trim_choice_cursor = 0u;
+    ui.sd_manage_trim_has_entry = false;
+    ui.sd_manage_save_stem[0] = '\0';
+    shared.sd_manage.sample = {};
+    shared.sd_manage.edit = SampleEdit_Default(0);
+}
+
+bool BeginSdManageTrimEdit(UiScreenCtx& ctx, uint8_t sample_index)
+{
+    if(!ctx.ui || !ctx.worker || !ctx.shared)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+    AppSharedState& shared = *ctx.shared;
+    if(sample_index >= ui.sd.wav_count)
+        return true;
+
+    ResetSdManageTrimFlow(ui, shared);
+    ui.sd_manage_edit_active = true;
+    ui.sd_manage_edit_wait_for_load = true;
+    ui.sd_manage_edit_index = sample_index;
+    ui.wave_edit_source = WaveEditSource::SdManage;
+
+    const UiReq req{UiReqType::LoadWavIndexSdManage, sample_index, 0};
+    if(!UiReq_Push(ui, *ctx.worker, req))
+    {
+        ui.sd_manage_edit_active = false;
+        ui.sd_manage_edit_wait_for_load = false;
+        SdBrowser_SetStatus(ui.sd, "LOAD ERR");
+        ui.ui_dirty = true;
+        return false;
+    }
+
+    ui.ui_dirty = true;
+    return true;
+}
+
+bool QueueSdManageTrimReplace(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.worker)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+    const UiReq req{UiReqType::ReplaceSdManageTrimCurrent, 0, 0};
+    if(!UiReq_Push(ui, *ctx.worker, req))
+    {
+        SdBrowser_SetSaveStatus(ui.sd, "SAVE ERR");
+        ui.ui_dirty = true;
+        return false;
+    }
+
+    ui.sd_manage_trim_wait_for_worker = true;
+    ui.ui_dirty = true;
+    return true;
+}
 } // namespace
 
 void SdManageMenu_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.ui)
         return;
+
+    if(ctx.shared
+       && !ctx.ui->sd_manage_edit_wait_for_load
+       && !ctx.ui->sd_manage_trim_wait_for_worker
+       && !ctx.ui->sd_manage_trim_rename_active)
+    {
+        ResetSdManageTrimFlow(*ctx.ui, *ctx.shared);
+    }
 
     EnsureScanRequested(ctx);
     RebuildVisibleSdManageOrder(*ctx.ui, ctx.ui->sd);
@@ -996,6 +1082,9 @@ bool SdManageActionMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ui.ui_dirty = true;
             return true;
         }
+
+        if(ui.sd_manage_action_cursor == 3u)
+            return BeginSdManageTrimEdit(ctx, sample_index);
     }
 
     return false;
@@ -1044,6 +1133,90 @@ void SdManageActionMenu_Render(UiScreenCtx& ctx)
         DrawFillOnlyTinyString(d, "delete", kSdManageOverlayLeftActionX, kSdManageOverlayBottomActionY);
     else
         DrawTinyString(d, "delete", kSdManageOverlayLeftActionX, kSdManageOverlayBottomActionY, true);
+
+    if(ui.sd_manage_action_cursor == 3u)
+        DrawFillOnlyTinyString(d, "edit", kSdManageOverlayRightActionX, kSdManageOverlayBottomActionY);
+    else
+        DrawTinyString(d, "edit", kSdManageOverlayRightActionX, kSdManageOverlayBottomActionY, true);
+}
+
+bool SdManageTrimChoice_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    if(!ctx.ui || !ctx.worker)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+    if(ui.sd_manage_trim_wait_for_worker)
+        return true;
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+    {
+        UiNav_Pop(ui.ui_nav);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        ui.sd_manage_trim_choice_cursor = WrapCursor(ui.sd_manage_trim_choice_cursor, e.value, 2u);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        if(ui.sd_manage_trim_choice_cursor == 0u)
+        {
+            ui.sd_manage_trim_rename_active = true;
+            BuildSdManageTrimDraft(ui.sd.display_names[ui.sd_manage_edit_index],
+                                   ui.project_rename_draft,
+                                   sizeof(ui.project_rename_draft));
+            ui.project_rename_length = static_cast<uint8_t>(std::strlen(ui.project_rename_draft));
+            if(UiNav_Push(ui.ui_nav, UiScreenId::RenameProject))
+                ui.ui_dirty = true;
+            return true;
+        }
+
+        return QueueSdManageTrimReplace(ctx);
+    }
+
+    return false;
+}
+
+void SdManageTrimChoice_Render(UiScreenCtx& ctx)
+{
+    if(!ctx.ui || !ctx.display)
+        return;
+
+    AppUiState& ui = *ctx.ui;
+    OledPager& d = *ctx.display;
+    PerformWaveEdit_Render(ctx);
+
+    const int overlay_x0 = 10;
+    const int overlay_y0 = 12;
+    const int overlay_x1 = 118;
+    const int overlay_y1 = 54;
+    d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, false, true);
+    d.DrawRect(overlay_x0, overlay_y0, overlay_x1, overlay_y1, true, false);
+
+    DrawMicroString(d, "create new or", overlay_x0 + 6, overlay_y0 + 6, true);
+    DrawMicroString(d, "trim existing?", overlay_x0 + 6, overlay_y0 + 14, true);
+
+    const int new_x = overlay_x0 + 12;
+    const int replace_x = overlay_x0 + 58;
+    const int action_y = overlay_y0 + 31;
+    if(ui.sd_manage_trim_choice_cursor == 0u)
+        DrawFillOnlyTinyString(d, "new", new_x, action_y);
+    else
+        DrawTinyString(d, "new", new_x, action_y, true);
+
+    if(ui.sd_manage_trim_choice_cursor == 1u)
+        DrawFillOnlyTinyString(d, "replace", replace_x, action_y);
+    else
+        DrawTinyString(d, "replace", replace_x, action_y, true);
+
+    if(ui.sd.save_status[0] != '\0')
+        DrawTinyString(d, ui.sd.save_status, overlay_x0 + 6, overlay_y1 - Font5x7::H - 3, true);
 }
 
 void SdBrowse_OnEnter(UiScreenCtx& ctx)

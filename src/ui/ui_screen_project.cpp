@@ -80,6 +80,23 @@ static const char* kProjectStyleFilterLabels[kProjectStyleCount] = {
     "Water",
 };
 
+void DrawCenteredRenameSaveOverlay(OledPager& d)
+{
+    static constexpr int kOverlayX0 = 24;
+    static constexpr int kOverlayY0 = 20;
+    static constexpr int kOverlayX1 = 103;
+    static constexpr int kOverlayY1 = 44;
+    static constexpr char kOverlayText[] = "saving";
+
+    d.DrawRect(kOverlayX0, kOverlayY0, kOverlayX1, kOverlayY1, false, true);
+    d.DrawRect(kOverlayX0, kOverlayY0, kOverlayX1, kOverlayY1, true, false);
+
+    const int text_w = TinyStringWidth(kOverlayText);
+    const int text_x = kOverlayX0 + ((kOverlayX1 - kOverlayX0 + 1) - text_w) / 2;
+    const int text_y = kOverlayY0 + ((kOverlayY1 - kOverlayY0 + 1) - Font5x7::H) / 2;
+    DrawTinyString(d, kOverlayText, text_x, text_y, true);
+}
+
 int CenterTinyLabelXInBand(int x0, int x1, const char* label)
 {
     const int w = TinyStringWidth(label);
@@ -1044,6 +1061,37 @@ bool QueueRenderSaveRequest(AppUiState& ui, AppWorkerState& worker)
     return true;
 }
 
+bool QueueSdManageTrimSaveRequest(AppUiState& ui, AppWorkerState& worker)
+{
+    if(!ui.sd_manage_trim_rename_active || ui.project_rename_length == 0u)
+        return false;
+
+    std::snprintf(ui.sd_manage_save_stem,
+                  sizeof(ui.sd_manage_save_stem),
+                  "%.*s",
+                  static_cast<int>(kRenameUiMaxLength),
+                  ui.project_rename_draft);
+    if(ui.sd.scan_done && RenderSaveNameExistsInBrowser(ui, ui.sd_manage_save_stem))
+    {
+        SdBrowser_SetSaveStatus(ui.sd, "NAME EXISTS");
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    const UiReq req{UiReqType::SaveSdManageTrimNamed, 0, 0};
+    if(!UiReq_Push(ui, worker, req))
+    {
+        SdBrowser_SetSaveStatus(ui.sd, "SAVE ERR");
+        ui.ui_dirty = true;
+        return false;
+    }
+
+    ui.sd_manage_trim_wait_for_worker = true;
+    ui.sd_manage_trim_save_busy = true;
+    ui.ui_dirty = true;
+    return true;
+}
+
 void BuildRenameDisplayText(const AppProjectState& project,
                             const AppUiState& ui,
                             char* out,
@@ -1357,7 +1405,7 @@ void RenameProject_OnEnter(UiScreenCtx& ctx)
     ui.ui_parent_preview_origin_fx_cursor = 0;
     ui.ui_parent_preview_origin_process_detail = false;
     ui.ui_parent_preview_origin_process_eq_graph = false;
-    if(ui.sample_rename_active || ui.render_sample_rename_active)
+    if(ui.sample_rename_active || ui.render_sample_rename_active || ui.sd_manage_trim_rename_active)
     {
         ClampRenameDraft(ui);
         ui.project_rename_grid_col = 0;
@@ -1395,6 +1443,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppProjectState& project = *ctx.project;
 
     if(ui.render_sample_rename_active && ui.render_sample_rename_wait_for_worker)
+        return true;
+    if(ui.sd_manage_trim_rename_active && ui.sd_manage_trim_wait_for_worker)
         return true;
 
     if(e.type == UiInputType::EncDelta && e.value != 0)
@@ -1445,6 +1495,12 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ui.render_sample_rename_active = false;
                 ui.render_sample_rename_wait_for_worker = false;
             }
+            if(ui.sd_manage_trim_rename_active)
+            {
+                ui.sd_manage_trim_rename_active = false;
+                ui.sd_manage_trim_wait_for_worker = false;
+                ui.sd_manage_trim_save_busy = false;
+            }
             ui.project_rename_for_new_save = false;
             UiNav_Pop(ui.ui_nav);
             ui.ui_dirty = true;
@@ -1464,6 +1520,12 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 if(ui.project_rename_length == 0u)
                     return true;
                 return QueueRenderSaveRequest(ui, *ctx.worker);
+            }
+            if(ui.sd_manage_trim_rename_active)
+            {
+                if(ui.project_rename_length == 0u)
+                    return true;
+                return QueueSdManageTrimSaveRequest(ui, *ctx.worker);
             }
             if(ui.project_rename_for_new_save)
             {
@@ -1512,6 +1574,12 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             ui.render_sample_rename_active = false;
             ui.render_sample_rename_wait_for_worker = false;
+        }
+        if(ui.sd_manage_trim_rename_active)
+        {
+            ui.sd_manage_trim_rename_active = false;
+            ui.sd_manage_trim_wait_for_worker = false;
+            ui.sd_manage_trim_save_busy = false;
         }
         ui.project_rename_for_new_save = false;
         UiNav_Pop(ui.ui_nav);
@@ -1585,6 +1653,13 @@ void RenameProject_Render(UiScreenCtx& ctx)
 
     if(ui.render_sample_rename_active && ui.record_render_status[0] != '\0')
         DrawTinyString(d, ui.record_render_status, 2, 56, true);
+    else if(ui.sd_manage_trim_rename_active
+            && !ui.sd_manage_trim_save_busy
+            && ui.sd.save_status[0] != '\0')
+        DrawTinyString(d, ui.sd.save_status, 2, 56, true);
+
+    if(ui.sd_manage_trim_rename_active && ui.sd_manage_trim_wait_for_worker && ui.sd_manage_trim_save_busy)
+        DrawCenteredRenameSaveOverlay(d);
 }
 
 bool SaveProjectMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

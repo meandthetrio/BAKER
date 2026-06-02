@@ -319,6 +319,65 @@ void MaybeReturnToCraftAfterLoad(AppUiState& ui)
     UiNav_Pop(ui.ui_nav);
     ui.ui_dirty = true;
 }
+
+void ResetSdManageTrimFlow(AppUiState& ui, AppSharedState& shared)
+{
+    ui.sd_manage_edit_active = false;
+    ui.sd_manage_edit_wait_for_load = false;
+    ui.sd_manage_trim_rename_active = false;
+    ui.sd_manage_trim_wait_for_worker = false;
+    ui.sd_manage_trim_save_busy = false;
+    ui.sd_manage_trim_choice_cursor = 0u;
+    ui.sd_manage_trim_has_entry = false;
+    ui.sd_manage_save_stem[0] = '\0';
+    shared.sd_manage.sample = {};
+    shared.sd_manage.edit = SampleEdit_Default(0);
+}
+
+void MaybeEnterSdManageTrimAfterLoad(AppUiState& ui, AppSharedState& shared)
+{
+    if(!ui.sd_manage_edit_active || !ui.sd_manage_edit_wait_for_load)
+        return;
+    if(UiNav_Active(ui.ui_nav) != UiScreenId::SdManageActionMenu)
+        return;
+    if(ui.sd.load_in_progress || ui.sd.sd_wav_load_busy)
+        return;
+
+    ui.sd_manage_edit_wait_for_load = false;
+    if(std::strncmp(ui.sd.status, "LOADED", 6) != 0)
+    {
+        ResetSdManageTrimFlow(ui, shared);
+        ui.ui_dirty = true;
+        return;
+    }
+
+    ui.wave_edit_source = WaveEditSource::SdManage;
+    if(UiNav_Push(ui.ui_nav, UiScreenId::PerformWaveEdit))
+        ui.ui_dirty = true;
+    else
+    {
+        ResetSdManageTrimFlow(ui, shared);
+        ui.ui_dirty = true;
+    }
+}
+
+void SyncActiveScreenEnter(UiScreenCtx& ctx, AppUiState& ui)
+{
+    const UiScreenId active_screen = UiNav_Active(ui.ui_nav);
+    if(active_screen == ui.ui_active_screen)
+        return;
+
+    ui.ui_active_screen = active_screen;
+    const UiScreen& s = GetScreen(active_screen);
+    if(s.OnEnter)
+    {
+        ctx.shift = ui.ui_lshift_held;
+        ctx.lshift = ui.ui_lshift_held;
+        ctx.rshift = ui.ui_rshift_held;
+        s.OnEnter(ctx);
+    }
+    ui.ui_dirty = true;
+}
 } // namespace
 
 bool UILogic::SchedulePendingNoteOff(uint8_t note, uint32_t due_ms)
@@ -716,6 +775,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 // Cancel any pending SD delete mode when opening SHIFT.
                 ui.sd_delete_mode = false;
                 ui.sample_rename_active = false;
+                ResetSdManageTrimFlow(ui, shared);
                 UiNav_Push(ui.ui_nav, UiScreenId::ShiftMenu);
             }
             ui.ui_dirty = true;
@@ -793,20 +853,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         ui.craft_browser_open = false;
         ui.craft_browser_wait_for_load = false;
     }
-    if(active_screen != ui.ui_active_screen)
-    {
-        ui.ui_active_screen = active_screen;
-        const UiScreen& s = GetScreen(active_screen);
-        if(s.OnEnter)
-        {
-            shift_held = ui.ui_lshift_held;
-            ctx.shift = shift_held;
-            ctx.lshift = ui.ui_lshift_held;
-            ctx.rshift = ui.ui_rshift_held;
-            s.OnEnter(ctx);
-        }
-        ui.ui_dirty = true;
-    }
+    SyncActiveScreenEnter(ctx, ui);
 
     if(recording.record_state == RecordUiState::Recording
        && shared.recording.rec_active.load(std::memory_order_acquire) == 0)
@@ -1025,7 +1072,9 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     uint16_t worker_budget_us = 1500;
     if(worker.ui_req_busy
        && (worker.ui_req_active == UiReqType::SaveRenderedWavCurrent
-           || worker.ui_req_active == UiReqType::SaveRenderedWavNamed))
+           || worker.ui_req_active == UiReqType::SaveRenderedWavNamed
+           || worker.ui_req_active == UiReqType::SaveSdManageTrimNamed
+           || worker.ui_req_active == UiReqType::ReplaceSdManageTrimCurrent))
         worker_budget_us = 6000;
     UiWorker_Tick(app.ui,
                   app.project,
@@ -1035,6 +1084,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                   params,
                   now_ms,
                   worker_budget_us);
+
+    MaybeReturnToCraftAfterLoad(ui);
+    MaybeEnterSdManageTrimAfterLoad(ui, shared);
+    SyncActiveScreenEnter(ctx, ui);
 
     if(ui.save_project_pending
        && worker.ui_req_done_count != ui.save_project_pending_done_count)
@@ -1138,6 +1191,24 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                               "%s",
                               ui.sd.save_status);
             }
+        }
+        ui.ui_dirty = true;
+    }
+
+    if(ui.sd_manage_trim_wait_for_worker && !ui.sd.save_in_progress && !worker.ui_req_busy)
+    {
+        ui.sd_manage_trim_wait_for_worker = false;
+        ui.sd_manage_trim_save_busy = false;
+        const bool save_ok = (std::strncmp(ui.sd.save_status, "SAVED", 5) == 0)
+                             || (std::strncmp(ui.sd.save_status, "REPLACED", 8) == 0);
+        if(save_ok)
+        {
+            while(UiNav_Active(ui.ui_nav) != UiScreenId::SdManageMenu)
+            {
+                if(!UiNav_Pop(ui.ui_nav))
+                    break;
+            }
+            ResetSdManageTrimFlow(ui, shared);
         }
         ui.ui_dirty = true;
     }

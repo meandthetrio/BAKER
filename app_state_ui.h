@@ -41,6 +41,7 @@ enum class WaveEditSource : uint8_t
 {
     PerformSlot = 0,
     RenderReview,
+    SdManage,
 };
 
 static constexpr uint8_t kProjectPresetsHeaderCount = 3;
@@ -111,9 +112,19 @@ struct AppUiState
     char record_render_status[kSdStatusMax] = {};
     SampleEdit render_review_trim_entry{};
     bool render_review_trim_has_entry = false;
+    SampleEdit sd_manage_trim_entry{};
+    bool sd_manage_trim_has_entry = false;
     bool render_sample_rename_active = false;
     bool render_sample_rename_wait_for_worker = false;
     char record_render_save_stem[kSdRenameStemMax + 1u] = {};
+    bool sd_manage_edit_active = false;
+    bool sd_manage_edit_wait_for_load = false;
+    bool sd_manage_trim_rename_active = false;
+    bool sd_manage_trim_wait_for_worker = false;
+    bool sd_manage_trim_save_busy = false;
+    uint16_t sd_manage_edit_index = 0;
+    uint8_t sd_manage_trim_choice_cursor = 0;
+    char sd_manage_save_stem[kSdRenameStemMax + 1u] = {};
     uint8_t perform_keyzone_focus = 0; // 0=FULL/SPLIT btn, 1=vel Mod / split pt, 2=mod block A, 3=mod block B
     uint8_t velmod_focus[2] = {2u, 2u}; // 1=threshold 2=send 3=target (default send_amount; matches sim)
 

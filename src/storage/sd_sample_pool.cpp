@@ -4,6 +4,7 @@
 
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_sample_buf[kSdSampleSlots][kSdSampleMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_record_buf[kSdSampleMaxFrames];
+ADSR2_SECTION(".sdram_bss") static int16_t g_sd_manage_buf[kSdSampleMaxFrames];
 
 int16_t* SdSampleBuffer(uint8_t slot)
 {
@@ -15,6 +16,11 @@ int16_t* SdSampleBuffer(uint8_t slot)
 int16_t* SdRecordBuffer()
 {
     return g_sd_record_buf;
+}
+
+int16_t* SdManageBuffer()
+{
+    return g_sd_manage_buf;
 }
 
 uint32_t SdSampleMaxFrames()

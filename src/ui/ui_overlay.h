@@ -29,7 +29,8 @@ struct UiOverlayState
     uint32_t shown_since_ms = 0;
 };
 
-void UiOverlay_Update(UiOverlayState& o, uint32_t now_ms);
+void UiOverlay_Update(UiOverlayState& o, const AppDiagnosticsState& diag, uint32_t now_ms);
+void UiOverlay_ResetCpuRecent();
 void UiOverlay_Render(const AppUiState& ui,
                       const AppDiagnosticsState& diag,
                       const AppWorkerState& worker_state,

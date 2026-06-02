@@ -652,7 +652,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             {
                 diag.overlay.modal_active = true;
                 diag.overlay.page = kDiagOverlayPageSys;
-                UiOverlay_Update(diag.overlay, now_ms);
+                UiOverlay_Update(diag.overlay, diag, now_ms);
                 ClearParentPreviewState(ui);
                 ui.ui_dirty = true;
             }
@@ -676,6 +676,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
             {
                 DiagnosticsResetAudioCyclePeaks(diag);
+                UiOverlay_ResetCpuRecent();
                 ui.ui_dirty = true;
                 continue;
             }
@@ -991,7 +992,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     }
 
     shift_held = ui.ui_lshift_held;
-    UiOverlay_Update(diag.overlay, now_ms);
+    UiOverlay_Update(diag.overlay, diag, now_ms);
 
     ui.ui_in_ovf = UiInput_Dropped(ui.ui_in);
     ui.ui_in_hi = UiInput_HighWater(ui.ui_in);

@@ -26,6 +26,13 @@ constexpr int kOverlayTitleRowY  = 1;
 constexpr int kOverlayMetricRows = 7;
 constexpr int kOverlayRowH       = 8;
 constexpr int kOverlayMetricX    = 0;
+constexpr uint32_t kCpuRecentWindowMs = 500u;
+
+uint32_t s_cpu_recent_window_max_callback = 0u;
+uint32_t s_cpu_displayed_now_callback = 0u;
+uint32_t s_cpu_recent_window_max_cycles[kDiagAudioBucketCount]{};
+uint32_t s_cpu_displayed_now_cycles[kDiagAudioBucketCount]{};
+uint32_t s_cpu_recent_window_start_ms = 0u;
 
 int FontStringWidth(const char* str)
 {
@@ -71,25 +78,92 @@ void FormatPercentValue(char buf[16], uint32_t value)
     std::snprintf(buf, 16, "%lu%%", static_cast<unsigned long>(value));
 }
 
-uint32_t ClampPercentFromCycles(uint32_t cycles, uint32_t budget_cycles)
+uint32_t CyclesToPct_(uint32_t cycles, uint32_t budget_cycles)
 {
     if(budget_cycles == 0u)
         return 0u;
 
-    uint32_t pct = (cycles * 100u + (budget_cycles / 2u)) / budget_cycles;
+    uint32_t pct = static_cast<uint32_t>(
+        ((static_cast<uint64_t>(cycles) * 100u) + (budget_cycles / 2u)) / budget_cycles);
     if(pct > 999u)
         pct = 999u;
     return pct;
 }
 
-uint32_t LoadBucketPeakPercent(const AppDiagnosticsState& diag,
-                               DiagAudioBucket            bucket,
-                               uint32_t                   budget_cycles)
+void ResetCpuRecentState_()
+{
+    s_cpu_recent_window_max_callback = 0u;
+    s_cpu_displayed_now_callback = 0u;
+    for(uint8_t i = 0; i < kDiagAudioBucketCount; ++i)
+    {
+        s_cpu_recent_window_max_cycles[i] = 0u;
+        s_cpu_displayed_now_cycles[i] = 0u;
+    }
+    s_cpu_recent_window_start_ms = 0u;
+}
+
+void UpdateCpuRecentState_(const AppDiagnosticsState& diag, uint32_t now_ms)
+{
+    if(s_cpu_recent_window_start_ms == 0u)
+        s_cpu_recent_window_start_ms = now_ms;
+
+    const uint32_t callback_last = diag.audio_cycles_last.load(std::memory_order_relaxed);
+    if(callback_last > s_cpu_recent_window_max_callback)
+        s_cpu_recent_window_max_callback = callback_last;
+
+    for(uint8_t i = 0; i < kDiagAudioBucketCount; ++i)
+    {
+        const uint32_t cycles = diag.audio_bucket_cycles_last[i].load(std::memory_order_relaxed);
+        if(cycles > s_cpu_recent_window_max_cycles[i])
+            s_cpu_recent_window_max_cycles[i] = cycles;
+    }
+
+    if((now_ms - s_cpu_recent_window_start_ms) < kCpuRecentWindowMs)
+        return;
+
+    s_cpu_displayed_now_callback = s_cpu_recent_window_max_callback;
+    s_cpu_recent_window_max_callback = 0u;
+    for(uint8_t i = 0; i < kDiagAudioBucketCount; ++i)
+    {
+        s_cpu_displayed_now_cycles[i] = s_cpu_recent_window_max_cycles[i];
+        s_cpu_recent_window_max_cycles[i] = 0u;
+    }
+    s_cpu_recent_window_start_ms = now_ms;
+}
+
+uint32_t LoadBucketNowPercent_(DiagAudioBucket bucket, uint32_t budget_cycles)
+{
+    const uint8_t index = static_cast<uint8_t>(bucket);
+    return CyclesToPct_(s_cpu_displayed_now_cycles[index], budget_cycles);
+}
+
+uint32_t LoadBucketPeakPercent_(const AppDiagnosticsState& diag,
+                                DiagAudioBucket            bucket,
+                                uint32_t                   budget_cycles)
 {
     const uint8_t index = static_cast<uint8_t>(bucket);
     const uint32_t cycles
         = diag.audio_bucket_cycles_peak[index].load(std::memory_order_relaxed);
-    return ClampPercentFromCycles(cycles, budget_cycles);
+    return CyclesToPct_(cycles, budget_cycles);
+}
+
+void FormatNowPeakValue(char buf[16], uint32_t now_pct, uint32_t peak_pct)
+{
+    std::snprintf(buf,
+                  16,
+                  "%lu/%lu",
+                  static_cast<unsigned long>(now_pct),
+                  static_cast<unsigned long>(peak_pct));
+}
+
+void FormatBucketNowPeakValue(char                    buf[16],
+                              const AppDiagnosticsState& diag,
+                              DiagAudioBucket            bucket,
+                              uint32_t                   budget_cycles)
+{
+    FormatNowPeakValue(buf,
+                       LoadBucketNowPercent_(bucket, budget_cycles),
+                       LoadBucketPeakPercent_(diag, bucket, budget_cycles));
 }
 
 void FormatSignedValue(char buf[16], int value)
@@ -145,12 +219,24 @@ const char* WorkerStateValue(const AppWorkerState& worker_state)
 }
 } // namespace
 
-void UiOverlay_Update(UiOverlayState& o, uint32_t now_ms)
+void UiOverlay_Update(UiOverlayState& o, const AppDiagnosticsState& diag, uint32_t now_ms)
 {
     const bool want = o.modal_active;
     if(want && !o.visible)
+    {
         o.shown_since_ms = now_ms;
+        ResetCpuRecentState_();
+        s_cpu_recent_window_start_ms = now_ms;
+    }
     o.visible = want;
+
+    if(o.visible)
+        UpdateCpuRecentState_(diag, now_ms);
+}
+
+void UiOverlay_ResetCpuRecent()
+{
+    ResetCpuRecentState_();
 }
 
 void UiOverlay_Render(const AppUiState& ui,
@@ -192,19 +278,16 @@ void UiOverlay_Render(const AppUiState& ui,
     {
         case kDiagOverlayPageCpuA:
         {
-            FormatPercentValue(value0,
-                               ClampPercentFromCycles(
-                                   diag.audio_cycles_peak.load(std::memory_order_relaxed),
-                                   budget_cycles));
-            FormatPercentValue(value1,
-                               LoadBucketPeakPercent(
-                                   diag, kDiagAudioBucketCallbackPreVoice, budget_cycles));
-            FormatPercentValue(value2,
-                               LoadBucketPeakPercent(
-                                   diag, kDiagAudioBucketVoiceRender, budget_cycles));
-            FormatPercentValue(value3,
-                               LoadBucketPeakPercent(
-                                   diag, kDiagAudioBucketFxTotal, budget_cycles));
+            FormatNowPeakValue(value0,
+                               CyclesToPct_(s_cpu_displayed_now_callback, budget_cycles),
+                               CyclesToPct_(diag.audio_cycles_peak.load(std::memory_order_relaxed),
+                                            budget_cycles));
+            FormatBucketNowPeakValue(
+                value1, diag, kDiagAudioBucketCallbackPreVoice, budget_cycles);
+            FormatBucketNowPeakValue(
+                value2, diag, kDiagAudioBucketVoiceRender, budget_cycles);
+            FormatBucketNowPeakValue(
+                value3, diag, kDiagAudioBucketFxTotal, budget_cycles);
             FormatUnsignedValue(value4, diag.audio_late_count.load(std::memory_order_relaxed));
             FormatUnsignedValue(value5, diag.voices_active.load(std::memory_order_relaxed));
             const OverlayMetric metrics[] = {
@@ -220,24 +303,14 @@ void UiOverlay_Render(const AppUiState& ui,
         }
         case kDiagOverlayPageCpuFx:
         {
-            FormatPercentValue(value0,
-                               LoadBucketPeakPercent(diag, kDiagAudioBucketSat, budget_cycles));
-            FormatPercentValue(value1,
-                               LoadBucketPeakPercent(diag, kDiagAudioBucketEq, budget_cycles));
-            FormatPercentValue(value2,
-                               LoadBucketPeakPercent(diag, kDiagAudioBucketDelay, budget_cycles));
-            FormatPercentValue(value3,
-                               LoadBucketPeakPercent(
-                                   diag, kDiagAudioBucketReverb, budget_cycles));
-            FormatPercentValue(value4,
-                               LoadBucketPeakPercent(
-                                   diag, kDiagAudioBucketMaster, budget_cycles));
-            FormatPercentValue(value5,
-                               LoadBucketPeakPercent(
-                                   diag, kDiagAudioBucketRenderCapture, budget_cycles));
-            FormatPercentValue(value6,
-                               LoadBucketPeakPercent(
-                                   diag, kDiagAudioBucketMonitor, budget_cycles));
+            FormatBucketNowPeakValue(value0, diag, kDiagAudioBucketSat, budget_cycles);
+            FormatBucketNowPeakValue(value1, diag, kDiagAudioBucketEq, budget_cycles);
+            FormatBucketNowPeakValue(value2, diag, kDiagAudioBucketDelay, budget_cycles);
+            FormatBucketNowPeakValue(value3, diag, kDiagAudioBucketReverb, budget_cycles);
+            FormatBucketNowPeakValue(value4, diag, kDiagAudioBucketMaster, budget_cycles);
+            FormatBucketNowPeakValue(
+                value5, diag, kDiagAudioBucketRenderCapture, budget_cycles);
+            FormatBucketNowPeakValue(value6, diag, kDiagAudioBucketMonitor, budget_cycles);
             const OverlayMetric metrics[] = {
                 {"sat pk", value0},
                 {"eq pk", value1},

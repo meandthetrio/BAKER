@@ -80,6 +80,7 @@ void VoiceEngine::SetSampleBank(const Sample* const* bank, uint8_t count)
         sample_edit_bank_[i] = SampleEdit_Default(0);
         sample_edit_valid_[i] = false;
     }
+    BumpSetupCacheGen_(); // sample-bank changes invalidate slot/edit lookups
 }
 
 int VoiceEngine::FindSampleBankSlot_(const Sample* sample) const
@@ -246,7 +247,11 @@ void VoiceEngine::SetLoopCrossfadeAmount(uint8_t layer, float amount)
         amount = 0.0f;
     if(amount > 0.5f)
         amount = 0.5f;
-    loop_crossfade_amount_[layer] = amount;
+    if(loop_crossfade_amount_[layer] != amount)
+    {
+        loop_crossfade_amount_[layer] = amount;
+        BumpSetupCacheGen_(); // affects cached seam_frames
+    }
 }
 
 void VoiceEngine::SetLoopCrossfadeShape(uint8_t layer, float shape)
@@ -256,13 +261,21 @@ void VoiceEngine::SetLoopCrossfadeShape(uint8_t layer, float shape)
         shape = 0.0f;
     if(shape > 1.0f)
         shape = 1.0f;
+    // Shape is not in the setup cache (it's used in the per-sample seam blend,
+    // not setup), so no gen bump needed.
     loop_crossfade_shape_[layer] = shape;
 }
 
 void VoiceEngine::SetLayerSeamBaked(uint8_t layer, bool baked)
 {
     layer &= 1u;
-    layer_seam_baked_[layer] = baked;
+    // Pushed every block by the audio thread; bump only on actual change so the
+    // setup cache isn't invalidated each block.
+    if(layer_seam_baked_[layer] != baked)
+    {
+        layer_seam_baked_[layer] = baked;
+        BumpSetupCacheGen_(); // affects cached crossfade_seam_frames
+    }
 }
 
 void VoiceEngine::Init(float sample_rate, size_t block_size)
@@ -335,6 +348,11 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
         voices_[i].mod_env.Init(sample_rate_);
         voices_[i].release_coeff = block_release_coeff_;
     }
+    // Engine reset: invalidate all per-voice setup caches. (Each entry's
+    // gen_seen no longer matches setup_cache_gen_; first-pass setup recomputes.)
+    BumpSetupCacheGen_();
+    for(size_t i = 0; i < kMaxVoices; i++)
+        voice_setup_cache_[i] = VoiceBlockSetupCache{};
 
     for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
     {

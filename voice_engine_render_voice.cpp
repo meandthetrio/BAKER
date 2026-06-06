@@ -876,84 +876,104 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
         setup_start = DWT->CYCCNT;
 
     const uint8_t source_layer = v.source_layer & 1u;
-    EffectivePlaybackRegion r{};
-    bool loop_enabled = false;
-    ResolveEffectivePlaybackRegion_(v, ctx, r, loop_enabled);
-    const uint32_t start = r.start;
-    const uint32_t end = r.end;
-    uint32_t ls_i = r.ls_i;
-    uint32_t le_i = r.le_i;
-    const bool use_edit = r.use_edit;
-    const float edit_gain = r.edit_gain;
     const bool loop_voice = v.loop_voice;
-    if(loop_voice)
+
+    // Per-voice cache of the block-constant portion. For a held voice with no
+    // intervening UI param change, every field below is identical block-to-block;
+    // skip the recompute entirely.
+    VoiceBlockSetupCache& cache = voice_setup_cache_[&v - voices_];
+    const bool cache_hit = cache.valid
+                           && cache.gen_seen == setup_cache_gen_
+                           && cache.sample == v.sample
+                           && cache.loop_voice == loop_voice
+                           && cache.source_layer == source_layer;
+    if(!cache_hit)
     {
-        loop_enabled = true;
-        ls_i = start;
-        le_i = end;
+        EffectivePlaybackRegion r{};
+        bool loop_enabled = false;
+        ResolveEffectivePlaybackRegion_(v, ctx, r, loop_enabled);
+        cache.start = r.start;
+        cache.end = r.end;
+        cache.ls_i = r.ls_i;
+        cache.le_i = r.le_i;
+        cache.use_edit = r.use_edit;
+        cache.edit_gain = r.edit_gain;
+        cache.slot = r.slot;
+        cache.loop_enabled = loop_enabled;
+        if(loop_voice)
+        {
+            cache.loop_enabled = true;
+            cache.ls_i = cache.start;
+            cache.le_i = cache.end;
+        }
+        cache.length_f = static_cast<float>(cache.end);
+        cache.ls = static_cast<float>(cache.ls_i);
+        cache.le = static_cast<float>(cache.le_i);
+        cache.seam_frames
+            = loop_voice
+                  ? ComputeLoopSeamCrossfadeFrames(
+                        cache.start, cache.end, loop_crossfade_amount_[source_layer])
+                  : 0u;
+        cache.crossfade_seam_frames
+            = layer_seam_baked_[source_layer] ? 0u : cache.seam_frames;
+        cache.voice_loop_mode = loop_voice ? LoopMode::Forward : ctx.loop_mode;
+        cache.preview_sample
+            = (cache.slot == static_cast<int>(kRecordPreviewSampleIndex));
+        // Loop-boundary fade thresholds.
+        {
+            float ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
+            if(ff < 1.0f)
+                ff = 1.0f;
+            if(cache.end > cache.start)
+            {
+                const float region = static_cast<float>(cache.end - cache.start);
+                if(ff > region * 0.5f)
+                    ff = region * 0.5f;
+            }
+            else
+            {
+                ff = 0.0f;
+            }
+            if(ff < 0.0f)
+                ff = 0.0f;
+            cache.loop_fade_frames          = ff;
+            cache.loop_fade_start_threshold = static_cast<float>(cache.start) + ff;
+            cache.loop_fade_end_threshold   = static_cast<float>(cache.end) - ff;
+        }
+        cache.sample       = v.sample;
+        cache.source_layer = source_layer;
+        cache.loop_voice   = loop_voice;
+        cache.gen_seen     = setup_cache_gen_;
+        cache.valid        = true;
     }
-    const float gain = v.gain * edit_gain * ctx.engine_voice_gain[source_layer];
-    const float length_f = static_cast<float>(end);
-    const float ls = static_cast<float>(ls_i);
-    const float le = static_cast<float>(le_i);
-    const uint32_t seam_frames
-        = loop_voice
-              ? ComputeLoopSeamCrossfadeFrames(start, end, loop_crossfade_amount_[source_layer])
-              : 0u;
-    const LoopMode voice_loop_mode = loop_voice ? LoopMode::Forward : ctx.loop_mode;
 
     RenderNormalVoicePerBlockSetup setup{};
-    setup.start = start;
-    setup.end = end;
-    setup.length_f = length_f;
-    setup.ls = ls;
-    setup.le = le;
-    setup.ls_i = ls_i;
-    setup.le_i = le_i;
-    setup.loop_enabled = loop_enabled;
-    setup.loop_voice = loop_voice;
-    setup.seam_frames = seam_frames;
-    // Baked: seam region in PCM already contains the pre-blended crossfade, so
-    // playback reads a single tap (no live blend). seam_frames stays non-zero so
-    // the forward-loop wrap skips the baked head region (start..start+seam).
-    setup.crossfade_seam_frames
-        = layer_seam_baked_[source_layer] ? 0u : seam_frames;
-    setup.voice_loop_mode = voice_loop_mode;
-    setup.source_layer = source_layer;
-    setup.gain = gain;
-    setup.use_edit = use_edit;
+    setup.start                 = cache.start;
+    setup.end                   = cache.end;
+    setup.length_f              = cache.length_f;
+    setup.ls                    = cache.ls;
+    setup.le                    = cache.le;
+    setup.ls_i                  = cache.ls_i;
+    setup.le_i                  = cache.le_i;
+    setup.loop_enabled          = cache.loop_enabled;
+    setup.loop_voice            = loop_voice;
+    setup.seam_frames           = cache.seam_frames;
+    setup.crossfade_seam_frames = cache.crossfade_seam_frames;
+    setup.voice_loop_mode       = cache.voice_loop_mode;
+    setup.source_layer          = source_layer;
+    setup.use_edit              = cache.use_edit;
+    // Per-voice/per-block values (not cached — depend on v.* or per-block scalars).
+    setup.gain  = v.gain * cache.edit_gain * ctx.engine_voice_gain[source_layer];
     setup.ratio = v.ratio;
-    // The dedicated record-preview bank slot should replay neutral PCM so
-    // review preview pitch matches the captured render exactly.
-    const bool preview_sample
-        = (r.slot == static_cast<int>(kRecordPreviewSampleIndex));
     setup.pitch_ratio_scale
-        = preview_sample ? 1.0f : (ctx.engine_tune_scale[source_layer] * pitch_scale);
-    setup.fade_step = v.fade_in_step;
-    setup.env_a_step = v.env_a_step;
-    setup.env_d_step = v.env_d_step;
+        = cache.preview_sample ? 1.0f : (ctx.engine_tune_scale[source_layer] * pitch_scale);
+    setup.fade_step   = v.fade_in_step;
+    setup.env_a_step  = v.env_a_step;
+    setup.env_d_step  = v.env_d_step;
     setup.env_sustain = v.env_sustain;
-    // P6: precompute loop-boundary fade thresholds once per block per voice.
-    {
-        float ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
-        if(ff < 1.0f)
-            ff = 1.0f;
-        if(setup.end > setup.start)
-        {
-            const float region = static_cast<float>(setup.end - setup.start);
-            if(ff > region * 0.5f)
-                ff = region * 0.5f;
-        }
-        else
-        {
-            ff = 0.0f;
-        }
-        if(ff < 0.0f)
-            ff = 0.0f;
-        setup.loop_fade_frames          = ff;
-        setup.loop_fade_start_threshold = static_cast<float>(setup.start) + ff;
-        setup.loop_fade_end_threshold   = static_cast<float>(setup.end) - ff;
-    }
+    setup.loop_fade_frames          = cache.loop_fade_frames;
+    setup.loop_fade_start_threshold = cache.loop_fade_start_threshold;
+    setup.loop_fade_end_threshold   = cache.loop_fade_end_threshold;
 
     RenderNormalVoiceLoopState st{};
     st.pos_frame = v.pos_frame;

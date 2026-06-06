@@ -189,6 +189,7 @@ class VoiceEngine
             return;
         sample_edit_bank_[slot] = edit;
         sample_edit_valid_[slot] = true;
+        BumpSetupCacheGen_(); // affects cached region start/end/ls/le and edit_gain
     }
     void SetLpfCutoff(float hz) { lpf_cutoff_hz_ = hz; }
     void SetModMatrix(const ModMatrixState* state) { mod_matrix_ = state; }
@@ -241,7 +242,14 @@ class VoiceEngine
     void SetPolyPortoReleaseMs(uint8_t layer, float release_ms);
     void SetLoopMode(LoopMode mode)
     {
-        loop_mode_.store(static_cast<uint8_t>(mode), std::memory_order_relaxed);
+        const uint8_t old_v
+            = loop_mode_.load(std::memory_order_relaxed);
+        const uint8_t new_v = static_cast<uint8_t>(mode);
+        if(old_v != new_v)
+        {
+            loop_mode_.store(new_v, std::memory_order_relaxed);
+            BumpSetupCacheGen_(); // affects cached voice_loop_mode for non-loop voices
+        }
     }
     LoopMode GetLoopMode() const
     {
@@ -301,6 +309,46 @@ class VoiceEngine
     float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
     float loop_crossfade_shape_[kEngineLayerCount] = {0.0f, 0.0f};
     bool  layer_seam_baked_[kEngineLayerCount] = {false, false};
+
+    // Per-voice cache of the block-constant portion of RenderNormalVoice_'s
+    // setup. For a held voice in steady state none of the cached fields change
+    // between blocks, so we skip the region-resolve / seam-frame / fade-threshold
+    // recompute and reuse the cached values. Invalidated by:
+    //   - sample pointer change for the voice (note-on, voice steal, sample swap)
+    //   - source_layer or loop_voice change for the voice
+    //   - global setup_cache_gen_ bump from any setter below
+    //   - SetLoopCrossfadeAmount, SetLoopMode, SetSampleEdit, SetLayerSeamBaked,
+    //     SetSampleBank, ResetSamples — bump via BumpSetupCacheGen_().
+    struct VoiceBlockSetupCache
+    {
+        const Sample* sample        = nullptr;
+        uint32_t      gen_seen      = 0u;
+        bool          valid         = false;
+        bool          loop_voice    = false;
+        uint8_t       source_layer  = 0xFFu;
+        uint32_t      start         = 0u;
+        uint32_t      end           = 0u;
+        uint32_t      ls_i          = 0u;
+        uint32_t      le_i          = 0u;
+        bool          loop_enabled  = false;
+        bool          use_edit      = false;
+        float         edit_gain     = 1.0f;
+        int           slot          = -1;
+        uint32_t      seam_frames   = 0u;
+        uint32_t      crossfade_seam_frames = 0u;
+        LoopMode      voice_loop_mode = LoopMode::Forward;
+        float         length_f      = 0.0f;
+        float         ls            = 0.0f;
+        float         le            = 0.0f;
+        float         loop_fade_frames            = 0.0f;
+        float         loop_fade_start_threshold   = 0.0f;
+        float         loop_fade_end_threshold     = 0.0f;
+        bool          preview_sample = false;
+    };
+    VoiceBlockSetupCache voice_setup_cache_[kMaxVoices]{};
+    // Starts at 1 so a default-constructed cache (gen_seen == 0) always misses.
+    uint32_t setup_cache_gen_ = 1u;
+    void BumpSetupCacheGen_() { ++setup_cache_gen_; }
     bool  poly_porto_enabled_[kEngineLayerCount] = {false, false};
     uint8_t poly_porto_voice_limit_[kEngineLayerCount]
         = {kExpressPolyPortoVoicesDefault, kExpressPolyPortoVoicesDefault};

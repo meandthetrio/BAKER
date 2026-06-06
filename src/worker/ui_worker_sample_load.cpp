@@ -7,6 +7,7 @@
 #include "app_state_worker.h"
 #include "sd_browser_state.h"
 #include "sd_sample_pool.h"
+#include "sample_bake.h"
 #include "sample_edit.h"
 #include "ui_requests.h"
 
@@ -14,6 +15,7 @@
 #include "ff.h"
 
 #include <cstdio>
+#include <cstring>
 
 using namespace daisy;
 
@@ -258,9 +260,38 @@ bool LoadStepInternal(SdBrowserState& sd,
             shared.sample.edit.sd_edit_slots[s_sd.loading_slot] = edit;
             if(!is_project_restore_load)
             {
-                engine.adsr.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u] = 0.0625f;
+                engine.adsr.perform_adsr_loop_crossfade[s_sd.loading_slot & 1u]
+                    = DefaultSeamCrossfadeAmount(edit.start_frame, edit.end_frame);
                 engine.adsr.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
             }
+
+            // Seam-bake on load: when loop mode is on for this layer, pre-render the
+            // loop crossfade into a baked SDRAM copy and play that instead of the raw
+            // PCM (raw stays in SdSampleBuffer for future re-bakes). The engine then
+            // suppresses the runtime seam/boundary fade for this layer via the
+            // perform_adsr_loop_seam_baked flag (flows through params -> audio).
+            const uint8_t bake_layer = s_sd.loading_slot & 1u;
+            const bool loop_on = (engine.layer.engine_play_mode[bake_layer] != 0u);
+            if(loop_on)
+            {
+                SampleEdit bake_edit = edit;
+                SampleEdit_Clamp(bake_edit, s_sd.sample_frames);
+                BakeLoopSeamToBuffer(SdSampleBuffer(s_sd.loading_slot),
+                                     s_sd.sample_frames,
+                                     bake_edit.start_frame,
+                                     bake_edit.end_frame,
+                                     engine.adsr.perform_adsr_loop_crossfade[bake_layer],
+                                     engine.adsr.perform_adsr_loop_crossfade_shape[bake_layer],
+                                     48000.0f,
+                                     SdBakedBuffer(s_sd.loading_slot));
+                samp.pcm = SdBakedBuffer(s_sd.loading_slot);
+                engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = true;
+            }
+            else
+            {
+                engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = false;
+            }
+
             shared.sample.edit.sd_edit_pending = edit;
             shared.sample.edit.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);
             shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);

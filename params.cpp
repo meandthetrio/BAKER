@@ -128,6 +128,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.engine_loop_release_ms[layer] = t.engine_loop_release_ms[layer];
         current.engine_loop_crossfade_amount[layer] = t.engine_loop_crossfade_amount[layer];
         current.engine_loop_crossfade_shape[layer] = t.engine_loop_crossfade_shape[layer];
+        current.engine_loop_seam_baked[layer] = t.engine_loop_seam_baked[layer];
     }
 
     // Bools snap immediately

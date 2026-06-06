@@ -148,25 +148,10 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
     if(engine.adsr.perform_adsr_wave_focus
        && (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop))
     {
-        float& target = ctx.rshift ? engine.adsr.perform_adsr_loop_crossfade_shape[layer]
-                                   : engine.adsr.perform_adsr_loop_crossfade[layer];
-        const float step = ctx.rshift ? kPerformLoopCrossfadeShapeStep
-                                      : kPerformLoopCrossfadeStep;
-        const float min_value = ctx.rshift ? kPerformLoopCrossfadeShapeMin
-                                           : kPerformLoopCrossfadeMin;
-        const float max_value = ctx.rshift ? kPerformLoopCrossfadeShapeMax
-                                           : kPerformLoopCrossfadeMax;
-        float next = target + (static_cast<float>(e.value) * step);
-        if(next < min_value)
-            next = min_value;
-        if(next > max_value)
-            next = max_value;
-        if(next == target)
-            return false;
-        target = next;
-        PublishEngineLayerParams(ctx);
-        ui.ui_dirty = true;
-        return true;
+        // Seam length/curve editing has moved to the dedicated seam-edit screen
+        // (REnc click on the focused wav preview opens it). REnc rotate here is a
+        // no-op; the ADSR preview shows the saved seam length read-only.
+        return false;
     }
 
     if((adsr_row % static_cast<uint8_t>(kAdsrRowCount)) != static_cast<uint8_t>(kAdsrRowLoop))

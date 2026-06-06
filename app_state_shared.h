@@ -71,6 +71,17 @@ struct AppSharedState
         std::atomic<uint8_t> preview_stop_req{0};
         std::atomic<uint8_t> preview_active{0};
         std::atomic<uint32_t> preview_pos{0};
+        // Engine Trim one-shot window-audition bridge (separate from the
+        // render-review preview above so the two never collide). UI/main fills
+        // win_preview_sample + start/end and posts start/stop; audio thread owns
+        // active playback, plays [start,end) once, and auto-clears win_preview_active.
+        std::atomic<uint8_t> win_preview_start_req{0};
+        std::atomic<uint8_t> win_preview_stop_req{0};
+        std::atomic<uint8_t> win_preview_active{0};
+        std::atomic<uint32_t> win_preview_pos{0};
+        Sample win_preview_sample{};
+        uint32_t win_preview_start{0};
+        uint32_t win_preview_end{0};
         // Internal render-capture bridge. UI/main owns requests and finalization;
         // audio thread owns active writes and frame-count publication.
         std::atomic<uint8_t> render_start_req{0};

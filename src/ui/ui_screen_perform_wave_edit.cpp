@@ -354,6 +354,12 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
         shared.sample.edit.sd_edit_gen.fetch_add(1, std::memory_order_acq_rel);
         shared.sample.edit.sd_edit_ready.store(1, std::memory_order_release);
         engine.wave_edit.perform_wave_edit_has_entry = false;
+        // TODO(seam-bake): committing a new trim window invalidates any baked loop
+        // for this layer (it was baked for the old start/end/seam). When the
+        // seam-bake feature gains a re-bake path, here we should: clear
+        // engine.adsr.perform_adsr_loop_seam_baked[layer] (so the live runtime seam
+        // covers the gap on the raw buffer), then enqueue a re-bake for this layer.
+        // Same hook applies to the ADSR loop-crossfade amount/shape editor.
     }
     UiNav_Pop(ui.ui_nav);
     ui.ui_dirty = true;
@@ -381,12 +387,25 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(ctx.rshift && !render_review && !sd_manage)
+        if(!render_review && !sd_manage)
         {
-            StopTrimPreview(ui);
-            engine.perform_nav.perform_layer ^= 1u;
-            const uint8_t next = engine.perform_nav.perform_layer & 1u;
-            shared.sample.publish.sd_current_slot.store(next, std::memory_order_release);
+            // Engine Trim: Button2 toggles a one-shot audition of the selected
+            // window. Press to start (plays start..end once, non-looping); press
+            // again while playing to stop. Auto-stops at the window end.
+            if(shared.recording.win_preview_active.load(std::memory_order_acquire) != 0u)
+            {
+                shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
+            }
+            else
+            {
+                SampleEdit edit = WaveEditActiveEdit(ui, engine, shared);
+                SampleEdit_Clamp(edit, sample.length);
+                shared.recording.win_preview_sample = sample;
+                shared.recording.win_preview_start = edit.start_frame;
+                shared.recording.win_preview_end
+                    = (edit.end_frame > edit.start_frame) ? edit.end_frame : sample.length;
+                shared.recording.win_preview_start_req.store(1, std::memory_order_release);
+            }
         }
         else
         {
@@ -398,7 +417,10 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnUp && e.id == kUiBtnPod2)
     {
-        StopTrimPreview(ui);
+        // HOLD semantics only apply to render-review / sd-manage. The engine-slot
+        // case is a press-toggle one-shot, so button-up is a no-op there.
+        if(render_review || sd_manage)
+            StopTrimPreview(ui);
         ui.ui_dirty = true;
         return true;
     }

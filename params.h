@@ -64,6 +64,7 @@ struct PerformParamsTargets
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
+    bool  engine_loop_seam_baked[kLayerCount] = {false, false}; // true: crossfade baked into PCM
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]
@@ -137,6 +138,7 @@ struct PerformParamsCurrent
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
+    bool  engine_loop_seam_baked[kLayerCount] = {false, false}; // true: crossfade baked into PCM
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]

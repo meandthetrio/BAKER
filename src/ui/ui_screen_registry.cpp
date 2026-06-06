@@ -100,6 +100,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                        nullptr,
                                        PerformAdsr_OnEvent,
                                        PerformAdsr_Render};
+    static const UiScreen perform_seam_edit{UiScreenId::PerformSeamEdit,
+                                            PerformSeamEdit_OnScreenEnter,
+                                            nullptr,
+                                            PerformSeamEdit_OnEvent,
+                                            PerformSeamEdit_Render};
     static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis,
                                            PerformEmphasis_OnScreenEnter,
                                            nullptr,
@@ -207,6 +212,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return mod_block_b;
         case UiScreenId::PerformAdsr:
             return perform_adsr;
+        case UiScreenId::PerformSeamEdit:
+            return perform_seam_edit;
         case UiScreenId::PerformEmphasis:
             return perform_emphasis;
         case UiScreenId::PerformExpress:

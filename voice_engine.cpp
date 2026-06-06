@@ -259,6 +259,12 @@ void VoiceEngine::SetLoopCrossfadeShape(uint8_t layer, float shape)
     loop_crossfade_shape_[layer] = shape;
 }
 
+void VoiceEngine::SetLayerSeamBaked(uint8_t layer, bool baked)
+{
+    layer &= 1u;
+    layer_seam_baked_[layer] = baked;
+}
+
 void VoiceEngine::Init(float sample_rate, size_t block_size)
 {
     voices_      = g_voice_pool;
@@ -345,6 +351,7 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
         loop_env_release_ms_[layer] = 50.0f;
         loop_crossfade_amount_[layer] = 0.0625f;
         loop_crossfade_shape_[layer] = 0.0f;
+        layer_seam_baked_[layer] = false;
         poly_porto_enabled_[layer] = false;
         poly_porto_voice_limit_[layer] = kExpressPolyPortoVoicesDefault;
         poly_porto_slide_ms_[layer] = static_cast<float>(kExpressPolyPortoSlideDefaultMs);

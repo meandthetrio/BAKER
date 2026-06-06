@@ -229,6 +229,10 @@ class VoiceEngine
                                float release_ms);
     void SetLoopCrossfadeAmount(uint8_t layer, float amount);
     void SetLoopCrossfadeShape(uint8_t layer, float shape);
+    // When true, the layer's sample already has the loop crossfade baked into its
+    // PCM; the runtime seam crossfade and loop-boundary fade are both suppressed so
+    // the loop is not smoothed twice.
+    void SetLayerSeamBaked(uint8_t layer, bool baked);
     void SetPolyPortoEnabled(uint8_t layer, bool enabled);
     void SetPolyPortoVoiceLimit(uint8_t layer, uint8_t voice_limit);
     void SetPolyPortoSlideMs(uint8_t layer, float slide_ms);
@@ -296,6 +300,7 @@ class VoiceEngine
     float loop_env_release_ms_[kEngineLayerCount] = {50.0f, 50.0f};
     float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
     float loop_crossfade_shape_[kEngineLayerCount] = {0.0f, 0.0f};
+    bool  layer_seam_baked_[kEngineLayerCount] = {false, false};
     bool  poly_porto_enabled_[kEngineLayerCount] = {false, false};
     uint8_t poly_porto_voice_limit_[kEngineLayerCount]
         = {kExpressPolyPortoVoicesDefault, kExpressPolyPortoVoicesDefault};

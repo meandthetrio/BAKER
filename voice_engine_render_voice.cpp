@@ -301,29 +301,37 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
         = old_preview_sample ? 1.0f : (ctx.engine_tune_scale[setup.old_layer] * pitch_scale);
     setup.old_ratio = v.old_ratio * old_pitch_ratio_scale;
     setup.old_gain  = v.old_gain * setup.edit_gain * ctx.engine_voice_gain[setup.old_layer];
+    const bool old_layer_baked = layer_seam_baked_[setup.old_layer];
     setup.old_seam_frames
-        = setup.loop_voice ? ComputeLoopSeamCrossfadeFrames(setup.start,
-                                                            setup.end,
-                                                            loop_crossfade_amount_[setup.old_layer])
-                           : 0u;
+        = (setup.loop_voice && !old_layer_baked)
+              ? ComputeLoopSeamCrossfadeFrames(setup.start,
+                                               setup.end,
+                                               loop_crossfade_amount_[setup.old_layer])
+              : 0u;
     setup.old_loop_mode = setup.loop_voice ? LoopMode::Forward : ctx.loop_mode;
     setup.steal_fade_step = v.steal_fade_step;
     {
-        float ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
-        if(ff < 1.0f)
-            ff = 1.0f;
-        if(setup.end > setup.start)
+        // Baked loops are already seamless in PCM, so suppress the loop-boundary
+        // fade (ff = 0 -> thresholds span the whole region, fast-path skips it).
+        float ff = 0.0f;
+        if(!old_layer_baked)
         {
-            const float region = static_cast<float>(setup.end - setup.start);
-            if(ff > region * 0.5f)
-                ff = region * 0.5f;
+            ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
+            if(ff < 1.0f)
+                ff = 1.0f;
+            if(setup.end > setup.start)
+            {
+                const float region = static_cast<float>(setup.end - setup.start);
+                if(ff > region * 0.5f)
+                    ff = region * 0.5f;
+            }
+            else
+            {
+                ff = 0.0f;
+            }
+            if(ff < 0.0f)
+                ff = 0.0f;
         }
-        else
-        {
-            ff = 0.0f;
-        }
-        if(ff < 0.0f)
-            ff = 0.0f;
         setup.loop_fade_frames          = ff;
         setup.loop_fade_start_threshold = static_cast<float>(setup.start) + ff;
         setup.loop_fade_end_threshold   = static_cast<float>(setup.end) - ff;
@@ -692,11 +700,11 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     const float length_f = static_cast<float>(end);
     const float ls = static_cast<float>(ls_i);
     const float le = static_cast<float>(le_i);
+    const bool layer_baked = layer_seam_baked_[source_layer];
     const uint32_t seam_frames
-        = loop_voice ? ComputeLoopSeamCrossfadeFrames(start,
-                                                      end,
-                                                      loop_crossfade_amount_[source_layer])
-                     : 0u;
+        = (loop_voice && !layer_baked)
+              ? ComputeLoopSeamCrossfadeFrames(start, end, loop_crossfade_amount_[source_layer])
+              : 0u;
     const LoopMode voice_loop_mode = loop_voice ? LoopMode::Forward : ctx.loop_mode;
 
     RenderNormalVoicePerBlockSetup setup{};
@@ -726,22 +734,27 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     setup.env_d_step = v.env_d_step;
     setup.env_sustain = v.env_sustain;
     // P6: precompute loop-boundary fade thresholds once per block per voice.
+    // Baked loops are already seamless in PCM, so suppress this fade for them.
     {
-        float ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
-        if(ff < 1.0f)
-            ff = 1.0f;
-        if(setup.end > setup.start)
+        float ff = 0.0f;
+        if(!layer_baked)
         {
-            const float region = static_cast<float>(setup.end - setup.start);
-            if(ff > region * 0.5f)
-                ff = region * 0.5f;
+            ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
+            if(ff < 1.0f)
+                ff = 1.0f;
+            if(setup.end > setup.start)
+            {
+                const float region = static_cast<float>(setup.end - setup.start);
+                if(ff > region * 0.5f)
+                    ff = region * 0.5f;
+            }
+            else
+            {
+                ff = 0.0f;
+            }
+            if(ff < 0.0f)
+                ff = 0.0f;
         }
-        else
-        {
-            ff = 0.0f;
-        }
-        if(ff < 0.0f)
-            ff = 0.0f;
         setup.loop_fade_frames          = ff;
         setup.loop_fade_start_threshold = static_cast<float>(setup.start) + ff;
         setup.loop_fade_end_threshold   = static_cast<float>(setup.end) - ff;

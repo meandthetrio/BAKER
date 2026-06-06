@@ -48,6 +48,7 @@ enum class UiScreenId : uint8_t
     ModBlockA,
     ModBlockB,
     PerformAdsr,
+    PerformSeamEdit,
     PerformEmphasis,
     PerformExpress,
     PerformProcess,

@@ -1003,6 +1003,35 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         ui.ui_dirty = true;
     }
 
+    // Engine Trim screen (engine-slot case) gates incoming MIDI so the window can
+    // be auditioned in isolation. Edge-detected here because screen OnExit hooks
+    // are not dispatched by the router. On both entry and exit we silence any
+    // sounding notes; on exit we also stop the one-shot window audition.
+    const bool engine_trim_active = (active_screen == UiScreenId::PerformWaveEdit)
+                                    && (ui.wave_edit_source == WaveEditSource::PerformSlot);
+    if(engine_trim_active != ui.ui_midi_gate_active)
+    {
+        ui.ui_midi_gate_active = engine_trim_active;
+        PushAllNotesOff(evtq, diag, ui);
+        if(!engine_trim_active)
+            shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
+        ui.ui_dirty = true;
+    }
+
+    // Seam-edit screen requests an all-notes-off on entry and on commit (where the
+    // screen code cannot reach the event queue). Service it here.
+    if(ui.ui_seam_silence_pending)
+    {
+        PushAllNotesOff(evtq, diag, ui);
+        ui.ui_seam_silence_pending = false;
+    }
+
+    // Safety net: monophonic seam audition must never outlive the seam-edit screen.
+    // Force polyphony back on whenever we are not on that screen, regardless of how
+    // it was exited.
+    if(active_screen != UiScreenId::PerformSeamEdit && ui.ui_seam_audition_active)
+        ui.ui_seam_audition_active = false;
+
     const bool trim_preview_active = (active_screen == UiScreenId::PerformWaveEdit);
     if(trim_preview_active && ui.ui_trim_preview_hold && !ui.ui_trim_preview_gate)
     {

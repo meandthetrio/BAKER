@@ -65,6 +65,15 @@ struct AppUiState
     WaveEditSource wave_edit_source = WaveEditSource::PerformSlot;
     bool ui_trim_preview_hold = false;
     bool ui_trim_preview_gate = false;
+    // Engine Trim screen gates incoming MIDI note-on/off so the window can be
+    // auditioned in isolation. Written by UiTick, read by the MIDI handlers;
+    // both run on the main loop thread, so a plain bool is sufficient.
+    bool ui_midi_gate_active = false;
+    // ADSR seam-edit screen: MIDI is forced monophonic and restricted to the
+    // edited layer for live seam auditioning. Plain bools (main-loop thread only).
+    bool ui_seam_audition_active = false;
+    uint8_t ui_seam_audition_layer = 0;
+    bool ui_seam_silence_pending = false;
     bool ui_parent_preview_active = false;
     uint8_t ui_parent_preview_from_top = 0;
     uint8_t ui_parent_preview_mode = 0;

@@ -132,6 +132,10 @@ static inline void PushAudioEventFromMain(const Event& evt)
 
 static void HandleMidiNoteOn(const NoteOnEvent& note_on)
 {
+    // Engine Trim screen ignores incoming MIDI notes (window-audition only).
+    if(g_app.ui.ui_midi_gate_active)
+        return;
+
     if(note_on.velocity == 0)
     {
         PushAudioEventFromMain(Event::NoteOffEvent(note_on.note));
@@ -142,8 +146,17 @@ static void HandleMidiNoteOn(const NoteOnEvent& note_on)
     g_app.diag.last_vel_layer.store(vel_layer, std::memory_order_relaxed);
     g_app.diag.last_velocity.store(note_on.velocity, std::memory_order_relaxed);
 
+    // Seam-edit screen: force monophonic audition of the edited layer only. Cut any
+    // sounding note first (mono / last-note priority), then play just that layer.
+    const bool seam_audition = g_app.ui.ui_seam_audition_active;
+    const uint8_t seam_layer = g_app.ui.ui_seam_audition_layer & 1u;
+    if(seam_audition)
+        PushAudioEventFromMain(Event::AllNotesOffEvent());
+
     for(uint8_t layer = 0; layer < 2; ++layer)
     {
+        if(seam_audition && layer != seam_layer)
+            continue;
         const Sample& s = g_app.shared.sample.publish.sd_slots[layer];
         if(s.pcm == nullptr || s.length == 0)
             continue;
@@ -161,6 +174,9 @@ static void HandleMidiNoteOn(const NoteOnEvent& note_on)
 
 static void HandleMidiNoteOff(const NoteOffEvent& note_off)
 {
+    if(g_app.ui.ui_midi_gate_active)
+        return;
+
     PushAudioEventFromMain(Event::NoteOffEvent(note_off.note));
 }
 
@@ -287,6 +303,7 @@ int main(void)
             t.engine_loop_release_ms[layer] = loop_release_ms;
             t.engine_loop_crossfade_amount[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade[layer];
             t.engine_loop_crossfade_shape[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade_shape[layer];
+            t.engine_loop_seam_baked[layer] = g_app.engine.adsr.perform_adsr_loop_seam_baked[layer];
             t.perform_keyzone_lo_note[layer] = g_app.engine.keyzone.perform_keyzone_lo_note[layer];
             t.perform_keyzone_hi_note[layer] = g_app.engine.keyzone.perform_keyzone_hi_note[layer];
             for(uint8_t row = 0; row < kExpressRowCount; ++row)
@@ -418,6 +435,13 @@ int main(void)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis)
               || (g_app.ui.ui_active_screen == UiScreenId::PerformExpress);
+        // Engine Trim (engine-slot) screen: LED2 green when idle, red while the
+        // one-shot window audition is playing.
+        const bool engine_trim_active
+            = (g_app.ui.ui_active_screen == UiScreenId::PerformWaveEdit)
+              && (g_app.ui.wave_edit_source == WaveEditSource::PerformSlot);
+        const bool win_preview_playing
+            = (g_app.shared.recording.win_preview_active.load(std::memory_order_acquire) != 0u);
         const bool firmware_pairing_hold_active
             = g_app.ui.shift_menu_firmware_update_active && g_app.ui.shift_menu_bootloader_armed;
         const bool boot_splash_active = g_render.IsBootSplashActive();
@@ -514,6 +538,14 @@ int main(void)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, 0.0f, 1.0f);
+        }
+        else if(engine_trim_active)
+        {
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
+            if(win_preview_playing)
+                hw.led2.Set(1.0f, 0.0f, 0.0f); // red while one-shot playing
+            else
+                hw.led2.Set(0.0f, 0.0f, 1.0f); // green idle (3rd component = green on this hw)
         }
         else if(perform_ab_active)
         {

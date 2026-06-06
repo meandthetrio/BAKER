@@ -72,6 +72,10 @@ struct AppEngineState
         uint16_t perform_adsr_loop_release[2] = {50u, 50u};
         float   perform_adsr_loop_crossfade[2] = {0.0625f, 0.0625f};
         float   perform_adsr_loop_crossfade_shape[2] = {0.0f, 0.0f};
+        // Set true by the loader once a slot's loop crossfade has been baked into
+        // its PCM (see SdBakedBuffer). Flows to the engine so the runtime seam /
+        // boundary fade are suppressed for that layer. Re-evaluated on every load.
+        bool    perform_adsr_loop_seam_baked[2] = {false, false};
         uint8_t perform_adsr_env_a_x[2] = {13u, 13u};
         uint8_t perform_adsr_env_d_x[2] = {38u, 38u};
         uint8_t perform_adsr_env_r_x[2] = {89u, 89u};

@@ -131,6 +131,10 @@ static uint8_t  s_rec_source = 0;
 static uint32_t s_rec_pos = 0;
 static bool     s_preview_active = false;
 static uint32_t s_preview_pos = 0;
+static bool     s_win_preview_active = false;
+static uint32_t s_win_preview_pos = 0;
+static float    s_win_preview_gain = 0.0f;
+static bool     s_win_preview_stopping = false;
 static bool     s_render_active = false;
 static uint32_t s_render_pos = 0;
 static constexpr uint32_t kRecLiveWaveStride = 128u;
@@ -346,6 +350,131 @@ void AudioCallback_ProcessRecordPreview(float* outL, float* outR, size_t size)
     if(!s_preview_active)
         s_preview_pos = 0;
 }
+
+// Engine Trim one-shot: plays the selected window [start,end) of a snapshotted
+// Sample exactly once (non-looping, even when engine loop mode is on), additive
+// into the output. Auto-clears win_preview_active at the window end so the UI/LED
+// can revert without any polling logic.
+void AudioCallback_ProcessWindowPreview(float* outL, float* outR, size_t size)
+{
+    // ~1 ms declick at 48 kHz: ramp-in from window start, position-based fade toward
+    // the window end, and a ramp-out on stop (Button2 toggle-off) so neither the
+    // onset, the natural end, nor an early stop produces a click.
+    constexpr uint32_t kWinFadeFrames = 48u;
+    constexpr float    kWinFadeStep = 1.0f / static_cast<float>(kWinFadeFrames);
+
+    auto& recording = g_app.shared.recording;
+    if(recording.win_preview_stop_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        // Begin a fade-out rather than a hard cut; deactivation happens once the
+        // envelope reaches zero in the loop below.
+        if(s_win_preview_active)
+            s_win_preview_stopping = true;
+        else
+            recording.win_preview_active.store(0, std::memory_order_release);
+    }
+
+    if(recording.win_preview_start_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        const Sample& sample = recording.win_preview_sample;
+        uint32_t start = recording.win_preview_start;
+        uint32_t end = recording.win_preview_end;
+        if(sample.pcm != nullptr && sample.length > 0u && end > start && start < sample.length)
+        {
+            s_win_preview_active = true;
+            s_win_preview_stopping = false;
+            s_win_preview_gain = 0.0f;
+            s_win_preview_pos = start;
+            recording.win_preview_active.store(1, std::memory_order_release);
+            recording.win_preview_pos.store(start, std::memory_order_release);
+        }
+        else
+        {
+            s_win_preview_active = false;
+            s_win_preview_stopping = false;
+            s_win_preview_pos = 0;
+            recording.win_preview_active.store(0, std::memory_order_release);
+            recording.win_preview_pos.store(0, std::memory_order_release);
+        }
+    }
+
+    if(!s_win_preview_active)
+        return;
+
+    const Sample& sample = recording.win_preview_sample;
+    uint32_t end = recording.win_preview_end;
+    if(sample.pcm == nullptr || sample.length == 0u)
+    {
+        s_win_preview_active = false;
+        s_win_preview_stopping = false;
+        s_win_preview_pos = 0;
+        recording.win_preview_active.store(0, std::memory_order_release);
+        return;
+    }
+    if(end > sample.length)
+        end = sample.length;
+
+    for(size_t i = 0; i < size; ++i)
+    {
+        if(s_win_preview_pos >= end)
+        {
+            s_win_preview_active = false;
+            recording.win_preview_active.store(0, std::memory_order_release);
+            break;
+        }
+
+        // Envelope: ramp-in toward 1.0, or ramp-out toward 0.0 when stopping.
+        const float target = s_win_preview_stopping ? 0.0f : 1.0f;
+        if(s_win_preview_gain < target)
+        {
+            s_win_preview_gain += kWinFadeStep;
+            if(s_win_preview_gain > target)
+                s_win_preview_gain = target;
+        }
+        else if(s_win_preview_gain > target)
+        {
+            s_win_preview_gain -= kWinFadeStep;
+            if(s_win_preview_gain < target)
+                s_win_preview_gain = target;
+        }
+        if(s_win_preview_stopping && s_win_preview_gain <= 0.0f)
+        {
+            s_win_preview_active = false;
+            recording.win_preview_active.store(0, std::memory_order_release);
+            break;
+        }
+
+        // Position-based fade toward the window end (reaches ~0 at `end`).
+        const uint32_t remaining = end - s_win_preview_pos;
+        const float pos_gain
+            = (remaining < kWinFadeFrames) ? (static_cast<float>(remaining) * kWinFadeStep) : 1.0f;
+
+        const float dry
+            = (static_cast<float>(sample.pcm[s_win_preview_pos]) / 32768.0f) * s_win_preview_gain
+              * pos_gain;
+        float left = outL[i] + dry;
+        float right = outR[i] + dry;
+        if(left > 1.0f)
+            left = 1.0f;
+        else if(left < -1.0f)
+            left = -1.0f;
+        if(right > 1.0f)
+            right = 1.0f;
+        else if(right < -1.0f)
+            right = -1.0f;
+        outL[i] = left;
+        outR[i] = right;
+        ++s_win_preview_pos;
+    }
+
+    recording.win_preview_pos.store(s_win_preview_pos, std::memory_order_release);
+    if(!s_win_preview_active)
+    {
+        s_win_preview_pos = 0;
+        s_win_preview_stopping = false;
+        s_win_preview_gain = 0.0f;
+    }
+}
 } // namespace
 
 void AudioCallback(AudioHandle::InputBuffer  in,
@@ -431,6 +560,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                                       voice_params.engine_loop_release_ms[layer]);
         g_voice.SetLoopCrossfadeAmount(layer, voice_params.engine_loop_crossfade_amount[layer]);
         g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
+        g_voice.SetLayerSeamBaked(layer, voice_params.engine_loop_seam_baked[layer]);
     }
     g_voice.ProcessEvents(g_evtq);
     DiagnosticsStoreCycleBucket(g_app.diag,
@@ -459,6 +589,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
 
     bucket_start = DWT->CYCCNT;
     AudioCallback_ProcessRecordPreview(out[0], out[1], size);
+    AudioCallback_ProcessWindowPreview(out[0], out[1], size);
     DiagnosticsStoreCycleBucket(
         g_app.diag, kDiagAudioBucketRecordPreview, DWT->CYCCNT - bucket_start);
 

@@ -209,6 +209,21 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+    {
+        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+        const uint8_t adsr_row = PerformAdsrRow(engine, layer);
+        const Sample& s = shared.sample.publish.sd_slots[layer];
+        const bool sample_loaded = (s.pcm != nullptr && s.length > 0);
+        if(engine.adsr.perform_adsr_wave_focus && PerformAdsrWaveFocusable(adsr_row)
+           && sample_loaded)
+        {
+            UiNav_Push(ui.ui_nav, UiScreenId::PerformSeamEdit);
+            ui.ui_dirty = true;
+            return true;
+        }
+    }
+
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
         return PerformAdsr_OnEventExtEncoder(ctx, e);
 

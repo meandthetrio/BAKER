@@ -148,6 +148,10 @@ void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx);
 bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformAdsr_Render(UiScreenCtx& ctx);
 
+void PerformSeamEdit_OnScreenEnter(UiScreenCtx& ctx);
+bool PerformSeamEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void PerformSeamEdit_Render(UiScreenCtx& ctx);
+
 void PerformEmphasis_OnScreenEnter(UiScreenCtx& ctx);
 bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformEmphasis_Render(UiScreenCtx& ctx);

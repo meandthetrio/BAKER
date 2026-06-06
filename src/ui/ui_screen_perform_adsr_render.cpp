@@ -39,7 +39,8 @@ static void DrawPerformLoopCrossfadeCurve(OledPager& d,
                                           int x1,
                                           int y1,
                                           float shape,
-                                          bool fade_in)
+                                          bool fade_in,
+                                          bool on)
 {
     if(x1 <= x0 || y1 <= y0)
         return;
@@ -54,12 +55,80 @@ static void DrawPerformLoopCrossfadeCurve(OledPager& d,
         const int xx = x0 + i;
         const int yy = y1 - static_cast<int>(weight * static_cast<float>(y1 - y0));
         if(i == 0)
-            d.DrawPixel(xx, yy, true);
+            d.DrawPixel(xx, yy, on);
         else
-            d.DrawLine(prev_x, prev_y, xx, yy, true);
+            d.DrawLine(prev_x, prev_y, xx, yy, on);
         prev_x = xx;
         prev_y = yy;
     }
+}
+
+// Shared seam-length / crossfade-curve overlay, used by the ADSR focused preview
+// (read-only length view) and the dedicated seam-edit screen. `invert` flips the
+// ink for inverse-video boxes; `show_curve` selects the shape/curve view (rshift)
+// vs the length checker view.
+void PerformAdsr_DrawSeamOverlay(OledPager& d,
+                                 int preview_x0,
+                                 int preview_y0,
+                                 int preview_x1,
+                                 int preview_y1,
+                                 float amount,
+                                 float shape,
+                                 bool invert,
+                                 bool show_curve)
+{
+    if(preview_x1 < preview_x0 || preview_y1 < preview_y0)
+        return;
+
+    const bool fg = !invert; // bars/curve/length-checker ink; inverse-video -> dark
+    const int preview_pixels = preview_x1 - preview_x0 + 1;
+    int crossfade_px = static_cast<int>((static_cast<float>(preview_pixels - 1) * amount) + 0.5f);
+    if(crossfade_px < 0)
+        crossfade_px = 0;
+    const int max_crossfade_px = (preview_pixels - 1) / 2;
+    if(crossfade_px > max_crossfade_px)
+        crossfade_px = max_crossfade_px;
+
+    const int left_bar_x = preview_x0 + crossfade_px;
+    const int right_bar_x = preview_x1 - crossfade_px;
+    if(show_curve)
+    {
+        for(int yy = preview_y0; yy <= preview_y1; ++yy)
+        {
+            for(int xx = preview_x0; xx <= left_bar_x; ++xx)
+            {
+                if(((xx + yy) & 1) != 0)
+                    d.DrawPixel(xx, yy, !fg);
+            }
+            for(int xx = right_bar_x; xx <= preview_x1; ++xx)
+            {
+                if(((xx + yy) & 1) != 0)
+                    d.DrawPixel(xx, yy, !fg);
+            }
+        }
+        DrawPerformLoopCrossfadeCurve(d, preview_x0, preview_y0, left_bar_x, preview_y1, shape, false, fg);
+        DrawPerformLoopCrossfadeCurve(d, right_bar_x, preview_y0, preview_x1, preview_y1, shape, true, fg);
+        d.DrawRect(preview_x0, preview_y0, left_bar_x, preview_y1, fg, false);
+        d.DrawRect(right_bar_x, preview_y0, preview_x1, preview_y1, fg, false);
+    }
+    else
+    {
+        for(int yy = preview_y0; yy <= preview_y1; ++yy)
+        {
+            for(int xx = preview_x0; xx < left_bar_x; ++xx)
+            {
+                if(((xx + yy) & 1) == 0)
+                    d.DrawPixel(xx, yy, fg);
+            }
+            for(int xx = right_bar_x + 1; xx <= preview_x1; ++xx)
+            {
+                if(((xx + yy) & 1) == 0)
+                    d.DrawPixel(xx, yy, fg);
+            }
+        }
+    }
+    d.DrawLine(left_bar_x, preview_y0, left_bar_x, preview_y1, fg);
+    d.DrawLine(right_bar_x, preview_y0, right_bar_x, preview_y1, fg);
 }
 
 void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
@@ -95,9 +164,10 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
         DrawMicroString(d, header_label, box_x + 2, 2, false);
     }
 
-    constexpr int kWaveX = 0;
-    constexpr int kWaveY = 10;
-    constexpr int kWaveW = 128;
+    // Wav preview box, inset 3 px on every side from the full 0,10..128 region.
+    constexpr int kWaveX = 3;
+    constexpr int kWaveY = 13;
+    constexpr int kWaveW = 122;
 
     const char* kPlaybackTypeLabel = "playback type";
     const bool type_focused = engine.adsr.perform_adsr_type_focus;
@@ -164,7 +234,7 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
         }
     }
 
-    int kWaveBottomY = static_cast<int>(d.Height()) - 8;
+    int kWaveBottomY = static_cast<int>(d.Height()) - 11;
     if(kWaveBottomY < kWaveY)
         kWaveBottomY = kWaveY;
     const int kWaveH = kWaveBottomY - kWaveY + 1;
@@ -174,6 +244,13 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
     if(ctx.ui && ctx.ui->sd.sd_wav_load_busy)
     {
         d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, false);
+    }
+    else if(wave_focused)
+    {
+        // Inverse-video read-only seam view: fill the box lit and draw the
+        // waveform/border dark. The seam LENGTH is overlaid below (read-only).
+        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, true);
+        DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, false, false, false, true);
     }
     else
     {
@@ -196,67 +273,17 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
 
     if(wave_focused && sample_loaded && preview_x1 >= preview_x0 && preview_y1 >= preview_y0)
     {
-        const int preview_pixels = preview_x1 - preview_x0 + 1;
-        int crossfade_px = static_cast<int>(
-            (static_cast<float>(preview_pixels - 1) * engine.adsr.perform_adsr_loop_crossfade[layer]) + 0.5f);
-        if(crossfade_px < 0)
-            crossfade_px = 0;
-        const int max_crossfade_px = (preview_pixels - 1) / 2;
-        if(crossfade_px > max_crossfade_px)
-            crossfade_px = max_crossfade_px;
-
-        const int left_bar_x = preview_x0 + crossfade_px;
-        const int right_bar_x = preview_x1 - crossfade_px;
-        if(ctx.rshift)
-        {
-            for(int yy = preview_y0; yy <= preview_y1; ++yy)
-            {
-                for(int xx = preview_x0; xx <= left_bar_x; ++xx)
-                {
-                    if(((xx + yy) & 1) != 0)
-                        d.DrawPixel(xx, yy, false);
-                }
-                for(int xx = right_bar_x; xx <= preview_x1; ++xx)
-                {
-                    if(((xx + yy) & 1) != 0)
-                        d.DrawPixel(xx, yy, false);
-                }
-            }
-            DrawPerformLoopCrossfadeCurve(d,
-                                          preview_x0,
-                                          preview_y0,
-                                          left_bar_x,
-                                          preview_y1,
-                                          engine.adsr.perform_adsr_loop_crossfade_shape[layer],
-                                          false);
-            DrawPerformLoopCrossfadeCurve(d,
-                                          right_bar_x,
-                                          preview_y0,
-                                          preview_x1,
-                                          preview_y1,
-                                          engine.adsr.perform_adsr_loop_crossfade_shape[layer],
-                                          true);
-            d.DrawRect(preview_x0, preview_y0, left_bar_x, preview_y1, true, false);
-            d.DrawRect(right_bar_x, preview_y0, preview_x1, preview_y1, true, false);
-        }
-        else
-        {
-            for(int yy = preview_y0; yy <= preview_y1; ++yy)
-            {
-                for(int xx = preview_x0; xx < left_bar_x; ++xx)
-                {
-                    if(((xx + yy) & 1) == 0)
-                        d.DrawPixel(xx, yy, true);
-                }
-                for(int xx = right_bar_x + 1; xx <= preview_x1; ++xx)
-                {
-                    if(((xx + yy) & 1) == 0)
-                        d.DrawPixel(xx, yy, true);
-                }
-            }
-        }
-        d.DrawLine(left_bar_x, preview_y0, left_bar_x, preview_y1, true);
-        d.DrawLine(right_bar_x, preview_y0, right_bar_x, preview_y1, true);
+        // Read-only, inverse-video seam LENGTH view on the ADSR screen. Curve and
+        // editing now live on the dedicated seam-edit screen (REnc click to enter).
+        PerformAdsr_DrawSeamOverlay(d,
+                                    preview_x0,
+                                    preview_y0,
+                                    preview_x1,
+                                    preview_y1,
+                                    engine.adsr.perform_adsr_loop_crossfade[layer],
+                                    engine.adsr.perform_adsr_loop_crossfade_shape[layer],
+                                    /*invert=*/true,
+                                    /*show_curve=*/false);
     }
 
     if(adsr_mode)
@@ -319,7 +346,8 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
             continue;
         }
 
-        if(loop_stage_editing && !type_focused && stage_focus == static_cast<uint8_t>(i))
+        if(loop_stage_editing && !type_focused && !wave_focused
+           && stage_focus == static_cast<uint8_t>(i))
         {
             char value_buf[6] = {};
             const uint16_t value = PerformAdsrStageValue(engine, layer, static_cast<uint8_t>(i));

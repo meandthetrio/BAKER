@@ -562,6 +562,14 @@ class VoiceEngine
                                     const RenderVoiceContext& ctx,
                                     const RenderNormalVoicePerBlockSetup& setup,
                                     RenderNormalVoiceLoopState& st);
+    // Fast-envelope (non-gliding) voices: same optimized batch fetch as the
+    // slow path, but the envelope runs the per-sample StepEnvelope state machine
+    // (inlined) instead of a linear ramp. Avoids the per-sample cross-TU fetch/
+    // advance calls of RenderNormalVoice_ProcessOneSample_ that overran the CPU.
+    void RenderNormalVoice_BatchedFastEnv_(Voice& v,
+                                           const RenderVoiceContext& ctx,
+                                           const RenderNormalVoicePerBlockSetup& setup,
+                                           RenderNormalVoiceLoopState& st);
     bool RenderStealFadeOut_ProcessOneSample_(Voice& v,
                                               const RenderVoiceContext& ctx,
                                               const RenderStealFadeOutSetup& setup,

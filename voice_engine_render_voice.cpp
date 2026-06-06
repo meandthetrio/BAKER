@@ -666,6 +666,195 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
     st.stop_fade.remaining = sf_remaining;
 }
 
+void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
+                                                    const RenderVoiceContext& ctx,
+                                                    const RenderNormalVoicePerBlockSetup& setup,
+                                                    RenderNormalVoiceLoopState& st)
+{
+    constexpr size_t kMaxBatch = 48;
+    const size_t N = ctx.size;
+    if(N == 0)
+        return;
+    if(N > kMaxBatch)
+    {
+        for(size_t i = 0; i < N; ++i)
+            if(RenderNormalVoice_ProcessOneSample_(v, ctx, setup, i, st))
+                return;
+        return;
+    }
+
+    float buf[kMaxBatch];
+
+    VoiceBatchFetchParams p;
+    p.sample               = v.sample;
+    p.start                = setup.start;
+    p.end                  = setup.end;
+    p.ls_i                 = setup.ls_i;
+    p.le_i                 = setup.le_i;
+    p.length_f             = setup.length_f;
+    p.ls                   = setup.ls;
+    p.le                   = setup.le;
+    p.use_edit             = setup.use_edit;
+    p.region_loop_enabled  = setup.loop_enabled;
+    p.loop_enabled         = setup.loop_enabled;
+    p.voice_loop_mode      = setup.voice_loop_mode;
+    p.layer_loop_voice     = setup.loop_voice;
+    p.seam_frames          = setup.seam_frames;
+    p.loop_shape           = loop_crossfade_shape_[setup.source_layer];
+    p.sample_rate          = sample_rate_;
+    p.ratio                = setup.ratio * setup.pitch_ratio_scale;
+    p.gain                 = setup.gain;
+    p.fade_start_threshold = setup.loop_fade_start_threshold;
+    p.fade_end_threshold   = setup.loop_fade_end_threshold;
+
+    // Phase 1: identical optimized batch fetch as the slow path.
+    uint32_t fetch_start = 0u;
+    if(ctx.fetch_cycles)
+        fetch_start = DWT->CYCCNT;
+    const size_t eos_idx = VoiceRenderFetch_VoiceStreamBatch(p,
+                                                             st.pos_frame,
+                                                             st.pos_frac,
+                                                             st.dir,
+                                                             st.gate,
+                                                             N,
+                                                             buf,
+                                                             ctx.fetch_seam_cycles,
+                                                             ctx.fetch_seam_count);
+    if(ctx.fetch_cycles)
+        *ctx.fetch_cycles += DWT->CYCCNT - fetch_start;
+
+    // Phase 2: per-sample envelope state machine + fade + stop-fade + mix. Order
+    // of operations matches RenderNormalVoice_ProcessOneSample_ exactly:
+    //   1. mix with the current env_level
+    //   2. advance stop-fade (may finalize the voice)
+    //   3. end-of-stream handoff at eos_idx
+    //   4. advance fade-in
+    //   5. step the envelope (inlined); Off (with no stop-fade) finalizes Idle
+    float* layer_bus = (setup.source_layer == 0u) ? ctx.outL : ctx.outR;
+
+    EnvStage    env_stage = st.env_stage;
+    float       env       = st.env_level;
+    const float a_step    = setup.env_a_step;
+    const float d_step    = setup.env_d_step;
+    const float sustain   = setup.env_sustain;
+    const float r_step    = st.env_r_step;
+
+    float       fade           = st.fade;
+    const float fade_step      = setup.fade_step;
+    bool        fade_saturated = !(fade < 1.0f);
+
+    bool    sf_active    = st.stop_fade.active;
+    float   sf_level     = st.stop_fade.level;
+    float   sf_step      = st.stop_fade.step;
+    int32_t sf_remaining = st.stop_fade.remaining;
+
+    uint32_t envmix_start = 0u;
+    if(ctx.envmix_cycles)
+        envmix_start = DWT->CYCCNT;
+    for(size_t i = 0; i < N; ++i)
+    {
+        const float fin = fade_saturated ? 1.0f : fade;
+        float m = env * fin;
+        if(sf_active)
+            m *= sf_level;
+        layer_bus[i] += buf[i] * m;
+
+        if(sf_active)
+        {
+            sf_remaining--;
+            sf_level -= sf_step;
+            if(sf_level < 0.0f)
+                sf_level = 0.0f;
+            if(sf_remaining <= 0)
+            {
+                st.stop_fade.active    = false;
+                st.stop_fade.remaining = 0;
+                st.stop_fade.level     = 0.0f;
+                st.stop_fade.step      = sf_step;
+                FinishStopFade_(v);
+                if(ctx.envmix_cycles)
+                    *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
+                return;
+            }
+        }
+
+        if(i == eos_idx && !sf_active)
+        {
+            BeginStopFadeOnStreamEnd_(v, st.stop_fade);
+            sf_active    = st.stop_fade.active;
+            sf_level     = st.stop_fade.level;
+            sf_step      = st.stop_fade.step;
+            sf_remaining = st.stop_fade.remaining;
+        }
+
+        if(!fade_saturated)
+        {
+            fade += fade_step;
+            if(fade >= 1.0f)
+            {
+                fade           = 1.0f;
+                fade_saturated = true;
+            }
+        }
+
+        // Inlined StepEnvelope (mirrors voice_engine_playback.cpp).
+        switch(env_stage)
+        {
+            case EnvStage::Attack:
+                env += a_step;
+                if(env >= 1.0f)
+                {
+                    env       = 1.0f;
+                    env_stage = EnvStage::Decay;
+                }
+                break;
+            case EnvStage::Decay:
+                env -= d_step;
+                if(env <= sustain)
+                {
+                    env       = sustain;
+                    env_stage = EnvStage::Sustain;
+                }
+                break;
+            case EnvStage::Sustain:
+                env = sustain;
+                break;
+            case EnvStage::Release:
+                env -= r_step;
+                if(env <= 0.0f)
+                {
+                    env       = 0.0f;
+                    env_stage = EnvStage::Off;
+                }
+                break;
+            case EnvStage::Off:
+            default:
+                env = 0.0f;
+                break;
+        }
+        if(env_stage == EnvStage::Off && !sf_active)
+        {
+            // Envelope finished: voice goes Idle. Remaining samples are silent;
+            // pos was advanced by the batch fetch but is not committed (Idle).
+            v.state = VoiceState::Idle;
+            ClearPolyPortoVoice_(v);
+            if(ctx.envmix_cycles)
+                *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
+            return;
+        }
+    }
+    if(ctx.envmix_cycles)
+        *ctx.envmix_cycles += DWT->CYCCNT - envmix_start;
+
+    st.env_level           = env;
+    st.env_stage           = env_stage;
+    st.fade                = fade;
+    st.stop_fade.active    = sf_active;
+    st.stop_fade.level     = sf_level;
+    st.stop_fade.step      = sf_step;
+    st.stop_fade.remaining = sf_remaining;
+}
+
 void VoiceEngine::RenderNormalVoice_(Voice& v,
                                      const RenderVoiceContext& ctx,
                                      float pitch_scale,
@@ -856,11 +1045,18 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
         // occur mid-block on this path, so fetch is decoupled from the ramp.
         RenderNormalVoice_Batched_(v, ctx, setup, st);
     }
+    else if(!st.glide_active)
+    {
+        // Fast-envelope path: same optimized batch fetch as the slow path, with
+        // a per-sample StepEnvelope so mid-block stage transitions (incl. Off)
+        // are sample-accurate. This replaces the old per-sample fetch loop,
+        // whose cross-TU calls overran the CPU and caused buffer-underrun noise.
+        RenderNormalVoice_BatchedFastEnv_(v, ctx, setup, st);
+    }
     else
     {
-        // Fast-envelope path (any stage <= 5 ms equivalent) keeps the
-        // per-sample state machine so mid-block stage transitions, including
-        // hitting Off, are honoured sample-accurately.
+        // Gliding (poly-porto) voices: ratio changes per sample, which the
+        // fixed-ratio batch fetch cannot represent, so keep the per-sample path.
         for(size_t i = 0; i < ctx.size; i++)
         {
             if(RenderNormalVoice_ProcessOneSample_(v, ctx, setup, i, st))

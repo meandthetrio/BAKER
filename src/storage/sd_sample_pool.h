@@ -10,13 +10,15 @@ static constexpr uint32_t kSdSampleMaxFrames = 240000; // 5 seconds @ 48kHz
 // record/manage/baked buffers stay in SDRAM at kSdSampleMaxFrames.
 static constexpr uint32_t kSdPlaybackD2MaxFrames = 131072;
 
+// Buffer the engine reads (the *baked* playback buffer). For slot 0 that's a
+// RAM_D2 buffer; for slot 1 it's the SDRAM "baked" buffer.
 int16_t* SdSampleBuffer(uint8_t slot);
-// Where the SD loader should DMA chunks for a given slot. Slot 0 plays from
-// RAM_D2, which SDMMC's DMA cannot reach, so it stages in an SDRAM buffer; call
-// SdSampleLoadCommit() once the load completes to copy stage -> RAM_D2. Other
-// slots load straight into their (SDRAM) playback buffer.
+// Where the SD loader should DMA chunks for a given slot. Both slots stage in
+// SDRAM (DMA-reachable), then BakeLoopSeamToBuffer renders raw -> playback.
 int16_t* SdSampleLoadBuffer(uint8_t slot);
-void     SdSampleLoadCommit(uint8_t slot, uint32_t frames);
+// Persistent raw reference, kept past load so the seam edit screen can re-bake
+// with new params. Same buffer as SdSampleLoadBuffer for each slot.
+int16_t* SdSampleRawBuffer(uint8_t slot);
 int16_t* SdRecordBuffer();
 int16_t* SdManageBuffer();
 // Per-layer scratch holding the seam-baked copy of a loaded sample. The raw load

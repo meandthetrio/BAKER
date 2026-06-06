@@ -145,7 +145,15 @@ struct VoiceBatchFetchParams
     bool          loop_enabled;
     LoopMode      voice_loop_mode;
     bool          layer_loop_voice;
+    // Wrap offset: when seam_frames > 0, forward-loop wrap goes to start+seam_frames
+    // (skipping the head region that's baked into the seam). Set for any looped
+    // voice with a non-zero seam.
     uint32_t      seam_frames;
+    // Live crossfade width: how many frames at end take the two-tap blend. 0 means
+    // the sample is baked (seam data already contains the pre-blend), so playback
+    // does a plain single-tap read. seam_frames stays non-zero so the wrap still
+    // skips the baked head region.
+    uint32_t      crossfade_seam_frames;
     float         loop_shape;
     float         sample_rate;
     float         ratio;

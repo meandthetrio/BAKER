@@ -45,8 +45,6 @@ void PerformSeamEdit_OnScreenEnter(UiScreenCtx& ctx)
 
     (void)shared;
     // Snapshot the seam params on entry so Pod-encoder click can discard live edits.
-    // The loop seam is rendered live by the runtime crossfade on the raw sample, so
-    // there is nothing to swap here — edits to the params audition in real time.
     ui.ui_seam_entry_amount = engine.adsr.perform_adsr_loop_crossfade[layer];
     ui.ui_seam_entry_shape = engine.adsr.perform_adsr_loop_crossfade_shape[layer];
 
@@ -54,6 +52,14 @@ void PerformSeamEdit_OnScreenEnter(UiScreenCtx& ctx)
     ui.ui_seam_audition_active = true;
     ui.ui_seam_audition_layer = layer;
     ui.ui_seam_silence_pending = true;
+
+    // Request a swap of the playback buffer back to raw so the live runtime
+    // crossfade auditions the seam in real time. The actual memcpy happens in
+    // ui_logic after a 2-tick delay so AllNotesOff propagates first.
+    ui.ui_seam_bake_pending      = 1u; // ToLive
+    ui.ui_seam_bake_layer        = layer;
+    ui.ui_seam_bake_delay_ticks  = 2u;
+
     ui.ui_dirty = true;
 }
 
@@ -76,10 +82,15 @@ bool PerformSeamEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(ctx.rshift)
             return true;
 
-        // The seam crossfade is rendered live from the params, which the encoder edits
-        // already published, so commit just restores polyphony and exits.
+        // Commit: keep the user's edited params and re-bake them into the
+        // playback buffer so the runtime returns to the cheap single-tap read.
         ui.ui_seam_audition_active = false;
         ui.ui_seam_silence_pending = true;
+        ui.ui_seam_bake_pending      = 2u; // ToBaked
+        ui.ui_seam_bake_layer        = layer;
+        ui.ui_seam_bake_amount       = engine.adsr.perform_adsr_loop_crossfade[layer];
+        ui.ui_seam_bake_shape        = engine.adsr.perform_adsr_loop_crossfade_shape[layer];
+        ui.ui_seam_bake_delay_ticks  = 2u;
         UiNav_Pop(ui.ui_nav);
         ui.ui_dirty = true;
         return true;
@@ -93,6 +104,13 @@ bool PerformSeamEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         PublishEngineLayerParams(ctx);
         ui.ui_seam_audition_active = false;
         ui.ui_seam_silence_pending = true;
+        // Discard: re-bake with the entry params so the on-exit playback matches
+        // the on-entry state exactly.
+        ui.ui_seam_bake_pending      = 2u; // ToBaked
+        ui.ui_seam_bake_layer        = layer;
+        ui.ui_seam_bake_amount       = ui.ui_seam_entry_amount;
+        ui.ui_seam_bake_shape        = ui.ui_seam_entry_shape;
+        ui.ui_seam_bake_delay_ticks  = 2u;
         UiNav_Pop(ui.ui_nav);
         ui.ui_dirty = true;
         return true;

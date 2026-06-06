@@ -91,48 +91,9 @@ void SetEnvelopeRelease(EnvStage& stage,
         r_step = 1e-6f;
 }
 
-void StepEnvelope(EnvStage& stage,
-                  float&    level,
-                  float     a_step,
-                  float     d_step,
-                  float     sustain,
-                  float     r_step)
-{
-    switch(stage)
-    {
-        case EnvStage::Attack:
-            level += a_step;
-            if(level >= 1.0f)
-            {
-                level = 1.0f;
-                stage = EnvStage::Decay;
-            }
-            break;
-        case EnvStage::Decay:
-            level -= d_step;
-            if(level <= sustain)
-            {
-                level = sustain;
-                stage = EnvStage::Sustain;
-            }
-            break;
-        case EnvStage::Sustain:
-            level = sustain;
-            break;
-        case EnvStage::Release:
-            level -= r_step;
-            if(level <= 0.0f)
-            {
-                level = 0.0f;
-                stage = EnvStage::Off;
-            }
-            break;
-        case EnvStage::Off:
-        default:
-            level = 0.0f;
-            break;
-    }
-}
+// StepEnvelope is now defined inline in voice_engine_internal.h to remove the
+// cross-TU call overhead from the pre-simulation loop and the per-sample
+// fast-envelope path. Body intentionally moved, not duplicated.
 
 float ComputeLoopBoundaryFade(float pos, uint32_t start, uint32_t end, float sample_rate)
 {

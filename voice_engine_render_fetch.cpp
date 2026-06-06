@@ -205,6 +205,11 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
         const uint32_t start = p.start;
         const uint32_t end = p.end;
         const uint32_t seam = p.seam_frames;                       // forward wrap offset
+        // Live crossfade width: 0 when the sample is baked (seam region already
+        // contains the pre-blend), so the per-sample seam branch never fires and
+        // playback reads a single tap. seam (the wrap offset) stays non-zero so
+        // the wrap still skips the baked head region.
+        const uint32_t crossfade_seam = p.crossfade_seam_frames;
         const float eff_span = static_cast<float>(end - start - seam); // loop_span - seam_offset
         const float ratio = p.ratio;
         // Hoisted invariants for the inlined steady-state read below. The
@@ -229,7 +234,7 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
         for(size_t i = 0; i < count; ++i)
         {
             float sv;
-            if(seam > 0u && pf >= seam_start)
+            if(crossfade_seam > 0u && pf >= seam_start)
             {
                 uint32_t seam_t0 = 0u;
                 if(seam_cycles)
@@ -340,7 +345,7 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
                                                p.layer_loop_voice,
                                                p.start,
                                                p.end,
-                                               p.seam_frames,
+                                               p.crossfade_seam_frames,
                                                p.loop_shape,
                                                p.sample_rate,
                                                used_seam_xfade,

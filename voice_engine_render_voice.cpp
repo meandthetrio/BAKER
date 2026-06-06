@@ -191,7 +191,7 @@ bool VoiceEngine::RenderStealFadeOut_ProcessOneSample_(Voice& v,
                                            setup.loop_voice,
                                            setup.start,
                                            setup.end,
-                                           setup.old_seam_frames,
+                                           setup.old_crossfade_seam_frames,
                                            loop_crossfade_shape_[setup.old_layer],
                                            sample_rate_,
                                            old_used_seam_xfade,
@@ -311,6 +311,8 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
                                                             setup.end,
                                                             loop_crossfade_amount_[setup.old_layer])
                            : 0u;
+    setup.old_crossfade_seam_frames
+        = layer_seam_baked_[setup.old_layer] ? 0u : setup.old_seam_frames;
     setup.old_loop_mode = setup.loop_voice ? LoopMode::Forward : ctx.loop_mode;
     setup.steal_fade_step = v.steal_fade_step;
     {
@@ -391,7 +393,7 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
                                            setup.loop_voice,
                                            setup.start,
                                            setup.end,
-                                           setup.seam_frames,
+                                           setup.crossfade_seam_frames,
                                            loop_crossfade_shape_[setup.source_layer],
                                            sample_rate_,
                                            used_seam_xfade,
@@ -552,6 +554,7 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
     p.voice_loop_mode      = setup.voice_loop_mode;
     p.layer_loop_voice     = setup.loop_voice;
     p.seam_frames          = setup.seam_frames;
+    p.crossfade_seam_frames = setup.crossfade_seam_frames;
     p.loop_shape           = loop_crossfade_shape_[setup.source_layer];
     p.sample_rate          = sample_rate_;
     p.ratio                = setup.ratio * setup.pitch_ratio_scale;
@@ -700,6 +703,7 @@ void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
     p.voice_loop_mode      = setup.voice_loop_mode;
     p.layer_loop_voice     = setup.loop_voice;
     p.seam_frames          = setup.seam_frames;
+    p.crossfade_seam_frames = setup.crossfade_seam_frames;
     p.loop_shape           = loop_crossfade_shape_[setup.source_layer];
     p.sample_rate          = sample_rate_;
     p.ratio                = setup.ratio * setup.pitch_ratio_scale;
@@ -909,6 +913,11 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     setup.loop_enabled = loop_enabled;
     setup.loop_voice = loop_voice;
     setup.seam_frames = seam_frames;
+    // Baked: seam region in PCM already contains the pre-blended crossfade, so
+    // playback reads a single tap (no live blend). seam_frames stays non-zero so
+    // the forward-loop wrap skips the baked head region (start..start+seam).
+    setup.crossfade_seam_frames
+        = layer_seam_baked_[source_layer] ? 0u : seam_frames;
     setup.voice_loop_mode = voice_loop_mode;
     setup.source_layer = source_layer;
     setup.gain = gain;

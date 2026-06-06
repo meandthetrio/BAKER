@@ -431,7 +431,8 @@ class VoiceEngine
         uint32_t le_i;
         bool     loop_enabled;
         bool     loop_voice;
-        uint32_t seam_frames;
+        uint32_t seam_frames;          // wrap offset
+        uint32_t crossfade_seam_frames; // 0 when sample is seam-baked
         LoopMode voice_loop_mode;
         uint8_t  source_layer;
         float    gain;
@@ -472,7 +473,8 @@ class VoiceEngine
         float    le;
         float    old_ratio;
         float    old_gain;
-        uint32_t old_seam_frames;
+        uint32_t old_seam_frames;           // wrap offset
+        uint32_t old_crossfade_seam_frames; // 0 when sample is seam-baked
         LoopMode old_loop_mode;
         float    loop_fade_frames;
         float    loop_fade_start_threshold;

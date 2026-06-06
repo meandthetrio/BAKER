@@ -11,6 +11,7 @@
 #include "ui_overlay.h"
 #include "ui_worker.h"
 #include "sd_sample_pool.h"
+#include "sample_bake.h"
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -1024,6 +1025,51 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     {
         PushAllNotesOff(evtq, diag, ui);
         ui.ui_seam_silence_pending = false;
+    }
+
+    // Seam-edit playback-buffer swap. Waits a couple of ticks after AllNotesOff
+    // so active voices fade out before we write to the shared playback buffer
+    // (no audio-thread race once voices are silent).
+    //   pending == 1 (ToLive):  memcpy raw -> playback, baked = 0 (live xfade)
+    //   pending == 2 (ToBaked): re-bake raw -> playback, baked = 1 (single tap)
+    if(ui.ui_seam_bake_pending != 0u)
+    {
+        if(ui.ui_seam_bake_delay_ticks > 0u)
+        {
+            --ui.ui_seam_bake_delay_ticks;
+        }
+        else
+        {
+            const uint8_t slot = ui.ui_seam_bake_layer & 1u;
+            const Sample& samp = shared.sample.publish.sd_slots[slot];
+            const uint32_t length = samp.length;
+            if(length > 0u)
+            {
+                int16_t* raw      = SdSampleRawBuffer(slot);
+                int16_t* playback = SdSampleBuffer(slot);
+                if(ui.ui_seam_bake_pending == 1u)
+                {
+                    std::memcpy(playback, raw, static_cast<size_t>(length) * sizeof(int16_t));
+                    shared.sample.publish.sd_layer_seam_baked[slot].store(
+                        0u, std::memory_order_release);
+                }
+                else
+                {
+                    const SampleEdit& edit = shared.sample.edit.sd_edit_slots[slot];
+                    const bool baked = BakeLoopSeamToBuffer(raw,
+                                                            length,
+                                                            edit.start_frame,
+                                                            edit.end_frame,
+                                                            ui.ui_seam_bake_amount,
+                                                            ui.ui_seam_bake_shape,
+                                                            48000.0f,
+                                                            playback);
+                    shared.sample.publish.sd_layer_seam_baked[slot].store(
+                        baked ? 1u : 0u, std::memory_order_release);
+                }
+            }
+            ui.ui_seam_bake_pending = 0u;
+        }
     }
 
     // Safety net: monophonic seam audition must never outlive the seam-edit screen.

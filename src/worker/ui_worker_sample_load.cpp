@@ -246,10 +246,6 @@ bool LoadStepInternal(SdBrowserState& sd,
         }
         else
         {
-            // Slot 0 staged in SDRAM; copy it into the RAM_D2 playback buffer
-            // before publishing the pcm pointer the audio thread will read.
-            SdSampleLoadCommit(s_sd.loading_slot, s_sd.sample_frames);
-
             Sample& samp = shared.sample.publish.sd_slots[s_sd.loading_slot];
             samp.pcm = SdSampleBuffer(s_sd.loading_slot);
             samp.length = s_sd.sample_frames;
@@ -275,14 +271,32 @@ bool LoadStepInternal(SdBrowserState& sd,
                 engine.adsr.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
             }
 
-            // Loop seam handling is done by the runtime live crossfade (see
-            // voice_engine_render_voice.cpp). The sample plays from the raw SD buffer
-            // (samp.pcm set above) and the seam length/curve come from the params; no
-            // PCM bake at load. The default seam length was set above.
+            // Bake the loop seam crossfade into the playback PCM so the runtime
+            // reads a single tap per sample (no per-sample two-tap blend). The
+            // wrap-to-(start+seam) at runtime skips the now-baked head region;
+            // sample plays bit-identical to the live crossfade.
             const uint8_t bake_layer = s_sd.loading_slot & 1u;
-            engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = false;
+            const float bake_amount
+                = engine.adsr.perform_adsr_loop_crossfade[bake_layer];
+            const float bake_shape
+                = engine.adsr.perform_adsr_loop_crossfade_shape[bake_layer];
+            const bool baked = BakeLoopSeamToBuffer(
+                SdSampleRawBuffer(s_sd.loading_slot),
+                s_sd.sample_frames,
+                edit.start_frame,
+                edit.end_frame,
+                bake_amount,
+                bake_shape,
+                48000.0f,
+                SdSampleBuffer(s_sd.loading_slot));
+            // If the bake was a no-op (seam == 0 or invalid loop region), the
+            // dst still contains the raw memcpy from BakeLoopSeamToBuffer, so
+            // playback is correct either way. Engine consults this flag to skip
+            // the live seam blend; runtime wrap (to start+seam) is always on
+            // when the engine computes a non-zero seam from the params.
+            engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = baked;
             shared.sample.publish.sd_layer_seam_baked[s_sd.loading_slot].store(
-                0u, std::memory_order_release);
+                baked ? 1u : 0u, std::memory_order_release);
 
             shared.sample.edit.sd_edit_pending = edit;
             shared.sample.edit.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);

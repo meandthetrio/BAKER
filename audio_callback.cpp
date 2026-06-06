@@ -611,6 +611,15 @@ void AudioCallback(AudioHandle::InputBuffer  in,
             g_voice.SetLoopCrossfadeAmount(layer, voice_params.engine_loop_crossfade_amount[layer]);
             g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
         }
+        // Seam-baked flag is set on sample load, which is NOT a UI param edit and
+        // therefore does NOT trigger static_push. Push it every block (one atomic
+        // load + one bool assign, trivially cheap) so the engine sees the new
+        // flag immediately after a sample loads.
+        {
+            const uint8_t baked = g_app.shared.sample.publish.sd_layer_seam_baked[layer]
+                                      .load(std::memory_order_acquire);
+            g_voice.SetLayerSeamBaked(layer, baked != 0u);
+        }
     }
     const uint32_t pre_push_cycles = DWT->CYCCNT - pre_push_start;
 

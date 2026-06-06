@@ -17,7 +17,10 @@ ADSR2_SECTION(".sdram_bss") static int16_t g_sd_d2_stage[kSdPlaybackD2MaxFrames]
 
 int16_t* SdSampleBuffer(uint8_t slot)
 {
-    return (slot == 0u) ? g_sd_sample_buf0 : g_sd_sample_buf1;
+    // Slot 0: baked playback lives in RAM_D2 (g_sd_sample_buf0).
+    // Slot 1: baked playback lives in SDRAM g_sd_baked_buf[1] (was unused; revived
+    // for the bake-at-load path so slot 1 also benefits from the seam-CPU win).
+    return (slot == 0u) ? g_sd_sample_buf0 : g_sd_baked_buf[1];
 }
 
 int16_t* SdSampleLoadBuffer(uint8_t slot)
@@ -25,15 +28,9 @@ int16_t* SdSampleLoadBuffer(uint8_t slot)
     return (slot == 0u) ? g_sd_d2_stage : g_sd_sample_buf1;
 }
 
-void SdSampleLoadCommit(uint8_t slot, uint32_t frames)
+int16_t* SdSampleRawBuffer(uint8_t slot)
 {
-    if(slot != 0u)
-        return; // slot 1 loaded straight into its playback buffer
-    if(frames > kSdPlaybackD2MaxFrames)
-        frames = kSdPlaybackD2MaxFrames;
-    // CPU copy SDRAM stage -> RAM_D2 playback buffer. Same-core read-after-write,
-    // so no cache maintenance is needed (no DMA touches the RAM_D2 buffer).
-    std::memcpy(g_sd_sample_buf0, g_sd_d2_stage, static_cast<size_t>(frames) * sizeof(int16_t));
+    return SdSampleLoadBuffer(slot);
 }
 
 int16_t* SdRecordBuffer()

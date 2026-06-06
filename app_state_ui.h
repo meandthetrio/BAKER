@@ -78,6 +78,16 @@ struct AppUiState
     float ui_seam_entry_amount = 0.0625f;
     float ui_seam_entry_shape = 0.0f;
     bool ui_seam_entry_baked = false;
+    // Pending swap of the playback buffer for the seam-edit screen.
+    //   0 = none, 1 = swap to raw (enter edit, live crossfade), 2 = re-bake (exit).
+    // The swap waits for ui_seam_bake_delay_ticks UI ticks after silence_pending
+    // is set, so AllNotesOff propagates and active voices fade before we write
+    // to the playback buffer.
+    uint8_t ui_seam_bake_pending = 0;
+    uint8_t ui_seam_bake_layer = 0;
+    uint8_t ui_seam_bake_delay_ticks = 0;
+    float   ui_seam_bake_amount = 0.0625f;
+    float   ui_seam_bake_shape = 0.0f;
     bool ui_parent_preview_active = false;
     uint8_t ui_parent_preview_from_top = 0;
     uint8_t ui_parent_preview_mode = 0;

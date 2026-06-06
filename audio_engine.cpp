@@ -19,6 +19,32 @@ void AudioEngine::DelayClear_()
     std::memset(g_delay_buf_L, 0, sizeof(g_delay_buf_L));
     std::memset(g_delay_buf_R, 0, sizeof(g_delay_buf_R));
     delay_wr_ = 0;
+    delay_clear_pending_ = false;
+    delay_clear_cursor_  = 0;
+    delay_activate_pending_ = false;
+    delay_feed_gain_     = 0.0f;
+    delay_wet_mix_       = 0.0f;
+    delay_len_l_smoothed_ = 0.0f;
+    delay_len_r_smoothed_ = 0.0f;
+}
+
+// Step one chunk of the amortized delay-buffer clear. Called every ProcessBlock
+// while `delay_clear_pending_` is true. The chunk size is bounded so the
+// SDRAM memset fits comfortably inside the audio block budget.
+void AudioEngine::DelayClearStep_()
+{
+    if(!delay_clear_pending_)
+        return;
+    size_t remaining = kDelayMaxSamples - delay_clear_cursor_;
+    size_t chunk     = remaining < kDelayClearChunk ? remaining : kDelayClearChunk;
+    std::memset(g_delay_buf_L + delay_clear_cursor_, 0, chunk * sizeof(float));
+    std::memset(g_delay_buf_R + delay_clear_cursor_, 0, chunk * sizeof(float));
+    delay_clear_cursor_ += chunk;
+    if(delay_clear_cursor_ >= kDelayMaxSamples)
+    {
+        delay_clear_pending_ = false;
+        delay_clear_cursor_  = 0;
+    }
 }
 
 void AudioEngine::ReverbClear_()
@@ -94,37 +120,74 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
                                      size_t len_l, size_t len_r, float fb,
                                      float& wet_peak)
 {
-    const bool  feed = p.delay_on;
-    const float mix  = p.delay_on ? p.delay_mix : delay_tail_mix_;
-    const bool  mix_mode = (p.delay_fader_mode == kDelayFaderModeMix);
-    float       peak = wet_peak;
+    const float target_feed = p.delay_on ? 1.0f : 0.0f;
+    // Both branches below feed the same internal one-pole. The tail branch
+    // (latched delay_tail_mix_) used to take effect instantly on the active->
+    // tail flip and revert instantly on the tail->active flip, producing a
+    // step of dL * (latched - current) that played back as a click. The
+    // internal smoother makes the rejoin continuous.
+    const float target_mix  = p.delay_on ? p.delay_mix : delay_tail_mix_;
+    const float target_len_l_f = static_cast<float>(len_l);
+    const float target_len_r_f = static_cast<float>(len_r);
+    const bool  mix_mode    = (p.delay_fader_mode == kDelayFaderModeMix);
+    float       peak        = wet_peak;
 
-    // Hoist the write index into a local for the duration of the block so the
-    // compiler can keep it in a register; write it back to the member once.
-    // Modulo arithmetic preserved exactly.
-    size_t wr = delay_wr_;
+    // Hoist write index and smoother state into locals for the duration of
+    // the block so the compiler keeps them in registers; write back once.
+    size_t wr     = delay_wr_;
+    float  fg     = delay_feed_gain_;
+    float  mix    = delay_wet_mix_;
+    float  len_lf = delay_len_l_smoothed_;
+    float  len_rf = delay_len_r_smoothed_;
     for(size_t i = 0; i < n; ++i)
     {
+        // Slow one-pole ramps (~50 ms). Removes every fader-driven
+        // discontinuity: the input gate at activate/deactivate, the
+        // latched->current mix step at the tail boundary, encoder steps on
+        // LTM/RTM, and any rapid user fader motion.
+        fg     += (target_feed    - fg)     * kDelayFxSmoothCoeff;
+        mix    += (target_mix     - mix)    * kDelayFxSmoothCoeff;
+        len_lf += (target_len_l_f - len_lf) * kDelayFxSmoothCoeff;
+        len_rf += (target_len_r_f - len_rf) * kDelayFxSmoothCoeff;
         const float l   = L[i];
         const float r   = R[i];
-        const float inL = feed ? l : 0.0f;
-        const float inR = feed ? r : 0.0f;
+        const float inL = fg * l;
+        const float inR = fg * r;
 
-        const size_t rdL = (wr + kDelayMaxSamples - len_l) % kDelayMaxSamples;
-        const size_t rdR = (wr + kDelayMaxSamples - len_r) % kDelayMaxSamples;
-        const float  dL  = g_delay_buf_L[rdL];
-        const float  dR  = g_delay_buf_R[rdR];
+        // Fractional read taps with linear interpolation. The integer part of
+        // len picks the nearer cell, the fractional part blends in the next-
+        // older cell so the read position glides between integers.
+        const size_t len_li = static_cast<size_t>(len_lf);
+        const size_t len_ri = static_cast<size_t>(len_rf);
+        const float  fracl  = len_lf - static_cast<float>(len_li);
+        const float  fracr  = len_rf - static_cast<float>(len_ri);
+        const size_t rdL0 = (wr + kDelayMaxSamples - len_li)         % kDelayMaxSamples;
+        const size_t rdL1 = (rdL0 + kDelayMaxSamples - 1)            % kDelayMaxSamples;
+        const size_t rdR0 = (wr + kDelayMaxSamples - len_ri)         % kDelayMaxSamples;
+        const size_t rdR1 = (rdR0 + kDelayMaxSamples - 1)            % kDelayMaxSamples;
+        const float dL = g_delay_buf_L[rdL0] * (1.0f - fracl)
+                         + g_delay_buf_L[rdL1] * fracl;
+        const float dR = g_delay_buf_R[rdR0] * (1.0f - fracr)
+                         + g_delay_buf_R[rdR1] * fracr;
 
         g_delay_buf_L[wr] = inL + dL * fb;
         g_delay_buf_R[wr] = inR + dR * fb;
         wr                = (wr + 1) % kDelayMaxSamples;
 
-        float dl_out = l + dL * mix;
-        float dr_out = r + dR * mix;
-        if(feed && mix_mode)
+        // Dry/wet math must not depend on `feed`: the old code switched between
+        // additive (feed=false) and crossfade (feed=true) inside mix-mode,
+        // producing a dry step of l*mix at the gate flip. Now mix-mode is
+        // consistent across the tail boundary.
+        float dl_out, dr_out;
+        if(mix_mode)
         {
             dl_out = l * (1.0f - mix) + dL * mix;
             dr_out = r * (1.0f - mix) + dR * mix;
+        }
+        else
+        {
+            dl_out = l + dL * mix;
+            dr_out = r + dR * mix;
         }
 
         const float abs_dl = std::fabs(dl_out - l);
@@ -135,8 +198,12 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
         L[i] = dl_out;
         R[i] = dr_out;
     }
-    delay_wr_ = wr;
-    wet_peak  = peak;
+    delay_wr_             = wr;
+    delay_feed_gain_      = fg;
+    delay_wet_mix_        = mix;
+    delay_len_l_smoothed_ = len_lf;
+    delay_len_r_smoothed_ = len_rf;
+    wet_peak              = peak;
 }
 
 void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
@@ -198,8 +265,19 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
             const float wetL = tmpL[i];
             const float wetR = tmpR[i];
 
-            const float rl = l + wetL * mix;
-            const float rr = r + wetR * mix;
+            // Match feed-on dry/wet math so mix-mode does not step across the
+            // active->tail boundary.
+            float rl, rr;
+            if(mix_mode)
+            {
+                rl = l * (1.0f - mix) + wetL * mix;
+                rr = r * (1.0f - mix) + wetR * mix;
+            }
+            else
+            {
+                rl = l + wetL * mix;
+                rr = r + wetR * mix;
+            }
 
             const float abs_rl = std::fabs(rl - l);
             const float abs_rr = std::fabs(rr - r);
@@ -310,32 +388,50 @@ void AudioEngine::ProcessBlock(const float* inL,
     const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
 
     // ---- Delay ON/OFF -> active/tail ----
+    // Buffer-cleanliness invariant: between deactivation and next activation,
+    // the buffer must be fully zeroed. Otherwise dL reads through a sharp
+    // discontinuity between leftover live audio and feedback-decay residue,
+    // and that step gets written back via dL*fb into the ring — it then
+    // echoes indefinitely. The cursor only runs in the fully-off state (NOT
+    // during tail; the tail still needs the buffer to decay naturally). If
+    // the user re-activates while the cursor is in flight, activation is
+    // parked and ProcessDelayBlock_ stays skipped — user hears dry only for
+    // up to ~12 ms until the cursor finishes.
     if(p.delay_on)
     {
-        if(!delay_active_ && !delay_tailing_)
-            DelayClear_();
-
-        delay_active_  = true;
-        delay_tailing_ = false;
-        delay_quiet_blocks_ = 0;
+        if(delay_clear_pending_)
+        {
+            delay_activate_pending_ = true; // wait for cursor
+        }
+        else
+        {
+            delay_activate_pending_ = false;
+            delay_active_  = true;
+            delay_tailing_ = false;
+            delay_quiet_blocks_ = 0;
+        }
     }
     else
     {
+        delay_activate_pending_ = false;
         if(delay_active_ && !delay_tailing_)
         {
             delay_tailing_ = true;
             delay_tail_blocks_left_ = kDelayTailMaxBlocks;
             delay_quiet_blocks_     = 0;
             delay_tail_mix_         = p.delay_mix;
+            // Cursor is NOT started here — tail needs the buffer alive.
         }
     }
 
     // ---- Reverb ON/OFF -> active/tail ----
+    // No in-callback ReverbClear_() — it called dattorro_.Init() which clears
+    // every internal allpass/delay buffer synchronously and was the source of
+    // the reverb toggle click. The tank decays naturally to below kTailSilence-
+    // Thresh (1e-4 / -80 dBFS) during the quiet-block window, so re-activation
+    // picks up from inaudible state. Boot Init() still does the full clear.
     if(p.reverb_on)
     {
-        if(!reverb_active_ && !reverb_tailing_)
-            ReverbClear_();
-
         reverb_active_  = true;
         reverb_tailing_ = false;
         reverb_quiet_blocks_ = 0;
@@ -349,6 +445,21 @@ void AudioEngine::ProcessBlock(const float* inL,
             reverb_quiet_blocks_     = 0;
             reverb_tail_mix_         = p.reverb_mix;
         }
+    }
+
+    // Step the amortized delay clear (no-op when not pending).
+    DelayClearStep_();
+
+    // If the user requested activation while the cursor was in flight and the
+    // cursor just finished, activate now. The next FX-chain dispatch in this
+    // same block will see delay_active_ true and start ProcessDelayBlock_
+    // against a fully clean buffer.
+    if(delay_activate_pending_ && !delay_clear_pending_)
+    {
+        delay_activate_pending_ = false;
+        delay_active_           = true;
+        delay_tailing_          = false;
+        delay_quiet_blocks_     = 0;
     }
 
     // ---- SAT (hard bypass) ----
@@ -498,7 +609,13 @@ void AudioEngine::ProcessBlock(const float* inL,
             {
                 delay_tailing_ = false;
                 delay_active_  = false;
-                DelayClear_();
+                // Tail just ended: buffer has the previously-live audio
+                // (cells wr hasn't wrapped over) plus tail-decay residue in
+                // wr's range. Kick off the amortized cursor here so the
+                // sharp boundary between those regions is zeroed out before
+                // the next activation can read through it.
+                delay_clear_pending_ = true;
+                delay_clear_cursor_  = 0;
             }
         }
         else if(!p.delay_on)
@@ -518,7 +635,8 @@ void AudioEngine::ProcessBlock(const float* inL,
             {
                 reverb_tailing_ = false;
                 reverb_active_  = false;
-                ReverbClear_();
+                // No synchronous ReverbClear_(): tank has decayed below
+                // kTailSilenceThresh and any residual is inaudible.
             }
         }
         else if(!p.reverb_on)

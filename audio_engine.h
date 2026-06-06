@@ -48,7 +48,50 @@ class AudioEngine
     uint16_t delay_quiet_blocks_     = 0;
     float    delay_tail_mix_         = 0.0f;
 
+    // Amortized buffer clear. A full memset of the SDRAM delay lines (~384 KB)
+    // inside one audio block overruns the codec and produces a click on toggle.
+    // Instead we kick off `delay_clear_pending_` at tail-begin and step through
+    // the ring in small chunks each ProcessBlock until done. The active tail
+    // writes are zero-fed during this window, so zeroed cells stay zero.
+    bool   delay_clear_pending_ = false;
+    size_t delay_clear_cursor_  = 0;
+    static constexpr size_t kDelayClearChunk = 4096; // ~12 blocks to clear full buf
+
+    // When the user re-engages delay while the cursor is still clearing the
+    // buffer, activation is deferred until the clear finishes. Reading dL
+    // mid-clear would catch the discontinuity between old live audio and
+    // tail-decay residue, write that step back into the ring via dL*fb, and
+    // echo it indefinitely — exactly the "click caught in the delay" symptom.
+    bool   delay_activate_pending_ = false;
+
+    // Smoothed input-feed gain: the write into the ring used to be gated by a
+    // hard `feed ? l : 0` step at the delay_on flip; one delay-time later that
+    // step played back as a click at the leading edge of the first echo.
+    float delay_feed_gain_ = 0.0f;
+
+    // Smoothed wet mix used by the DSP. The function-level value steps at the
+    // tail->active boundary (latched delay_tail_mix_ during tail, then jumps to
+    // p.delay_mix on re-activation). Smoothing it inside the audio engine makes
+    // the rejoin continuous regardless of how fast the user wiggles the fader.
+    float delay_wet_mix_ = 0.0f;
+
+    // Smoothed left/right read lengths, in samples (float so the read tap can
+    // move continuously). Without this, an encoder detent on LTM/RTM steps the
+    // integer read offset by tens-to-hundreds of samples in one block; the
+    // read pointer jumps to a different cell whose value can be wildly
+    // different from its neighbor, producing a click that gets captured into
+    // the delay via dL*fb. Per-sample one-pole + linear interpolation between
+    // the two adjacent cells makes the tap glide smoothly.
+    float delay_len_l_smoothed_ = 0.0f;
+    float delay_len_r_smoothed_ = 0.0f;
+
+    // Per-sample one-pole coefficient: 1 / (sample_rate * time_const_sec).
+    // 50 ms @ 48 kHz = 1 / 2400. Slow is intentional and cheap — the audible
+    // benefit is that no fader-driven discontinuity can produce a click.
+    static constexpr float kDelayFxSmoothCoeff = 1.0f / 2400.0f;
+
     void DelayClear_();
+    void DelayClearStep_();
     // DelayProcess_ was inlined into ProcessDelayBlock_ (P2-Delay). The
     // per-sample helper is no longer needed; its body lives in-line inside
     // the block method so the write index can be kept in a register.

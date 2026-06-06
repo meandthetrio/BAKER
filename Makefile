@@ -100,4 +100,7 @@ DAISYSP_DIR = ../../DaisySP
 
 # Core location, and generic Makefile.
 SYSTEM_FILES_DIR = $(LIBDAISY_DIR)/core
+# Project-local linker script: adds a .ram_d2_bss section in RAM_D2 (256K) for
+# hot sample-playback data. Set before the core Makefile (which uses ?=).
+LDSCRIPT = STM32H750IB_qspi.lds
 include $(SYSTEM_FILES_DIR)/Makefile

@@ -58,7 +58,12 @@ static bool StartLoadFromPathInternal(SdBrowserState& sd,
     }
 
     const uint32_t frames = info.data_size / 2u;
-    if(frames == 0 || frames > SdSampleMaxFrames())
+    // Per-slot cap: slot 0 plays from RAM_D2 (smaller) so its limit is lower.
+    // SdManage edits go to the SDRAM manage buffer (full kSdSampleMaxFrames).
+    const uint32_t max_frames = (load_target == LoadTarget::SdManage)
+                                    ? SdSampleMaxFrames(1)
+                                    : SdSampleMaxFrames(loading_slot & 1u);
+    if(frames == 0 || frames > max_frames)
     {
         f_close(&s_sd.file);
         return FailLoadStart(sd, "TOO LONG");
@@ -196,8 +201,9 @@ bool LoadStepInternal(SdBrowserState& sd,
         bytes_to_read = (bytes_left >= 2) ? 2 : bytes_left;
 
     UINT br = 0;
-    int16_t* sample_dst = (s_sd.load_target == LoadTarget::SdManage) ? SdManageBuffer()
-                                                                     : SdSampleBuffer(s_sd.loading_slot);
+    int16_t* sample_dst = (s_sd.load_target == LoadTarget::SdManage)
+                              ? SdManageBuffer()
+                              : SdSampleLoadBuffer(s_sd.loading_slot);
     uint8_t* dst = reinterpret_cast<uint8_t*>(sample_dst);
     const FRESULT res = f_read(&s_sd.file, dst + s_sd.bytes_loaded, bytes_to_read, &br);
     if(res != FR_OK || br == 0)
@@ -240,6 +246,10 @@ bool LoadStepInternal(SdBrowserState& sd,
         }
         else
         {
+            // Slot 0 staged in SDRAM; copy it into the RAM_D2 playback buffer
+            // before publishing the pcm pointer the audio thread will read.
+            SdSampleLoadCommit(s_sd.loading_slot, s_sd.sample_frames);
+
             Sample& samp = shared.sample.publish.sd_slots[s_sd.loading_slot];
             samp.pcm = SdSampleBuffer(s_sd.loading_slot);
             samp.length = s_sd.sample_frames;

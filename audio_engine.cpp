@@ -92,20 +92,33 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
 // (switch on fx_order[stage]) from the old ProcessBlock is now paid once per
 // stage per block instead of once per sample per stage. DSP is identical.
 
-void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n, float pre)
+void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
+                                   float target_pre, float target_wet)
 {
     uint32_t hit_count = 0u;
+    float    pre       = sat_pre_smoothed_;
+    float    wet       = sat_wet_gain_;
     for(size_t i = 0; i < n; ++i)
     {
-        const float pre_l = L[i] * pre;
-        const float pre_r = R[i] * pre;
+        // Slow per-sample ramps (~50 ms). Removes drive-fader stepping and
+        // smooths the bypass<->softclip transition into a wet/dry blend.
+        pre += (target_pre - pre) * kDelayFxSmoothCoeff;
+        wet += (target_wet - wet) * kDelayFxSmoothCoeff;
+        const float dry_l = L[i];
+        const float dry_r = R[i];
+        const float pre_l = dry_l * pre;
+        const float pre_r = dry_r * pre;
         if(std::fabs(pre_l) > 1.0f)
             ++hit_count;
         if(std::fabs(pre_r) > 1.0f)
             ++hit_count;
-        L[i] = SoftClip(pre_l);
-        R[i] = SoftClip(pre_r);
+        const float clip_l = SoftClip(pre_l);
+        const float clip_r = SoftClip(pre_r);
+        L[i] = dry_l * (1.0f - wet) + clip_l * wet;
+        R[i] = dry_r * (1.0f - wet) + clip_r * wet;
     }
+    sat_pre_smoothed_ = pre;
+    sat_wet_gain_     = wet;
     if(diagnostics_ && hit_count > 0u)
         diagnostics_->sat_softclip_hits.fetch_add(hit_count, std::memory_order_relaxed);
 }
@@ -462,9 +475,17 @@ void AudioEngine::ProcessBlock(const float* inL,
         delay_quiet_blocks_     = 0;
     }
 
-    // ---- SAT (hard bypass) ----
-    const bool  sat_run = (p.sat_on && p.sat_drive >= 0.0001f);
-    const float pre     = 1.0f + p.sat_drive * 10.0f;
+    // ---- SAT ----
+    // Targets are sampled from current (already params-smoothed at 5 ms);
+    // ProcessSatBlock_ smooths them further across samples at ~50 ms and
+    // crossfades into the dry path via a wet gain. The stage keeps running
+    // until the wet gain has decayed near zero so the off transition tail
+    // doesn't step.
+    const bool  sat_on_target = (p.sat_on && p.sat_drive >= 0.0001f);
+    const float target_sat_pre = 1.0f + p.sat_drive * 10.0f;
+    const float target_sat_wet = sat_on_target ? 1.0f : 0.0f;
+    constexpr float kSatWetEpsilon = 1e-4f;
+    const bool  sat_run = sat_on_target || (sat_wet_gain_ > kSatWetEpsilon);
 
     if(!sd_wav_load_busy)
         ReverbUpdateParamsDattorro_(p);
@@ -533,7 +554,7 @@ void AudioEngine::ProcessBlock(const float* inL,
                 if(sat_run)
                 {
                     const uint32_t stage_start = DWT->CYCCNT;
-                    ProcessSatBlock_(outL, outR, size, pre);
+                    ProcessSatBlock_(outL, outR, size, target_sat_pre, target_sat_wet);
                     sat_cycles += DWT->CYCCNT - stage_start;
                 }
                 break;

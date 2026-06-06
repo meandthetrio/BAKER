@@ -58,6 +58,10 @@ void UiRouter_DispatchEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(active == UiScreenId::PerformWaveEdit && s.OnEvent && s.OnEvent(ctx, e))
             return;
 
+        // SEAM EDIT uses BACK to discard live seam edits (restore previous bake).
+        if(active == UiScreenId::PerformSeamEdit && s.OnEvent && s.OnEvent(ctx, e))
+            return;
+
         // RENAME PROJECT uses LEnc click as in-screen delete, not global back.
         if(active == UiScreenId::RenameProject && s.OnEvent && s.OnEvent(ctx, e))
             return;

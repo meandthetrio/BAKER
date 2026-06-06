@@ -189,4 +189,6 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
                                          int8_t& dir,
                                          bool& gate,
                                          size_t count,
-                                         float* out_buf);
+                                         float* out_buf,
+                                         uint32_t* seam_cycles = nullptr,
+                                         uint32_t* seam_count  = nullptr);

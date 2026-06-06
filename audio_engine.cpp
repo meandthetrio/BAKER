@@ -455,8 +455,13 @@ void AudioEngine::ProcessBlock(const float* inL,
         }
     }
 
+    // Pre-master gain probe. This per-sample meter is diagnostics-only, so its time
+    // is measured and subtracted from the fx-total bucket below — otherwise opening
+    // the overlay would inflate its own "fx total" reading.
+    uint32_t fx_probe_cycles = 0u;
     if(diagnostics_)
     {
+        const uint32_t probe_start = DWT->CYCCNT;
         float peak = 0.0f;
         for(size_t i = 0; i < size; ++i)
         {
@@ -469,6 +474,7 @@ void AudioEngine::ProcessBlock(const float* inL,
         }
         DiagnosticsAccumulatePeakAtomic(
             diagnostics_->gain_probe_peak_bits[kDiagGainProbeFxPreMaster], peak);
+        fx_probe_cycles = DWT->CYCCNT - probe_start;
     }
 
     // Final gain stage (and soft-clip safety when BOOST is engaged).
@@ -528,8 +534,11 @@ void AudioEngine::ProcessBlock(const float* inL,
         DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketDelay, delay_cycles);
         DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketReverb, reverb_cycles);
         DiagnosticsStoreCycleBucket(*diagnostics_, kDiagAudioBucketMaster, master_cycles);
+        const uint32_t fx_total_cycles = DWT->CYCCNT - fx_total_start;
         DiagnosticsStoreCycleBucket(*diagnostics_,
                                     kDiagAudioBucketFxTotal,
-                                    DWT->CYCCNT - fx_total_start);
+                                    (fx_total_cycles > fx_probe_cycles)
+                                        ? (fx_total_cycles - fx_probe_cycles)
+                                        : 0u);
     }
 }

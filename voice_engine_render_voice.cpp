@@ -152,8 +152,13 @@ void VoiceEngine::ResolveEffectivePlaybackRegion_(const Voice& v,
                                                   EffectivePlaybackRegion& out,
                                                   bool& loop_enabled_base)
 {
+    // Single bank scan: the slot is reused by the caller's record-preview check
+    // and the edit lookup, replacing two separate FindSampleBankSlot_ scans.
+    out.slot = FindSampleBankSlot_(v.sample);
     SampleEdit e{};
-    out.use_edit = LookupSampleEdit_(v.sample, e);
+    out.use_edit = (out.slot >= 0) && sample_edit_valid_[out.slot];
+    if(out.use_edit)
+        e = sample_edit_bank_[out.slot];
     out.start = 0;
     out.end = v.sample->length;
     out.ls_i = v.sample->loop_start;
@@ -296,42 +301,34 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
                                                  st.old_gate);
 
     const bool old_preview_sample
-        = (FindSampleBankSlot_(v.sample) == static_cast<int>(kRecordPreviewSampleIndex));
+        = (r.slot == static_cast<int>(kRecordPreviewSampleIndex));
     const float old_pitch_ratio_scale
         = old_preview_sample ? 1.0f : (ctx.engine_tune_scale[setup.old_layer] * pitch_scale);
     setup.old_ratio = v.old_ratio * old_pitch_ratio_scale;
     setup.old_gain  = v.old_gain * setup.edit_gain * ctx.engine_voice_gain[setup.old_layer];
-    const bool old_layer_baked = layer_seam_baked_[setup.old_layer];
     setup.old_seam_frames
-        = (setup.loop_voice && !old_layer_baked)
-              ? ComputeLoopSeamCrossfadeFrames(setup.start,
-                                               setup.end,
-                                               loop_crossfade_amount_[setup.old_layer])
-              : 0u;
+        = setup.loop_voice ? ComputeLoopSeamCrossfadeFrames(setup.start,
+                                                            setup.end,
+                                                            loop_crossfade_amount_[setup.old_layer])
+                           : 0u;
     setup.old_loop_mode = setup.loop_voice ? LoopMode::Forward : ctx.loop_mode;
     setup.steal_fade_step = v.steal_fade_step;
     {
-        // Baked loops are already seamless in PCM, so suppress the loop-boundary
-        // fade (ff = 0 -> thresholds span the whole region, fast-path skips it).
-        float ff = 0.0f;
-        if(!old_layer_baked)
+        float ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
+        if(ff < 1.0f)
+            ff = 1.0f;
+        if(setup.end > setup.start)
         {
-            ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
-            if(ff < 1.0f)
-                ff = 1.0f;
-            if(setup.end > setup.start)
-            {
-                const float region = static_cast<float>(setup.end - setup.start);
-                if(ff > region * 0.5f)
-                    ff = region * 0.5f;
-            }
-            else
-            {
-                ff = 0.0f;
-            }
-            if(ff < 0.0f)
-                ff = 0.0f;
+            const float region = static_cast<float>(setup.end - setup.start);
+            if(ff > region * 0.5f)
+                ff = region * 0.5f;
         }
+        else
+        {
+            ff = 0.0f;
+        }
+        if(ff < 0.0f)
+            ff = 0.0f;
         setup.loop_fade_frames          = ff;
         setup.loop_fade_start_threshold = static_cast<float>(setup.start) + ff;
         setup.loop_fade_end_threshold   = static_cast<float>(setup.end) - ff;
@@ -572,7 +569,9 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
                                                              st.dir,
                                                              st.gate,
                                                              N,
-                                                             buf);
+                                                             buf,
+                                                             ctx.fetch_seam_cycles,
+                                                             ctx.fetch_seam_count);
     if(ctx.fetch_cycles)
         *ctx.fetch_cycles += DWT->CYCCNT - fetch_start;
 
@@ -679,6 +678,10 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
         return;
     }
 
+    uint32_t setup_start = 0u;
+    if(ctx.setup_cycles)
+        setup_start = DWT->CYCCNT;
+
     const uint8_t source_layer = v.source_layer & 1u;
     EffectivePlaybackRegion r{};
     bool loop_enabled = false;
@@ -700,9 +703,8 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     const float length_f = static_cast<float>(end);
     const float ls = static_cast<float>(ls_i);
     const float le = static_cast<float>(le_i);
-    const bool layer_baked = layer_seam_baked_[source_layer];
     const uint32_t seam_frames
-        = (loop_voice && !layer_baked)
+        = loop_voice
               ? ComputeLoopSeamCrossfadeFrames(start, end, loop_crossfade_amount_[source_layer])
               : 0u;
     const LoopMode voice_loop_mode = loop_voice ? LoopMode::Forward : ctx.loop_mode;
@@ -726,7 +728,7 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     // The dedicated record-preview bank slot should replay neutral PCM so
     // review preview pitch matches the captured render exactly.
     const bool preview_sample
-        = (FindSampleBankSlot_(v.sample) == static_cast<int>(kRecordPreviewSampleIndex));
+        = (r.slot == static_cast<int>(kRecordPreviewSampleIndex));
     setup.pitch_ratio_scale
         = preview_sample ? 1.0f : (ctx.engine_tune_scale[source_layer] * pitch_scale);
     setup.fade_step = v.fade_in_step;
@@ -734,27 +736,22 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     setup.env_d_step = v.env_d_step;
     setup.env_sustain = v.env_sustain;
     // P6: precompute loop-boundary fade thresholds once per block per voice.
-    // Baked loops are already seamless in PCM, so suppress this fade for them.
     {
-        float ff = 0.0f;
-        if(!layer_baked)
+        float ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
+        if(ff < 1.0f)
+            ff = 1.0f;
+        if(setup.end > setup.start)
         {
-            ff = sample_rate_ * 0.001f * kLoopBoundaryFadeMs;
-            if(ff < 1.0f)
-                ff = 1.0f;
-            if(setup.end > setup.start)
-            {
-                const float region = static_cast<float>(setup.end - setup.start);
-                if(ff > region * 0.5f)
-                    ff = region * 0.5f;
-            }
-            else
-            {
-                ff = 0.0f;
-            }
-            if(ff < 0.0f)
-                ff = 0.0f;
+            const float region = static_cast<float>(setup.end - setup.start);
+            if(ff > region * 0.5f)
+                ff = region * 0.5f;
         }
+        else
+        {
+            ff = 0.0f;
+        }
+        if(ff < 0.0f)
+            ff = 0.0f;
         setup.loop_fade_frames          = ff;
         setup.loop_fade_start_threshold = static_cast<float>(setup.start) + ff;
         setup.loop_fade_end_threshold   = static_cast<float>(setup.end) - ff;
@@ -796,39 +793,61 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
                               && (st.env_r_step    <= kFastEnvelopeStepThreshold);
     setup.env_per_sample_delta = 0.0f;
 
+    if(ctx.setup_cycles)
+        *ctx.setup_cycles += DWT->CYCCNT - setup_start;
+
+    uint32_t presim_start = 0u;
+    if(ctx.presim_cycles)
+        presim_start = DWT->CYCCNT;
+
     EnvStage env_end_stage      = st.env_stage;
     float    env_end_level      = st.env_level;
     bool     env_ended_in_block = false;
     if(setup.block_rate_env)
     {
-        // Simulate ctx.size iterations of the state machine locally so we
-        // know the end-of-block stage/level. Inside the per-sample loop we
-        // linearly ramp env_level from its current value to env_end_level;
-        // stage stays pinned to its current value for per-sample branches
-        // and is committed at block end.
-        EnvStage sim_stage  = st.env_stage;
-        float    sim_level  = st.env_level;
-        const float sim_r_step = st.env_r_step;
-        for(size_t k = 0; k < ctx.size; ++k)
+        if(st.env_stage == EnvStage::Sustain)
         {
-            StepEnvelope(sim_stage,
-                         sim_level,
-                         setup.env_a_step,
-                         setup.env_d_step,
-                         setup.env_sustain,
-                         sim_r_step);
-            if(sim_stage == EnvStage::Off)
-            {
-                env_ended_in_block = true;
-                break;
-            }
+            // Sustain is a fixed point of StepEnvelope: it pins level to
+            // env_sustain and never leaves the stage. Skip the per-sample
+            // pre-sim entirely and ramp directly to (a possibly updated)
+            // sustain level over the block. Exact match for the loop result.
+            env_end_stage = EnvStage::Sustain;
+            env_end_level = setup.env_sustain;
         }
-        env_end_stage = sim_stage;
-        env_end_level = sim_level;
+        else
+        {
+            // Simulate ctx.size iterations of the state machine locally so we
+            // know the end-of-block stage/level. Inside the per-sample loop we
+            // linearly ramp env_level from its current value to env_end_level;
+            // stage stays pinned to its current value for per-sample branches
+            // and is committed at block end.
+            EnvStage sim_stage  = st.env_stage;
+            float    sim_level  = st.env_level;
+            const float sim_r_step = st.env_r_step;
+            for(size_t k = 0; k < ctx.size; ++k)
+            {
+                StepEnvelope(sim_stage,
+                             sim_level,
+                             setup.env_a_step,
+                             setup.env_d_step,
+                             setup.env_sustain,
+                             sim_r_step);
+                if(sim_stage == EnvStage::Off)
+                {
+                    env_ended_in_block = true;
+                    break;
+                }
+            }
+            env_end_stage = sim_stage;
+            env_end_level = sim_level;
+        }
         if(ctx.size > 0)
             setup.env_per_sample_delta
                 = (env_end_level - st.env_level) / static_cast<float>(ctx.size);
     }
+
+    if(ctx.presim_cycles)
+        *ctx.presim_cycles += DWT->CYCCNT - presim_start;
 
     if(setup.block_rate_env)
     {

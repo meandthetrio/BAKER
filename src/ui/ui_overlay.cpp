@@ -336,7 +336,15 @@ void UiOverlay_Render(const AppUiState& ui,
             FormatBucketNowPeakValue(
                 value3, diag, kDiagAudioBucketFxTotal, budget_cycles);
             FormatUnsignedValue(value4, diag.audio_late_count.load(std::memory_order_relaxed));
-            FormatUnsignedValue(value5, diag.voices_active.load(std::memory_order_relaxed));
+            const uint32_t voices_now = diag.voices_active.load(std::memory_order_relaxed);
+            FormatUnsignedValue(value5, voices_now);
+            // Marginal cost of one voice = total active-voice cycles / active count,
+            // as a % of the audio budget. Directly shows how polyphony scales.
+            uint32_t per_voice_cycles = 0u;
+            if(voices_now > 0u)
+                per_voice_cycles
+                    = s_voice_displayed_now_cycles[kDiagVoiceBucketActiveVoicesTotal] / voices_now;
+            FormatPercentValue(value6, CyclesToPct_(per_voice_cycles, budget_cycles));
             const OverlayMetric metrics[] = {
                 {"callback pk", value0},
                 {"pre-voice pk", value1},
@@ -344,8 +352,24 @@ void UiOverlay_Render(const AppUiState& ui,
                 {"fx total pk", value3},
                 {"late count", value4},
                 {"active voices", value5},
+                {"per-voice", value6},
             };
-            DrawOverlayPage(oled, "cpu a", metrics, 6);
+            DrawOverlayPage(oled, "cpu a", metrics, 7);
+            return;
+        }
+        case kDiagOverlayPageCpuPre:
+        {
+            FormatBucketNowPeakValue(value0, diag, kDiagAudioBucketCallbackPreVoice, budget_cycles);
+            FormatBucketNowPeakValue(value1, diag, kDiagAudioBucketPreParamsTick, budget_cycles);
+            FormatBucketNowPeakValue(value2, diag, kDiagAudioBucketPreParamPush, budget_cycles);
+            FormatBucketNowPeakValue(value3, diag, kDiagAudioBucketPreEvents, budget_cycles);
+            const OverlayMetric metrics[] = {
+                {"pre-voice pk", value0},
+                {"params tick pk", value1},
+                {"param push pk", value2},
+                {"events pk", value3},
+            };
+            DrawOverlayPage(oled, "cpu pre", metrics, 4);
             return;
         }
         case kDiagOverlayPageCpuFx:
@@ -373,7 +397,8 @@ void UiOverlay_Render(const AppUiState& ui,
         case kDiagOverlayPageVoiceCpu:
         {
             FormatVoiceBucketNowPeakValue(value0, diag, kDiagVoiceBucketRenderTotal, budget_cycles);
-            FormatVoiceBucketNowPeakValue(value1, diag, kDiagVoiceBucketFixedSetup, budget_cycles);
+            FormatVoiceBucketNowPeakValue(
+                value1, diag, kDiagVoiceBucketLayerEmphasis, budget_cycles);
             FormatVoiceBucketNowPeakValue(
                 value2, diag, kDiagVoiceBucketActiveVoicesTotal, budget_cycles);
             FormatVoiceBucketNowPeakValue(value3, diag, kDiagVoiceBucketStealVoices, budget_cycles);
@@ -382,7 +407,7 @@ void UiOverlay_Render(const AppUiState& ui,
             FormatVoiceBucketNowPeakValue(value6, diag, kDiagVoiceBucketLayerMix, budget_cycles);
             const OverlayMetric metrics[] = {
                 {"total pk", value0},
-                {"fixed pk", value1},
+                {"emph pk", value1},
                 {"active pk", value2},
                 {"steal pk", value3},
                 {"fetch pk", value4},
@@ -390,6 +415,31 @@ void UiOverlay_Render(const AppUiState& ui,
                 {"mix pk", value6},
             };
             DrawOverlayPage(oled, "voice cpu", metrics, 7);
+            return;
+        }
+        case kDiagOverlayPageVoiceCpu2:
+        {
+            // Fetch-loop split: total fetch vs the loop-seam crossfade branch
+            // (cycles %) and how many samples per block took that branch (raw
+            // count, summed across voices). Non-seam read cost = fetch - seam.
+            FormatVoiceBucketNowPeakValue(value0, diag, kDiagVoiceBucketFetch, budget_cycles);
+            FormatVoiceBucketNowPeakValue(
+                value1, diag, kDiagVoiceBucketFetchSeamCycles, budget_cycles);
+            FormatUnsignedValue(value2, s_voice_displayed_now_cycles[kDiagVoiceBucketFetchSeamCount]);
+            FormatUnsignedValue(value3,
+                                diag.voice_bucket_cycles_peak[kDiagVoiceBucketFetchSeamCount].load(
+                                    std::memory_order_relaxed));
+            FormatVoiceBucketNowPeakValue(value4, diag, kDiagVoiceBucketVoiceSetup, budget_cycles);
+            FormatVoiceBucketNowPeakValue(value5, diag, kDiagVoiceBucketEnvPresim, budget_cycles);
+            const OverlayMetric metrics[] = {
+                {"fetch pk", value0},
+                {"seam cyc pk", value1},
+                {"seam cnt now", value2},
+                {"seam cnt pk", value3},
+                {"setup pk", value4},
+                {"presim pk", value5},
+            };
+            DrawOverlayPage(oled, "voice cpu2", metrics, 6);
             return;
         }
         case kDiagOverlayPageActivity:

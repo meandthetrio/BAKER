@@ -303,7 +303,6 @@ int main(void)
             t.engine_loop_release_ms[layer] = loop_release_ms;
             t.engine_loop_crossfade_amount[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade[layer];
             t.engine_loop_crossfade_shape[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade_shape[layer];
-            t.engine_loop_seam_baked[layer] = g_app.engine.adsr.perform_adsr_loop_seam_baked[layer];
             t.perform_keyzone_lo_note[layer] = g_app.engine.keyzone.perform_keyzone_lo_note[layer];
             t.perform_keyzone_hi_note[layer] = g_app.engine.keyzone.perform_keyzone_hi_note[layer];
             for(uint8_t row = 0; row < kExpressRowCount; ++row)

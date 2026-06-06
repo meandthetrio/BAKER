@@ -23,6 +23,9 @@ enum DiagAudioBucket : uint8_t
 {
     kDiagAudioBucketCallbackTotal = 0,
     kDiagAudioBucketCallbackPreVoice,
+    kDiagAudioBucketPreParamsTick,
+    kDiagAudioBucketPreParamPush,
+    kDiagAudioBucketPreEvents,
     kDiagAudioBucketVoiceRender,
     kDiagAudioBucketFxTotal,
     kDiagAudioBucketSat,
@@ -48,6 +51,21 @@ enum DiagVoiceBucket : uint8_t
     kDiagVoiceBucketFetch,
     kDiagVoiceBucketEnvMix,
     kDiagVoiceBucketLayerMix,
+    kDiagVoiceBucketLayerEmphasis,
+    // P-investigate: finer split of the per-voice block-start setup, to confirm
+    // where the "~8% per-voice setup" actually goes before optimizing.
+    //   VoiceSetup = ResolveEffectivePlaybackRegion_ + slot lookups + seam +
+    //                loop-fade threshold precompute (everything before the env
+    //                pre-sim and the render loop).
+    //   EnvPresim  = the block-start StepEnvelope pre-simulation loop.
+    kDiagVoiceBucketVoiceSetup,
+    kDiagVoiceBucketEnvPresim,
+    // P-investigate: split the fast-path fetch loop. FetchSeamCycles = cycles
+    // spent in the loop-seam crossfade branch; FetchSeamCount = number of
+    // samples that took that branch this block (summed across voices). Lets us
+    // separate seam-crossfade cost from the plain inlined read.
+    kDiagVoiceBucketFetchSeamCycles,
+    kDiagVoiceBucketFetchSeamCount,
     kDiagVoiceBucketCount
 };
 

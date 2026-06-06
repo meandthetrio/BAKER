@@ -64,7 +64,6 @@ struct PerformParamsTargets
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
-    bool  engine_loop_seam_baked[kLayerCount] = {false, false}; // true: crossfade baked into PCM
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]
@@ -138,7 +137,6 @@ struct PerformParamsCurrent
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
-    bool  engine_loop_seam_baked[kLayerCount] = {false, false}; // true: crossfade baked into PCM
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]
@@ -178,11 +176,17 @@ class Params
     // AUDIO THREAD ONLY: smoothed params used for DSP.
     void AudioBlockTick(float sample_rate, size_t block_size);
 
+    // Monotonic counter bumped by PublishTargets (main loop) each time the UI
+    // publishes an edit. The audio thread uses this to skip re-pushing engine
+    // params into the voice engine when nothing has changed. AUDIO THREAD: read.
+    uint32_t PublishGen() const { return publish_gen_.load(std::memory_order_acquire); }
+
     PerformParamsCurrent current;
 
   private:
     PerformParamsTargets targets_buf_[2];
     std::atomic<uint8_t> published_idx_{0};
+    std::atomic<uint32_t> publish_gen_{0};
     uint8_t              write_idx_ = 1;
 
     // Cached one-pole smoothing coefficient. AudioBlockTick recomputes only

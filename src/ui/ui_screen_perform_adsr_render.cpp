@@ -259,7 +259,9 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
     }
 
     static const char* kBottomLetters[4] = {"A", "D", "S", "R"};
-    const int bottom_y = kWaveBottomY + 1;
+    // Anchor the bottom letters to the screen bottom (not the preview box), so the
+    // 3 px box inset does not drag them up. Height-7 matches the pre-inset position.
+    const int bottom_y = static_cast<int>(d.Height()) - 7;
     const int seg_w = static_cast<int>(d.Width()) / 4;
     const uint8_t stage_focus = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
     const bool loop_stage_editing
@@ -388,7 +390,8 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
                                       && loop_stage_editing;
             if(locked_stage)
                 continue;
-            if(stage_enabled && !type_focused && stage_focus == static_cast<uint8_t>(i))
+            if(stage_enabled && !type_focused && !wave_focused
+               && stage_focus == static_cast<uint8_t>(i))
             {
                 d.DrawRect(x - 2, bottom_y - 2, x + w + 1, bottom_y + Font5x7::H - 1, true, false);
                 DrawTinyString(d, kBottomLetters[i], x, bottom_y, true);

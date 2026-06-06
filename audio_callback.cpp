@@ -10,6 +10,7 @@
 #include "mod_matrix.h"
 #include "plocks.h"
 #include "macros.h"
+#include "build_config.h"
 #include "express_state.h"
 #include "sd_sample_pool.h"
 
@@ -487,85 +488,142 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     AudioCallback_ApplySdSampleHandoffs(g_voice, g_app.shared);
     AudioCallback_ProcessRecording(in, size);
 
+    const uint32_t pre_tick_start = DWT->CYCCNT;
     g_params.AudioBlockTick(g_sample_rate_hz, size);
 
     // Macro snapshot + smoothing is owned by VoiceEngine; its RenderBlock
     // below updates g_voice.SmoothedMacros() for this block. Reading that
     // after RenderBlock is the single source of truth on the audio thread.
 
-    g_voice.SetModParams(g_params.current.lfo_rate_hz,
-                         g_params.current.lfo_depth,
-                         g_params.current.env_attack_ms,
-                         g_params.current.env_decay_ms,
-                         g_params.current.env_amount);
-    g_voice.SetLfoWave(g_app.shared.performance.modulation.lfo_wave.load(std::memory_order_relaxed));
+    // --- Param-push gating ---------------------------------------------------
+    // Re-pushing all engine params into the voice engine every block is wasteful
+    // when nothing changed. Two gates:
+    //   static_push  : a short settle window after any UI edit (publish gen bump),
+    //                  long enough to cover the 5 ms one-pole smoothing.
+    //   express_push : whenever the mod-wheel/express overlay is live (it can move
+    //                  cutoff/gain/resonance/env/poly-porto every block).
+    // The "static" group (tune, drive mode, layer scale, loop enable, crossfade,
+    // seam-baked, mod params) is pushed only on static_push; the "express" group is
+    // pushed on either, so plain UI edits to its members are still covered.
+    static uint32_t s_applied_publish_gen = 0u;
+    static uint32_t s_param_push_settle_blocks = 0u;
+    const uint32_t publish_gen = g_params.PublishGen();
+    if(publish_gen != s_applied_publish_gen)
+    {
+        s_applied_publish_gen = publish_gen;
+        s_param_push_settle_blocks = 64u; // ~64 ms; covers the 5 ms smoothing settle
+    }
+    const bool static_push = (s_param_push_settle_blocks > 0u);
+    if(s_param_push_settle_blocks > 0u)
+        --s_param_push_settle_blocks;
+    const bool express_active
+        = (g_app.shared.performance.express.enabled.load(std::memory_order_acquire) != 0u)
+          && (g_app.shared.performance.express.midi_mod_seen.load(std::memory_order_acquire) != 0u);
+    // express_active is driven by shared atomics (mod wheel / enable), not by the
+    // publish generation, so flush one extra push on any transition — in particular
+    // express_active going false must push the express group once to clear it.
+    static bool s_prev_express_active = false;
+    const bool express_changed = (express_active != s_prev_express_active);
+    s_prev_express_active = express_active;
+    const bool express_push = static_push || express_active || express_changed;
+
+    if(static_push)
+    {
+        g_voice.SetModParams(g_params.current.lfo_rate_hz,
+                             g_params.current.lfo_depth,
+                             g_params.current.env_attack_ms,
+                             g_params.current.env_decay_ms,
+                             g_params.current.env_amount);
+        g_voice.SetLfoWave(
+            g_app.shared.performance.modulation.lfo_wave.load(std::memory_order_relaxed));
+    }
+    // voice_params (with express overlay) is built every block because the FX stage
+    // below reuses it (fx_params = voice_params); only the engine setters are gated.
     PerformParamsCurrent voice_params = g_params.current;
     AudioCallback_ApplyExpressOverlay(g_app.shared, voice_params);
+    const uint32_t pre_tick_cycles = DWT->CYCCNT - pre_tick_start;
+
+    const uint32_t pre_push_start = DWT->CYCCNT;
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {
-        bool poly_porto_owned = false;
-        for(uint8_t row = 0; row < kExpressRowCount; ++row)
+        if(express_push)
         {
-            if(ExpressTargetIsPolyPorto(voice_params.express_target[layer][row]))
+            // Express-reachable group: the mod wheel can move these every block.
+            bool poly_porto_owned = false;
+            for(uint8_t row = 0; row < kExpressRowCount; ++row)
             {
-                poly_porto_owned = true;
-                break;
+                if(ExpressTargetIsPolyPorto(voice_params.express_target[layer][row]))
+                {
+                    poly_porto_owned = true;
+                    break;
+                }
             }
+            const bool midi_mod_seen
+                = g_app.shared.performance.express.midi_mod_seen.load(std::memory_order_acquire)
+                  != 0u;
+            uint8_t midi_mod_value
+                = g_app.shared.performance.express.midi_mod_value.load(std::memory_order_acquire);
+            if(midi_mod_value > 127u)
+                midi_mod_value = 127u;
+            const bool poly_porto_enabled
+                = (g_app.shared.performance.express.enabled.load(std::memory_order_acquire) != 0u)
+                  && midi_mod_seen && midi_mod_value > 63u && poly_porto_owned;
+            g_voice.SetPolyPortoEnabled(layer, poly_porto_enabled);
+            g_voice.SetPolyPortoVoiceLimit(layer, voice_params.express_poly_porto_voice_limit[layer]);
+            g_voice.SetPolyPortoSlideMs(layer, voice_params.express_poly_porto_slide_ms[layer]);
+            g_voice.SetPolyPortoSourceRangeSemitones(
+                layer, voice_params.express_poly_porto_source_range_semitones[layer]);
+            g_voice.SetPolyPortoSourceMode(layer, voice_params.express_poly_porto_source_mode[layer]);
+            g_voice.SetPolyPortoReleaseMs(layer, voice_params.express_poly_porto_release_ms[layer]);
+            g_voice.SetEngineGainDb(layer, voice_params.engine_gain_db[layer]);
+            g_voice.SetEngineFilterCutoffHz(layer, voice_params.engine_filter_cutoff_hz[layer]);
+            g_voice.SetEngineFilterResonance(layer, voice_params.engine_filter_resonance[layer]);
+            g_voice.SetLoopEnvelopeParams(layer,
+                                          voice_params.engine_loop_attack_ms[layer],
+                                          voice_params.engine_loop_decay_ms[layer],
+                                          voice_params.engine_loop_sustain_level[layer],
+                                          voice_params.engine_loop_release_ms[layer]);
         }
-        const bool midi_mod_seen
-            = g_app.shared.performance.express.midi_mod_seen.load(std::memory_order_acquire) != 0u;
-        uint8_t midi_mod_value
-            = g_app.shared.performance.express.midi_mod_value.load(std::memory_order_acquire);
-        if(midi_mod_value > 127u)
-            midi_mod_value = 127u;
-        const bool poly_porto_enabled = (g_app.shared.performance.express.enabled.load(std::memory_order_acquire) != 0u)
-                                     && midi_mod_seen
-                                     && midi_mod_value > 63u
-                                     && poly_porto_owned;
-        g_voice.SetPolyPortoEnabled(layer, poly_porto_enabled);
-        g_voice.SetPolyPortoVoiceLimit(layer, voice_params.express_poly_porto_voice_limit[layer]);
-        g_voice.SetPolyPortoSlideMs(layer, voice_params.express_poly_porto_slide_ms[layer]);
-        g_voice.SetPolyPortoSourceRangeSemitones(
-            layer, voice_params.express_poly_porto_source_range_semitones[layer]);
-        g_voice.SetPolyPortoSourceMode(layer, voice_params.express_poly_porto_source_mode[layer]);
-        g_voice.SetPolyPortoReleaseMs(layer, voice_params.express_poly_porto_release_ms[layer]);
-        g_voice.SetEngineTuneSemitones(layer, voice_params.engine_tune_semitones[layer]);
-        g_voice.SetEngineGainDb(layer, voice_params.engine_gain_db[layer]);
-        g_voice.SetEngineDriveMode(layer, voice_params.engine_drive_mode[layer]);
-        float layer_level = voice_params.engine_layer_master_level[layer];
-        if(layer_level < 0.0f)
-            layer_level = 0.0f;
-        if(layer_level > 2.0f)
-            layer_level = 2.0f;
-        static constexpr float kPolyHeadroomScale = 0.15f;
-        static constexpr float kBypassGain = 1.0f / kPolyHeadroomScale;
-        float t_boost = 0.0f;
-        if(layer_level > 1.0f)
+        if(static_push)
         {
-            t_boost = layer_level - 1.0f;
-            if(t_boost < 0.0f)
-                t_boost = 0.0f;
-            if(t_boost > 1.0f)
-                t_boost = 1.0f;
+            // Static group: only changes on a UI edit.
+            g_voice.SetEngineTuneSemitones(layer, voice_params.engine_tune_semitones[layer]);
+            g_voice.SetEngineDriveMode(layer, voice_params.engine_drive_mode[layer]);
+            float layer_level = voice_params.engine_layer_master_level[layer];
+            if(layer_level < 0.0f)
+                layer_level = 0.0f;
+            if(layer_level > 2.0f)
+                layer_level = 2.0f;
+            static constexpr float kPolyHeadroomScale = 0.15f;
+            static constexpr float kBypassGain = 1.0f / kPolyHeadroomScale;
+            float t_boost = 0.0f;
+            if(layer_level > 1.0f)
+            {
+                t_boost = layer_level - 1.0f;
+                if(t_boost < 0.0f)
+                    t_boost = 0.0f;
+                if(t_boost > 1.0f)
+                    t_boost = 1.0f;
+            }
+            const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
+            g_voice.SetEngineLayerScale(layer, layer_level * bypass_comp);
+            g_voice.SetEngineLoopEnabled(layer, voice_params.engine_loop_mode[layer]);
+            g_voice.SetLoopCrossfadeAmount(layer, voice_params.engine_loop_crossfade_amount[layer]);
+            g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
         }
-        const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
-        g_voice.SetEngineLayerScale(layer, layer_level * bypass_comp);
-        g_voice.SetEngineFilterCutoffHz(layer, voice_params.engine_filter_cutoff_hz[layer]);
-        g_voice.SetEngineFilterResonance(layer, voice_params.engine_filter_resonance[layer]);
-        g_voice.SetEngineLoopEnabled(layer, voice_params.engine_loop_mode[layer]);
-        g_voice.SetLoopEnvelopeParams(layer,
-                                      voice_params.engine_loop_attack_ms[layer],
-                                      voice_params.engine_loop_decay_ms[layer],
-                                      voice_params.engine_loop_sustain_level[layer],
-                                      voice_params.engine_loop_release_ms[layer]);
-        g_voice.SetLoopCrossfadeAmount(layer, voice_params.engine_loop_crossfade_amount[layer]);
-        g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
-        g_voice.SetLayerSeamBaked(layer, voice_params.engine_loop_seam_baked[layer]);
     }
+    const uint32_t pre_push_cycles = DWT->CYCCNT - pre_push_start;
+
+    const uint32_t pre_events_start = DWT->CYCCNT;
     g_voice.ProcessEvents(g_evtq);
+    const uint32_t pre_events_cycles = DWT->CYCCNT - pre_events_start;
+
     DiagnosticsStoreCycleBucket(g_app.diag,
                                 kDiagAudioBucketCallbackPreVoice,
                                 DWT->CYCCNT - start_cycles);
+    DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketPreParamsTick, pre_tick_cycles);
+    DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketPreParamPush, pre_push_cycles);
+    DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketPreEvents, pre_events_cycles);
 
     bucket_start = DWT->CYCCNT;
     g_voice.RenderBlock(out[0], out[1], size);
@@ -573,9 +631,11 @@ void AudioCallback(AudioHandle::InputBuffer  in,
         g_app.diag, kDiagAudioBucketVoiceRender, DWT->CYCCNT - bucket_start);
 
     PerformParamsCurrent fx_params = voice_params;
+#if MOD_SYSTEM_ENABLED
     float drive = fx_params.sat_drive;
     Macros_Apply(g_voice.SmoothedMacros(), nullptr, nullptr, nullptr, nullptr, &drive);
     fx_params.sat_drive = drive;
+#endif
     const bool sd_wav_load_busy
         = (g_app.shared.sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0);
     bucket_start = DWT->CYCCNT;

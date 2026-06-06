@@ -6,6 +6,7 @@
 #include "app_state_shared.h"
 #include "oled_pager.h"
 #include "ui_draw_text.h"
+#include "ui_draw_shapes.h"
 #include "ui_input.h"
 #include "sample_edit.h"
 #include "sd_sample_pool.h"
@@ -42,13 +43,12 @@ void PerformSeamEdit_OnScreenEnter(UiScreenCtx& ctx)
     AppSharedState& shared = *ctx.shared;
     const uint8_t layer = SeamLayer(engine);
 
-    // Switch the played sample back to RAW + disable the runtime seam suppression so
-    // the live crossfade responds to encoder changes in real time. Only swap the
-    // pointer when this layer is currently playing its baked copy (the raw load lives
-    // in SdSampleBuffer for SD-loaded samples); for any other source leave pcm as-is.
-    if(engine.adsr.perform_adsr_loop_seam_baked[layer])
-        shared.sample.publish.sd_slots[layer].pcm = SdSampleBuffer(layer);
-    engine.adsr.perform_adsr_loop_seam_baked[layer] = false;
+    (void)shared;
+    // Snapshot the seam params on entry so Pod-encoder click can discard live edits.
+    // The loop seam is rendered live by the runtime crossfade on the raw sample, so
+    // there is nothing to swap here — edits to the params audition in real time.
+    ui.ui_seam_entry_amount = engine.adsr.perform_adsr_loop_crossfade[layer];
+    ui.ui_seam_entry_shape = engine.adsr.perform_adsr_loop_crossfade_shape[layer];
 
     // Force monophonic audition of this layer; silence anything currently sounding.
     ui.ui_seam_audition_active = true;
@@ -66,32 +66,31 @@ bool PerformSeamEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    AppSharedState& shared = *ctx.shared;
     const uint8_t layer = SeamLayer(engine);
 
-    // REnc click = commit: re-bake the new seam into the baked buffer and return.
+    // REnc click = commit: keep the edited seam params (already live) and return.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        const Sample& s = shared.sample.publish.sd_slots[layer];
-        // Only re-bake when this layer is backed by the SD raw buffer (the source
-        // the bake reads from). Other sources just exit without re-baking.
-        if(s.pcm != nullptr && s.length > 0u && s.pcm == SdSampleBuffer(layer))
-        {
-            SampleEdit edit = shared.sample.edit.sd_edit_slots[layer];
-            SampleEdit_Clamp(edit, s.length);
-            // Audio is currently playing the RAW buffer (set on enter), so writing
-            // the baked buffer here on the main thread is safe.
-            BakeLoopSeamToBuffer(SdSampleBuffer(layer),
-                                 s.length,
-                                 edit.start_frame,
-                                 edit.end_frame,
-                                 engine.adsr.perform_adsr_loop_crossfade[layer],
-                                 engine.adsr.perform_adsr_loop_crossfade_shape[layer],
-                                 48000.0f,
-                                 SdBakedBuffer(layer));
-            engine.adsr.perform_adsr_loop_seam_baked[layer] = true;
-            shared.sample.publish.sd_slots[layer].pcm = SdBakedBuffer(layer);
-        }
+        // RShift un-inverts the box (curve view); per the device-wide "inverted
+        // focus = REnc click acts" convention, commit is disabled while RShift held.
+        if(ctx.rshift)
+            return true;
+
+        // The seam crossfade is rendered live from the params, which the encoder edits
+        // already published, so commit just restores polyphony and exits.
+        ui.ui_seam_audition_active = false;
+        ui.ui_seam_silence_pending = true;
+        UiNav_Pop(ui.ui_nav);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    // Pod-encoder click = discard: restore the seam params captured on entry and exit.
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
+    {
+        engine.adsr.perform_adsr_loop_crossfade[layer] = ui.ui_seam_entry_amount;
+        engine.adsr.perform_adsr_loop_crossfade_shape[layer] = ui.ui_seam_entry_shape;
+        PublishEngineLayerParams(ctx);
         ui.ui_seam_audition_active = false;
         ui.ui_seam_silence_pending = true;
         UiNav_Pop(ui.ui_nav);
@@ -108,7 +107,9 @@ bool PerformSeamEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         const float step = ctx.rshift ? kSeamCrossfadeShapeStep : kSeamCrossfadeStep;
         const float min_value = ctx.rshift ? kSeamCrossfadeShapeMin : kSeamCrossfadeMin;
         const float max_value = ctx.rshift ? kSeamCrossfadeShapeMax : kSeamCrossfadeMax;
-        float next = target + (static_cast<float>(e.value) * step);
+        // Seam length scroll direction is reversed (curve/shape direction unchanged).
+        const float dir = ctx.rshift ? 1.0f : -1.0f;
+        float next = target + (static_cast<float>(e.value) * step * dir);
         if(next < min_value)
             next = min_value;
         if(next > max_value)
@@ -159,9 +160,22 @@ void PerformSeamEdit_Render(UiScreenCtx& ctx)
         kWaveBottomY = kWaveY;
     const int kWaveH = kWaveBottomY - kWaveY + 1;
 
-    // Inverse-video preview box: fill lit, draw waveform + border dark.
-    d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, true);
-    DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, false, false, false, true);
+    // Holding RShift (curve/shape view) un-inverts the box and uses a solid border;
+    // otherwise the box is inverse video with a dotted border + 1 px off ring.
+    const bool inverted = !ctx.rshift;
+    if(inverted)
+    {
+        // Inverse video: fill lit, draw the waveform dark, no inner border.
+        d.DrawRect(kWaveX, kWaveY, kWaveX + kWaveW - 1, kWaveY + kWaveH - 1, true, true);
+        DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, false, false, false, false);
+        // Dotted border 2 px outside the box, leaving a 1 px off ring between.
+        DrawDottedRect(d, kWaveX - 2, kWaveY - 2, kWaveX + kWaveW - 1 + 2, kWaveBottomY + 2, true);
+    }
+    else
+    {
+        // Normal video: dark background, lit waveform, solid border.
+        DrawWaveformPreview(d, sample, edit, kWaveX, kWaveY, kWaveW, kWaveH, true, false, false, true);
+    }
 
     if(sample_loaded)
     {
@@ -176,7 +190,7 @@ void PerformSeamEdit_Render(UiScreenCtx& ctx)
                                     preview_y1,
                                     engine.adsr.perform_adsr_loop_crossfade[layer],
                                     engine.adsr.perform_adsr_loop_crossfade_shape[layer],
-                                    /*invert=*/true,
+                                    /*invert=*/inverted,
                                     /*show_curve=*/ctx.rshift);
     }
 }

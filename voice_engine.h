@@ -414,6 +414,10 @@ class VoiceEngine
         float* playhead_metric;
         uint32_t* fetch_cycles;
         uint32_t* envmix_cycles;
+        uint32_t* setup_cycles;
+        uint32_t* presim_cycles;
+        uint32_t* fetch_seam_cycles;
+        uint32_t* fetch_seam_count;
     };
 
     struct RenderNormalVoicePerBlockSetup
@@ -502,6 +506,9 @@ class VoiceEngine
         uint32_t le_i;
         float    edit_gain;
         bool     use_edit;
+        // Sample-bank slot of v.sample, resolved once here so callers reuse it
+        // (e.g. the record-preview check) instead of re-scanning the bank.
+        int      slot;
     };
 
     void ResolveEffectivePlaybackRegion_(const Voice& v,
@@ -590,7 +597,9 @@ class VoiceEngine
                                size_t size,
                                float mix_scale,
                                uint32_t& clip_block,
-                               const bool (&layer_skip)[2]);
+                               const bool (&layer_skip)[2],
+                               uint32_t& emphasis_cycles,
+                               uint32_t& sum_cycles);
     int  FindSampleBankSlot_(const Sample* sample) const;
     bool LookupSampleEdit_(const Sample* sample, SampleEdit& edit) const;
 

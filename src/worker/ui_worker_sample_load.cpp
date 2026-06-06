@@ -265,32 +265,14 @@ bool LoadStepInternal(SdBrowserState& sd,
                 engine.adsr.perform_adsr_loop_crossfade_shape[s_sd.loading_slot & 1u] = 0.0f;
             }
 
-            // Seam-bake on load: when loop mode is on for this layer, pre-render the
-            // loop crossfade into a baked SDRAM copy and play that instead of the raw
-            // PCM (raw stays in SdSampleBuffer for future re-bakes). The engine then
-            // suppresses the runtime seam/boundary fade for this layer via the
-            // perform_adsr_loop_seam_baked flag (flows through params -> audio).
+            // Loop seam handling is done by the runtime live crossfade (see
+            // voice_engine_render_voice.cpp). The sample plays from the raw SD buffer
+            // (samp.pcm set above) and the seam length/curve come from the params; no
+            // PCM bake at load. The default seam length was set above.
             const uint8_t bake_layer = s_sd.loading_slot & 1u;
-            const bool loop_on = (engine.layer.engine_play_mode[bake_layer] != 0u);
-            if(loop_on)
-            {
-                SampleEdit bake_edit = edit;
-                SampleEdit_Clamp(bake_edit, s_sd.sample_frames);
-                BakeLoopSeamToBuffer(SdSampleBuffer(s_sd.loading_slot),
-                                     s_sd.sample_frames,
-                                     bake_edit.start_frame,
-                                     bake_edit.end_frame,
-                                     engine.adsr.perform_adsr_loop_crossfade[bake_layer],
-                                     engine.adsr.perform_adsr_loop_crossfade_shape[bake_layer],
-                                     48000.0f,
-                                     SdBakedBuffer(s_sd.loading_slot));
-                samp.pcm = SdBakedBuffer(s_sd.loading_slot);
-                engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = true;
-            }
-            else
-            {
-                engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = false;
-            }
+            engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = false;
+            shared.sample.publish.sd_layer_seam_baked[s_sd.loading_slot].store(
+                0u, std::memory_order_release);
 
             shared.sample.edit.sd_edit_pending = edit;
             shared.sample.edit.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);

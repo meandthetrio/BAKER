@@ -164,6 +164,10 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     uint32_t steal_voices_cycles = 0u;
     uint32_t fetch_cycles = 0u;
     uint32_t envmix_cycles = 0u;
+    uint32_t voice_setup_cycles = 0u;
+    uint32_t env_presim_cycles = 0u;
+    uint32_t fetch_seam_cycles = 0u;
+    uint32_t fetch_seam_count = 0u;
     uint32_t layer_mix_cycles = 0u;
     if(diag_on)
         render_total_start = DWT->CYCCNT;
@@ -172,7 +176,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     uint32_t setup_start = 0u;
     if(diag_on)
         setup_start = DWT->CYCCNT;
+#if MOD_SYSTEM_ENABLED
     SnapshotMacroState_();
+#endif
     SnapshotPLockState_();
 
     float engine_tune_scale[kEngineLayerCount] = {};
@@ -223,6 +229,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 #endif
 
     const ModRoute* routes = nullptr;
+    float lfo_src = 0.0f;
+#if MOD_SYSTEM_ENABLED
     ModRoute routes_local[kMaxModRoutes];
     routes = SnapshotModRoutes_(routes_local);
 
@@ -241,7 +249,16 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     lfo_.SetWave(lfo_wave_);
     const float lfo_val = lfo_.Value();
     lfo_.TickBlock(size);
-    const float lfo_src = lfo_val * depth;
+    lfo_src = lfo_val * depth;
+#else
+    // Modulation system disabled at build time: no route snapshot, no macro
+    // smoothing/apply, no LFO sinf/tick. routes stays null and lfo_src 0.
+    (void)rate_hz;
+    (void)depth;
+    (void)lfo_depth;
+    (void)env_amount;
+    (void)routes;
+#endif
     RefreshBlockState_(size);
     if(diag_on)
         fixed_setup_cycles += DWT->CYCCNT - setup_start;
@@ -290,6 +307,10 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         playhead_metric,
         diag_on ? &fetch_cycles : nullptr,
         diag_on ? &envmix_cycles : nullptr,
+        diag_on ? &voice_setup_cycles : nullptr,
+        diag_on ? &env_presim_cycles : nullptr,
+        diag_on ? &fetch_seam_cycles : nullptr,
+        diag_on ? &fetch_seam_count : nullptr,
     };
 
     for(size_t vi = 0; vi < kMaxVoices; vi++)
@@ -309,6 +330,8 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
 
         active++;
 
+        float pitch_scale = 1.0f;
+#if MOD_SYSTEM_ENABLED
         const float env_val = v.mod_env.Value() * env_amount;
         v.mod_env.TickBlock(size);
         if(env_val > max_env)
@@ -338,7 +361,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             mod_pitch = 1.0f;
         if(mod_pitch < -1.0f)
             mod_pitch = -1.0f;
-        float pitch_scale = 1.0f;
         if(mod_pitch != 0.0f)
         {
             int lut_idx = static_cast<int>((mod_pitch + 1.0f) * 127.5f);
@@ -346,6 +368,7 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             if(lut_idx > 255) lut_idx = 255;
             pitch_scale = pitch_mod_lut_[lut_idx];
         }
+#endif
 
         if(is_steal_voice)
         {
@@ -380,12 +403,13 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         !layer_active[0] && state_mag_a < kEmphasisStateEpsilon,
         !layer_active[1] && state_mag_b < kEmphasisStateEpsilon,
     };
-    uint32_t layer_mix_start = 0u;
-    if(diag_on)
-        layer_mix_start = DWT->CYCCNT;
-    RenderBlockMixLayers_(outL, outR, size, mix_scale, clip_block, layer_skip);
-    if(diag_on)
-        layer_mix_cycles = DWT->CYCCNT - layer_mix_start;
+    uint32_t emphasis_cycles = 0u;
+    uint32_t sum_cycles = 0u;
+    RenderBlockMixLayers_(
+        outL, outR, size, mix_scale, clip_block, layer_skip, emphasis_cycles, sum_cycles);
+    // layer_mix bucket = whole layer stage (emphasis ladder + stereo sum), now with
+    // the gain-probe meters excluded so the reading is truthful while the overlay is open.
+    layer_mix_cycles = emphasis_cycles + sum_cycles;
 
     WriteRenderDebug_(clip_block,
                       rate_hz,
@@ -417,6 +441,16 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             *diagnostics_, kDiagVoiceBucketEnvMix, envmix_cycles);
         DiagnosticsStoreVoiceCycleBucket(
             *diagnostics_, kDiagVoiceBucketLayerMix, layer_mix_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketLayerEmphasis, emphasis_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketVoiceSetup, voice_setup_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketEnvPresim, env_presim_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketFetchSeamCycles, fetch_seam_cycles);
+        DiagnosticsStoreVoiceCycleBucket(
+            *diagnostics_, kDiagVoiceBucketFetchSeamCount, fetch_seam_count);
     }
 
     audio_sample_counter_ += static_cast<uint64_t>(size);

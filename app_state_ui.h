@@ -74,6 +74,10 @@ struct AppUiState
     bool ui_seam_audition_active = false;
     uint8_t ui_seam_audition_layer = 0;
     bool ui_seam_silence_pending = false;
+    // Seam-edit entry snapshot, restored on discard (Pod-encoder click).
+    float ui_seam_entry_amount = 0.0625f;
+    float ui_seam_entry_shape = 0.0f;
+    bool ui_seam_entry_baked = false;
     bool ui_parent_preview_active = false;
     uint8_t ui_parent_preview_from_top = 0;
     uint8_t ui_parent_preview_mode = 0;

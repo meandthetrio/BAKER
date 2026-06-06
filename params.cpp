@@ -40,6 +40,9 @@ void Params::PublishTargets()
 
     // Seed the new write buffer from the latest published values.
     targets_buf_[write_idx_ & 1] = targets_buf_[new_published];
+
+    // Signal the audio thread that params changed so it re-pushes them.
+    publish_gen_.fetch_add(1, std::memory_order_release);
 }
 
 float Params::SmoothToward(float current_v, float target_v, float coeff)
@@ -128,7 +131,6 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.engine_loop_release_ms[layer] = t.engine_loop_release_ms[layer];
         current.engine_loop_crossfade_amount[layer] = t.engine_loop_crossfade_amount[layer];
         current.engine_loop_crossfade_shape[layer] = t.engine_loop_crossfade_shape[layer];
-        current.engine_loop_seam_baked[layer] = t.engine_loop_seam_baked[layer];
     }
 
     // Bools snap immediately

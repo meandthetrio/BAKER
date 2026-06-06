@@ -179,8 +179,154 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
                                          int8_t& dir,
                                          bool& gate,
                                          size_t count,
-                                         float* out_buf)
+                                         float* out_buf,
+                                         uint32_t* seam_cycles,
+                                         uint32_t* seam_count)
 {
+    // ------------------------------------------------------------------------
+    // Fast path: forward loop (live seam crossfade OR none). The general path
+    // calls AdvancePos and ApplyBoundaryFadeNoSeam per sample; both live in a
+    // different TU (voice_engine_render_loop.cpp) so without LTO they are real
+    // per-sample calls whose overhead dominates fetch CPU. Here the read still
+    // goes through VoiceRenderFetch_VoiceStream (same TU, inlines — it handles the
+    // seam crossfade), but the forward-loop advance is inlined and the boundary
+    // fade is skipped because in these conditions it is always a no-op
+    // (seam_frames>0 -> ApplyBoundaryFadeNoSeam returns s; else thresholds span
+    // the whole region). Semantics match the general path exactly.
+    // ------------------------------------------------------------------------
+    const Sample* fs = p.sample;
+    const bool boundary_noop = (p.seam_frames > 0u)
+                               || (p.fade_start_threshold <= static_cast<float>(p.start)
+                                   && p.fade_end_threshold >= static_cast<float>(p.end));
+    if(fs != nullptr && fs->pcm != nullptr && fs->length > 0u && p.layer_loop_voice
+       && p.voice_loop_mode == LoopMode::Forward && p.loop_enabled && gate && p.ls_i == p.start
+       && p.le_i == p.end && p.end > p.start && p.end <= fs->length && boundary_noop)
+    {
+        const uint32_t start = p.start;
+        const uint32_t end = p.end;
+        const uint32_t seam = p.seam_frames;                       // forward wrap offset
+        const float eff_span = static_cast<float>(end - start - seam); // loop_span - seam_offset
+        const float ratio = p.ratio;
+        // Hoisted invariants for the inlined steady-state read below. The
+        // fast-path entry conditions guarantee fs/pcm are valid, end>start,
+        // end<=length, and pos stays in [start,end); the per-sample read is the
+        // SampleAtLoopSeamCrossfade non-seam branch (a single SampleAtLinearRegion
+        // with loop_start==start, loop_end==end) which we inline here to remove
+        // the two cross-call frames (SampleAtLoopSeamCrossfade + SampleAtLinearRegion)
+        // that otherwise dominate fetch CPU. Seam-region samples (rare) still
+        // defer to the shared helper for a bit-exact equal-power crossfade.
+        const int16_t* const pcm = fs->pcm;
+        const float gain = p.gain;
+        const uint32_t seam_start = (seam > 0u) ? (end - seam) : end;
+        const float inv_seam = (seam > 0u) ? (1.0f / static_cast<float>(seam)) : 0.0f;
+        float shape_c = p.loop_shape;
+        if(shape_c < 0.0f)
+            shape_c = 0.0f;
+        else if(shape_c > 1.0f)
+            shape_c = 1.0f;
+        uint32_t pf = pos_frame;
+        float pfrac = pos_frac;
+        for(size_t i = 0; i < count; ++i)
+        {
+            float sv;
+            if(seam > 0u && pf >= seam_start)
+            {
+                uint32_t seam_t0 = 0u;
+                if(seam_cycles)
+                    seam_t0 = DWT->CYCCNT;
+                if(seam_count)
+                    ++(*seam_count);
+
+                // Inlined SampleAtLoopSeamCrossfade seam branch: two region
+                // reads (tail at pf, head at start+offset) blended by an
+                // equal-power weight, no cross-call frames. Each read is an
+                // inlined SampleAtLinearRegion (loop_start==start, loop_end==end)
+                // wrapping its +1 tap to start at the region edge.
+                float mix = (static_cast<float>(pf - seam_start) + pfrac) * inv_seam;
+                if(mix < 0.0f)
+                    mix = 0.0f;
+                else if(mix > 1.0f)
+                    mix = 1.0f;
+
+                const uint32_t hf = start + (pf - seam_start);
+                uint32_t tn = pf + 1u;
+                if(tn >= end)
+                    tn = start;
+                uint32_t hn = hf + 1u;
+                if(hn >= end)
+                    hn = start;
+                const float ta = static_cast<float>(pcm[pf]) * (1.0f / 32768.0f);
+                const float tb = static_cast<float>(pcm[tn]) * (1.0f / 32768.0f);
+                const float ha = static_cast<float>(pcm[hf]) * (1.0f / 32768.0f);
+                const float hb = static_cast<float>(pcm[hn]) * (1.0f / 32768.0f);
+                const float tail = ta + pfrac * (tb - ta);
+                const float head = ha + pfrac * (hb - ha);
+
+                const float lin_h = mix;         // head fades in
+                const float lin_t = 1.0f - mix;  // tail fades out
+                int idx_h = static_cast<int>(lin_h * 255.0f + 0.5f);
+                int idx_t = static_cast<int>(lin_t * 255.0f + 0.5f);
+                if(idx_h > 255)
+                    idx_h = 255;
+                if(idx_t > 255)
+                    idx_t = 255;
+                const float ep_h = s_sqrt_lut[idx_h];
+                const float ep_t = s_sqrt_lut[idx_t];
+                const float hw = lin_h + (ep_h - lin_h) * shape_c;
+                const float tw = lin_t + (ep_t - lin_t) * shape_c;
+                sv = (tail * tw + head * hw) * gain;
+
+                if(seam_cycles)
+                    *seam_cycles += DWT->CYCCNT - seam_t0;
+            }
+            else
+            {
+                const int16_t a = pcm[pf];
+                uint32_t nxt = pf + 1u;
+                if(nxt >= end)
+                    nxt = start; // loop_start == start, loop_start < loop_end
+                const int16_t b = pcm[nxt];
+                const float fa = static_cast<float>(a) * (1.0f / 32768.0f);
+                const float fb = static_cast<float>(b) * (1.0f / 32768.0f);
+                sv = (fa + pfrac * (fb - fa)) * gain;
+            }
+            out_buf[i] = sv;
+
+            // Forward advance + wrap to (start + seam); a live forward loop never ends here.
+            const float total = pfrac + ratio;
+            const uint32_t whole = static_cast<uint32_t>(total); // floor (total >= 0)
+            pfrac = total - static_cast<float>(whole);
+            pf += whole;
+            if(pf >= end)
+            {
+                if(eff_span <= 0.0f)
+                {
+                    pf = start + seam;
+                    pfrac = 0.0f;
+                }
+                else
+                {
+                    float overshoot = static_cast<float>(pf - end) + pfrac;
+                    // overshoot is always >= 0 and, for any normal-length loop,
+                    // smaller than eff_span after a single subtract (the
+                    // per-sample advance << eff_span). This is an exact
+                    // replacement for std::fmod on a non-negative value, minus
+                    // the libcall whose per-wrap cost scaled fetch CPU with
+                    // playback pitch. The loop only iterates more than once for
+                    // pathologically short loops (eff_span <= ratio).
+                    while(overshoot >= eff_span)
+                        overshoot -= eff_span;
+                    const uint32_t w = static_cast<uint32_t>(overshoot);
+                    pf = start + seam + w;
+                    pfrac = overshoot - static_cast<float>(w);
+                }
+            }
+        }
+        pos_frame = pf;
+        pos_frac = pfrac;
+        return count; // gate stays true; no end-of-stream in a live forward loop
+    }
+
     size_t eos_idx = count;
     const uint32_t seam_offset = p.layer_loop_voice ? p.seam_frames : 0u;
 

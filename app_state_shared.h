@@ -33,6 +33,12 @@ struct AppSharedState
         struct PublishState
         {
             Sample sd_slots[kSdSampleSlots]{};
+            // Per-layer "loop crossfade is baked into this slot's PCM" flag. Written by
+            // the worker (bake on load) and the seam-edit screen; read every block by
+            // the audio thread to suppress the runtime seam/boundary fade (no double
+            // crossfade). Uses a shared atomic rather than the params path because the
+            // worker cannot publish params targets.
+            std::atomic<uint8_t> sd_layer_seam_baked[kSdSampleSlots]{};
             std::atomic<uint8_t> sd_current_slot{0};
             std::atomic<uint8_t> sd_published_slot{0};
             std::atomic<uint8_t> sd_published_ready{0};

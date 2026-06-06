@@ -9,177 +9,113 @@ void VoiceEngine::RenderBlockMixLayers_(float* outL,
                                         size_t size,
                                         float mix_scale,
                                         uint32_t& clip_block,
-                                        const bool (&layer_skip)[2])
+                                        const bool (&layer_skip)[2],
+                                        uint32_t& emphasis_cycles,
+                                        uint32_t& sum_cycles)
 {
     const bool diag_on = diagnostics_ != nullptr;
+    emphasis_cycles = 0u;
+    sum_cycles = 0u;
 
     // Both layers idle and decayed: bus was already memset to zero in
     // RenderBlock and no voice wrote to it, so the final mix is silence.
     if(layer_skip[0] && layer_skip[1])
         return;
 
-    if(layer_skip[0])
-    {
-        // Layer A skipped: outL is silent, only process layer B.
-        if(diag_on)
-        {
-            float peak_b_pre      = 0.0f;
-            float peak_b_post     = 0.0f;
-            float peak_sum_pre_fx = 0.0f;
-            for(size_t i = 0; i < size; i++)
-            {
-                const float pre_b = std::fabs(outR[i]);
-                if(pre_b > peak_b_pre)
-                    peak_b_pre = pre_b;
-
-                const float layer_b = ProcessLayerBusSample_(1u, outR[i]) * engine_layer_scale_[1u];
-                const float post_b  = std::fabs(layer_b);
-                if(post_b > peak_b_post)
-                    peak_b_post = post_b;
-
-                const float mix = layer_b * mix_scale;
-                const float sum = std::fabs(mix);
-                if(sum > peak_sum_pre_fx)
-                    peak_sum_pre_fx = sum;
-
-                outL[i] = mix;
-                outR[i] = mix;
-                if(mix > 1.0f || mix < -1.0f)
-                    clip_block++;
-            }
-
-            DiagnosticsAccumulatePeakAtomic(
-                diagnostics_->gain_probe_peak_bits[kDiagGainProbeBPre], peak_b_pre);
-            DiagnosticsAccumulatePeakAtomic(
-                diagnostics_->gain_probe_peak_bits[kDiagGainProbeBPost], peak_b_post);
-            DiagnosticsAccumulatePeakAtomic(
-                diagnostics_->gain_probe_peak_bits[kDiagGainProbeSumPreFx], peak_sum_pre_fx);
-        }
-        else
-        {
-            for(size_t i = 0; i < size; i++)
-            {
-                const float layer_b = ProcessLayerBusSample_(1u, outR[i]) * engine_layer_scale_[1u];
-                const float mix     = layer_b * mix_scale;
-                outL[i]             = mix;
-                outR[i]             = mix;
-                if(mix > 1.0f || mix < -1.0f)
-                    clip_block++;
-            }
-        }
-        return;
-    }
-
-    if(layer_skip[1])
-    {
-        // Layer B skipped: outR is silent, only process layer A.
-        if(diag_on)
-        {
-            float peak_a_pre      = 0.0f;
-            float peak_a_post     = 0.0f;
-            float peak_sum_pre_fx = 0.0f;
-            for(size_t i = 0; i < size; i++)
-            {
-                const float pre_a = std::fabs(outL[i]);
-                if(pre_a > peak_a_pre)
-                    peak_a_pre = pre_a;
-
-                const float layer_a = ProcessLayerBusSample_(0u, outL[i]) * engine_layer_scale_[0u];
-                const float post_a  = std::fabs(layer_a);
-                if(post_a > peak_a_post)
-                    peak_a_post = post_a;
-
-                const float mix = layer_a * mix_scale;
-                const float sum = std::fabs(mix);
-                if(sum > peak_sum_pre_fx)
-                    peak_sum_pre_fx = sum;
-
-                outL[i] = mix;
-                outR[i] = mix;
-                if(mix > 1.0f || mix < -1.0f)
-                    clip_block++;
-            }
-
-            DiagnosticsAccumulatePeakAtomic(
-                diagnostics_->gain_probe_peak_bits[kDiagGainProbeAPre], peak_a_pre);
-            DiagnosticsAccumulatePeakAtomic(
-                diagnostics_->gain_probe_peak_bits[kDiagGainProbeAPost], peak_a_post);
-            DiagnosticsAccumulatePeakAtomic(
-                diagnostics_->gain_probe_peak_bits[kDiagGainProbeSumPreFx], peak_sum_pre_fx);
-        }
-        else
-        {
-            for(size_t i = 0; i < size; i++)
-            {
-                const float layer_a = ProcessLayerBusSample_(0u, outL[i]) * engine_layer_scale_[0u];
-                const float mix     = layer_a * mix_scale;
-                outL[i]             = mix;
-                outR[i]             = mix;
-                if(mix > 1.0f || mix < -1.0f)
-                    clip_block++;
-            }
-        }
-        return;
-    }
-
-    // Both layers active.
+    // Pre-emphasis gain probes (diag-only, intentionally OUTSIDE the timed regions
+    // below so the emphasis/sum CPU buckets are not inflated by the meters while the
+    // overlay is open).
     if(diag_on)
     {
-        float peak_a_pre      = 0.0f;
-        float peak_b_pre      = 0.0f;
-        float peak_a_post     = 0.0f;
-        float peak_b_post     = 0.0f;
+        float peak_a_pre = 0.0f;
+        float peak_b_pre = 0.0f;
+        for(size_t i = 0; i < size; i++)
+        {
+            if(!layer_skip[0])
+            {
+                const float a = std::fabs(outL[i]);
+                if(a > peak_a_pre)
+                    peak_a_pre = a;
+            }
+            if(!layer_skip[1])
+            {
+                const float b = std::fabs(outR[i]);
+                if(b > peak_b_pre)
+                    peak_b_pre = b;
+            }
+        }
+        if(!layer_skip[0])
+            DiagnosticsAccumulatePeakAtomic(
+                diagnostics_->gain_probe_peak_bits[kDiagGainProbeAPre], peak_a_pre);
+        if(!layer_skip[1])
+            DiagnosticsAccumulatePeakAtomic(
+                diagnostics_->gain_probe_peak_bits[kDiagGainProbeBPre], peak_b_pre);
+    }
+
+    // Phase 1: per-layer emphasis ladder, in place (the expensive part). Skipped
+    // layers keep their already-zero bus. Timed into the emphasis bucket.
+    const uint32_t emph_start = diag_on ? DWT->CYCCNT : 0u;
+    if(!layer_skip[0])
+        for(size_t i = 0; i < size; i++)
+            outL[i] = ProcessLayerBusSample_(0u, outL[i]) * engine_layer_scale_[0u];
+    if(!layer_skip[1])
+        for(size_t i = 0; i < size; i++)
+            outR[i] = ProcessLayerBusSample_(1u, outR[i]) * engine_layer_scale_[1u];
+    if(diag_on)
+        emphasis_cycles = DWT->CYCCNT - emph_start;
+
+    // Post-emphasis gain probes (diag-only, untimed).
+    if(diag_on)
+    {
+        float peak_a_post = 0.0f;
+        float peak_b_post = 0.0f;
+        for(size_t i = 0; i < size; i++)
+        {
+            if(!layer_skip[0])
+            {
+                const float a = std::fabs(outL[i]);
+                if(a > peak_a_post)
+                    peak_a_post = a;
+            }
+            if(!layer_skip[1])
+            {
+                const float b = std::fabs(outR[i]);
+                if(b > peak_b_post)
+                    peak_b_post = b;
+            }
+        }
+        if(!layer_skip[0])
+            DiagnosticsAccumulatePeakAtomic(
+                diagnostics_->gain_probe_peak_bits[kDiagGainProbeAPost], peak_a_post);
+        if(!layer_skip[1])
+            DiagnosticsAccumulatePeakAtomic(
+                diagnostics_->gain_probe_peak_bits[kDiagGainProbeBPost], peak_b_post);
+    }
+
+    // Phase 2: stereo sum + clip count, in place. Timed into the sum bucket.
+    const uint32_t sum_start = diag_on ? DWT->CYCCNT : 0u;
+    for(size_t i = 0; i < size; i++)
+    {
+        const float mix = (outL[i] + outR[i]) * mix_scale;
+        outL[i] = mix;
+        outR[i] = mix;
+        if(mix > 1.0f || mix < -1.0f)
+            clip_block++;
+    }
+    if(diag_on)
+        sum_cycles = DWT->CYCCNT - sum_start;
+
+    // Sum-stage peak probe (diag-only, untimed).
+    if(diag_on)
+    {
         float peak_sum_pre_fx = 0.0f;
         for(size_t i = 0; i < size; i++)
         {
-            const float pre_a = std::fabs(outL[i]);
-            const float pre_b = std::fabs(outR[i]);
-            if(pre_a > peak_a_pre)
-                peak_a_pre = pre_a;
-            if(pre_b > peak_b_pre)
-                peak_b_pre = pre_b;
-
-            const float layer_a = ProcessLayerBusSample_(0u, outL[i]) * engine_layer_scale_[0u];
-            const float layer_b = ProcessLayerBusSample_(1u, outR[i]) * engine_layer_scale_[1u];
-            const float post_a  = std::fabs(layer_a);
-            const float post_b  = std::fabs(layer_b);
-            if(post_a > peak_a_post)
-                peak_a_post = post_a;
-            if(post_b > peak_b_post)
-                peak_b_post = post_b;
-
-            float       mix     = (layer_a + layer_b) * mix_scale;
-            const float sum     = std::fabs(mix);
-            if(sum > peak_sum_pre_fx)
-                peak_sum_pre_fx = sum;
-            outL[i]             = mix;
-            outR[i]             = mix;
-            if(mix > 1.0f || mix < -1.0f)
-                clip_block++;
+            const float s = std::fabs(outL[i]);
+            if(s > peak_sum_pre_fx)
+                peak_sum_pre_fx = s;
         }
-
-        DiagnosticsAccumulatePeakAtomic(
-            diagnostics_->gain_probe_peak_bits[kDiagGainProbeAPre], peak_a_pre);
-        DiagnosticsAccumulatePeakAtomic(
-            diagnostics_->gain_probe_peak_bits[kDiagGainProbeBPre], peak_b_pre);
-        DiagnosticsAccumulatePeakAtomic(
-            diagnostics_->gain_probe_peak_bits[kDiagGainProbeAPost], peak_a_post);
-        DiagnosticsAccumulatePeakAtomic(
-            diagnostics_->gain_probe_peak_bits[kDiagGainProbeBPost], peak_b_post);
         DiagnosticsAccumulatePeakAtomic(
             diagnostics_->gain_probe_peak_bits[kDiagGainProbeSumPreFx], peak_sum_pre_fx);
-    }
-    else
-    {
-        for(size_t i = 0; i < size; i++)
-        {
-            const float layer_a = ProcessLayerBusSample_(0u, outL[i]) * engine_layer_scale_[0u];
-            const float layer_b = ProcessLayerBusSample_(1u, outR[i]) * engine_layer_scale_[1u];
-            float       mix     = (layer_a + layer_b) * mix_scale;
-            outL[i]             = mix;
-            outR[i]             = mix;
-            if(mix > 1.0f || mix < -1.0f)
-                clip_block++;
-        }
     }
 }

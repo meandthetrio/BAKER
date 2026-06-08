@@ -5,6 +5,8 @@
 #include "bk_file_reader.h"
 #include "sd_sample_pool.h"
 
+#include <cstring>
+
 namespace bk {
 
 bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
@@ -65,7 +67,26 @@ bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
 
 void BkLayer_ClearLayerB(AppSharedState& shared)
 {
+    // Flip the gate FIRST so the voice engine NoteOn handler stops
+    // dereferencing slice_sample[] before we invalidate it. Memory ordering:
+    // bk_layer_b.loaded is plain bool (not atomic), but it's only read on the
+    // audio thread inside ProcessEvents, which observes main-thread writes
+    // through the usual run-loop fence.
     shared.bk_layer_b.loaded = false;
+
+    // Zero the 85 per-slice Sample handles so any leftover pointer into the
+    // PSOLA buffer is unreachable even if a future code path forgets to gate
+    // on `loaded`.
+    for(uint32_t i = 0u; i < bk::kSliceCount; ++i)
+        shared.bk_layer_b.slice_sample[i] = Sample{};
+
+    // Wipe the 40 MB PCM blob so no PSOLA audio survives in SDRAM. ~40 ms
+    // synchronous memset (SDRAM ~1 GB/s) — acceptable for a one-shot user
+    // action; the only caller is the .wav-load-into-layer-B path which
+    // already pauses audio implicitly during the worker load.
+    int16_t* const pcm_buf = SdBkLayerBBuffer();
+    if(pcm_buf != nullptr)
+        std::memset(pcm_buf, 0, static_cast<size_t>(kBkLayerBMaxFrames) * sizeof(int16_t));
 }
 
 } // namespace bk

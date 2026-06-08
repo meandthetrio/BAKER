@@ -9,7 +9,7 @@
 ADSR2_SECTION(".ram_d2_bss") ADSR2_ALIGN32 static int16_t g_sd_sample_buf0[kSdPlaybackD2MaxFrames];
 ADSR2_SECTION(".sdram_bss")  ADSR2_ALIGN32 static int16_t g_sd_sample_buf1[kSdSampleMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_record_buf[kSdSampleMaxFrames];
-ADSR2_SECTION(".sdram_bss") static int16_t g_sd_manage_buf[kSdSampleMaxFrames];
+ADSR2_SECTION(".sdram_bss") static int16_t g_sd_manage_buf[kSdManageMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_bake_preview_buf[kSdSampleMaxFrames];
 // ~40 MB. Largest single SDRAM allocation in the project, but well within
 // budget (64 MB SDRAM total, ~14 MB already used).
@@ -45,6 +45,11 @@ int16_t* SdRecordBuffer()
 int16_t* SdManageBuffer()
 {
     return g_sd_manage_buf;
+}
+
+uint32_t SdManageMaxFrames()
+{
+    return kSdManageMaxFrames;
 }
 
 int16_t* SdBakePreviewBuffer()

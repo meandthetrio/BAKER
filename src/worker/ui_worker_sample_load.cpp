@@ -58,12 +58,21 @@ static bool StartLoadFromPathInternal(SdBrowserState& sd,
     }
 
     const uint32_t frames = info.data_size / 2u;
-    // Per-slot cap: slot 0 plays from RAM_D2 (smaller) so its limit is lower.
-    // SdManage edits + BakePreview both target SDRAM buffers (kSdSampleMaxFrames).
-    const uint32_t max_frames
-        = (load_target == LoadTarget::SdManage || load_target == LoadTarget::BakePreview)
-              ? SdSampleMaxFrames(1)
-              : SdSampleMaxFrames(loading_slot & 1u);
+    // Per-target cap:
+    //   slot 0     — RAM_D2 (smaller); kSdPlaybackD2MaxFrames (~2.7 s).
+    //   slot 1     — SDRAM; kSdSampleMaxFrames (5 s).
+    //   BakePreview — SDRAM, same 5 s as slot 1 (shares the bake pipeline's
+    //                 kMaxFrames=240000 cap downstream).
+    //   SdManage   — its own larger SDRAM buffer at kSdManageMaxFrames (10 s),
+    //                so users can trim long sources before saving back to a
+    //                playback slot.
+    uint32_t max_frames;
+    if(load_target == LoadTarget::SdManage)
+        max_frames = SdManageMaxFrames();
+    else if(load_target == LoadTarget::BakePreview)
+        max_frames = SdSampleMaxFrames(1);
+    else
+        max_frames = SdSampleMaxFrames(loading_slot & 1u);
     if(frames == 0 || frames > max_frames)
     {
         f_close(&s_sd.file);

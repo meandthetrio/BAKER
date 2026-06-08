@@ -34,23 +34,35 @@ bool    s_configured = false;
 // Float scratch buffers live in SDRAM (overwritten before read; SDRAM is
 // initialized by the time the first RunPitchShift call happens, well after
 // main() has called hw.Init()).
-ADSR2_SECTION(".sdram_bss") float s_float_in[kMaxFrames];
-ADSR2_SECTION(".sdram_bss") float s_float_out[kMaxFrames];
+//
+// kMaxLatencyPad: signalsmith-stretch is STFT-based and has internal
+// latency. The total input→output delay is inputLatency() (analysis
+// half) + outputLatency() (synthesis half), each ~half a block. After
+// reset(), the first `inputLatency + outputLatency` output samples are
+// warmup silence — the algorithm hasn't accumulated enough input to
+// emit real audio yet. At presetDefault (block=5760, interval=1440 @
+// 48k) the combined latency is roughly the full block (~5760). We size
+// the input/output buffers generously past kMaxFrames so we can: (a) pad
+// the input with silence to flush the tail past the source end, and (b)
+// hold the over-length output before shifting it left by that combined
+// latency. 16384 frames = 340 ms — safely above any realistic value.
+static constexpr uint32_t kMaxLatencyPad = 16384u;
+
+ADSR2_SECTION(".sdram_bss") float s_float_in [kMaxFrames + kMaxLatencyPad];
+ADSR2_SECTION(".sdram_bss") float s_float_out[kMaxFrames + kMaxLatencyPad];
 
 void EnsureConfigured()
 {
     if(s_configured)
         return;
-    // presetCheaper uses smaller internal buffers (block 4800 vs 5760 at
-    // 48 kHz mono) and enables splitComputation by default. Reduces the
-    // heap footprint of the std::vector allocations inside configure() —
-    // important on this device because (a) the AXI SRAM heap is not huge
-    // and (b) -fno-exceptions makes a failed allocation an immediate
-    // hardfault, observed as the bake function freezing mid-progress.
-    // Quality cost is small; for a one-time offline bake the trade is
-    // clearly in favor of "fits". Revisit with presetDefault + a custom
-    // SDRAM allocator if quality proves inadequate.
-    s_stretch.presetCheaper(/*channels*/ 1, /*sampleRate*/ 48000.0f);
+    // presetDefault: block 5760 / interval 1440 at 48 kHz mono. Larger
+    // block + tighter interval than presetCheaper (4800/1920) — more
+    // overlap per output sample, cleaner harmonic reconstruction on tonal
+    // slices. Heap cost (~100-200 KB of std::vector inside configure())
+    // is absorbed by the SDRAM heap installed via the _sbrk override in
+    // main.cpp; the AXI-SRAM-too-small constraint that originally forced
+    // presetCheaper no longer applies.
+    s_stretch.presetDefault(/*channels*/ 1, /*sampleRate*/ 48000.0f);
     s_stretch.setFormantFactor(1.0f);
     s_configured = true;
 }
@@ -114,15 +126,34 @@ bool RunPitchShiftChunked(const int16_t*  source,
     s_stretch.reset();
     s_stretch.setTransposeSemitones(static_cast<float>(semitones));
 
-    Int16ToFloat(source, s_float_in, frames);
-    std::memset(s_float_out, 0, sizeof(float) * frames);
+    // Query the FULL input-to-output latency. inputLatency() is the
+    // analysis half (block centre vs input cursor); outputLatency() is the
+    // synthesis half (block centre vs emitted output). Their sum is what
+    // we have to shift by — using outputLatency() alone leaves ~half a
+    // block of leading silence on every pitched slice.
+    uint32_t latency = static_cast<uint32_t>(s_stretch.inputLatency())
+                       + static_cast<uint32_t>(s_stretch.outputLatency());
+    if(latency > kMaxLatencyPad)
+        latency = kMaxLatencyPad; // clip rather than corrupt — output start
+                                  // will still be aligned to within
+                                  // (real latency - kMaxLatencyPad) samples
+    const uint32_t total_in_frames  = frames + latency;
+    const uint32_t total_out_frames = frames + latency;
 
-    // Chunk the process() call into kPsolaChunks pieces. The algorithm's
-    // internal state carries across calls (we only reset() once at the top),
-    // so consecutive chunks pick up where the previous left off. Each chunk
-    // is (frames / kPsolaChunks); any remainder goes into the final chunk
-    // so we cover the full source.
-    const uint32_t base_chunk_frames = frames / kPsolaChunks;
+    Int16ToFloat(source, s_float_in, frames);
+    // Pad input past source end with silence to flush the algorithm's
+    // internal buffer — the pad samples drive out the trailing pitched
+    // audio that would otherwise be stuck inside.
+    std::memset(s_float_in + frames, 0, sizeof(float) * latency);
+    std::memset(s_float_out, 0, sizeof(float) * total_out_frames);
+
+    // Chunk the process() call into kPsolaChunks pieces over the padded
+    // input length. The algorithm's internal state carries across calls
+    // (we only reset() once at the top), so consecutive chunks pick up
+    // where the previous left off. Each chunk is
+    // (total_in_frames / kPsolaChunks); any remainder goes into the final
+    // chunk so we cover the full padded source.
+    const uint32_t base_chunk_frames = total_in_frames / kPsolaChunks;
     uint32_t       offset            = 0;
     for(uint8_t c = 0; c < kPsolaChunks; ++c)
     {
@@ -131,7 +162,7 @@ bool RunPitchShiftChunked(const int16_t*  source,
 
         uint32_t chunk_frames = base_chunk_frames;
         if(c == kPsolaChunks - 1u)
-            chunk_frames = frames - offset; // last chunk absorbs remainder
+            chunk_frames = total_in_frames - offset; // last chunk absorbs remainder
         if(chunk_frames == 0u)
             continue;
 
@@ -146,7 +177,11 @@ bool RunPitchShiftChunked(const int16_t*  source,
         offset += chunk_frames;
     }
 
-    FloatToInt16(s_float_out, dest, frames);
+    // Shift the output left by `latency` samples so the pitched audio is
+    // aligned to sample 0 (matches the root slice's unprocessed start).
+    // Without this every pitched slice would lead with ~60 ms of silence
+    // and play noticeably late in an arp against the root.
+    FloatToInt16(s_float_out + latency, dest, frames);
     return true;
 }
 

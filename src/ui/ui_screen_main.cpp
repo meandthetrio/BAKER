@@ -1145,10 +1145,11 @@ static constexpr int32_t kBakeFocusCount = 3;
 //   3 = PSOLA failed (likely heap)
 //   4 = .bk write failed
 
-// Two pitched-slice scratch buffers (.sdram_bss; PSOLA fills before .bk
-// writer reads). One per ±1 semitone neighbor of the root.
-ADSR2_SECTION(".sdram_bss") static int16_t s_bake_slice_up1[bake::kMaxFrames];
-ADSR2_SECTION(".sdram_bss") static int16_t s_bake_slice_dn1[bake::kMaxFrames];
+// Single PSOLA scratch buffer (.sdram_bss). The streaming writer ships each
+// slice to SD as soon as PSOLA fills this buffer, then the next slice
+// overwrites it. 47 simultaneous slices would be ~22 MB; one shared buffer
+// is 480 KB.
+ADSR2_SECTION(".sdram_bss") static int16_t s_bake_slice_scratch[bake::kMaxFrames];
 // Phase labels for the macro steps of the bake (not the PSOLA-internal
 // labels — those come from kPsolaPhaseLabel inside bake_psola.cpp).
 static void BakeProgress_SetMacro_(AppUiState& ui,
@@ -1190,28 +1191,24 @@ static void BakePsolaProgressCb_(uint8_t chunk_index, const char* label)
     BakeProgress_SetMacro_(*ui, s_psola_progress.slice_done_during, percent, label);
 }
 
-// .bk write progress callback. Resets the bar to 0% on first call and
-// climbs as each slice (of the writer's 85) hits SD. Shows "writing X/N"
-// as the phase label so the user sees granular progress through the
-// multi-megabyte file write.
-static AppUiState* s_bake_write_ui = nullptr;
-static void BakeWriteProgressCb_(uint32_t slices_done, uint32_t slices_total)
+// BkWriter_End silence-pad progress callback. Drives the bar from 0→100%
+// during the silence-fill phase (slots the bake didn't populate) so the
+// user sees movement instead of a frozen 100% bar while ~10 MB of zeros
+// stream to SD. The slice_done counter holds at psola_done so the X/N
+// readout stays on the meaningful PSOLA count instead of jumping.
+static AppUiState* s_bake_finalize_ui         = nullptr;
+static uint8_t     s_bake_finalize_psola_done = 0;
+static void BakeFinalizeProgressCb_(uint32_t pad_done, uint32_t pad_total)
 {
-    if(s_bake_write_ui == nullptr || slices_total == 0u)
+    if(s_bake_finalize_ui == nullptr || pad_total == 0u)
         return;
-    // Tight buffer (matches bake_progress_label[20] downstream) keeps the
-    // compiler quiet about format truncation; values are bounded to
-    // [0, kSliceCount=85] so "writing 85/85" + null = 14 chars, well under
-    // the 20-byte cap.
     char buf[20];
-    std::snprintf(buf,
-                  sizeof(buf),
-                  "writing %u/%u",
-                  static_cast<unsigned>(slices_done),
-                  static_cast<unsigned>(slices_total));
+    std::snprintf(buf, sizeof(buf), "finalizing %u/%u",
+                  static_cast<unsigned>(pad_done),
+                  static_cast<unsigned>(pad_total));
     const uint8_t percent
-        = static_cast<uint8_t>((static_cast<uint64_t>(slices_done) * 100u) / slices_total);
-    BakeProgress_SetMacro_(*s_bake_write_ui, 2u, percent, buf);
+        = static_cast<uint8_t>((static_cast<uint64_t>(pad_done) * 100u) / pad_total);
+    BakeProgress_SetMacro_(*s_bake_finalize_ui, s_bake_finalize_psola_done, percent, buf);
 }
 
 static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
@@ -1233,50 +1230,26 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
         source_frames = bake::kMaxFrames;
     const int16_t* source = src_sample.pcm;
 
+    const uint8_t root = ui.bake_root_note;
+
+    // Count PSOLA jobs actually scheduled, given root-clipped range. Used
+    // both for the X/N display and for per-slice base/span percentages.
+    int psola_planned = 0;
+    for(int s = -bake::kBakeSemitonesDown; s <= bake::kBakeSemitonesUp; ++s)
+    {
+        if(s == 0)
+            continue;
+        const int midi = int(root) + s;
+        if(midi < int(bk::kLoNote) || midi > int(bk::kHiNote))
+            continue;
+        ++psola_planned;
+    }
+    ui.bake_progress_slice_total = static_cast<uint8_t>(psola_planned);
+
     // Begin the progress overlay BEFORE stopping audio so the first frame
     // of the overlay is on screen by the time PSOLA crunches CPU.
     BakeProgress_SetMacro_(ui, 0u, 0u, "psola: setup");
     Pod_StopAudio();
-
-    const uint8_t root    = ui.bake_root_note;
-    const bool    has_up1 = (root < bk::kHiNote);
-    const bool    has_dn1 = (root > bk::kLoNote);
-
-    // Step 1: PSOLA +1. Bar runs 0→50% during this slice.
-    if(has_up1)
-    {
-        s_psola_progress.ui                 = &ui;
-        s_psola_progress.slice_done_during  = 0;
-        s_psola_progress.base_percent       = 0;
-        s_psola_progress.span_percent       = 50;
-        if(!bake::RunPitchShiftChunked(source, source_frames, +1, s_bake_slice_up1,
-                                       BakePsolaProgressCb_))
-        {
-            Pod_StartAudio();
-            ui.bake_progress_active = false;
-            return 3;
-        }
-    }
-    BakeProgress_SetMacro_(ui, 1u, 50u, "psola: complete");
-
-    // Step 2: PSOLA -1. Bar runs 50→100%.
-    if(has_dn1)
-    {
-        s_psola_progress.ui                 = &ui;
-        s_psola_progress.slice_done_during  = 1;
-        s_psola_progress.base_percent       = 50;
-        s_psola_progress.span_percent       = 50;
-        if(!bake::RunPitchShiftChunked(source, source_frames, -1, s_bake_slice_dn1,
-                                       BakePsolaProgressCb_))
-        {
-            Pod_StartAudio();
-            ui.bake_progress_active = false;
-            return 3;
-        }
-    }
-    // Step 3: write .bk. Bar resets to 0% and climbs as each slice (of 85)
-    // is written to SD.
-    BakeProgress_SetMacro_(ui, 2u, 0u, "writing 0/85");
 
     bk::BkFileHeader hdr = bk::MakeDefaultHeader();
     hdr.source_duration_samples = source_frames;
@@ -1284,24 +1257,102 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
     hdr.algorithm_id            = static_cast<uint8_t>(bk::kAlgorithmPsola);
     std::snprintf(hdr.source_name, sizeof(hdr.source_name), "%s", ui.bake_sample_name);
 
-    const int16_t* slice_ptrs[bk::kSliceCount] = {};
-    slice_ptrs[root - bk::kLoNote] = source;
-    if(has_up1) slice_ptrs[(root + 1) - bk::kLoNote] = s_bake_slice_up1;
-    if(has_dn1) slice_ptrs[(root - 1) - bk::kLoNote] = s_bake_slice_dn1;
+    bk::BkWriter w;
+    if(!bk::BkWriter_Begin(w, "/test.bk", hdr, source_frames))
+    {
+        Pod_StartAudio();
+        ui.bake_progress_active = false;
+        return 4;
+    }
 
-    s_bake_write_ui = &ui;
-    const bool wrote
-        = bk::BkWrite_File("/test.bk", hdr, slice_ptrs, bk::kSliceCount, source_frames,
-                           BakeWriteProgressCb_);
-    s_bake_write_ui = nullptr;
+    // Fused compute+write loop. Walks all 85 slots in forward order; for
+    // each slot, picks one of:
+    //   - root:  write the unmodified source.
+    //   - in-range pitch: PSOLA into s_bake_slice_scratch, write the scratch.
+    //   - out-of-range:   write a silence slice.
+    // Progress counter advances only on PSOLA outputs (0/N → N/N).
+    int psola_done = 0;
+    for(uint8_t slot = 0; slot < bk::kSliceCount; ++slot)
+    {
+        const int midi  = int(bk::kLoNote) + int(slot);
+        const int delta = midi - int(root);
+        const int16_t* src = nullptr;
 
-    BakeProgress_SetMacro_(ui, 2u, 100u, "done");
+        if(midi == int(root))
+        {
+            src = source;
+        }
+        else if(delta >= -bake::kBakeSemitonesDown && delta <= bake::kBakeSemitonesUp
+                && psola_planned > 0)
+        {
+            // Compute this slot's PSOLA into the shared scratch buffer.
+            s_psola_progress.ui                = &ui;
+            s_psola_progress.slice_done_during = static_cast<uint8_t>(psola_done);
+            s_psola_progress.base_percent
+                = static_cast<uint8_t>((uint32_t(psola_done) * 100u) / uint32_t(psola_planned));
+            s_psola_progress.span_percent
+                = static_cast<uint8_t>(100u / uint32_t(psola_planned));
+            if(!bake::RunPitchShiftChunked(source,
+                                           source_frames,
+                                           delta,
+                                           s_bake_slice_scratch,
+                                           BakePsolaProgressCb_))
+            {
+                bk::BkWriter_End(w, "/test.bk"); // unlinks
+                Pod_StartAudio();
+                ui.bake_progress_active = false;
+                return 3;
+            }
+            src = s_bake_slice_scratch;
+        }
+        // else: src stays nullptr → silence slot.
+
+        if(!bk::BkWriter_WriteSlice(w, src))
+        {
+            bk::BkWriter_End(w, "/test.bk"); // unlinks
+            Pod_StartAudio();
+            ui.bake_progress_active = false;
+            return 4;
+        }
+
+        if(src == s_bake_slice_scratch)
+        {
+            ++psola_done;
+            // Snap the bar to the slot-complete boundary after each PSOLA,
+            // resolving the sub-percent jitter from chunked progress.
+            const uint8_t pct
+                = static_cast<uint8_t>((uint32_t(psola_done) * 100u) / uint32_t(psola_planned));
+            BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), pct,
+                                   "psola: complete");
+        }
+    }
+
+    // Finalize phase: BkWriter_End first writes silence into every slot the
+    // caller didn't populate (37 for a typical root-C4 47-PSOLA bake, ~10 MB
+    // of zero writes for a 3 s source), then f_close flushes FATFS cache to
+    // SD. Both can take a couple seconds combined. Drive the bar through
+    // the silence pad so the UI doesn't look frozen at 100%.
+    BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), 0u, "finalizing: pad");
+    s_bake_finalize_ui = &ui;
+    s_bake_finalize_psola_done = static_cast<uint8_t>(psola_done);
+    const bool wrote = bk::BkWriter_End(w, "/test.bk", BakeFinalizeProgressCb_);
+    s_bake_finalize_ui = nullptr;
+    if(!wrote)
+    {
+        Pod_StartAudio();
+        ui.bake_progress_active = false;
+        return 4;
+    }
+    // f_close inside BkWriter_End has returned; remaining work is just the
+    // status-string write back in the caller. Flip the label so the bar's
+    // 100% state reads "done" instead of stale "finalizing: pad 37/37".
+    BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), 100u, "done");
     Pod_StartAudio();
 
     // Final state: the overlay can hang briefly at 100% until the user
     // interacts, then we clear. Caller will set bake_progress_active=false
     // when it writes the status string.
-    return wrote ? 0 : 4;
+    return 0;
 }
 
 // OnEnter (screen-activation) slot: fires every time BakeMenu becomes the
@@ -1378,9 +1429,9 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
                     {
                         std::snprintf(ui.bake_test_status,
                                       sizeof(ui.bake_test_status),
-                                      "psola r:%u a:%u",
+                                      "psola r:%u n:%u",
                                       static_cast<unsigned>(hdr.root_midi_note),
-                                      static_cast<unsigned>(hdr.algorithm_id));
+                                      static_cast<unsigned>(ui.bake_progress_slice_total));
                     }
                     else
                     {

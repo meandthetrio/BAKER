@@ -62,4 +62,11 @@ bool RunPitchShiftChunked(const int16_t*  source,
 static constexpr uint32_t kMaxFrames     = 240000u;
 static constexpr int      kMaxSemitones  = 48;
 
+// Test-bake pitch range relative to the picked root note. Asymmetric (24
+// down vs 23 up) keeps the total at a round 47 — see
+// BakeMenu_RunPsolaTestBake_ in ui_screen_main.cpp.
+static constexpr int kBakeSemitonesDown = 24;
+static constexpr int kBakeSemitonesUp   = 23;
+static constexpr int kBakeTotalPsola    = kBakeSemitonesDown + kBakeSemitonesUp;
+
 } // namespace bake

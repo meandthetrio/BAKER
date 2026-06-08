@@ -157,8 +157,9 @@ struct AppUiState
     // Pod_ForceDisplayRefresh() to push the new text to the OLED. Stage 3
     // promotes this to a dedicated progress screen with cancel chord.
     bool    bake_progress_active     = false;
-    uint8_t bake_progress_slice_done = 0;   // X in "X/2" — count of completed slices
-    uint8_t bake_progress_slice_total = 2;  // currently 2 (root ±1); stage 3 = 84
+    uint8_t bake_progress_slice_done  = 0;  // X in "X/N" — completed PSOLA slices
+    uint8_t bake_progress_slice_total = 0;  // N = total PSOLA jobs this bake (≤47);
+                                            // set per-run by the bake driver.
     uint8_t bake_progress_percent    = 0;   // 0..100
     char    bake_progress_label[20]  = {};  // e.g. "psola: pitch shift"
     bool record_menu_source_override_active = false;

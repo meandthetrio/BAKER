@@ -7,6 +7,7 @@ C_INCLUDES += -I.
 C_INCLUDES += -I./src/ui
 C_INCLUDES += -I./src/worker
 C_INCLUDES += -I./src/storage
+C_INCLUDES += -I./src/dsp
 
 # Sources
 CPP_SOURCES = main.cpp
@@ -75,6 +76,7 @@ CPP_SOURCES += src/storage/sd_sample_pool.cpp
 CPP_SOURCES += src/storage/sample_bake.cpp
 CPP_SOURCES += src/storage/bk_file_writer.cpp
 CPP_SOURCES += src/storage/bk_file_reader.cpp
+CPP_SOURCES += src/dsp/bake_psola.cpp
 CPP_SOURCES += src/ui/oled_pager.cpp
 CPP_SOURCES += voice_engine.cpp
 CPP_SOURCES += voice_engine_poly_porto.cpp

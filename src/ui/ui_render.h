@@ -19,6 +19,12 @@ class UIRender
     void Init(PodDisplay* display, daisy::DaisyPod& hw);
     void Tick(AppState& app, const Params& params);
     void TickOledTransfer(uint32_t now_ms, bool midi_busy);
+    // Synchronous "render NOW and push a full frame to the OLED." Bypasses
+    // the 60 Hz Tick gate and drains all 8 page transfers in one call
+    // (~22 ms blocking on I2C). For long-blocking main-loop work (bake
+    // worker) that needs to update the UI mid-task — main-loop Tick can't
+    // run, so we have to drive the render pipeline ourselves.
+    void RenderNowAndFlushFullFrame(AppState& app, const Params& params);
     bool IsBootSplashActive() const { return boot_splash_phase_ != BootSplashPhase::Done; }
 
   private:

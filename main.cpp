@@ -24,6 +24,7 @@
 #include "embedded_long_sample.h"
 #include "sd_sample_pool.h"
 #include "audio_callback.h"
+#include "mem_regions.h"
 #include <cmath>
 #include <cstring>
 
@@ -258,6 +259,76 @@ static void RunControlTicks(uint32_t now_ms)
 
         ctrl_accum_ms -= 1;
     }
+}
+
+// Custom heap backing for newlib's malloc/operator new. The default heap
+// section in the project linker script lives in AXI SRAM (left over after
+// .data + .bss), which is far too small for the signalsmith-stretch
+// std::vector allocations inside presetCheaper/presetDefault (~100-200 KB).
+// Heap exhaustion under -fno-exceptions silently hardfaults rather than
+// returning a clean error — observed as the bake screen freezing on the
+// "dbg: pre-configure" diagnostic label.
+//
+// Override _sbrk to allocate from an 8 MB SDRAM buffer. newlib's _sbrk is
+// a weak default and our definition wins at link time. ALL heap allocations
+// in the project go to SDRAM after this — fine because we have 64 MB SDRAM
+// and almost no heap pressure outside PSOLA. SDRAM access is slightly slower
+// than AXI SRAM but the D-cache absorbs the difference for hot loops.
+//
+// Notes:
+// - Heap grows in one direction only; no free-list. signalsmith allocates
+//   once at presetCheaper time and reuses; this is fine for our use case.
+// - .sdram_bss is NOLOAD: contents are undefined at boot. Allocators don't
+//   require zeroed memory (calloc would, but malloc/new don't), so this is
+//   safe.
+// - Static constructors that allocate would hit this _sbrk before main()
+//   runs hw.Init() — but the SDRAM controller is initialized by the H7
+//   reset handler (libDaisy core/), before C++ static init, so writes are
+//   valid by then.
+static constexpr size_t kSdramHeapSize = 8u * 1024u * 1024u; // 8 MB
+ADSR2_SECTION(".sdram_bss") __attribute__((aligned(8))) static uint8_t s_sdram_heap[kSdramHeapSize];
+static size_t s_sdram_heap_used = 0;
+
+extern "C" void* _sbrk(intptr_t incr)
+{
+    const size_t requested = (incr > 0) ? static_cast<size_t>(incr) : 0u;
+    if((s_sdram_heap_used + requested) > sizeof(s_sdram_heap))
+    {
+        // Out of heap. newlib expects (void*)-1 on failure; malloc then
+        // returns nullptr to the caller. Under -fno-exceptions, that's an
+        // immediate hardfault inside std::vector — but at least we're not
+        // silently writing past the buffer.
+        return reinterpret_cast<void*>(-1);
+    }
+    void* prev = &s_sdram_heap[s_sdram_heap_used];
+    s_sdram_heap_used += requested;
+    return prev;
+}
+
+// Audio start/stop wrappers — `hw` is static to this TU so consumers (e.g.
+// the bake worker that needs to suspend the audio interrupt during PSOLA)
+// go through these. Trivial, but they keep the static linkage tight.
+extern "C" void Pod_StopAudio()
+{
+    hw.StopAudio();
+}
+
+extern "C" void Pod_StartAudio()
+{
+    hw.StartAudio(AudioCallback);
+}
+
+// Synchronous full-frame OLED flush for callers (notably the bake worker)
+// that block the main loop and still want the OLED to reflect their
+// progress state. Renders the active screen and drains all 8 page transfers
+// in one call (~22 ms blocking on I2C). Bypasses both the 60 Hz Tick gate
+// and the 2 ms per-page transfer gate — those gates are only correct for
+// the main loop's regular cadence, not for a blocking task pushing updates
+// at its own rate.
+extern "C" void Pod_ForceDisplayRefresh()
+{
+    g_app.ui.ui_dirty = true;
+    g_render.RenderNowAndFlushFullFrame(g_app, g_params);
 }
 
 int main(void)

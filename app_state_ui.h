@@ -139,6 +139,17 @@ struct AppUiState
     // needing SD inspection). Empty = no test run yet. Removed in stage 3
     // when the real progress screen lands.
     char    bake_test_status[20] = {};
+    // STAGE 2 TEMPORARY: bake-in-progress overlay. When `bake_progress_active`
+    // is true the bake screen draws a centered modal showing "X/2" (slices
+    // completed of total), the current PSOLA phase label, and a 0-100 %
+    // progress bar. The bake worker updates these between phases and calls
+    // Pod_ForceDisplayRefresh() to push the new text to the OLED. Stage 3
+    // promotes this to a dedicated progress screen with cancel chord.
+    bool    bake_progress_active     = false;
+    uint8_t bake_progress_slice_done = 0;   // X in "X/2" — count of completed slices
+    uint8_t bake_progress_slice_total = 2;  // currently 2 (root ±1); stage 3 = 84
+    uint8_t bake_progress_percent    = 0;   // 0..100
+    char    bake_progress_label[20]  = {};  // e.g. "psola: pitch shift"
     bool record_menu_source_override_active = false;
     uint8_t record_menu_source_override = 0;
     bool record_menu_armed_back_returns_to_menu = false;

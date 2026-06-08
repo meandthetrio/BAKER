@@ -69,6 +69,26 @@ void UIRender::Render(const AppState& app, const Params& params)
     }
 }
 
+void UIRender::RenderNowAndFlushFullFrame(AppState& app, const Params& params)
+{
+    if(!oled_pager_.IsReady())
+        return;
+    // Render the active screen into the back buffer, copy to front buffer
+    // and arm a transfer, then drain all 8 page transfers synchronously.
+    // Each page calls i2c.TransmitBlocking (~2.7 ms), so the full flush is
+    // ~22 ms. Bypasses the 60 Hz Tick gate AND the 2 ms per-page gate —
+    // we're in a context where no other Tick will run until we return.
+    oled_pager_.Fill(false);
+    Render(app, params);
+    oled_pager_.BeginFrameTransfer();
+    uint32_t fake_now_ms = System::GetNow();
+    for(uint8_t i = 0; i < 16u && oled_pager_.IsTransferring(); ++i)
+    {
+        oled_pager_.TickTransferOnePage(fake_now_ms, false);
+        fake_now_ms += 4;
+    }
+}
+
 void UIRender::TickOledTransfer(uint32_t now_ms, bool midi_busy)
 {
     oled_pager_.TickTransferOnePage(now_ms, midi_busy);

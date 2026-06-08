@@ -8,9 +8,22 @@
 #include "app_state_diagnostics.h"
 #include "app_state_shared.h"
 #include "app_state_worker.h"
+#include "bake_psola.h"
 #include "bk_file_format.h"
 #include "bk_file_reader.h"
 #include "bk_file_writer.h"
+#include "mem_regions.h"
+#include "sampler_sample.h"
+#include "sd_sample_pool.h"
+
+// Wrappers exposed from main.cpp (where the DaisyPod handle + display
+// renderer live statically). The PSOLA bake uses these to suspend the
+// audio interrupt for the duration of pitch renders, and to push display
+// updates from inside its blocking main-loop work so the progress overlay
+// actually advances on the OLED.
+extern "C" void Pod_StopAudio();
+extern "C" void Pod_StartAudio();
+extern "C" void Pod_ForceDisplayRefresh();
 #include "oled_pager.h"
 #include "sd_sample_pool.h"
 #include "ui_input.h"
@@ -1111,35 +1124,184 @@ void CraftMenu_Render(UiScreenCtx& ctx)
 // screen, and cancel chord are deferred to a later plan.
 static constexpr int32_t kBakeFocusCount = 3;
 
-// STAGE 1 TEMPORARY: silence-bake test trigger fired by REnc Click on the
-// `bake` button. Synchronously writes /test.bk to SD root containing 85
-// silent (zero-PCM) slices, so we can verify the file format end-to-end on
-// real hardware before integrating PSOLA (stage 2) and the full bake UX
-// (stage 3 — rename screen, progress screen, cancel chord, async worker).
+// STAGE 2 TEMPORARY: PSOLA test-bake fired by REnc Click on the bake button.
+// The whole sequence runs synchronously on the main thread:
+//   1. Load the picked .wav from SD into the bake-preview SDRAM buffer.
+//   2. PSOLA-pitch up 1 semitone (chunked progress).
+//   3. PSOLA-pitch down 1 semitone (chunked progress).
+//   4. Write /test.bk with source at root + the two pitched slices + 82
+//      silent slots.
+// Audio is suspended for the duration (PSOLA is heavy + main-loop-blocking).
+// Pod_ForceDisplayRefresh() is called between phases so the progress
+// overlay on the bake screen updates as work advances.
 //
-// Blocks the main loop for ~1-2 s while ~8 MB hits the SD card. That's
-// acceptable for stage 1 (this gets replaced by an async worker dispatch in
-// stage 3); the user sees the screen freeze briefly. No-op (silently) if no
-// source sample has been picked yet.
-static bool BakeMenu_RunSilenceBakeTest_(AppUiState& ui)
+// Stage 3 replaces this with the rename screen + dedicated progress
+// screen + async worker dispatch + full 84-pitch bake.
+//
+// Result codes (returned, mapped to status string by the caller):
+//   0 = success
+//   1 = no sample picked
+//   2 = WAV load / parse / format failure
+//   3 = PSOLA failed (likely heap)
+//   4 = .bk write failed
+
+// Two pitched-slice scratch buffers (.sdram_bss; PSOLA fills before .bk
+// writer reads). One per ±1 semitone neighbor of the root.
+ADSR2_SECTION(".sdram_bss") static int16_t s_bake_slice_up1[bake::kMaxFrames];
+ADSR2_SECTION(".sdram_bss") static int16_t s_bake_slice_dn1[bake::kMaxFrames];
+// Phase labels for the macro steps of the bake (not the PSOLA-internal
+// labels — those come from kPsolaPhaseLabel inside bake_psola.cpp).
+static void BakeProgress_SetMacro_(AppUiState& ui,
+                                   uint8_t     slice_done,
+                                   uint8_t     percent,
+                                   const char* label)
+{
+    ui.bake_progress_active     = true;
+    ui.bake_progress_slice_done = slice_done;
+    ui.bake_progress_percent    = percent;
+    std::snprintf(ui.bake_progress_label,
+                  sizeof(ui.bake_progress_label),
+                  "%s",
+                  label ? label : "");
+    Pod_ForceDisplayRefresh();
+}
+
+// State threaded into the PSOLA chunk callback. Per-slice base percent
+// + slice-done index let one shared C-style callback handle both pitches.
+struct PsolaProgressState
+{
+    AppUiState* ui;
+    uint8_t     slice_done_during; // X to show during this slice's chunks
+    uint8_t     base_percent;      // bar start for this slice
+    uint8_t     span_percent;      // bar span for this slice
+};
+static PsolaProgressState s_psola_progress;
+
+static void BakePsolaProgressCb_(uint8_t chunk_index, const char* label)
+{
+    AppUiState* ui = s_psola_progress.ui;
+    if(ui == nullptr)
+        return;
+    // Linear within-slice progress: chunk_index 0 → 0%, chunk_index
+    // (kPsolaChunks-1) → (span * (kPsolaChunks-1)/kPsolaChunks)%.
+    const uint32_t within = (static_cast<uint32_t>(chunk_index) * s_psola_progress.span_percent)
+                            / bake::kPsolaChunks;
+    const uint8_t percent = static_cast<uint8_t>(s_psola_progress.base_percent + within);
+    BakeProgress_SetMacro_(*ui, s_psola_progress.slice_done_during, percent, label);
+}
+
+// .bk write progress callback. Resets the bar to 0% on first call and
+// climbs as each slice (of the writer's 85) hits SD. Shows "writing X/N"
+// as the phase label so the user sees granular progress through the
+// multi-megabyte file write.
+static AppUiState* s_bake_write_ui = nullptr;
+static void BakeWriteProgressCb_(uint32_t slices_done, uint32_t slices_total)
+{
+    if(s_bake_write_ui == nullptr || slices_total == 0u)
+        return;
+    // Tight buffer (matches bake_progress_label[20] downstream) keeps the
+    // compiler quiet about format truncation; values are bounded to
+    // [0, kSliceCount=85] so "writing 85/85" + null = 14 chars, well under
+    // the 20-byte cap.
+    char buf[20];
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "writing %u/%u",
+                  static_cast<unsigned>(slices_done),
+                  static_cast<unsigned>(slices_total));
+    const uint8_t percent
+        = static_cast<uint8_t>((static_cast<uint64_t>(slices_done) * 100u) / slices_total);
+    BakeProgress_SetMacro_(*s_bake_write_ui, 2u, percent, buf);
+}
+
+static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
 {
     if(ui.bake_sample_path[0] == '\0')
-        return false;
+        return 1;
 
-    bk::BkFileHeader hdr   = bk::MakeDefaultHeader();
-    hdr.source_duration_samples = 48000u;            // 1 second per slice
-    hdr.root_midi_note          = ui.bake_root_note;
-    hdr.algorithm_id            = static_cast<uint8_t>(bk::kAlgorithmSilence);
+    // The source is pre-loaded into the SDRAM bake-preview buffer at
+    // sample-select time (see SdManageMenu_OnEvent's bake-pick branch in
+    // ui_screen_sd_browse.cpp, which pushes a LoadWavToBakePreview UiReq).
+    // If the user pressed bake before the worker finished the load, the
+    // Sample handle will still be unpopulated.
+    const Sample& src_sample = shared.bake_preview.sample;
+    if(src_sample.pcm == nullptr || src_sample.length == 0u)
+        return 2;
+
+    uint32_t source_frames = src_sample.length;
+    if(source_frames > bake::kMaxFrames)
+        source_frames = bake::kMaxFrames;
+    const int16_t* source = src_sample.pcm;
+
+    // Begin the progress overlay BEFORE stopping audio so the first frame
+    // of the overlay is on screen by the time PSOLA crunches CPU.
+    BakeProgress_SetMacro_(ui, 0u, 0u, "psola: setup");
+    Pod_StopAudio();
+
+    const uint8_t root    = ui.bake_root_note;
+    const bool    has_up1 = (root < bk::kHiNote);
+    const bool    has_dn1 = (root > bk::kLoNote);
+
+    // Step 1: PSOLA +1. Bar runs 0→50% during this slice.
+    if(has_up1)
+    {
+        s_psola_progress.ui                 = &ui;
+        s_psola_progress.slice_done_during  = 0;
+        s_psola_progress.base_percent       = 0;
+        s_psola_progress.span_percent       = 50;
+        if(!bake::RunPitchShiftChunked(source, source_frames, +1, s_bake_slice_up1,
+                                       BakePsolaProgressCb_))
+        {
+            Pod_StartAudio();
+            ui.bake_progress_active = false;
+            return 3;
+        }
+    }
+    BakeProgress_SetMacro_(ui, 1u, 50u, "psola: complete");
+
+    // Step 2: PSOLA -1. Bar runs 50→100%.
+    if(has_dn1)
+    {
+        s_psola_progress.ui                 = &ui;
+        s_psola_progress.slice_done_during  = 1;
+        s_psola_progress.base_percent       = 50;
+        s_psola_progress.span_percent       = 50;
+        if(!bake::RunPitchShiftChunked(source, source_frames, -1, s_bake_slice_dn1,
+                                       BakePsolaProgressCb_))
+        {
+            Pod_StartAudio();
+            ui.bake_progress_active = false;
+            return 3;
+        }
+    }
+    // Step 3: write .bk. Bar resets to 0% and climbs as each slice (of 85)
+    // is written to SD.
+    BakeProgress_SetMacro_(ui, 2u, 0u, "writing 0/85");
+
+    bk::BkFileHeader hdr = bk::MakeDefaultHeader();
+    hdr.source_duration_samples = source_frames;
+    hdr.root_midi_note          = root;
+    hdr.algorithm_id            = static_cast<uint8_t>(bk::kAlgorithmPsola);
     std::snprintf(hdr.source_name, sizeof(hdr.source_name), "%s", ui.bake_sample_name);
 
-    // All-nullptr slice pointer array → writer streams silence per slice
-    // (chunked zero-fill, no large scratch buffer needed).
     const int16_t* slice_ptrs[bk::kSliceCount] = {};
-    return bk::BkWrite_File("/test.bk",
-                            hdr,
-                            slice_ptrs,
-                            bk::kSliceCount,
-                            hdr.source_duration_samples);
+    slice_ptrs[root - bk::kLoNote] = source;
+    if(has_up1) slice_ptrs[(root + 1) - bk::kLoNote] = s_bake_slice_up1;
+    if(has_dn1) slice_ptrs[(root - 1) - bk::kLoNote] = s_bake_slice_dn1;
+
+    s_bake_write_ui = &ui;
+    const bool wrote
+        = bk::BkWrite_File("/test.bk", hdr, slice_ptrs, bk::kSliceCount, source_frames,
+                           BakeWriteProgressCb_);
+    s_bake_write_ui = nullptr;
+
+    BakeProgress_SetMacro_(ui, 2u, 100u, "done");
+    Pod_StartAudio();
+
+    // Final state: the overlay can hang briefly at 100% until the user
+    // interacts, then we clear. Caller will set bake_progress_active=false
+    // when it writes the status string.
+    return wrote ? 0 : 4;
 }
 
 // OnEnter (screen-activation) slot: fires every time BakeMenu becomes the
@@ -1191,35 +1353,32 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
         case 2:
         default:
         {
-            // STAGE 1: temporary silence-bake test. Writes /test.bk then
-            // immediately round-trips through the reader so a single click
-            // exercises both writer and reader. Status field shows what
-            // came back: "ok r=N a=0" means writer + reader + format all
-            // round-trip cleanly with the expected root note + algorithm.
-            // Replaced in stage 3 by the rename + progress screens.
-            if(ui.bake_sample_path[0] == '\0')
+            // STAGE 2: PSOLA test-bake. Auto-loads source WAV from SD,
+            // PSOLA-renders ±1 semitone neighbors of the root, writes
+            // /test.bk with all three populated and 82 silent slots.
+            // Progress overlay (bake_progress_*) is driven from inside
+            // RunPsolaTestBake_; we clear it here once the call returns
+            // and set the final status string.
+            if(!ctx.shared)
             {
                 std::snprintf(ui.bake_test_status,
                               sizeof(ui.bake_test_status),
-                              "no sample");
+                              "no shared");
+                ui.ui_dirty = true;
+                return true;
             }
-            else
+            const int rc = BakeMenu_RunPsolaTestBake_(ui, *ctx.shared);
+            ui.bake_progress_active = false;
+            switch(rc)
             {
-                const bool wrote = BakeMenu_RunSilenceBakeTest_(ui);
-                if(!wrote)
-                {
-                    std::snprintf(ui.bake_test_status,
-                                  sizeof(ui.bake_test_status),
-                                  "WRITE FAILED");
-                }
-                else
+                case 0:
                 {
                     bk::BkFileHeader hdr;
                     if(bk::BkRead_OpenAndValidateHeader("/test.bk", hdr))
                     {
                         std::snprintf(ui.bake_test_status,
                                       sizeof(ui.bake_test_status),
-                                      "ok r=%u a=%u",
+                                      "psola r:%u a:%u",
                                       static_cast<unsigned>(hdr.root_midi_note),
                                       static_cast<unsigned>(hdr.algorithm_id));
                     }
@@ -1229,7 +1388,24 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
                                       sizeof(ui.bake_test_status),
                                       "READ FAIL");
                     }
+                    break;
                 }
+                case 1:
+                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "no sample");
+                    break;
+                case 2:
+                    // Sample pre-load (kicked at SD-Manager select time) hasn't
+                    // finished yet, or path was empty. User waits ~1 s and tries
+                    // again — typical SD loads are sub-second.
+                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "still loading");
+                    break;
+                case 3:
+                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "PSOLA FAIL");
+                    break;
+                case 4:
+                default:
+                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "WRITE FAIL");
+                    break;
             }
             ui.ui_dirty = true;
             return true;
@@ -1349,6 +1525,52 @@ void BakeMenu_Render(UiScreenCtx& ctx)
     {
         const int status_y = start_y + 2 * (text_h + kRowGapY) + text_h + 4;
         DrawTinyString(d, ui.bake_test_status, kListLeftX, status_y, true);
+    }
+
+    // STAGE 2 TEMPORARY: bake-in-progress overlay. Drawn LAST so it covers
+    // the underlying bake screen during a bake. Layout:
+    //   [centered]   X/2
+    //   [centered]   <psola phase label>
+    //   [centered]   [████████░░░░░░░░] (progress bar, 80 px)
+    if(ui.bake_progress_active)
+    {
+        constexpr int kBoxX0 = 8;
+        constexpr int kBoxY0 = 8;
+        constexpr int kBoxX1 = 119;
+        constexpr int kBoxY1 = 55;
+        // Black fill + white border modal box.
+        d.DrawRect(kBoxX0, kBoxY0, kBoxX1, kBoxY1, false, true);
+        d.DrawRect(kBoxX0, kBoxY0, kBoxX1, kBoxY1, true, false);
+
+        // Top: "X/2" centered.
+        char xy_buf[16];
+        std::snprintf(xy_buf,
+                      sizeof(xy_buf),
+                      "%u/%u",
+                      static_cast<unsigned>(ui.bake_progress_slice_done),
+                      static_cast<unsigned>(ui.bake_progress_slice_total));
+        const int xy_w  = TinyStringWidth(xy_buf);
+        const int xy_x  = (kBoxX0 + kBoxX1 - xy_w) / 2;
+        const int xy_y  = kBoxY0 + 4;
+        DrawTinyString(d, xy_buf, xy_x, xy_y, true);
+
+        // Middle: phase label centered.
+        const int lbl_w = TinyStringWidth(ui.bake_progress_label);
+        const int lbl_x = (kBoxX0 + kBoxX1 - lbl_w) / 2;
+        const int lbl_y = kBoxY0 + 4 + Font5x7::H + 6;
+        DrawTinyString(d, ui.bake_progress_label, lbl_x, lbl_y, true);
+
+        // Bottom: progress bar (outline + filled portion).
+        const int bar_x0 = kBoxX0 + 8;
+        const int bar_x1 = kBoxX1 - 8;
+        const int bar_y0 = kBoxY1 - 10;
+        const int bar_y1 = kBoxY1 - 4;
+        d.DrawRect(bar_x0, bar_y0, bar_x1, bar_y1, true, false);
+        const int bar_inner_w = bar_x1 - bar_x0 - 2;
+        const int fill_w
+            = (bar_inner_w * static_cast<int>(ui.bake_progress_percent)) / 100;
+        if(fill_w > 0)
+            d.DrawRect(bar_x0 + 1, bar_y0 + 1, bar_x0 + 1 + fill_w, bar_y1 - 1, true, true);
     }
 }
 

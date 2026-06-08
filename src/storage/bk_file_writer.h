@@ -6,6 +6,11 @@
 
 namespace bk {
 
+// Per-slice progress callback fired AFTER each slice's bytes hit SD. Lets
+// the caller drive a "writing N/total" UI without exposing the writer's
+// chunk loop. Pass nullptr to skip progress reporting.
+using BkWriteProgressCb = void (*)(uint32_t slices_done, uint32_t slices_total);
+
 // Write a .bk file to `path` (overwrites if exists; unlinks on any failure
 // to avoid leaving partial files on SD). Synchronous — call from main thread
 // or worker thread, NEVER from the audio interrupt.
@@ -26,7 +31,8 @@ bool BkWrite_File(const char*            path,
                   const BkFileHeader&    hdr,
                   const int16_t* const*  slice_ptrs,
                   uint32_t               slice_count,
-                  uint32_t               frames_per_slice);
+                  uint32_t               frames_per_slice,
+                  BkWriteProgressCb      cb = nullptr);
 
 // Convenience: populate a BkFileHeader with sensible defaults
 // (magic + version + 48 kHz mono 16-bit + lo/hi from constants). Caller fills

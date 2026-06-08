@@ -974,6 +974,18 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ExtractBaseName(ui.sd.paths[sample_idx],
                             ui.bake_sample_name,
                             sizeof(ui.bake_sample_name));
+            // Eagerly kick the worker to load this sample into the bake
+            // SDRAM preview buffer so it's resident BEFORE the user presses
+            // bake. Reuses the same async load path Button2 used to use; by
+            // the time the user has set the root note and pressed bake the
+            // load is normally complete. Bake button checks the loaded
+            // sample length and errors if it's not done yet (extremely
+            // unlikely in practice — sub-second load for typical samples).
+            if(ctx.worker)
+            {
+                UiReq req{UiReqType::LoadWavToBakePreview, sample_idx, 0};
+                UiReq_Push(*ctx.ui, *ctx.worker, req);
+            }
             ui.bake_browser_open = false;
             UiNav_Pop(ui.ui_nav);
             ui.ui_dirty = true;

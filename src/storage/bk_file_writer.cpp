@@ -55,7 +55,8 @@ bool BkWrite_File(const char*           path,
                   const BkFileHeader&   hdr,
                   const int16_t* const* slice_ptrs,
                   uint32_t              slice_count,
-                  uint32_t              frames_per_slice)
+                  uint32_t              frames_per_slice,
+                  BkWriteProgressCb     cb)
 {
     if(path == nullptr || path[0] == '\0')
         return false;
@@ -120,6 +121,8 @@ bool BkWrite_File(const char*           path,
                 frames_remaining -= chunk_frames;
             }
         }
+        if(cb != nullptr)
+            cb(i + 1u, slice_count);
     }
 
     if(f_close(&s_bk_file) != FR_OK)

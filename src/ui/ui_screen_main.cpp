@@ -8,6 +8,8 @@
 #include "app_state_diagnostics.h"
 #include "app_state_shared.h"
 #include "app_state_worker.h"
+#include "bk_file_format.h"
+#include "bk_file_writer.h"
 #include "oled_pager.h"
 #include "sd_sample_pool.h"
 #include "ui_input.h"
@@ -1108,6 +1110,37 @@ void CraftMenu_Render(UiScreenCtx& ctx)
 // screen, and cancel chord are deferred to a later plan.
 static constexpr int32_t kBakeFocusCount = 3;
 
+// STAGE 1 TEMPORARY: silence-bake test trigger fired by REnc Click on the
+// `bake` button. Synchronously writes /test.bk to SD root containing 85
+// silent (zero-PCM) slices, so we can verify the file format end-to-end on
+// real hardware before integrating PSOLA (stage 2) and the full bake UX
+// (stage 3 — rename screen, progress screen, cancel chord, async worker).
+//
+// Blocks the main loop for ~1-2 s while ~8 MB hits the SD card. That's
+// acceptable for stage 1 (this gets replaced by an async worker dispatch in
+// stage 3); the user sees the screen freeze briefly. No-op (silently) if no
+// source sample has been picked yet.
+static bool BakeMenu_RunSilenceBakeTest_(AppUiState& ui)
+{
+    if(ui.bake_sample_path[0] == '\0')
+        return false;
+
+    bk::BkFileHeader hdr   = bk::MakeDefaultHeader();
+    hdr.source_duration_samples = 48000u;            // 1 second per slice
+    hdr.root_midi_note          = ui.bake_root_note;
+    hdr.algorithm_id            = static_cast<uint8_t>(bk::kAlgorithmSilence);
+    std::snprintf(hdr.source_name, sizeof(hdr.source_name), "%s", ui.bake_sample_name);
+
+    // All-nullptr slice pointer array → writer streams silence per slice
+    // (chunked zero-fill, no large scratch buffer needed).
+    const int16_t* slice_ptrs[bk::kSliceCount] = {};
+    return bk::BkWrite_File("/test.bk",
+                            hdr,
+                            slice_ptrs,
+                            bk::kSliceCount,
+                            hdr.source_duration_samples);
+}
+
 // OnEnter (screen-activation) slot: fires every time BakeMenu becomes the
 // active screen — including when popping back from the SD-Manager picker.
 // Clears the bake_browser_open flag so a subsequent SD-manager entry from a
@@ -1156,8 +1189,29 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
             return false;
         case 2:
         default:
-            // Bake button is a no-op stub (deferred to next plan).
-            return false;
+        {
+            // STAGE 1: temporary silence-bake test. Writes /test.bk to SD
+            // root with 85 silent slices so we can verify the .bk file
+            // format round-trips on real hardware. Synchronous — blocks the
+            // main loop for ~1-2 s. Replaced in stage 3 by the rename
+            // screen + progress screen + async worker dispatch.
+            if(ui.bake_sample_path[0] == '\0')
+            {
+                std::snprintf(ui.bake_test_status,
+                              sizeof(ui.bake_test_status),
+                              "no sample");
+            }
+            else
+            {
+                const bool ok = BakeMenu_RunSilenceBakeTest_(ui);
+                std::snprintf(ui.bake_test_status,
+                              sizeof(ui.bake_test_status),
+                              "%s",
+                              ok ? "wrote /test.bk" : "WRITE FAILED");
+            }
+            ui.ui_dirty = true;
+            return true;
+        }
     }
 }
 
@@ -1264,6 +1318,15 @@ void BakeMenu_Render(UiScreenCtx& ctx)
             DrawFillOnlyTinyString(d, "bake", kListLeftX, y);
         else
             DrawTinyString(d, "bake", kListLeftX, y, true);
+    }
+
+    // STAGE 1 TEMPORARY: status string under the bake button. Shows the
+    // last silence-bake-test result so we can diagnose without yanking the
+    // SD card. Removed in stage 3.
+    if(ui.bake_test_status[0] != '\0')
+    {
+        const int status_y = start_y + 2 * (text_h + kRowGapY) + text_h + 4;
+        DrawTinyString(d, ui.bake_test_status, kListLeftX, status_y, true);
     }
 }
 

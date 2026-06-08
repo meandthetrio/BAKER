@@ -134,6 +134,11 @@ struct AppUiState
     char    bake_sample_path[kSdPathMax] = {};
     char    bake_sample_name[kSdNameMax] = {};
     bool    bake_browser_open = false;
+    // STAGE 1 TEMPORARY: shows last silence-bake test result on the bake
+    // screen (so we can verify the writer ran and what it returned without
+    // needing SD inspection). Empty = no test run yet. Removed in stage 3
+    // when the real progress screen lands.
+    char    bake_test_status[20] = {};
     bool record_menu_source_override_active = false;
     uint8_t record_menu_source_override = 0;
     bool record_menu_armed_back_returns_to_menu = false;

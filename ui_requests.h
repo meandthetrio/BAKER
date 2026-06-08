@@ -15,6 +15,7 @@ enum class UiReqType : uint8_t
     ScanSdWavs,
     LoadWavIndex,
     LoadWavIndexSdManage,
+    LoadWavToBakePreview,
     DeleteWavIndex,
     NormalizeCurrent,
     LoopFindCurrent,

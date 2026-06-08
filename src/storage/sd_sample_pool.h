@@ -21,6 +21,11 @@ int16_t* SdSampleLoadBuffer(uint8_t slot);
 int16_t* SdSampleRawBuffer(uint8_t slot);
 int16_t* SdRecordBuffer();
 int16_t* SdManageBuffer();
+// Bake preview scratch buffer. The bake screen's sample picker (SD Manager in
+// bake-pick mode) loads the focused .wav here so it can be auditioned as a raw
+// dry one-shot via Button2 without going through the engine slots or perform
+// parameters. Sized to kSdSampleMaxFrames (5 s @ 48 kHz mono).
+int16_t* SdBakePreviewBuffer();
 // Per-layer scratch holding the seam-baked copy of a loaded sample. The raw load
 // stays in SdSampleBuffer(slot) for future re-bakes; the baked copy is what plays.
 int16_t* SdBakedBuffer(uint8_t slot);

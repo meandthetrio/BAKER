@@ -111,6 +111,21 @@ struct AppSharedState
         SampleEdit edit{};
     } sd_manage{};
 
+    // Bake-screen sample preview bridge. UI/main posts start/stop; worker fills
+    // `sample` (pcm + length) before posting start_req with release ordering so
+    // the audio thread sees a valid Sample before it activates. Audio thread
+    // owns active playback, advances `pos`, and auto-clears `active` at end.
+    // When active, the bake-preview audio path overwrites outL/outR (voice
+    // engine output is replaced, not mixed) — a raw dry one-shot to master.
+    struct BakePreviewBridge
+    {
+        std::atomic<uint8_t>  start_req{0};
+        std::atomic<uint8_t>  stop_req{0};
+        std::atomic<uint8_t>  active{0};
+        std::atomic<uint32_t> pos{0};
+        Sample                sample{};
+    } bake_preview{};
+
     struct PerformanceSharedState
     {
         struct ModulationState

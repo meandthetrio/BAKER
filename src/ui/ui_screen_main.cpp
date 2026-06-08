@@ -289,12 +289,6 @@ static void DrawMenuListStyle(OledPager& d,
     }
 }
 
-static void DrawBlankPlaceholder(OledPager& d, const char* top_right_label)
-{
-    d.Fill(false);
-    DrawTopRightMicroLabel(d, top_right_label);
-}
-
 static int ClampRecordRenderInt(int v, int lo, int hi)
 {
     if(v < lo)
@@ -554,6 +548,25 @@ bool SamplesMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     return false;
 }
 
+// Reset the SD Manager screen state to the "fresh entry" defaults: focus on
+// the header row, sort by number ascending, no style filter, no rename/delete
+// modes. Used by both the samples-menu SD MANAGER entry and the bake screen's
+// sample-row entry so both paths land on the same predictable starting state.
+static void ResetSdManageEntryState(AppUiState& ui)
+{
+    ui.sd_delete_mode                = false;
+    ui.sample_rename_active          = false;
+    ui.sd_manage_focus_index         = kProjectPresetsHeaderCount;
+    ui.sd_manage_top_row             = 0u;
+    ui.sd_manage_sort_mode           = ProjectPresetsSortMode::Number;
+    ui.sd_manage_sort_descending     = false;
+    ui.sd_manage_style_filter        = kSampleStyleFilterAll;
+    ui.sd_manage_style_picker_cursor = 0u;
+    ui.sd_manage_visible_count       = 0u;
+    ui.sd_manage_current_index       = 0u;
+    ui.sd_manage_action_cursor       = 0u;
+}
+
 bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
 {
     if(!ctx.ui)
@@ -569,17 +582,7 @@ bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::BakeMenu);
         case 3:
         default:
-            ctx.ui->sd_delete_mode = false;
-            ctx.ui->sample_rename_active = false;
-            ctx.ui->sd_manage_focus_index = kProjectPresetsHeaderCount;
-            ctx.ui->sd_manage_top_row = 0u;
-            ctx.ui->sd_manage_sort_mode = ProjectPresetsSortMode::Number;
-            ctx.ui->sd_manage_sort_descending = false;
-            ctx.ui->sd_manage_style_filter = kSampleStyleFilterAll;
-            ctx.ui->sd_manage_style_picker_cursor = 0u;
-            ctx.ui->sd_manage_visible_count = 0u;
-            ctx.ui->sd_manage_current_index = 0u;
-            ctx.ui->sd_manage_action_cursor = 0u;
+            ResetSdManageEntryState(*ctx.ui);
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdManageMenu);
     }
 }
@@ -1096,18 +1099,172 @@ void CraftMenu_Render(UiScreenCtx& ctx)
     }
 }
 
+// Bake screen: three focusable rows — sample / root note / bake button.
+// LEnc scroll cycles focus with wrap. REnc scroll on focused root changes the
+// MIDI note (clamped 0..127, no wrap). REnc Click is dispatched by the router
+// to BakeMenu_OnEnter below. LEnc Click is handled by the router (pop nav).
+//
+// The bake button is a no-op stub in this slice — the bake worker, progress
+// screen, and cancel chord are deferred to a later plan.
+static constexpr int32_t kBakeFocusCount = 3;
+
+// OnEnter (screen-activation) slot: fires every time BakeMenu becomes the
+// active screen — including when popping back from the SD-Manager picker.
+// Clears the bake_browser_open flag so a subsequent SD-manager entry from a
+// *different* screen cannot inadvertently route its selection into bake
+// state. The SD-manager selection path already clears the flag on a
+// successful pick; this catches the LEnc-Click "cancel without selecting"
+// case where the flag would otherwise stay stuck true. Also defensively stops
+// any in-flight bake preview — covers the case where the user pressed
+// Button2, then LEnc-clicked to exit before the worker finished loading.
+void BakeMenu_OnScreenEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.ui)
+        return;
+    ctx.ui->bake_browser_open = false;
+    if(ctx.shared)
+        ctx.shared->bake_preview.stop_req.store(1, std::memory_order_release);
+}
+
+bool BakeMenu_OnEnter(UiScreenCtx& ctx)
+{
+    if(!ctx.ui)
+        return false;
+    AppUiState& ui = *ctx.ui;
+    switch(ui.bake_focus)
+    {
+        case 0:
+            // Sample row: open the SD Manager in bake-pick mode. The full SD
+            // Manager UI (sort + style filter + rich list rendering) is reused;
+            // SdManageMenu_OnEvent reads bake_browser_open and on REnc Click on
+            // a sample row routes the picked path back into bake state instead
+            // of pushing the SdManageActionMenu overlay (no load/rename/delete
+            // in bake mode). Initial state matches a fresh samples-menu entry.
+            ResetSdManageEntryState(ui);
+            ui.bake_browser_open = true;
+            if(UiNav_Push(ui.ui_nav, UiScreenId::SdManageMenu))
+            {
+                ui.ui_dirty = true;
+                return true;
+            }
+            // Push failed (stack full): undo the flag so a stale value can't
+            // hijack a future SD-manager entry from a different screen.
+            ui.bake_browser_open = false;
+            return false;
+        case 1:
+            // Root note: REnc Click does nothing; scroll changes value.
+            return false;
+        case 2:
+        default:
+            // Bake button is a no-op stub (deferred to next plan).
+            return false;
+    }
+}
+
 bool BakeMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    (void)ctx;
-    (void)e;
+    if(!ctx.ui)
+        return false;
+    if(ctx.shift)
+        return false;
+
+    AppUiState& ui = *ctx.ui;
+
+    // LEnc scroll cycles focus with wrap.
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
+    {
+        ui.bake_focus = static_cast<uint8_t>(WrapMenuIndex(
+            static_cast<int32_t>(ui.bake_focus), e.value, kBakeFocusCount));
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    // REnc scroll changes the root note when the root row is focused.
+    // Clamp to [0, 127] (no wrap) — per design Q4.
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0
+       && ui.bake_focus == 1u)
+    {
+        int next = static_cast<int>(ui.bake_root_note) + static_cast<int>(e.value);
+        if(next < 0) next = 0;
+        if(next > 127) next = 127;
+        const uint8_t clamped = static_cast<uint8_t>(next);
+        if(clamped != ui.bake_root_note)
+        {
+            ui.bake_root_note = clamped;
+            ui.ui_dirty = true;
+        }
+        return true;
+    }
+
     return false;
 }
 
 void BakeMenu_Render(UiScreenCtx& ctx)
 {
-    if(!ctx.display)
+    if(!ctx.ui || !ctx.display)
         return;
-    DrawBlankPlaceholder(*ctx.display, "bake");
+    OledPager&        d  = *ctx.display;
+    const AppUiState& ui = *ctx.ui;
+
+    d.Fill(false);
+    DrawTopRightMicroLabel(d, "bake");
+
+    constexpr int kDisplayH = 64;
+    constexpr int kListLeftX = 4;
+    constexpr int kRowGapY   = 6;
+    const int     text_h     = Font5x7::H;
+
+    constexpr int kRowCount = 3;
+    const int total_h = (kRowCount * text_h) + ((kRowCount - 1) * kRowGapY);
+    const int start_y = (kDisplayH - total_h) / 2;
+
+    // Row 0: sample (literal "sample" placeholder, or selected sample name).
+    {
+        const int y = start_y;
+        const char* val
+            = (ui.bake_sample_path[0] != '\0') ? ui.bake_sample_name : "sample";
+        if(ui.bake_focus == 0u)
+            DrawFillOnlyTinyString(d, val, kListLeftX, y);
+        else
+            DrawTinyString(d, val, kListLeftX, y, true);
+    }
+
+    // Row 1: root note. Label "root:" + formatted note (e.g. "C4"). When the
+    // row is focused, an outline-only border surrounds the note (with 1px gap
+    // between glyphs and border) to signal "REnc scroll changes value". No
+    // inverted fill — the text stays normal so it remains readable.
+    {
+        const int y = start_y + (text_h + kRowGapY);
+        DrawTinyString(d, "root:", kListLeftX, y, true);
+        const int note_x = kListLeftX + TinyStringWidth("root:") + 4;
+        char      note_buf[8];
+        FormatMidiNoteName(ui.bake_root_note, note_buf, sizeof(note_buf));
+        // Note text uses the case-sensitive variant so the '#' in "C#4" / "F#5"
+        // / etc. renders via its dedicated glyph (DrawTinyString downcases and
+        // its glyph table has no '#' entry, so '#' falls back to a '?' shape).
+        // Width matches char_w * len for non-colon strings, so TinyStringWidth
+        // is still correct for the border geometry below.
+        const int note_w = TinyStringWidth(note_buf);
+        DrawTinyStringCaseSensitive(d, note_buf, note_x, y, true);
+        if(ui.bake_focus == 1u)
+        {
+            d.DrawRect(note_x - 2,
+                       y - 2,
+                       note_x + note_w + 1,
+                       y + Font5x7::H + 1,
+                       true,
+                       false);
+        }
+    }
+
+    // Row 2: bake button.
+    {
+        const int y = start_y + 2 * (text_h + kRowGapY);
+        if(ui.bake_focus == 2u)
+            DrawFillOnlyTinyString(d, "bake", kListLeftX, y);
+        else
+            DrawTinyString(d, "bake", kListLeftX, y, true);
+    }
 }
 
 bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

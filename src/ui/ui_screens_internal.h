@@ -18,6 +18,10 @@ struct SampleEdit;
 
 // Shared non-text helpers used across extracted screen files.
 void ExtractBaseName(const char* path, char* out, size_t out_n);
+// MIDI note number (0..127) -> short name like "C4", "D#3", "C-1".
+// Definition lives with the perform-keyzone screen (originated there) and is
+// re-used by other screens (e.g. the Bake screen) via this declaration.
+void FormatMidiNoteName(uint8_t note, char* out, size_t out_n);
 void DrawWaveformPreview(OledPager& d,
                          const Sample& sample,
                          const SampleEdit* edit,
@@ -83,6 +87,8 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void CraftMenu_Render(UiScreenCtx& ctx);
 bool BakeMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void BakeMenu_Render(UiScreenCtx& ctx);
+bool BakeMenu_OnEnter(UiScreenCtx& ctx);
+void BakeMenu_OnScreenEnter(UiScreenCtx& ctx);
 bool RecordRenderMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void RecordRenderMenu_Render(UiScreenCtx& ctx);
 void RecordRenderExecute_OnEnter(UiScreenCtx& ctx);

@@ -57,7 +57,10 @@ static bool PerformKeyzone_TryPushSubscreen(UiScreenCtx& ctx)
     return false;
 }
 
-static void FormatMidiNoteName(uint8_t note, char* out, size_t out_n)
+// Definition is intentionally non-static: declared in ui_screens_internal.h so
+// other screens (e.g. the Bake screen) can call it without duplicating the
+// note-name table.
+void FormatMidiNoteName(uint8_t note, char* out, size_t out_n)
 {
     if(!out || out_n == 0)
         return;

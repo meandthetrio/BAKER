@@ -136,6 +136,15 @@ static bool     s_win_preview_active = false;
 static uint32_t s_win_preview_pos = 0;
 static float    s_win_preview_gain = 0.0f;
 static bool     s_win_preview_stopping = false;
+
+// Bake-screen sample preview (raw dry one-shot triggered by Button2 on the SD
+// Manager in bake-pick mode). Owns its own static state mirroring win_preview.
+// Unlike win_preview, this path OVERWRITES outL/outR — voice + FX output is
+// discarded for the duration of the preview so the user hears the .wav raw.
+static bool     s_bake_preview_active   = false;
+static uint32_t s_bake_preview_pos      = 0;
+static float    s_bake_preview_gain     = 0.0f;
+static bool     s_bake_preview_stopping = false;
 static bool     s_render_active = false;
 static uint32_t s_render_pos = 0;
 static constexpr uint32_t kRecLiveWaveStride = 128u;
@@ -476,6 +485,111 @@ void AudioCallback_ProcessWindowPreview(float* outL, float* outR, size_t size)
         s_win_preview_gain = 0.0f;
     }
 }
+
+// Bake-screen sample preview. UI/main posts start/stop; worker fills
+// shared.bake_preview.sample (pcm + length) before posting start_req with
+// release ordering. Audio thread plays [0, length) once at unity, OVERWRITING
+// outL/outR (voice + FX output discarded) so the audition is truly raw dry.
+// 1 ms ramp-in on activation, position-based fade in the last ~1 ms before
+// end, ramp-out on stop_req. Auto-clears bake_preview.active at end of sample
+// so the LED/UI revert without polling.
+void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
+{
+    constexpr uint32_t kFadeFrames = 48u;
+    constexpr float    kFadeStep   = 1.0f / static_cast<float>(kFadeFrames);
+
+    auto& bake = g_app.shared.bake_preview;
+
+    if(bake.stop_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        if(s_bake_preview_active)
+            s_bake_preview_stopping = true;
+        else
+            bake.active.store(0, std::memory_order_release);
+    }
+
+    if(bake.start_req.exchange(0, std::memory_order_acq_rel) != 0)
+    {
+        const Sample& sample = bake.sample;
+        if(sample.pcm != nullptr && sample.length > 0u)
+        {
+            s_bake_preview_active   = true;
+            s_bake_preview_stopping = false;
+            s_bake_preview_gain     = 0.0f;
+            s_bake_preview_pos      = 0;
+            bake.active.store(1, std::memory_order_release);
+            bake.pos.store(0, std::memory_order_release);
+        }
+        else
+        {
+            s_bake_preview_active   = false;
+            s_bake_preview_stopping = false;
+            s_bake_preview_pos      = 0;
+            bake.active.store(0, std::memory_order_release);
+        }
+    }
+
+    if(!s_bake_preview_active)
+        return;
+
+    const Sample&  sample = bake.sample;
+    const uint32_t end    = sample.length;
+    if(sample.pcm == nullptr || end == 0u)
+    {
+        s_bake_preview_active   = false;
+        s_bake_preview_stopping = false;
+        s_bake_preview_pos      = 0;
+        bake.active.store(0, std::memory_order_release);
+        return;
+    }
+
+    for(size_t i = 0; i < size; ++i)
+    {
+        if(s_bake_preview_pos >= end)
+        {
+            s_bake_preview_active = false;
+            bake.active.store(0, std::memory_order_release);
+            break;
+        }
+
+        const float target = s_bake_preview_stopping ? 0.0f : 1.0f;
+        if(s_bake_preview_gain < target)
+        {
+            s_bake_preview_gain += kFadeStep;
+            if(s_bake_preview_gain > target) s_bake_preview_gain = target;
+        }
+        else if(s_bake_preview_gain > target)
+        {
+            s_bake_preview_gain -= kFadeStep;
+            if(s_bake_preview_gain < target) s_bake_preview_gain = target;
+        }
+        if(s_bake_preview_stopping && s_bake_preview_gain <= 0.0f)
+        {
+            s_bake_preview_active = false;
+            bake.active.store(0, std::memory_order_release);
+            break;
+        }
+
+        const uint32_t remaining = end - s_bake_preview_pos;
+        const float pos_gain
+            = (remaining < kFadeFrames) ? (static_cast<float>(remaining) * kFadeStep) : 1.0f;
+
+        const float dry = (static_cast<float>(sample.pcm[s_bake_preview_pos]) / 32768.0f)
+                          * s_bake_preview_gain * pos_gain;
+        // Overwrite (not mix): voice + FX output is replaced by the dry preview.
+        outL[i] = dry;
+        outR[i] = dry;
+        ++s_bake_preview_pos;
+    }
+
+    bake.pos.store(s_bake_preview_pos, std::memory_order_release);
+    if(!s_bake_preview_active)
+    {
+        s_bake_preview_pos      = 0;
+        s_bake_preview_stopping = false;
+        s_bake_preview_gain     = 0.0f;
+    }
+}
 } // namespace
 
 void AudioCallback(AudioHandle::InputBuffer  in,
@@ -659,6 +773,11 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     bucket_start = DWT->CYCCNT;
     AudioCallback_ProcessRecordPreview(out[0], out[1], size);
     AudioCallback_ProcessWindowPreview(out[0], out[1], size);
+    // Bake-screen preview runs LAST among the preview/capture paths so it
+    // overwrites voice + FX output cleanly. Sits before the monitor-input mix
+    // intentionally — monitor (mic/line passthrough) is a separate concern
+    // from the dry audition.
+    AudioCallback_ProcessBakePreview(out[0], out[1], size);
     DiagnosticsStoreCycleBucket(
         g_app.diag, kDiagAudioBucketRecordPreview, DWT->CYCCNT - bucket_start);
 

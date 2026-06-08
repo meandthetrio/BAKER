@@ -10,6 +10,7 @@ ADSR2_SECTION(".ram_d2_bss") ADSR2_ALIGN32 static int16_t g_sd_sample_buf0[kSdPl
 ADSR2_SECTION(".sdram_bss")  ADSR2_ALIGN32 static int16_t g_sd_sample_buf1[kSdSampleMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_record_buf[kSdSampleMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_manage_buf[kSdSampleMaxFrames];
+ADSR2_SECTION(".sdram_bss") static int16_t g_sd_bake_preview_buf[kSdSampleMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_baked_buf[kSdSampleSlots][kSdSampleMaxFrames];
 // SDRAM staging buffer for slot 0: SDMMC DMA can write here (D2 SRAM it cannot),
 // then SdSampleLoadCommit() copies into the RAM_D2 playback buffer with the CPU.
@@ -41,6 +42,11 @@ int16_t* SdRecordBuffer()
 int16_t* SdManageBuffer()
 {
     return g_sd_manage_buf;
+}
+
+int16_t* SdBakePreviewBuffer()
+{
+    return g_sd_bake_preview_buf;
 }
 
 int16_t* SdBakedBuffer(uint8_t slot)

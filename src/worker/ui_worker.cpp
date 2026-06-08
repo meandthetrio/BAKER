@@ -150,6 +150,15 @@ static void StartQueuedUiRequest(AppUiState& ui,
                 FailAndFinishUiRequest(worker, worker.project_restore);
             }
             break;
+        case UiReqType::LoadWavToBakePreview:
+            if(!StartLoadBakePreview(ui.sd, shared, req.a))
+            {
+                ui.sd.load_in_progress = false;
+                ui.sd.load_progress = 0;
+                SdWavLoad_SetBusy(shared, ui.sd, false);
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            }
+            break;
         case UiReqType::DeleteWavIndex:
             if(!DeleteWavAtIndex(ui.sd, req.a))
                 worker.ui_req_result = -1;
@@ -305,6 +314,7 @@ static void StepActiveUiRequest(AppUiState& ui,
             break;
         case UiReqType::LoadWavIndex:
         case UiReqType::LoadWavIndexSdManage:
+        case UiReqType::LoadWavToBakePreview:
             done = LoadStepInternal(ui.sd,
                                     worker,
                                     engine,

@@ -162,7 +162,7 @@ static void ProjectManifestUpgrade(ProjectManifestV5& dst, const ProjectManifest
         dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
         dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
         dst.perform_adsr_row[slot] = 1u;
-        dst.engine_play_mode[slot] = 1u;
+        dst.engine_play_mode[slot] = (slot == 1u) ? 0u : 1u;
         dst.perform_adsr_loop_attack[slot] = 5u;
         dst.perform_adsr_loop_decay[slot] = 20u;
         dst.perform_adsr_loop_sustain[slot] = 100u;

@@ -68,7 +68,15 @@ struct AppUiState
     // Engine Trim screen gates incoming MIDI note-on/off so the window can be
     // auditioned in isolation. Written by UiTick, read by the MIDI handlers;
     // both run on the main loop thread, so a plain bool is sufficient.
+    // The gate is now driven by the union of (a) engine-trim active and
+    // (b) the samples menu being anywhere on the nav stack — so MIDI is
+    // silenced across record/craft/bake/SD-manager too. The engine-trim
+    // falling-edge cleanup (win_preview_stop_req) still fires only when the
+    // engine-trim screen specifically deactivates; ui_engine_trim_was_active
+    // is the tracked previous state used to detect that edge independently
+    // of the gate flag.
     bool ui_midi_gate_active = false;
+    bool ui_engine_trim_was_active = false;
     // ADSR seam-edit screen: MIDI is forced monophonic and restricted to the
     // edited layer for live seam auditioning. Plain bools (main-loop thread only).
     bool ui_seam_audition_active = false;
@@ -114,6 +122,18 @@ struct AppUiState
     uint8_t craft_capture_age[3] = {0, 0, 0};
     char craft_loaded_name[kSdNameMax] = {};
     char craft_loaded_path[kSdPathMax] = {};
+    // Bake screen (Layer B baker entry point). bake_focus selects which of the
+    // three rows is focused (0=sample, 1=root, 2=bake). bake_root_note is the
+    // MIDI note assigned to the source sample's native pitch (default C4=60).
+    // bake_sample_path/_name hold the user-selected source .wav. Empty path
+    // means "no sample picked" and the UI shows literal placeholder "sample".
+    // bake_browser_open routes SD-browser selections back to the bake screen
+    // (bypassing the engine-load path), mirroring craft_browser_open.
+    uint8_t bake_focus = 0;
+    uint8_t bake_root_note = 60;
+    char    bake_sample_path[kSdPathMax] = {};
+    char    bake_sample_name[kSdNameMax] = {};
+    bool    bake_browser_open = false;
     bool record_menu_source_override_active = false;
     uint8_t record_menu_source_override = 0;
     bool record_menu_armed_back_returns_to_menu = false;

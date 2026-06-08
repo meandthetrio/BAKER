@@ -59,10 +59,11 @@ static bool StartLoadFromPathInternal(SdBrowserState& sd,
 
     const uint32_t frames = info.data_size / 2u;
     // Per-slot cap: slot 0 plays from RAM_D2 (smaller) so its limit is lower.
-    // SdManage edits go to the SDRAM manage buffer (full kSdSampleMaxFrames).
-    const uint32_t max_frames = (load_target == LoadTarget::SdManage)
-                                    ? SdSampleMaxFrames(1)
-                                    : SdSampleMaxFrames(loading_slot & 1u);
+    // SdManage edits + BakePreview both target SDRAM buffers (kSdSampleMaxFrames).
+    const uint32_t max_frames
+        = (load_target == LoadTarget::SdManage || load_target == LoadTarget::BakePreview)
+              ? SdSampleMaxFrames(1)
+              : SdSampleMaxFrames(loading_slot & 1u);
     if(frames == 0 || frames > max_frames)
     {
         f_close(&s_sd.file);
@@ -113,6 +114,16 @@ bool StartLoadSdManage(SdBrowserState& sd, AppSharedState& shared, uint16_t inde
         return FailLoadStart(sd, "BAD IDX");
 
     return StartLoadFromPathInternal(sd, shared, sd.paths[index], LoadTarget::SdManage, 0u, index);
+}
+
+bool StartLoadBakePreview(SdBrowserState& sd, AppSharedState& shared, uint16_t index)
+{
+    s_sd.state = LoaderState::Idle;
+    sd.load_pending = false;
+    if(index >= sd.wav_count)
+        return FailLoadStart(sd, "BAD IDX");
+
+    return StartLoadFromPathInternal(sd, shared, sd.paths[index], LoadTarget::BakePreview, 0u, index);
 }
 
 bool StartLoadPath(AppUiState& ui, AppSharedState& shared, const char* path, uint8_t target_slot)
@@ -201,9 +212,14 @@ bool LoadStepInternal(SdBrowserState& sd,
         bytes_to_read = (bytes_left >= 2) ? 2 : bytes_left;
 
     UINT br = 0;
-    int16_t* sample_dst = (s_sd.load_target == LoadTarget::SdManage)
-                              ? SdManageBuffer()
-                              : SdSampleLoadBuffer(s_sd.loading_slot);
+    int16_t* sample_dst = nullptr;
+    switch(s_sd.load_target)
+    {
+        case LoadTarget::SdManage:    sample_dst = SdManageBuffer(); break;
+        case LoadTarget::BakePreview: sample_dst = SdBakePreviewBuffer(); break;
+        case LoadTarget::LiveSlot:
+        default:                      sample_dst = SdSampleLoadBuffer(s_sd.loading_slot); break;
+    }
     uint8_t* dst = reinterpret_cast<uint8_t*>(sample_dst);
     const FRESULT res = f_read(&s_sd.file, dst + s_sd.bytes_loaded, bytes_to_read, &br);
     if(res != FR_OK || br == 0)
@@ -232,7 +248,37 @@ bool LoadStepInternal(SdBrowserState& sd,
         s_sd.file_open = false;
 
         SampleEdit edit = SampleEdit_Default(s_sd.sample_frames);
-        if(s_sd.load_target == LoadTarget::SdManage)
+        if(s_sd.load_target == LoadTarget::BakePreview)
+        {
+            // Bake preview is fire-and-forget: publish the Sample, then post
+            // start_req with release ordering so the audio thread observes a
+            // valid pcm + length before activating. If the user has already
+            // pressed Button2 again to cancel (stop_req posted while we were
+            // loading), skip the start and clear stop_req — keeps the toggle
+            // semantics predictable for fast double-press cases.
+            Sample& samp = shared.bake_preview.sample;
+            samp.pcm          = SdBakePreviewBuffer();
+            samp.length       = s_sd.sample_frames;
+            samp.sample_rate  = 48000;
+            samp.root_key     = 60;
+            samp.loop_start   = 0;
+            samp.loop_end     = s_sd.sample_frames;
+            samp.loop_enabled = false;
+            sd.load_in_progress = false;
+            sd.load_progress    = 0;
+            SdWavLoad_SetBusy(shared, sd, false);
+            if(shared.bake_preview.stop_req.exchange(0, std::memory_order_acq_rel) != 0u)
+            {
+                shared.bake_preview.active.store(0, std::memory_order_release);
+            }
+            else
+            {
+                shared.bake_preview.start_req.store(1, std::memory_order_release);
+            }
+            s_sd.state = LoaderState::Idle;
+            return true;
+        }
+        else if(s_sd.load_target == LoadTarget::SdManage)
         {
             Sample& samp = shared.sd_manage.sample;
             samp.pcm = SdManageBuffer();

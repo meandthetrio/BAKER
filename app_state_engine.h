@@ -17,7 +17,7 @@ struct AppEngineState
         int8_t  engine_tune_cents[2] = {0, 0};
         int16_t engine_gain_db[2] = {0, 0};
         uint8_t engine_drive_mode[2] = {0u, 0u};
-        uint8_t engine_play_mode[2] = {1, 1};
+        uint8_t engine_play_mode[2] = {1, 0};
         char    engine_sample_path[2][kSdPathMax] = {};
         char    engine_sample_name[2][kSdNameMax] = {};
         uint8_t engine_load_target_layer = 0xFFu;

@@ -883,10 +883,54 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppUiState& ui = *ctx.ui;
     RebuildVisibleSdManageOrder(ui, ui.sd);
 
+    // Bake-pick mode auto-stops the preview on any focus change / header
+    // activation / select / exit. A single helper lambda keeps every stop
+    // call at one line; the audio thread polls stop_req with acquire so the
+    // ramp-out starts within the next block (~1 ms).
+    auto bake_preview_stop = [&]() {
+        if(ctx.shared)
+            ctx.shared->bake_preview.stop_req.store(1, std::memory_order_release);
+    };
+
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
+        if(ui.bake_browser_open)
+            bake_preview_stop();
         MoveSdManageFocus(ui, e.value);
         SyncCurrentSdManageIndexToFocusedRow(ui);
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    // Button2 plays / stops the focused sample as a raw dry preview. Only
+    // active in bake-pick mode; ignored in normal SD Manager use so existing
+    // muscle memory isn't disrupted.
+    if(ui.bake_browser_open && e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        if(ui.sd_manage_visible_count == 0u
+           || ui.sd_manage_focus_index < kProjectPresetsHeaderCount)
+            return true;
+        const bool currently_active
+            = ctx.shared
+              && ctx.shared->bake_preview.active.load(std::memory_order_acquire) != 0u;
+        if(currently_active)
+        {
+            // Toggle off: ramp out via stop_req.
+            bake_preview_stop();
+        }
+        else
+        {
+            // Toggle on: kick the worker to load the focused sample into the
+            // preview buffer. The worker posts start_req on completion (or
+            // skips it if stop_req was set in the interim — fast double-press
+            // cancel semantics live in the worker, not here).
+            if(ctx.worker)
+            {
+                const uint8_t sample_idx = ui.sd_manage_current_index;
+                UiReq req{UiReqType::LoadWavToBakePreview, sample_idx, 0};
+                UiReq_Push(*ctx.ui, *ctx.worker, req);
+            }
+        }
         ui.ui_dirty = true;
         return true;
     }
@@ -895,6 +939,10 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(ui.sd_manage_focus_index < kProjectPresetsHeaderCount)
         {
+            // Any header activation (sort toggle or style filter) stops the
+            // preview in bake-pick mode.
+            if(ui.bake_browser_open)
+                bake_preview_stop();
             if(ui.sd_manage_focus_index == 2u)
             {
                 ui.sd_manage_style_picker_cursor = SdManageStyleFilterCursor(ui);
@@ -909,6 +957,28 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(ui.sd_manage_visible_count == 0u)
             return true;
+
+        // Bake-pick mode: the SD Manager was opened from the bake screen to
+        // pick a source sample. Route the focused sample's path back into the
+        // bake state and pop nav — do NOT push the action overlay (no
+        // load/rename/edit/delete in bake mode). Stop any active preview so
+        // audio doesn't bleed across the screen transition.
+        if(ui.bake_browser_open)
+        {
+            bake_preview_stop();
+            const uint8_t sample_idx = ui.sd_manage_current_index;
+            std::snprintf(ui.bake_sample_path,
+                          sizeof(ui.bake_sample_path),
+                          "%s",
+                          ui.sd.paths[sample_idx]);
+            ExtractBaseName(ui.sd.paths[sample_idx],
+                            ui.bake_sample_name,
+                            sizeof(ui.bake_sample_name));
+            ui.bake_browser_open = false;
+            UiNav_Pop(ui.ui_nav);
+            ui.ui_dirty = true;
+            return true;
+        }
 
         ui.sd_manage_action_cursor = 0u;
         ui.sd_manage_style_cursor = SampleStyleCursor(ui.sd.styles[ui.sd_manage_current_index]);

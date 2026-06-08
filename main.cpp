@@ -546,6 +546,20 @@ int main(void)
             else
                 hw.led2.Set(0.0f, 0.0f, 1.0f); // green idle (3rd component = green on this hw)
         }
+        else if(g_app.ui.bake_browser_open
+                && g_app.ui.ui_active_screen == UiScreenId::SdManageMenu)
+        {
+            // Bake-mode sample picker: LED2 signals Button2 = sample preview.
+            // Green = idle (press to play), red = playing (press to stop).
+            // Same green/red mapping as the engine-trim audition above.
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
+            const bool bake_preview_playing
+                = (g_app.shared.bake_preview.active.load(std::memory_order_acquire) != 0u);
+            if(bake_preview_playing)
+                hw.led2.Set(1.0f, 0.0f, 0.0f); // red while preview playing
+            else
+                hw.led2.Set(0.0f, 0.0f, 1.0f); // green idle
+        }
         else if(perform_ab_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);

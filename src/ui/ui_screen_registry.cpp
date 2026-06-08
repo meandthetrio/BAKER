@@ -57,10 +57,11 @@ const UiScreen& GetScreen(UiScreenId id)
                                      CraftMenu_OnEvent,
                                      CraftMenu_Render};
     static const UiScreen bake_menu{UiScreenId::BakeMenu,
-                                    nullptr,
+                                    BakeMenu_OnScreenEnter,
                                     nullptr,
                                     BakeMenu_OnEvent,
-                                    BakeMenu_Render};
+                                    BakeMenu_Render,
+                                    BakeMenu_OnEnter};
     static const UiScreen record_render_menu{UiScreenId::RecordRenderMenu,
                                              nullptr,
                                              nullptr,

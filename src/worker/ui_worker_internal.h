@@ -29,6 +29,7 @@ enum class LoadTarget : uint8_t
 {
     LiveSlot = 0,
     SdManage,
+    BakePreview,
 };
 
 enum class SaveFinalizeMode : uint8_t

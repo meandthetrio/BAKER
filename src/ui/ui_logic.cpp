@@ -1004,20 +1004,41 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         ui.ui_dirty = true;
     }
 
-    // Engine Trim screen (engine-slot case) gates incoming MIDI so the window can
-    // be auditioned in isolation. Edge-detected here because screen OnExit hooks
-    // are not dispatched by the router. On both entry and exit we silence any
-    // sounding notes; on exit we also stop the one-shot window audition.
+    // MIDI gate: silenced when (a) the Engine Trim screen is auditioning in
+    // isolation, OR (b) the user is anywhere in the samples-menu subtree
+    // (RECORD / CRAFT / BAKE / SD MANAGER and their children). The samples
+    // gate is detected by scanning the nav stack for SamplesMenu, so new
+    // sub-screens reachable from samples are automatically gated without
+    // having to enumerate every screen id.
+    //
+    // Edge-detected because screen OnExit hooks aren't dispatched by the
+    // router. On any gate edge we silence sounding notes. The engine-trim
+    // falling-edge cleanup (win_preview_stop_req) fires only when engine-trim
+    // specifically deactivates — tracked independently via
+    // ui_engine_trim_was_active so it doesn't mis-fire on samples-subtree
+    // transitions while engine-trim was never active.
     const bool engine_trim_active = (active_screen == UiScreenId::PerformWaveEdit)
                                     && (ui.wave_edit_source == WaveEditSource::PerformSlot);
-    if(engine_trim_active != ui.ui_midi_gate_active)
+    bool samples_subtree_active = false;
+    for(uint8_t i = 0; i < ui.ui_nav.top; ++i)
     {
-        ui.ui_midi_gate_active = engine_trim_active;
+        if(ui.ui_nav.stack[i] == UiScreenId::SamplesMenu)
+        {
+            samples_subtree_active = true;
+            break;
+        }
+    }
+    const bool should_gate = engine_trim_active || samples_subtree_active;
+    if(should_gate != ui.ui_midi_gate_active)
+    {
+        ui.ui_midi_gate_active = should_gate;
         PushAllNotesOff(evtq, diag, ui);
-        if(!engine_trim_active)
-            shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
         ui.ui_dirty = true;
     }
+    // Engine-trim falling edge → stop the one-shot window audition.
+    if(ui.ui_engine_trim_was_active && !engine_trim_active)
+        shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
+    ui.ui_engine_trim_was_active = engine_trim_active;
 
     // Seam-edit screen requests an all-notes-off on entry and on commit (where the
     // screen code cannot reach the event queue). Service it here.

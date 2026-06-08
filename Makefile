@@ -76,6 +76,7 @@ CPP_SOURCES += src/storage/sd_sample_pool.cpp
 CPP_SOURCES += src/storage/sample_bake.cpp
 CPP_SOURCES += src/storage/bk_file_writer.cpp
 CPP_SOURCES += src/storage/bk_file_reader.cpp
+CPP_SOURCES += src/storage/bk_layer_load.cpp
 CPP_SOURCES += src/dsp/bake_psola.cpp
 CPP_SOURCES += src/ui/oled_pager.cpp
 CPP_SOURCES += voice_engine.cpp

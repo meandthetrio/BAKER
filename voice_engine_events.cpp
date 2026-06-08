@@ -1,5 +1,7 @@
 #include "voice_engine_internal.h"
 
+#include "app_state_shared.h"
+
 static constexpr float kVoiceAmpScale      = 0.15f; // keep headroom for 10 voices + FX
 static constexpr float kStealFadeOutMs     = 1.25f;
 static constexpr float kLoopBoundaryFadeMs = 1.0f;
@@ -30,10 +32,28 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                     vel_layer = 1;
                 const float vel_brightness = (vel_layer == 0) ? 0.35f : 1.0f;
                 const Sample* sample = nullptr;
-                if(sample_index < sample_bank_count_)
-                    sample = sample_bank_[sample_index];
-                if(sample == nullptr)
-                    sample = current_sample_;
+                // Layer B .bk override: if a .bk multisample is loaded into
+                // layer B's slot, pick the per-note slice instead of the
+                // normal sample bank entry. Off-range notes (outside the
+                // .bk's [lo_note, hi_note]) skip voice allocation entirely
+                // — silence by design.
+                const bool bk_layer_b_active
+                    = (source_layer == 1u && shared_ != nullptr
+                       && shared_->bk_layer_b.loaded);
+                if(bk_layer_b_active)
+                {
+                    const bk::BkFileHeader& hdr = shared_->bk_layer_b.hdr;
+                    if(note < hdr.lo_note || note > hdr.hi_note)
+                        continue;
+                    sample = &shared_->bk_layer_b.slice_sample[note - hdr.lo_note];
+                }
+                else
+                {
+                    if(sample_index < sample_bank_count_)
+                        sample = sample_bank_[sample_index];
+                    if(sample == nullptr)
+                        sample = current_sample_;
+                }
                 if(sample == nullptr || sample->pcm == nullptr || sample->length == 0)
                     continue;
 

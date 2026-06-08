@@ -13,7 +13,9 @@
 #include "ui_layout.h"
 #include "oled_pager.h"
 #include "ui_requests.h"
+#include "bk_layer_load.h"
 #include "sd_browser_state.h"
+#include "ui_worker_internal.h" // IsBkName
 #include "sample_edit.h"
 
 #include <cctype>
@@ -1348,6 +1350,37 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             const uint16_t idx = sd.menu.cursor;
             const uint8_t layer_count = static_cast<uint8_t>(
                 sizeof(ctx.engine->layer.engine_sample_path) / sizeof(ctx.engine->layer.engine_sample_path[0]));
+
+            // .bk branch: layer B only. SD browser shows .bk because the
+            // scan ran with WavAndBk filter (PerformEngine_OnEnter sets
+            // sd_scan_filter for layer B). The layer-1 guard is defensive —
+            // if filter logic ever regresses, layer A still rejects .bk.
+            const bool is_bk = IsBkName(sd.paths[idx])
+                               && ctx.engine->layer.engine_load_target_layer == 1u;
+            if(is_bk)
+            {
+                const uint8_t target = 1u;
+                ctx.shared->sample.publish.sd_current_slot.store(target ^ 1u,
+                                                                 std::memory_order_release);
+                std::snprintf(ctx.engine->layer.engine_sample_path[target],
+                              sizeof(ctx.engine->layer.engine_sample_path[target]),
+                              "%s",
+                              sd.paths[idx]);
+                ExtractBaseName(sd.paths[idx],
+                                ctx.engine->layer.engine_sample_name[target],
+                                sizeof(ctx.engine->layer.engine_sample_name[target]));
+                // Synchronous load — blocks the main loop for ~1-2 s while
+                // the multi-MB PCM blob hits SDRAM via SDMMC. Stage 3 will
+                // move this to the async worker.
+                SdBrowser_SetStatus(sd, "LOADING");
+                const bool ok = bk::BkLayer_LoadIntoLayerB(sd.paths[idx], *ctx.shared);
+                SdBrowser_SetStatus(sd, ok ? "" : "BK ERR");
+                if(ok && ctx.engine->layer.engine_load_from_perform)
+                    UiNav_Pop(ctx.ui->ui_nav);
+                ctx.ui->ui_dirty = true;
+                return true;
+            }
+
             if(ctx.engine->layer.engine_load_target_layer < layer_count)
             {
                 const uint8_t target = ctx.engine->layer.engine_load_target_layer & 1u;
@@ -1359,6 +1392,11 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ExtractBaseName(sd.paths[idx],
                                 ctx.engine->layer.engine_sample_name[target],
                                 sizeof(ctx.engine->layer.engine_sample_name[target]));
+                // Loading a .wav into layer B invalidates any .bk that was
+                // previously loaded there. Clears the override so the voice
+                // engine NoteOn handler falls back to the regular sampler.
+                if(target == 1u)
+                    bk::BkLayer_ClearLayerB(*ctx.shared);
             }
             UiReq req{UiReqType::LoadWavIndex, idx, 0};
             UiReq_Push(*ctx.ui, *ctx.worker, req);

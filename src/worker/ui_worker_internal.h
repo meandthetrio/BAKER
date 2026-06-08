@@ -56,6 +56,7 @@ struct SdWorkerState
     uint8_t loading_slot = 0;
     LoadTarget load_target = LoadTarget::LiveSlot;
     LoaderState state = LoaderState::Idle;
+    bool scan_include_bk = false; // captured at StartScan-time; ScanStep reads this
     bool norm_active = false;
     uint8_t norm_slot = 0;
     uint32_t norm_pos = 0;
@@ -92,6 +93,8 @@ struct WavInfo
 extern SdWorkerState s_sd;
 
 bool ParseWavHeader(FIL& file, WavInfo& info);
+bool IsWavName(const char* name);
+bool IsBkName(const char* name);
 bool WriteWavHeader(FIL& file,
                     uint32_t frames,
                     FRESULT* out_res = nullptr,
@@ -110,7 +113,10 @@ bool EnsureSdMountedInternal(SdBrowserState& sd);
 void CancelLoad(AppUiState& ui, AppWorkerState& worker, AppSharedState& shared);
 
 // SD WAV scan (implemented in ui_worker_sd_scan.cpp; uses `s_sd`)
-bool StartScan(SdBrowserState& sd, AppSharedState& shared);
+// Scan filter state is captured at StartScan time into SdWorkerState (see
+// `include_bk` field) so ScanStep doesn't need access to UI state every
+// tick. UI sets the flag before triggering the scan via UiReqType::ScanSdWavs.
+bool StartScan(SdBrowserState& sd, AppSharedState& shared, bool include_bk);
 bool ScanStep(SdBrowserState& sd);
 void CancelScan(SdBrowserState& sd);
 void ClearProjectRestoreState(AppWorkerState& worker);

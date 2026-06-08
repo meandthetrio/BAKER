@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 
+#include "bk_file_format.h"
 #include "macros.h"
 #include "mod_matrix.h"
 #include "plocks.h"
@@ -125,6 +126,22 @@ struct AppSharedState
         std::atomic<uint32_t> pos{0};
         Sample                sample{};
     } bake_preview{};
+
+    // Layer B .bk multisample slot. Filled synchronously by the .bk loader
+    // (BkLayer_LoadIntoLayerB) on Perform → Engine → Layer B → Load → pick
+    // .bk. The 85 per-slice Sample handles point into the SDRAM .bk PCM
+    // buffer (SdBkLayerBBuffer); each carries root_key == its MIDI note so
+    // the voice engine plays at native pitch (ratio = 1.0). Voice NoteOn
+    // event handler reads `loaded` first; if true and source_layer == 1,
+    // picks slice_sample[note - hdr.lo_note] in lieu of the normal sample.
+    // Set/cleared from main thread before any potentially-triggering events
+    // are queued, so a plain bool is sufficient (no atomics needed).
+    struct BkLayerSlot
+    {
+        bk::BkFileHeader hdr{};
+        Sample           slice_sample[bk::kSliceCount]{};
+        bool             loaded{false};
+    } bk_layer_b{};
 
     struct PerformanceSharedState
     {

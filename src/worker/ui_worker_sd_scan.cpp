@@ -22,7 +22,7 @@ void CancelScan(SdBrowserState& sd)
     sd.scan_done = true;
 }
 
-bool StartScan(SdBrowserState& sd, AppSharedState& shared)
+bool StartScan(SdBrowserState& sd, AppSharedState& shared, bool include_bk)
 {
     SdBrowser_ClearList(sd);
     sd.scan_in_progress = true;
@@ -32,6 +32,7 @@ bool StartScan(SdBrowserState& sd, AppSharedState& shared)
     sd.load_in_progress = false;
     SdWavLoad_SetBusy(shared, sd, false);
     s_sd.state = LoaderState::Scan;
+    s_sd.scan_include_bk = include_bk;
 
     if(!EnsureSdMountedInternal(sd))
     {
@@ -89,7 +90,9 @@ bool ScanStep(SdBrowserState& sd)
         }
         if(fno.fattrib & AM_DIR)
             continue;
-        if(!IsWavName(fno.fname))
+        const bool is_wav = IsWavName(fno.fname);
+        const bool is_bk  = s_sd.scan_include_bk && IsBkName(fno.fname);
+        if(!is_wav && !is_bk)
             continue;
         if(sd.wav_count >= kSdMaxFiles)
         {

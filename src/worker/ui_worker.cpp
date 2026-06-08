@@ -129,7 +129,9 @@ static void StartQueuedUiRequest(AppUiState& ui,
     switch(req.type)
     {
         case UiReqType::ScanSdWavs:
-            if(!StartScan(ui.sd, shared))
+            if(!StartScan(ui.sd,
+                          shared,
+                          ui.sd_scan_filter == AppUiState::SdScanFilter::WavAndBk))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
         case UiReqType::LoadWavIndex:

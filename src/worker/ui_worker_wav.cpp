@@ -149,6 +149,19 @@ bool IsWavName(const char* name)
             && (c3 == 'V' || c3 == 'v'));
 }
 
+bool IsBkName(const char* name)
+{
+    if(!name)
+        return false;
+    const size_t len = std::strlen(name);
+    if(len < 3)
+        return false;
+    const char c0 = name[len - 3];
+    const char c1 = name[len - 2];
+    const char c2 = name[len - 1];
+    return (c0 == '.' && (c1 == 'B' || c1 == 'b') && (c2 == 'K' || c2 == 'k'));
+}
+
 bool MakePath(char* out, size_t n, const char* base, const char* name)
 {
     if(!out || n == 0 || !base || !name)

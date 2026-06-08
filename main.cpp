@@ -414,6 +414,7 @@ int main(void)
     usb_midi.StartReceive();
     g_voice.Init(g_sample_rate_hz, hw.AudioBlockSize());
     g_voice.BindDiagnostics(&g_app.diag);
+    g_voice.BindSharedState(&g_app.shared);
     g_voice.SetModMatrix(&g_app.shared.performance.modulation.mod_matrix);
     g_voice.SetPLocks(&g_app.shared.performance.plocks.plocks);
     g_voice.SetMacros(&g_app.shared.performance.macros.macro_a,

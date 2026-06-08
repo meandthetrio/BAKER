@@ -26,6 +26,15 @@ int16_t* SdManageBuffer();
 // dry one-shot via Button2 without going through the engine slots or perform
 // parameters. Sized to kSdSampleMaxFrames (5 s @ 48 kHz mono).
 int16_t* SdBakePreviewBuffer();
+
+// Layer B .bk multisample PCM buffer. Holds the entire baked PCM blob (up
+// to 85 slices × kSdSampleMaxFrames frames each = ~40 MB) so all pitched
+// slices are resident for instant note-on lookup. SDRAM, DMA-reachable for
+// SDMMC reads. Per-slice Sample handles in shared.bk_layer_b.slice_sample
+// point into this buffer at slice offsets.
+static constexpr uint32_t kBkLayerBMaxSlices = 85u; // C1..C8 inclusive
+static constexpr uint32_t kBkLayerBMaxFrames = kBkLayerBMaxSlices * kSdSampleMaxFrames;
+int16_t* SdBkLayerBBuffer();
 // Per-layer scratch holding the seam-baked copy of a loaded sample. The raw load
 // stays in SdSampleBuffer(slot) for future re-bakes; the baked copy is what plays.
 int16_t* SdBakedBuffer(uint8_t slot);

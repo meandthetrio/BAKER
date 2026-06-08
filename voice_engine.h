@@ -17,6 +17,7 @@
 #include "express_state.h"
 
 struct AppDiagnosticsState;
+struct AppSharedState;
 
 enum class VoiceState : uint8_t
 {
@@ -150,6 +151,11 @@ class VoiceEngine
 
     void Init(float sample_rate, size_t block_size);
     void BindDiagnostics(AppDiagnosticsState* diagnostics) { diagnostics_ = diagnostics; }
+    // Optional bind for cross-cutting shared state. Currently used by the
+    // NoteOn handler to look up layer B's .bk slot (if a .bk is loaded, the
+    // handler routes layer-1 note-ons to the per-slice Sample instead of
+    // the regular sample bank). Safe to leave unbound — handler null-checks.
+    void BindSharedState(AppSharedState* shared) { shared_ = shared; }
 
     // AUDIO THREAD ONLY: pops and handles all pending events for this block.
     void ProcessEvents(EventQueueSPSC& q);
@@ -381,6 +387,10 @@ class VoiceEngine
     MacroState macro_smoothed_{};
     uint32_t macro_gen_seen_ = 0;
     float macro_smooth_coeff_ = 1.0f;
+
+    // See BindSharedState. May be nullptr; the NoteOn handler null-checks
+    // before reading shared_->bk_layer_b.
+    AppSharedState*        shared_              = nullptr;
 
     std::atomic<uint32_t>* events_popped_      = nullptr;
     std::atomic<uint32_t>* voices_active_      = nullptr;

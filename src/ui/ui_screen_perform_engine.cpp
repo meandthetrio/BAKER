@@ -286,6 +286,20 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
     ctx.engine->layer.engine_load_from_perform = true;
     ctx.ui->sd_delete_mode = false;
     ctx.ui->sample_rename_active = false;
+    // Layer B's load path is the only one that exposes .bk files in the SD
+    // browser. Layer A and every other browse caller (bake-source picker,
+    // SD Manager, etc.) keep the default WavOnly filter.
+    const AppUiState::SdScanFilter new_filter
+        = (ctx.engine->layer.engine_load_target_layer == 1u)
+              ? AppUiState::SdScanFilter::WavAndBk
+              : AppUiState::SdScanFilter::WavOnly;
+    if(new_filter != ctx.ui->sd_scan_filter)
+    {
+        // Filter changed — invalidate any previous scan results so the
+        // browser re-scans with the new include/exclude rules.
+        ctx.ui->sd.scan_done = false;
+    }
+    ctx.ui->sd_scan_filter = new_filter;
     return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
 }
 

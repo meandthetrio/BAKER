@@ -106,6 +106,17 @@ struct AppUiState
     bool ui_parent_preview_origin_process_eq_graph = false;
     bool ui_btn1_held = false;
     bool ui_btn2_held = false;
+    // Controls which file types the SD scan worker exposes in the SdBrowser
+    // list. Set by the screen that pushes SdBrowse before kicking the scan,
+    // honored by ui_worker_sd_scan when adding entries. Layer B's engine
+    // load is the only consumer of WavAndBk in the v1 of .bk playback;
+    // everywhere else (layer A load, bake-source picker) keeps WavOnly.
+    enum class SdScanFilter : uint8_t
+    {
+        WavOnly = 0,
+        WavAndBk,
+    };
+    SdScanFilter sd_scan_filter = SdScanFilter::WavOnly;
     uint8_t main_menu_index = 0;
     uint8_t samples_menu_index = 0;
     uint8_t record_menu_index = 0;

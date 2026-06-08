@@ -9,6 +9,7 @@
 #include "app_state_shared.h"
 #include "app_state_worker.h"
 #include "bk_file_format.h"
+#include "bk_file_reader.h"
 #include "bk_file_writer.h"
 #include "oled_pager.h"
 #include "sd_sample_pool.h"
@@ -1190,11 +1191,12 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
         case 2:
         default:
         {
-            // STAGE 1: temporary silence-bake test. Writes /test.bk to SD
-            // root with 85 silent slices so we can verify the .bk file
-            // format round-trips on real hardware. Synchronous — blocks the
-            // main loop for ~1-2 s. Replaced in stage 3 by the rename
-            // screen + progress screen + async worker dispatch.
+            // STAGE 1: temporary silence-bake test. Writes /test.bk then
+            // immediately round-trips through the reader so a single click
+            // exercises both writer and reader. Status field shows what
+            // came back: "ok r=N a=0" means writer + reader + format all
+            // round-trip cleanly with the expected root note + algorithm.
+            // Replaced in stage 3 by the rename + progress screens.
             if(ui.bake_sample_path[0] == '\0')
             {
                 std::snprintf(ui.bake_test_status,
@@ -1203,11 +1205,31 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
             }
             else
             {
-                const bool ok = BakeMenu_RunSilenceBakeTest_(ui);
-                std::snprintf(ui.bake_test_status,
-                              sizeof(ui.bake_test_status),
-                              "%s",
-                              ok ? "wrote /test.bk" : "WRITE FAILED");
+                const bool wrote = BakeMenu_RunSilenceBakeTest_(ui);
+                if(!wrote)
+                {
+                    std::snprintf(ui.bake_test_status,
+                                  sizeof(ui.bake_test_status),
+                                  "WRITE FAILED");
+                }
+                else
+                {
+                    bk::BkFileHeader hdr;
+                    if(bk::BkRead_OpenAndValidateHeader("/test.bk", hdr))
+                    {
+                        std::snprintf(ui.bake_test_status,
+                                      sizeof(ui.bake_test_status),
+                                      "ok r=%u a=%u",
+                                      static_cast<unsigned>(hdr.root_midi_note),
+                                      static_cast<unsigned>(hdr.algorithm_id));
+                    }
+                    else
+                    {
+                        std::snprintf(ui.bake_test_status,
+                                      sizeof(ui.bake_test_status),
+                                      "READ FAIL");
+                    }
+                }
             }
             ui.ui_dirty = true;
             return true;

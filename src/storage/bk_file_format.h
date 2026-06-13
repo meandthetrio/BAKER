@@ -22,7 +22,13 @@ static constexpr uint8_t  kMagic[4]   = { 'B', 'A', 'K', 'E' };
 static constexpr uint16_t kVersion    = 1u;
 static constexpr uint16_t kHeaderSize = 88u; // sizeof(BkFileHeader); enforced static_assert below.
 
-// Standard MIDI range covered by all .bk files (C1 = 24, C8 = 108).
+// Maximum MIDI range that a .bk file may cover (C1 = 24, C8 = 108) — 7
+// octaves = 85 slots. Per-file slice count is variable: the bake UI's
+// range selector picks a sub-range, and the file written to disk only
+// contains slots for `hdr.lo_note..hdr.hi_note` inclusive. kSliceCount
+// here is the MAX capacity used to size in-RAM buffers (layer-B blob,
+// shared.bk_layer_b.slice_sample[]); actual per-file count comes from
+// the header at read/write time.
 static constexpr uint8_t kLoNote    = 24u;
 static constexpr uint8_t kHiNote    = 108u;
 static constexpr uint8_t kSliceCount = static_cast<uint8_t>(kHiNote - kLoNote + 1u); // 85

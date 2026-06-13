@@ -150,6 +150,7 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
 
                         v.state    = VoiceState::StealFadeOut;
                         v.note     = note;
+                        v.midi_note = note;
                         v.velocity = vel;
                         v.start_id = start_id;
                         v.poly_porto_source_valid = false;

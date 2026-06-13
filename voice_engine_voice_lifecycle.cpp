@@ -90,6 +90,7 @@ void VoiceEngine::StartVoice_(Voice& v,
     {
         v.state    = VoiceState::Idle;
         v.note     = note;
+        v.midi_note = note;
         v.velocity = velocity;
         v.source_layer = source_layer & 1u;
         v.vel_layer = vel_layer;
@@ -100,6 +101,7 @@ void VoiceEngine::StartVoice_(Voice& v,
 
     v.state    = VoiceState::Playing;
     v.note     = note;
+    v.midi_note = note;
     v.velocity = velocity;
     v.source_layer = source_layer & 1u;
     v.vel_layer = vel_layer;
@@ -302,7 +304,7 @@ void VoiceEngine::NoteOff_(uint8_t note)
     for(size_t i = 0; i < kMaxVoices; i++)
     {
         Voice& v = voices_[i];
-        if(v.note != note)
+        if(v.midi_note != note)
             continue;
         if(v.state == VoiceState::Playing || v.state == VoiceState::Releasing)
         {

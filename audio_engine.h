@@ -134,6 +134,13 @@ class AudioEngine
     TiltEqStereo tilt_eq_{};
     bool           eq_run_prev_ = false;
 
+    // FX-order swap declick: a brief 0->1 cosine ramp on the post-FX bus when
+    // fx_order changes between blocks. Kills the boundary click from swapping
+    // the signal path mid-stream. ~2 ms at 48 kHz = 96 samples.
+    uint8_t  fx_order_prev_[4]           = {0xFF, 0xFF, 0xFF, 0xFF};
+    uint16_t fx_order_declick_remaining_ = 0u;
+    static constexpr uint16_t kFxOrderDeclickSamples = 96u;
+
     bool     reverb_active_  = false;
     bool     reverb_tailing_ = false;
     uint32_t reverb_tail_blocks_left_ = 0;

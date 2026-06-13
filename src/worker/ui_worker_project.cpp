@@ -539,6 +539,13 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     manifest.mod_route_selected = shared.performance.modulation.mod_route_selected;
     manifest.express_enabled
         = shared.performance.express.enabled.load(std::memory_order_relaxed) ? 1u : 0u;
+
+    // OUTPUT VOL (Settings/Shift page) — clamped to the same 0..2 range the
+    // UI allows.
+    float saved_master = targets.master_level;
+    if(saved_master < 0.0f)       saved_master = 0.0f;
+    else if(saved_master > 2.0f)  saved_master = 2.0f;
+    manifest.master_level = saved_master;
 }
 
 bool ScanProjectSlots(AppUiState& ui, AppProjectState& project)

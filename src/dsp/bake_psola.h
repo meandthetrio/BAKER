@@ -60,13 +60,11 @@ bool RunPitchShiftChunked(const int16_t*  source,
 // Max source length we can pitch-shift in one call. Matches the existing
 // bake-preview SDRAM buffer (240000 frames = 5 s @ 48 kHz mono).
 static constexpr uint32_t kMaxFrames     = 240000u;
-static constexpr int      kMaxSemitones  = 48;
-
-// Test-bake pitch range relative to the picked root note. Asymmetric (24
-// down vs 23 up) keeps the total at a round 47 — see
-// BakeMenu_RunPsolaTestBake_ in ui_screen_main.cpp.
-static constexpr int kBakeSemitonesDown = 24;
-static constexpr int kBakeSemitonesUp   = 23;
-static constexpr int kBakeTotalPsola    = kBakeSemitonesDown + kBakeSemitonesUp;
+// Covers the full MIDI delta range (any root → any slot). Earlier value was
+// 48 (±4 octaves), which produced silent slices any time the root sat
+// outside the bake range and the range was more than 4 octaves away. The
+// underlying signalsmith engine has no such limit; quality degrades at
+// extreme shifts but the bake will still produce audio.
+static constexpr int      kMaxSemitones  = 127;
 
 } // namespace bake

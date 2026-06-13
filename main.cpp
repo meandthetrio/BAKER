@@ -331,6 +331,15 @@ extern "C" void Pod_ForceDisplayRefresh()
     g_render.RenderNowAndFlushFullFrame(g_app, g_params);
 }
 
+// MIDI panic: push an AllNotesOff event to the audio engine, which stops
+// every active voice. Used by the SHIFT-menu Button1 binding so stuck
+// notes (lost NoteOff, dropped events, controller weirdness) can be
+// cleared without rebooting.
+extern "C" void Pod_MidiPanic()
+{
+    PushAudioEventFromMain(Event::AllNotesOffEvent());
+}
+
 int main(void)
 {
     hw.Init();
@@ -578,8 +587,15 @@ int main(void)
         }
         else if(record_recording_active)
         {
+            // TEMP: blank the LEDs while the mic is actually recording.
+            // Flip this back to the call below to restore the red indicators.
+#if 0
             hw.led1.Set(1.0f, 0.0f, 0.0f);
             hw.led2.Set(1.0f, 0.0f, 0.0f);
+#else
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
+            hw.led2.Set(0.0f, 0.0f, 0.0f);
+#endif
         }
         else if(wav_load_busy || sd_manage_trim_save_busy)
         {

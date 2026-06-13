@@ -236,22 +236,44 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
 
     if(feed)
     {
-        // Live input path: DattorroReverb::ProcessBlock writes in + wet*out_gain,
-        // so wet = out - in (matches the old per-sample ReverbProcessDattorro_).
-        dattorro_.ProcessBlock(L, R, tmpL, tmpR, n);
+        // In MIX mode, the tank sees the full dry signal and `mix` crossfades
+        // dry vs wet at the output. In SEND mode, `mix` scales the dry going
+        // INTO the tank (linear taper, 0 dB at full) and the wet is summed at
+        // unity — so sweeping mix to zero stops new input but lets the tank
+        // ring out audibly. DattorroReverb::ProcessBlock writes in + wet, so
+        // wet = out - in regardless of how the input was scaled.
+        if(mix_mode)
+        {
+            dattorro_.ProcessBlock(L, R, tmpL, tmpR, n);
+        }
+        else
+        {
+            float sendL[kReverbScratchMax];
+            float sendR[kReverbScratchMax];
+            for(size_t i = 0; i < n; ++i)
+            {
+                sendL[i] = L[i] * mix;
+                sendR[i] = R[i] * mix;
+            }
+            dattorro_.ProcessBlock(sendL, sendR, tmpL, tmpR, n);
+        }
         for(size_t i = 0; i < n; ++i)
         {
             const float l    = L[i];
             const float r    = R[i];
-            const float wetL = tmpL[i] - l;
-            const float wetR = tmpR[i] - r;
+            const float wetL = mix_mode ? (tmpL[i] - l) : (tmpL[i] - l * mix);
+            const float wetR = mix_mode ? (tmpR[i] - r) : (tmpR[i] - r * mix);
 
-            float rl = l + wetL * mix;
-            float rr = r + wetR * mix;
+            float rl, rr;
             if(mix_mode)
             {
                 rl = l * (1.0f - mix) + wetL * mix;
                 rr = r * (1.0f - mix) + wetR * mix;
+            }
+            else
+            {
+                rl = l + wetL;
+                rr = r + wetR;
             }
 
             const float abs_rl = std::fabs(rl - l);
@@ -278,8 +300,9 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
             const float wetL = tmpL[i];
             const float wetR = tmpR[i];
 
-            // Match feed-on dry/wet math so mix-mode does not step across the
-            // active->tail boundary.
+            // Match feed-on dry/wet math so neither mode steps across the
+            // active->tail boundary. SEND mode sums wet at unity (matches the
+            // feed=true SEND path).
             float rl, rr;
             if(mix_mode)
             {
@@ -288,8 +311,8 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
             }
             else
             {
-                rl = l + wetL * mix;
-                rr = r + wetR * mix;
+                rl = l + wetL;
+                rr = r + wetR;
             }
 
             const float abs_rl = std::fabs(rl - l);
@@ -544,6 +567,37 @@ void AudioEngine::ProcessBlock(const float* inL,
         std::memcpy(outL, inL, size * sizeof(float));
     if(outR != inR)
         std::memcpy(outR, inR, size * sizeof(float));
+
+    // Arm a brief INPUT ramp when fx_order changes — the signal path swaps
+    // discontinuously, and if a stateful stage (delay/reverb) writes the
+    // boundary sample directly into its buffer it captures the click and
+    // feeds it back forever. Ramping the input before the FX chain runs
+    // means every stage (including delay's write path) sees a smoothly
+    // attenuated signal across the swap.
+    bool fx_order_changed = false;
+    for(uint8_t i = 0; i < 4; ++i)
+    {
+        if(fx_order_prev_[i] != p.fx_order[i])
+        {
+            fx_order_changed = true;
+            fx_order_prev_[i] = p.fx_order[i];
+        }
+    }
+    if(fx_order_changed)
+        fx_order_declick_remaining_ = kFxOrderDeclickSamples;
+
+    if(fx_order_declick_remaining_ > 0u)
+    {
+        for(size_t i = 0; i < size && fx_order_declick_remaining_ > 0u; ++i)
+        {
+            const float phase = 1.0f - (static_cast<float>(fx_order_declick_remaining_)
+                                        / static_cast<float>(kFxOrderDeclickSamples));
+            const float g = 0.5f - 0.5f * std::cos(3.14159265f * phase);
+            outL[i] *= g;
+            outR[i] *= g;
+            --fx_order_declick_remaining_;
+        }
+    }
 
     for(uint8_t stage_idx = 0; stage_idx < 4; ++stage_idx)
     {

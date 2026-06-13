@@ -30,9 +30,12 @@ static void PublishProjectPerformParams(Params& params,
                                         const ProjectDelayState* process_delay_state,
                                         const ProjectReverbState* process_reverb_state,
                                         const float* emphasis_cutoff_hz,
-                                        const float* emphasis_resonance)
+                                        const float* emphasis_resonance,
+                                        const float* output_master_level)
 {
     PerformParamsTargets& t = params.EditTargets();
+    if(output_master_level)
+        t.master_level = ClampProjectFloat(*output_master_level, 0.0f, 2.0f);
     if(process_fx_order)
     {
         for(uint8_t i = 0; i < 4; ++i)
@@ -283,7 +286,8 @@ void ApplyProjectLoadState(AppEngineState& engine,
                                 &manifest.delay,
                                 &manifest.reverb,
                                 manifest.engine_filter_cutoff_hz,
-                                manifest.engine_filter_resonance);
+                                manifest.engine_filter_resonance,
+                                &manifest.master_level);
     SyncProjectProcessVolumeUiState(engine, manifest.engine_layer_master_level);
     SyncProjectProcessFxOrderUiState(engine, manifest.fx_order);
 }

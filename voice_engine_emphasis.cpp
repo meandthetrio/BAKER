@@ -68,11 +68,32 @@ void VoiceEngine::RecomputeLayerEmphasisCoeffs_(uint8_t layer)
     c.tanh_input_scale = 1.12f + (0.32f * resonance_shaped);
 }
 
+// One-pole per-sample ramp coefficient. 1/2400 ≈ 50 ms at 48 kHz — matches the
+// delay/sat smoothers in audio_engine.cpp. Kills the block-rate zipper when
+// Express (or any source) sweeps cutoff/drive quickly.
+static constexpr float kEmphasisCoeffSmoothCoeff = 1.0f / 2400.0f;
+
 float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
 {
     layer &= 1u;
     LayerBusState& state = layer_bus_state_[layer];
-    const LayerEmphasisCoeffs& c = emphasis_coeff_[layer];
+    const LayerEmphasisCoeffs& t = emphasis_coeff_[layer];
+    LayerEmphasisCoeffs& c = emphasis_coeff_z_[layer];
+
+    // Drive-mode toggle is a structural change — snap, don't ramp.
+    c.odd_drive = t.odd_drive;
+
+    // Ramp every used coefficient toward its target.
+    c.pre_gain           += (t.pre_gain           - c.pre_gain)           * kEmphasisCoeffSmoothCoeff;
+    c.shape_blend        += (t.shape_blend        - c.shape_blend)        * kEmphasisCoeffSmoothCoeff;
+    c.base_makeup        += (t.base_makeup        - c.base_makeup)        * kEmphasisCoeffSmoothCoeff;
+    c.positive_drive     += (t.positive_drive     - c.positive_drive)     * kEmphasisCoeffSmoothCoeff;
+    c.negative_drive     += (t.negative_drive     - c.negative_drive)     * kEmphasisCoeffSmoothCoeff;
+    c.even_makeup        += (t.even_makeup        - c.even_makeup)        * kEmphasisCoeffSmoothCoeff;
+    c.g                  += (t.g                  - c.g)                  * kEmphasisCoeffSmoothCoeff;
+    c.feedback           += (t.feedback           - c.feedback)           * kEmphasisCoeffSmoothCoeff;
+    c.pole4_linear_scale += (t.pole4_linear_scale - c.pole4_linear_scale) * kEmphasisCoeffSmoothCoeff;
+    c.tanh_input_scale   += (t.tanh_input_scale   - c.tanh_input_scale)   * kEmphasisCoeffSmoothCoeff;
 
     float driven = 0.0f;
     if(c.odd_drive)

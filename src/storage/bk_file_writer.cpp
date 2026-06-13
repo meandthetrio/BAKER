@@ -141,7 +141,27 @@ bool BkWriter_WriteSlice(BkWriter& w, const int16_t* src)
     return true;
 }
 
-bool BkWriter_End(BkWriter& w, const char* path, BkWriteProgressCb cb)
+bool BkWriter_PadOnly(BkWriter& w, BkWriteProgressCb cb)
+{
+    if(!w.open)
+        return false;
+    const uint32_t pad_total = (w.slot_cursor < w.slices_total)
+                                   ? (w.slices_total - w.slot_cursor)
+                                   : 0u;
+    uint32_t pad_done = 0u;
+    while(w.slot_cursor < w.slices_total)
+    {
+        if(!WriteSilenceSlice_(w.frames_per_slice))
+            return false;
+        ++w.slot_cursor;
+        ++pad_done;
+        if(cb != nullptr)
+            cb(pad_done, pad_total);
+    }
+    return true;
+}
+
+bool BkWriter_Close(BkWriter& w, const char* path)
 {
     if(!w.open)
     {
@@ -149,33 +169,24 @@ bool BkWriter_End(BkWriter& w, const char* path, BkWriteProgressCb cb)
             f_unlink(path);
         return false;
     }
-
-    // Pad any remaining slots with silence so the file is always
-    // slices_total slots long, regardless of caller's emission count.
-    const uint32_t pad_total = (w.slot_cursor < w.slices_total)
-                                   ? (w.slices_total - w.slot_cursor)
-                                   : 0u;
-    uint32_t pad_done = 0u;
-    bool     ok       = true;
-    while(ok && w.slot_cursor < w.slices_total)
-    {
-        ok = WriteSilenceSlice_(w.frames_per_slice);
-        if(ok)
-        {
-            ++w.slot_cursor;
-            ++pad_done;
-            if(cb != nullptr)
-                cb(pad_done, pad_total);
-        }
-    }
-
-    if(f_close(&s_bk_file) != FR_OK)
-        ok = false;
-
+    const FRESULT rc = f_close(&s_bk_file);
     w.open = false;
-    if(!ok && path != nullptr && path[0] != '\0')
-        f_unlink(path);
-    return ok;
+    if(rc != FR_OK)
+    {
+        if(path != nullptr && path[0] != '\0')
+            f_unlink(path);
+        return false;
+    }
+    return true;
+}
+
+bool BkWriter_End(BkWriter& w, const char* path, BkWriteProgressCb cb)
+{
+    const bool padded = BkWriter_PadOnly(w, cb);
+    const bool closed = BkWriter_Close(w, path);
+    if(!padded && path != nullptr && path[0] != '\0')
+        f_unlink(path); // PadOnly failure: ensure no partial file lingers
+    return padded && closed;
 }
 
 bool BkWrite_File(const char*           path,

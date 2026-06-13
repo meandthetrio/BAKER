@@ -305,10 +305,8 @@ void UiOverlay_Render(const AppUiState& ui,
 
     const auto& p = params.current;
     const int tune_a = static_cast<int>(p.engine_tune_semitones[0]);
-    const int tune_b = static_cast<int>(p.engine_tune_semitones[1]);
     const int gain_a = static_cast<int>(p.engine_gain_db[0]);
     const int gain_b = static_cast<int>(p.engine_gain_db[1]);
-    const char* mode_a = LoopModeValue(p.engine_loop_mode[0]);
     const char* mode_b = LoopModeValue(p.engine_loop_mode[1]);
     const char* worker_value = WorkerStateValue(worker_state);
     const uint32_t worker_pct = worker_state.ui_req_busy ? worker_state.ui_req_progress : 0u;
@@ -448,15 +446,16 @@ void UiOverlay_Render(const AppUiState& ui,
             FormatPercentValue(value2, worker_pct);
             FormatSignedValue(value3, tune_a);
             FormatGainValue(value4, gain_a);
-            FormatSignedValue(value6, tune_b);
+            FormatUnsignedValue(value5, diag.voice_steals.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value6, diag.voices_active.load(std::memory_order_relaxed));
             const OverlayMetric metrics[] = {
                 {"events queued", value0},
                 {"worker", worker_value},
                 {"worker progress", value2},
                 {"layer a tune", value3},
                 {"layer a gain", value4},
-                {"layer a mode", mode_a},
-                {"layer b tune", value6},
+                {"voice steals", value5},
+                {"voices active", value6},
             };
             DrawOverlayPage(oled, "activity", metrics, 7);
             return;

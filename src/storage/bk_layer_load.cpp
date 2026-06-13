@@ -26,7 +26,7 @@ bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
     if(slice_count == 0u || slice_count > bk::kSliceCount)
         return false;
 
-    // Pre-build 85 Sample handles, one per semitone in [lo_note, hi_note].
+    // Pre-build kSliceCount Sample handles, one per semitone in [lo_note, hi_note].
     // Each Sample's root_key == its MIDI note so the voice engine computes
     // pitch ratio = 2^((note - root_key)/12) = 1.0 → native-pitch playback.
     for(uint32_t i = 0u; i < slice_count; ++i)

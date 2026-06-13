@@ -145,11 +145,13 @@ struct AppUiState
     char    bake_sample_path[kSdPathMax] = {};
     char    bake_sample_name[kSdNameMax] = {};
     bool    bake_browser_open = false;
-    // STAGE 1 TEMPORARY: shows last silence-bake test result on the bake
-    // screen (so we can verify the writer ran and what it returned without
-    // needing SD inspection). Empty = no test run yet. Removed in stage 3
-    // when the real progress screen lands.
-    char    bake_test_status[20] = {};
+    // Bake range selector. Width index picks one of four octave spans
+    // (0=C4-C5, 1=C3-C6, 2=C2-C7, 3=C1-C8), position offset shifts both
+    // bounds by that many octaves (RShift+REnc). Display value is
+    // formatted on the fly from these two values; the bake driver uses
+    // them to set hdr.lo_note/hi_note for the .bk file written to SD.
+    uint8_t bake_range_width_idx       = 0;
+    int8_t  bake_range_position_offset = 0;
     // STAGE 2 TEMPORARY: bake-in-progress overlay. When `bake_progress_active`
     // is true the bake screen draws a centered modal showing "X/2" (slices
     // completed of total), the current PSOLA phase label, and a 0-100 %

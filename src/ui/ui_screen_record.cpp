@@ -661,8 +661,15 @@ void Record_Render(UiScreenCtx& ctx)
 
         case RecordUiState::Recording:
         {
+            // TEMP: blank the OLED while the mic is actually recording. The
+            // live-capture UI is intentionally suppressed for now — flip this
+            // back to the call below to restore it.
+#if 0
             const float mic_boost = (recording.record_source_index == 1) ? 1.5f : 1.0f;
             Record_RenderLiveCaptureStyle(ctx, "RECORDING - 5 SEC MAX", mic_boost);
+#else
+            d.Fill(false);
+#endif
         }
         break;
 

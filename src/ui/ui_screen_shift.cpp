@@ -16,6 +16,10 @@
 #include "system.h"
 #include "ui_input.h"
 #include "ui_layout.h"
+
+// MIDI panic helper from main.cpp — pushes an AllNotesOff event to the
+// audio engine to clear any stuck voices.
+extern "C" void Pod_MidiPanic();
 #include "ui_requests.h"
 
 enum ShiftMenuItem : uint8_t
@@ -24,6 +28,7 @@ enum ShiftMenuItem : uint8_t
     ShiftVolume,
     ShiftMicMonitor,
     ShiftFirmwareUpdate,
+    ShiftMidiPanic,
     ShiftCount
 };
 
@@ -261,6 +266,12 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.ui_dirty = true;
             return true;
         }
+        if(ui.shift_menu_cursor == ShiftMidiPanic)
+        {
+            Pod_MidiPanic();
+            ui.ui_dirty = true;
+            return true;
+        }
         return true;
     }
 
@@ -436,6 +447,11 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         {
             if(sel) DrawFillOnlyTinyString(d, "FIRMWARE UPDATE", label_x, label_y);
             else DrawTinyString(d, "FIRMWARE UPDATE", label_x, label_y, true);
+        }
+        else if(i == ShiftMidiPanic)
+        {
+            if(sel) DrawFillOnlyTinyString(d, "MIDI PANIC", label_x, label_y);
+            else DrawTinyString(d, "MIDI PANIC", label_x, label_y, true);
         }
     }
     }

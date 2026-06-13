@@ -36,12 +36,14 @@ uint32_t SdManageMaxFrames();
 // parameters. Sized to kSdSampleMaxFrames (5 s @ 48 kHz mono).
 int16_t* SdBakePreviewBuffer();
 
-// Layer B .bk multisample PCM buffer. Holds the entire baked PCM blob (up
-// to 85 slices × kSdSampleMaxFrames frames each = ~40 MB) so all pitched
-// slices are resident for instant note-on lookup. SDRAM, DMA-reachable for
-// SDMMC reads. Per-slice Sample handles in shared.bk_layer_b.slice_sample
-// point into this buffer at slice offsets.
-static constexpr uint32_t kBkLayerBMaxSlices = 85u; // C1..C8 inclusive
+// Layer B .bk multisample PCM buffer. Sized for the MAX selectable bake
+// range (C1..C8 = 85 slices × kSdSampleMaxFrames frames each = ~40 MB)
+// so the buffer can hold any .bk file the variable-length writer
+// produces. SDRAM, DMA-reachable for SDMMC reads. Per-slice Sample
+// handles in shared.bk_layer_b.slice_sample point into this buffer at
+// slice offsets; per-file count comes from hdr.hi_note - hdr.lo_note + 1.
+// Must match bk::kSliceCount in bk_file_format.h.
+static constexpr uint32_t kBkLayerBMaxSlices = 85u; // C1..C8 inclusive (max range)
 static constexpr uint32_t kBkLayerBMaxFrames = kBkLayerBMaxSlices * kSdSampleMaxFrames;
 int16_t* SdBkLayerBBuffer();
 // Per-layer scratch holding the seam-baked copy of a loaded sample. The raw load

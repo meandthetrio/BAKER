@@ -87,7 +87,6 @@ static void AudioCallback_ApplyExpressOverlay(const AppSharedState& shared,
                     break;
                 case kExpressReverb:
                     params.reverb_mix = Clamp01(mapped * 0.01f);
-                    params.reverb_on = (params.reverb_mix > 0.001f);
                     break;
                 case kExpressPolyPorto:
                 default:

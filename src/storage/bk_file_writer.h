@@ -17,7 +17,7 @@ using BkWriteProgressCb = void (*)(uint32_t slices_done, uint32_t slices_total);
 // into a single scratch buffer and ship each slice straight to SD, instead
 // of holding all 47 in RAM. Slots are written in forward order (0 → 84);
 // BkWriter_End pads any unwritten slots with silence so the file is always
-// the expected 85-slot length.
+// the expected kSliceCount length (72 slots in v1; see bk_file_format.h).
 //
 // All gotchas from the one-shot writer still apply: the FIL struct and any
 // header / data buffer handed to f_write must live in DMA-reachable memory
@@ -57,6 +57,16 @@ bool BkWriter_WriteSlice(BkWriter& w, const int16_t* src);
 // for typical bakes (47 PSOLA + 1 root) is 37 slots of zero writes and
 // can take 1–2 s on SD for multi-second source files.
 bool BkWriter_End(BkWriter& w, const char* path, BkWriteProgressCb cb = nullptr);
+
+// Split-end variants: lets the caller paint a UI transition between the
+// silence pad and the f_close (FATFS flushing the FAT chain + directory
+// entry for a 40 MB file can take seconds, otherwise looks like a frozen
+// "done" bar). Use these instead of BkWriter_End when you need a label
+// change around the close. After PadOnly returns true, call Close to
+// finalize; on PadOnly failure, still call Close (it will unlink). Don't
+// mix with BkWriter_End on the same BkWriter.
+bool BkWriter_PadOnly(BkWriter& w, BkWriteProgressCb cb = nullptr);
+bool BkWriter_Close(BkWriter& w, const char* path);
 
 // ---- One-shot wrapper ----------------------------------------------------
 //

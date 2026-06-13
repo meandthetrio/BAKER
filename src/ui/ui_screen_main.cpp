@@ -1122,7 +1122,36 @@ void CraftMenu_Render(UiScreenCtx& ctx)
 //
 // The bake button is a no-op stub in this slice — the bake worker, progress
 // screen, and cancel chord are deferred to a later plan.
-static constexpr int32_t kBakeFocusCount = 3;
+// Focus indices: 0=sample, 1=root, 2=range, 3=bake. Row 3 is a visual
+// blank spacer; row 4 (bake) is reached by focus value 3.
+static constexpr int32_t kBakeFocusCount = 4;
+
+// Bake range selector: four width presets, each centered on the canonical
+// C4-anchored position. Width index N gives a default range
+// [kBakeRangeDefaultLo[N], kBakeRangeDefaultHi[N]] in MIDI numbers; the
+// user can then shift both bounds by ±12 per RShift+REnc click.
+static constexpr uint8_t kBakeRangeDefaultLo[4] = { 60u, 48u, 36u, 24u }; // C4,C3,C2,C1
+static constexpr uint8_t kBakeRangeDefaultHi[4] = { 72u, 84u, 96u, 108u }; // C5,C6,C7,C8
+static constexpr uint8_t kBakeRangeWidthCount    = 4u;
+
+static inline uint8_t BakeRangeLo_(uint8_t width_idx, int8_t pos_off)
+{
+    const int v = int(kBakeRangeDefaultLo[width_idx]) + 12 * int(pos_off);
+    return static_cast<uint8_t>(v);
+}
+static inline uint8_t BakeRangeHi_(uint8_t width_idx, int8_t pos_off)
+{
+    const int v = int(kBakeRangeDefaultHi[width_idx]) + 12 * int(pos_off);
+    return static_cast<uint8_t>(v);
+}
+// Returns true if shifting `width_idx`'s default range by `pos_off`
+// octaves leaves both bounds within [kLoNote, kHiNote] (C1..C8).
+static inline bool BakeRangePosOffsetValid_(uint8_t width_idx, int8_t pos_off)
+{
+    const int lo = int(kBakeRangeDefaultLo[width_idx]) + 12 * int(pos_off);
+    const int hi = int(kBakeRangeDefaultHi[width_idx]) + 12 * int(pos_off);
+    return lo >= int(bk::kLoNote) && hi <= int(bk::kHiNote);
+}
 
 // STAGE 2 TEMPORARY: PSOLA test-bake fired by REnc Click on the bake button.
 // The whole sequence runs synchronously on the main thread:
@@ -1232,15 +1261,27 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
 
     const uint8_t root = ui.bake_root_note;
 
-    // Count PSOLA jobs actually scheduled, given root-clipped range. Used
-    // both for the X/N display and for per-slice base/span percentages.
+    // Pull the selected bake range from the range row's UI state. The
+    // .bk file written to SD is exactly (hi - lo + 1) slots wide; layer-B
+    // buffer is sized for the max (85) but only this many slices land on
+    // disk.
+    const uint8_t range_lo = BakeRangeLo_(ui.bake_range_width_idx,
+                                          ui.bake_range_position_offset);
+    const uint8_t range_hi = BakeRangeHi_(ui.bake_range_width_idx,
+                                          ui.bake_range_position_offset);
+    const uint8_t range_slice_count = static_cast<uint8_t>(range_hi - range_lo + 1u);
+
+    // Count PSOLA jobs: every slot in the selected range that isn't the
+    // root and whose semitone delta is within ±kMaxSemitones. Notes the
+    // PSOLA engine can't reach (e.g. shifting >48 semitones at the
+    // widest C1-C8 with an extreme root) fall through to silence.
     int psola_planned = 0;
-    for(int s = -bake::kBakeSemitonesDown; s <= bake::kBakeSemitonesUp; ++s)
+    for(uint8_t midi = range_lo; midi <= range_hi; ++midi)
     {
-        if(s == 0)
-            continue;
-        const int midi = int(root) + s;
-        if(midi < int(bk::kLoNote) || midi > int(bk::kHiNote))
+        const int delta = int(midi) - int(root);
+        if(delta == 0)
+            continue; // root slot, not PSOLA
+        if(delta < -bake::kMaxSemitones || delta > bake::kMaxSemitones)
             continue;
         ++psola_planned;
     }
@@ -1254,6 +1295,8 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
     bk::BkFileHeader hdr = bk::MakeDefaultHeader();
     hdr.source_duration_samples = source_frames;
     hdr.root_midi_note          = root;
+    hdr.lo_note                 = range_lo;
+    hdr.hi_note                 = range_hi;
     hdr.algorithm_id            = static_cast<uint8_t>(bk::kAlgorithmPsola);
     std::snprintf(hdr.source_name, sizeof(hdr.source_name), "%s", ui.bake_sample_name);
 
@@ -1265,40 +1308,49 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
         return 4;
     }
 
-    // Fused compute+write loop. Walks all 85 slots in forward order; for
-    // each slot, picks one of:
-    //   - root:  write the unmodified source.
+    // Fused compute+write loop. Walks the selected range in forward order;
+    // for each slot, picks one of:
+    //   - root:           write the unmodified source.
     //   - in-range pitch: PSOLA into s_bake_slice_scratch, write the scratch.
-    //   - out-of-range:   write a silence slice.
-    // Progress counter advances only on PSOLA outputs (0/N → N/N).
+    //   - PSOLA out-of-engine-range: write a silence slice.
+    // X/N counter advances only on PSOLA outputs. The bar reflects overall
+    // slot progress (slot_offset+1)/range_slice_count so it climbs
+    // monotonically through any silence and PSOLA slots alike.
+    auto slot_base_pct = [&](uint8_t slot_off) -> uint8_t {
+        return static_cast<uint8_t>((uint32_t(slot_off) * 100u) / uint32_t(range_slice_count));
+    };
+    auto slot_done_pct = [&](uint8_t slot_off) -> uint8_t {
+        return static_cast<uint8_t>((uint32_t(slot_off + 1u) * 100u) / uint32_t(range_slice_count));
+    };
+
     int psola_done = 0;
-    for(uint8_t slot = 0; slot < bk::kSliceCount; ++slot)
+    for(uint8_t midi = range_lo; midi <= range_hi; ++midi)
     {
-        const int midi  = int(bk::kLoNote) + int(slot);
-        const int delta = midi - int(root);
+        const uint8_t slot_off = static_cast<uint8_t>(midi - range_lo);
+        const int     delta    = int(midi) - int(root);
         const int16_t* src = nullptr;
 
         if(midi == int(root))
         {
             src = source;
         }
-        else if(delta >= -bake::kBakeSemitonesDown && delta <= bake::kBakeSemitonesUp
+        else if(delta >= -bake::kMaxSemitones && delta <= bake::kMaxSemitones
                 && psola_planned > 0)
         {
             // Compute this slot's PSOLA into the shared scratch buffer.
+            // PSOLA's within-chunk progress fills the slot's bar window.
             s_psola_progress.ui                = &ui;
             s_psola_progress.slice_done_during = static_cast<uint8_t>(psola_done);
-            s_psola_progress.base_percent
-                = static_cast<uint8_t>((uint32_t(psola_done) * 100u) / uint32_t(psola_planned));
+            s_psola_progress.base_percent      = slot_base_pct(slot_off);
             s_psola_progress.span_percent
-                = static_cast<uint8_t>(100u / uint32_t(psola_planned));
+                = static_cast<uint8_t>(slot_done_pct(slot_off) - slot_base_pct(slot_off));
             if(!bake::RunPitchShiftChunked(source,
                                            source_frames,
                                            delta,
                                            s_bake_slice_scratch,
                                            BakePsolaProgressCb_))
             {
-                bk::BkWriter_End(w, "/test.bk"); // unlinks
+                bk::BkWriter_Close(w, "/test.bk"); // best-effort, unlinks
                 Pod_StartAudio();
                 ui.bake_progress_active = false;
                 return 3;
@@ -1309,43 +1361,63 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
 
         if(!bk::BkWriter_WriteSlice(w, src))
         {
-            bk::BkWriter_End(w, "/test.bk"); // unlinks
+            bk::BkWriter_Close(w, "/test.bk"); // best-effort, unlinks
             Pod_StartAudio();
             ui.bake_progress_active = false;
             return 4;
         }
 
+        // Snap the bar to this slot's done-boundary and pick a label that
+        // tells the user what just happened. The X/N counter only bumps
+        // for real PSOLA outputs.
+        const char* label;
         if(src == s_bake_slice_scratch)
         {
             ++psola_done;
-            // Snap the bar to the slot-complete boundary after each PSOLA,
-            // resolving the sub-percent jitter from chunked progress.
-            const uint8_t pct
-                = static_cast<uint8_t>((uint32_t(psola_done) * 100u) / uint32_t(psola_planned));
-            BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), pct,
-                                   "psola: complete");
+            label = "psola: write";
         }
+        else if(src == source)
+        {
+            label = "writing root";
+        }
+        else
+        {
+            label = "writing silence";
+        }
+        BakeProgress_SetMacro_(ui,
+                               static_cast<uint8_t>(psola_done),
+                               slot_done_pct(slot_off),
+                               label);
     }
 
-    // Finalize phase: BkWriter_End first writes silence into every slot the
-    // caller didn't populate (37 for a typical root-C4 47-PSOLA bake, ~10 MB
-    // of zero writes for a 3 s source), then f_close flushes FATFS cache to
-    // SD. Both can take a couple seconds combined. Drive the bar through
-    // the silence pad so the UI doesn't look frozen at 100%.
+    // Finalize: TWO distinct phases, both visible in the bar. (1) Silence
+    // pad — usually 0 slots now that the main loop walks every slot 0..71
+    // and writes silence inline; PadOnly is only a safety net for partial
+    // walks. (2) f_close — FATFS flushes the FAT chain + directory entry
+    // for the ~34 MB file; this is the multi-second stall and previously
+    // looked like a frozen "done" bar.
     BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), 0u, "finalizing: pad");
     s_bake_finalize_ui = &ui;
     s_bake_finalize_psola_done = static_cast<uint8_t>(psola_done);
-    const bool wrote = bk::BkWriter_End(w, "/test.bk", BakeFinalizeProgressCb_);
+    const bool padded = bk::BkWriter_PadOnly(w, BakeFinalizeProgressCb_);
     s_bake_finalize_ui = nullptr;
-    if(!wrote)
+    if(!padded)
+    {
+        bk::BkWriter_Close(w, "/test.bk"); // best-effort, unlinks
+        Pod_StartAudio();
+        ui.bake_progress_active = false;
+        return 4;
+    }
+    // Flip to the close label BEFORE f_close so the user sees the
+    // transition; the bar holds at 100% during the (silent, multi-second)
+    // FATFS flush instead of looking stalled on "finalizing: pad 37/37".
+    BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), 100u, "finalizing: close");
+    if(!bk::BkWriter_Close(w, "/test.bk"))
     {
         Pod_StartAudio();
         ui.bake_progress_active = false;
         return 4;
     }
-    // f_close inside BkWriter_End has returned; remaining work is just the
-    // status-string write back in the caller. Flip the label so the bar's
-    // 100% state reads "done" instead of stale "finalizing: pad 37/37".
     BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), 100u, "done");
     Pod_StartAudio();
 
@@ -1402,61 +1474,40 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
             // Root note: REnc Click does nothing; scroll changes value.
             return false;
         case 2:
+            // Range row: REnc Click does nothing; scroll changes width,
+            // RShift+scroll shifts position (both in OnEvent below).
+            return false;
+        case 3:
         default:
         {
-            // STAGE 2: PSOLA test-bake. Auto-loads source WAV from SD,
-            // PSOLA-renders ±1 semitone neighbors of the root, writes
-            // /test.bk with all three populated and 82 silent slots.
-            // Progress overlay (bake_progress_*) is driven from inside
-            // RunPsolaTestBake_; we clear it here once the call returns
-            // and set the final status string.
+            // Trigger PSOLA bake. Progress overlay (bake_progress_*) is
+            // driven from inside RunPsolaTestBake_; we clear it here once
+            // the call returns. Failure surfaces via the progress label
+            // sticking on a final state until the next bake (no
+            // bake_test_status row to fall back on now that the screen is
+            // the 5-row layout).
             if(!ctx.shared)
             {
-                std::snprintf(ui.bake_test_status,
-                              sizeof(ui.bake_test_status),
-                              "no shared");
+                BakeProgress_SetMacro_(ui, 0u, 0u, "no shared");
                 ui.ui_dirty = true;
                 return true;
             }
             const int rc = BakeMenu_RunPsolaTestBake_(ui, *ctx.shared);
-            ui.bake_progress_active = false;
-            switch(rc)
+            if(rc == 0)
             {
-                case 0:
+                ui.bake_progress_active = false;
+            }
+            else
+            {
+                const char* msg = "WRITE FAIL";
+                switch(rc)
                 {
-                    bk::BkFileHeader hdr;
-                    if(bk::BkRead_OpenAndValidateHeader("/test.bk", hdr))
-                    {
-                        std::snprintf(ui.bake_test_status,
-                                      sizeof(ui.bake_test_status),
-                                      "psola r:%u n:%u",
-                                      static_cast<unsigned>(hdr.root_midi_note),
-                                      static_cast<unsigned>(ui.bake_progress_slice_total));
-                    }
-                    else
-                    {
-                        std::snprintf(ui.bake_test_status,
-                                      sizeof(ui.bake_test_status),
-                                      "READ FAIL");
-                    }
-                    break;
+                    case 1: msg = "no sample";     break;
+                    case 2: msg = "still loading"; break;
+                    case 3: msg = "PSOLA FAIL";    break;
+                    case 4: msg = "WRITE FAIL";    break;
                 }
-                case 1:
-                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "no sample");
-                    break;
-                case 2:
-                    // Sample pre-load (kicked at SD-Manager select time) hasn't
-                    // finished yet, or path was empty. User waits ~1 s and tries
-                    // again — typical SD loads are sub-second.
-                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "still loading");
-                    break;
-                case 3:
-                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "PSOLA FAIL");
-                    break;
-                case 4:
-                default:
-                    std::snprintf(ui.bake_test_status, sizeof(ui.bake_test_status), "WRITE FAIL");
-                    break;
+                BakeProgress_SetMacro_(ui, 0u, 0u, msg);
             }
             ui.ui_dirty = true;
             return true;
@@ -1468,10 +1519,28 @@ bool BakeMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui)
         return false;
-    if(ctx.shift)
-        return false;
 
     AppUiState& ui = *ctx.ui;
+
+    // RShift + REnc scroll on the range row shifts the range position by
+    // ±1 octave (no-op at the C1/C8 boundary). Handled before the
+    // non-shift early-return below so the modifier chord reaches here.
+    // ctx.shift is LShift only — use ctx.rshift for RShift.
+    if(ctx.rshift && e.type == UiInputType::EncDelta && e.id == kUiEncExt
+       && e.value != 0 && ui.bake_focus == 2u)
+    {
+        const int step = (e.value > 0) ? 1 : -1;
+        const int8_t next_off = static_cast<int8_t>(ui.bake_range_position_offset + step);
+        if(BakeRangePosOffsetValid_(ui.bake_range_width_idx, next_off))
+        {
+            ui.bake_range_position_offset = next_off;
+            ui.ui_dirty = true;
+        }
+        return true;
+    }
+
+    if(ctx.shift || ctx.rshift)
+        return false;
 
     // LEnc scroll cycles focus with wrap.
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
@@ -1499,6 +1568,26 @@ bool BakeMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    // REnc scroll on the range row cycles the width index (0..3), clamped
+    // at the ends. Changing width snaps position back to the canonical
+    // C4-centered default so the cycle reads the way the UI promises:
+    // C4-C5, C3-C6, C2-C7, C1-C8.
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0
+       && ui.bake_focus == 2u)
+    {
+        int next = static_cast<int>(ui.bake_range_width_idx) + static_cast<int>(e.value);
+        if(next < 0) next = 0;
+        if(next > int(kBakeRangeWidthCount) - 1) next = int(kBakeRangeWidthCount) - 1;
+        const uint8_t clamped = static_cast<uint8_t>(next);
+        if(clamped != ui.bake_range_width_idx)
+        {
+            ui.bake_range_width_idx       = clamped;
+            ui.bake_range_position_offset = 0;
+            ui.ui_dirty = true;
+        }
+        return true;
+    }
+
     return false;
 }
 
@@ -1514,16 +1603,20 @@ void BakeMenu_Render(UiScreenCtx& ctx)
 
     constexpr int kDisplayH = 64;
     constexpr int kListLeftX = 4;
-    constexpr int kRowGapY   = 6;
+    constexpr int kRowGapY   = 4;
     const int     text_h     = Font5x7::H;
 
-    constexpr int kRowCount = 3;
+    // 5 visual rows: sample, root, range, [blank spacer], bake. Row 3 is
+    // a non-focusable gap that pushes bake down to the screen's lower
+    // edge (where the old psola-status tag used to live).
+    constexpr int kRowCount = 5;
     const int total_h = (kRowCount * text_h) + ((kRowCount - 1) * kRowGapY);
     const int start_y = (kDisplayH - total_h) / 2;
+    auto row_y = [&](int idx) { return start_y + idx * (text_h + kRowGapY); };
 
     // Row 0: sample (literal "sample" placeholder, or selected sample name).
     {
-        const int y = start_y;
+        const int y = row_y(0);
         const char* val
             = (ui.bake_sample_path[0] != '\0') ? ui.bake_sample_name : "sample";
         if(ui.bake_focus == 0u)
@@ -1537,7 +1630,7 @@ void BakeMenu_Render(UiScreenCtx& ctx)
     // between glyphs and border) to signal "REnc scroll changes value". No
     // inverted fill — the text stays normal so it remains readable.
     {
-        const int y = start_y + (text_h + kRowGapY);
+        const int y = row_y(1);
         DrawTinyString(d, "root:", kListLeftX, y, true);
         const int note_x = kListLeftX + TinyStringWidth("root:") + 4;
         char      note_buf[8];
@@ -1560,22 +1653,49 @@ void BakeMenu_Render(UiScreenCtx& ctx)
         }
     }
 
-    // Row 2: bake button.
+    // Row 2: range. Label "range" + formatted "Lo-Hi" (e.g. "C4-C5").
+    // When focused, the value gets a focus border:
+    //   - no RShift:    DOTTED border (REnc scroll changes width).
+    //   - RShift held:  SOLID  border (REnc scroll shifts position by octave).
+    // The visual swap gives a per-frame indicator that the chord is active.
     {
-        const int y = start_y + 2 * (text_h + kRowGapY);
+        const int y = row_y(2);
+        DrawTinyString(d, "range", kListLeftX, y, true);
+        const uint8_t lo = BakeRangeLo_(ui.bake_range_width_idx,
+                                        ui.bake_range_position_offset);
+        const uint8_t hi = BakeRangeHi_(ui.bake_range_width_idx,
+                                        ui.bake_range_position_offset);
+        char lo_buf[8];
+        char hi_buf[8];
+        FormatMidiNoteName(lo, lo_buf, sizeof(lo_buf));
+        FormatMidiNoteName(hi, hi_buf, sizeof(hi_buf));
+        char value_buf[20];
+        std::snprintf(value_buf, sizeof(value_buf), "%s-%s", lo_buf, hi_buf);
+        const int value_x = kListLeftX + TinyStringWidth("range") + 4;
+        const int value_w = TinyStringWidth(value_buf);
+        DrawTinyStringCaseSensitive(d, value_buf, value_x, y, true);
         if(ui.bake_focus == 2u)
+        {
+            const int bx0 = value_x - 2;
+            const int by0 = y - 2;
+            const int bx1 = value_x + value_w + 1;
+            const int by1 = y + Font5x7::H + 1;
+            if(ctx.rshift)
+                d.DrawRect(bx0, by0, bx1, by1, true, false);
+            else
+                DrawDottedRect(d, bx0, by0, bx1, by1, true);
+        }
+    }
+
+    // Row 3: blank spacer (no draw).
+
+    // Row 4: bake button.
+    {
+        const int y = row_y(4);
+        if(ui.bake_focus == 3u)
             DrawFillOnlyTinyString(d, "bake", kListLeftX, y);
         else
             DrawTinyString(d, "bake", kListLeftX, y, true);
-    }
-
-    // STAGE 1 TEMPORARY: status string under the bake button. Shows the
-    // last silence-bake-test result so we can diagnose without yanking the
-    // SD card. Removed in stage 3.
-    if(ui.bake_test_status[0] != '\0')
-    {
-        const int status_y = start_y + 2 * (text_h + kRowGapY) + text_h + 4;
-        DrawTinyString(d, ui.bake_test_status, kListLeftX, status_y, true);
     }
 
     // STAGE 2 TEMPORARY: bake-in-progress overlay. Drawn LAST so it covers

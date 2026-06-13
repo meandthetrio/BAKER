@@ -357,6 +357,7 @@ bool VoiceEngine::TryStartPolyPortoVoice_(const Sample* sample,
 
         v.state = VoiceState::StealFadeOut;
         v.note = note;
+        v.midi_note = note;
         v.velocity = velocity;
         v.start_id = start_id;
         ClearPolyPortoVoice_(v);

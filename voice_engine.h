@@ -48,7 +48,7 @@ struct Voice
     EnvStage   env_stage     = EnvStage::Off;
     uint8_t    note          = 0;
     uint8_t    velocity      = 0;
-    uint8_t    _pad0         = 0;
+    uint8_t    midi_note     = 0; // original MIDI note for note-off matching; never overwritten by steal/glide
     uint8_t    vel_layer     = 0;
     uint8_t    source_layer  = 0;
     uint32_t   start_id      = 0; // monotonic allocation id (used for Oldest Note stealing)
@@ -304,7 +304,8 @@ class VoiceEngine
     float engine_filter_cutoff_hz_[kEngineLayerCount] = {20000.0f, 20000.0f};
     float engine_filter_resonance_[kEngineLayerCount] = {0.0f, 0.0f};
     LayerBusState layer_bus_state_[kEngineLayerCount]{};
-    LayerEmphasisCoeffs emphasis_coeff_[kEngineLayerCount]{};
+    LayerEmphasisCoeffs emphasis_coeff_[kEngineLayerCount]{};   // target (recomputed at block rate)
+    LayerEmphasisCoeffs emphasis_coeff_z_[kEngineLayerCount]{}; // smoothed (ramped per-sample)
     bool emphasis_dirty_[kEngineLayerCount] = {true, true};
     float pitch_mod_lut_[256] = {};
     bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};

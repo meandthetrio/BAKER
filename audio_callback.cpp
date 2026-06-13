@@ -613,6 +613,12 @@ void AudioCallback(AudioHandle::InputBuffer  in,
 
     AudioCallback_ApplySdSampleHandoffs(g_voice, g_app.shared);
 
+    // Only scan the input buffers for peak when the diagnostics overlay is up.
+    // The probe is a per-sample abs+compare across both channels; ~1% CPU in
+    // hot scenarios (10 voices + full FX), and the values are only ever read
+    // by the overlay. Race on `visible` is benign: at worst we run one extra
+    // block after the overlay closes.
+    if(g_app.diag.overlay.visible)
     {
         float in_peak_l = 0.0f;
         float in_peak_r = 0.0f;

@@ -164,6 +164,29 @@ struct AppUiState
                                             // set per-run by the bake driver.
     uint8_t bake_progress_percent    = 0;   // 0..100
     char    bake_progress_label[20]  = {};  // e.g. "psola: pitch shift"
+    // Bake rename: after a successful bake the temp file (/_bake.tmp) is
+    // sitting on SD waiting to be named. bake_rename_active routes the
+    // RenameProject screen into bake mode (7-char stem cap, ".bk" suffix
+    // shown in the display). bake_save_stem holds the chosen stem so the
+    // save path can rename /_bake.tmp → /<stem>.bk.
+    bool    bake_rename_active = false;
+    char    bake_save_stem[8]  = {};  // 7-char stem + NUL
+    char    bake_save_status[16] = {}; // "NAME EXISTS" etc.
+    // Engine layer A/B load reuses the SD Manager screen for sortable
+    // browsing. engine_load_browser_open routes REnc Click directly to
+    // the load action (skipping the action overlay) and changes the
+    // bottom-row label to "load a" / "load b". The saved_* fields hold
+    // the user's prior SD Manager sort/filter so engine-load can start
+    // fresh on each entry without disturbing the main SD Manager state.
+    bool    engine_load_browser_open = false;
+    bool    engine_load_target_is_b  = false;
+    ProjectPresetsSortMode engine_load_saved_sort_mode = ProjectPresetsSortMode::Number;
+    bool    engine_load_saved_sort_descending = false;
+    uint8_t engine_load_saved_style_filter = kSampleStyleFilterAll;
+    uint8_t engine_load_saved_focus_index = kProjectPresetsHeaderCount;
+    uint8_t engine_load_saved_top_row = 0;
+    uint8_t engine_load_saved_current_index = 0;
+    bool    engine_load_state_saved = false;
     bool record_menu_source_override_active = false;
     uint8_t record_menu_source_override = 0;
     bool record_menu_armed_back_returns_to_menu = false;

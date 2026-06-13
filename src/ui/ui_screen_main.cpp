@@ -12,6 +12,7 @@
 #include "bk_file_format.h"
 #include "bk_file_reader.h"
 #include "bk_file_writer.h"
+#include "ff.h"
 #include "mem_regions.h"
 #include "sampler_sample.h"
 #include "sd_sample_pool.h"
@@ -1179,6 +1180,12 @@ static inline bool BakeRangePosOffsetValid_(uint8_t width_idx, int8_t pos_off)
 // overwrites it. 47 simultaneous slices would be ~22 MB; one shared buffer
 // is 480 KB.
 ADSR2_SECTION(".sdram_bss") static int16_t s_bake_slice_scratch[bake::kMaxFrames];
+
+// Bake writes here first; on success we push the rename screen and
+// f_rename the temp into /<stem>.bk. On cancel we f_unlink it. Any
+// orphaned temp from a prior crash is unlinked at the start of every
+// bake so it can never collide with the next write.
+static constexpr const char* kBakeTempPath = "/_bake.tmp";
 // Phase labels for the macro steps of the bake (not the PSOLA-internal
 // labels — those come from kPsolaPhaseLabel inside bake_psola.cpp).
 static void BakeProgress_SetMacro_(AppUiState& ui,
@@ -1300,8 +1307,12 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
     hdr.algorithm_id            = static_cast<uint8_t>(bk::kAlgorithmPsola);
     std::snprintf(hdr.source_name, sizeof(hdr.source_name), "%s", ui.bake_sample_name);
 
+    // Clear any leftover temp from a crashed bake so the next f_open
+    // (FA_CREATE_ALWAYS) is always writing a fresh file at a known path.
+    f_unlink(kBakeTempPath);
+
     bk::BkWriter w;
-    if(!bk::BkWriter_Begin(w, "/test.bk", hdr, source_frames))
+    if(!bk::BkWriter_Begin(w, kBakeTempPath, hdr, source_frames))
     {
         Pod_StartAudio();
         ui.bake_progress_active = false;
@@ -1350,7 +1361,7 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
                                            s_bake_slice_scratch,
                                            BakePsolaProgressCb_))
             {
-                bk::BkWriter_Close(w, "/test.bk"); // best-effort, unlinks
+                bk::BkWriter_Close(w, kBakeTempPath); // best-effort, unlinks
                 Pod_StartAudio();
                 ui.bake_progress_active = false;
                 return 3;
@@ -1403,7 +1414,7 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
     s_bake_finalize_ui = nullptr;
     if(!padded)
     {
-        bk::BkWriter_Close(w, "/test.bk"); // best-effort, unlinks
+        bk::BkWriter_Close(w, kBakeTempPath); // best-effort, unlinks
         Pod_StartAudio();
         ui.bake_progress_active = false;
         return 4;
@@ -1412,7 +1423,7 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
     // transition; the bar holds at 100% during the (silent, multi-second)
     // FATFS flush instead of looking stalled on "finalizing: pad 37/37".
     BakeProgress_SetMacro_(ui, static_cast<uint8_t>(psola_done), 100u, "finalizing: close");
-    if(!bk::BkWriter_Close(w, "/test.bk"))
+    if(!bk::BkWriter_Close(w, kBakeTempPath))
     {
         Pod_StartAudio();
         ui.bake_progress_active = false;
@@ -1495,7 +1506,22 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
             const int rc = BakeMenu_RunPsolaTestBake_(ui, *ctx.shared);
             if(rc == 0)
             {
+                // Bake succeeded: the .bk payload is on SD at kBakeTempPath
+                // waiting for a name. Route into the shared rename screen
+                // in bake mode; RenameProject_OnEvent's save path will
+                // f_rename the temp into /<stem>.bk and pop back here.
                 ui.bake_progress_active = false;
+                ui.bake_rename_active   = true;
+                ui.bake_save_stem[0]    = '\0';
+                ui.bake_save_status[0]  = '\0';
+                if(!UiNav_Push(ui.ui_nav, UiScreenId::RenameProject))
+                {
+                    // Nav stack full — orphan would linger forever, so
+                    // clean up and surface the failure on the bake screen.
+                    f_unlink(kBakeTempPath);
+                    ui.bake_rename_active = false;
+                    BakeProgress_SetMacro_(ui, 0u, 0u, "nav full");
+                }
             }
             else
             {

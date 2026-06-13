@@ -251,6 +251,23 @@ void PerformEngine_OnScreenEnter(UiScreenCtx& ctx)
 
     ctx.engine->layer.engine_load_from_perform = false;
     ctx.engine->layer.engine_load_target_layer = 0xFFu;
+    // Returning to the engine screen from the SD-Manager-based load
+    // picker. Restore the user's prior SD Manager sort/filter so the
+    // main-menu SD Manager isn't disturbed by our engine-load defaults.
+    if(ctx.ui->engine_load_browser_open)
+    {
+        ctx.ui->engine_load_browser_open = false;
+        if(ctx.ui->engine_load_state_saved)
+        {
+            ctx.ui->sd_manage_sort_mode       = ctx.ui->engine_load_saved_sort_mode;
+            ctx.ui->sd_manage_sort_descending = ctx.ui->engine_load_saved_sort_descending;
+            ctx.ui->sd_manage_style_filter    = ctx.ui->engine_load_saved_style_filter;
+            ctx.ui->sd_manage_focus_index     = ctx.ui->engine_load_saved_focus_index;
+            ctx.ui->sd_manage_top_row         = ctx.ui->engine_load_saved_top_row;
+            ctx.ui->sd_manage_current_index   = ctx.ui->engine_load_saved_current_index;
+            ctx.ui->engine_load_state_saved   = false;
+        }
+    }
     ctx.engine->perform_nav.perform_engine_row = static_cast<uint8_t>(kEngineRowLoad);
     PublishEngineLayerParams(ctx);
     ctx.ui->ui_dirty = true;
@@ -300,7 +317,25 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
         ctx.ui->sd.scan_done = false;
     }
     ctx.ui->sd_scan_filter = new_filter;
-    return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdBrowse);
+    // Stash the user's main-menu SD Manager sort/filter state so we can
+    // restore it on exit. Engine-load starts fresh at Number/asc, "all"
+    // filter, focus on first row — per design (Q3 reset-each-entry).
+    ctx.ui->engine_load_saved_sort_mode       = ctx.ui->sd_manage_sort_mode;
+    ctx.ui->engine_load_saved_sort_descending = ctx.ui->sd_manage_sort_descending;
+    ctx.ui->engine_load_saved_style_filter    = ctx.ui->sd_manage_style_filter;
+    ctx.ui->engine_load_saved_focus_index     = ctx.ui->sd_manage_focus_index;
+    ctx.ui->engine_load_saved_top_row         = ctx.ui->sd_manage_top_row;
+    ctx.ui->engine_load_saved_current_index   = ctx.ui->sd_manage_current_index;
+    ctx.ui->engine_load_state_saved           = true;
+    ctx.ui->sd_manage_sort_mode               = ProjectPresetsSortMode::Number;
+    ctx.ui->sd_manage_sort_descending         = false;
+    ctx.ui->sd_manage_style_filter            = kSampleStyleFilterAll;
+    ctx.ui->sd_manage_focus_index             = kProjectPresetsHeaderCount;
+    ctx.ui->sd_manage_top_row                 = 0;
+    ctx.ui->engine_load_browser_open          = true;
+    ctx.ui->engine_load_target_is_b
+        = (ctx.engine->layer.engine_load_target_layer == 1u);
+    return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdManageMenu);
 }
 
 bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

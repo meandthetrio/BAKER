@@ -629,10 +629,18 @@ void DrawSdManageHeaderRow(OledPager& d, const AppUiState& ui)
                             ui.sd_manage_sort_mode == ProjectPresetsSortMode::Name,
                             ui.sd_manage_sort_descending,
                             false);
+    // Engine-load mode (layer A/B sample picker): label the right column
+    // "load a" / "load b" so the user sees which slot they're filling.
+    // Header click still routes to the style filter — the label only
+    // overrides what's drawn, not behavior. The A/B distinction lives on
+    // a UI-side mirror set by PerformEngine_OnEnter.
+    const char* style_label = "style";
+    if(ui.engine_load_browser_open)
+        style_label = ui.engine_load_target_is_b ? "load b" : "load a";
     DrawProjectHeaderButton(d,
                             kSdManageHeaderStyleX0,
                             kSdManageHeaderStyleX1,
-                            "style",
+                            style_label,
                             ui.sd_manage_focus_index == 2u,
                             false,
                             false,
@@ -959,6 +967,74 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(ui.sd_manage_visible_count == 0u)
             return true;
+
+        // Engine-load mode: the SD Manager was opened from the perform engine
+        // screen as the layer A/B sample picker. REnc Click loads the focused
+        // sample directly (no action overlay) and pops back. Mirrors the load
+        // logic the simpler SdBrowse screen used to run — including the .bk
+        // branch on layer B.
+        if(ui.engine_load_browser_open)
+        {
+            SdBrowserState& sd = ui.sd;
+            EnsureScanRequested(ctx);
+            if(!sd.scan_done || sd.scan_in_progress)
+                return true;
+            if(ui.sd_manage_visible_count == 0u)
+                return true;
+
+            const uint16_t idx = ui.sd_manage_current_index;
+            const uint8_t layer_count = static_cast<uint8_t>(
+                sizeof(ctx.engine->layer.engine_sample_path)
+                / sizeof(ctx.engine->layer.engine_sample_path[0]));
+
+            const bool is_bk = IsBkName(sd.paths[idx])
+                               && ctx.engine->layer.engine_load_target_layer == 1u;
+            if(is_bk)
+            {
+                const uint8_t target = 1u;
+                ctx.shared->sample.publish.sd_current_slot.store(
+                    target ^ 1u, std::memory_order_release);
+                std::snprintf(ctx.engine->layer.engine_sample_path[target],
+                              sizeof(ctx.engine->layer.engine_sample_path[target]),
+                              "%s",
+                              sd.paths[idx]);
+                ExtractBaseName(sd.paths[idx],
+                                ctx.engine->layer.engine_sample_name[target],
+                                sizeof(ctx.engine->layer.engine_sample_name[target]));
+                SdBrowser_SetStatus(sd, "LOADING");
+                const bool ok = bk::BkLayer_LoadIntoLayerB(sd.paths[idx], *ctx.shared);
+                SdBrowser_SetStatus(sd, ok ? "" : "BK ERR");
+                if(ok && ctx.engine->layer.engine_load_from_perform)
+                    UiNav_Pop(ui.ui_nav);
+                ui.ui_dirty = true;
+                return true;
+            }
+
+            if(ctx.engine->layer.engine_load_target_layer < layer_count)
+            {
+                const uint8_t target = ctx.engine->layer.engine_load_target_layer & 1u;
+                ctx.shared->sample.publish.sd_current_slot.store(
+                    target ^ 1u, std::memory_order_release);
+                std::snprintf(ctx.engine->layer.engine_sample_path[target],
+                              sizeof(ctx.engine->layer.engine_sample_path[target]),
+                              "%s",
+                              sd.paths[idx]);
+                ExtractBaseName(sd.paths[idx],
+                                ctx.engine->layer.engine_sample_name[target],
+                                sizeof(ctx.engine->layer.engine_sample_name[target]));
+                if(target == 1u)
+                    bk::BkLayer_ClearLayerB(*ctx.shared);
+            }
+            UiReq req{UiReqType::LoadWavIndex, idx, 0};
+            UiReq_Push(ui, *ctx.worker, req);
+            sd.load_in_progress = true;
+            sd.load_progress = 0;
+            SdBrowser_SetStatus(sd, "LOADING");
+            if(ctx.engine->layer.engine_load_from_perform)
+                UiNav_Pop(ui.ui_nav);
+            ui.ui_dirty = true;
+            return true;
+        }
 
         // Bake-pick mode: the SD Manager was opened from the bake screen to
         // pick a source sample. Route the focused sample's path back into the

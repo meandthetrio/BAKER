@@ -12,6 +12,7 @@
 #include "ui_input.h"
 #include "ui_layout.h"
 #include "ui_requests.h"
+#include "ff.h"
 
 #include <cctype>
 #include <cstdio>
@@ -62,6 +63,13 @@ static const char kRenameGrid[kRenameRows][kRenameCols + 1] = {
 };
 static const char kRenameSaveLabel[] = "save";
 static const char kRenameCancelLabel[] = "cancel";
+// Bake rename: stem cap = kRenameUiMaxLength minus the visible ".bk"
+// suffix the rename screen renders. Per design we keep the .bk
+// extension visible (unlike sample renames which hide .wav), so the
+// editable portion is capped tighter to keep the total display ≤ 10.
+static constexpr uint8_t kBakeRenameStemMax = 7;
+static constexpr const char* kBakeRenameSuffix = ".bk";
+static constexpr const char* kBakeTempPathInternal = "/_bake.tmp";
 static const char kSaveProjectNoneLabel[] = "none";
 static const char kProjectStylePlaceholder[] = "----";
 static const char kProjectMaxStyleLabel[] = "Water";
@@ -798,14 +806,16 @@ bool RenameGridHasShiftAlt(uint8_t row, uint8_t col)
 
 uint8_t RenameMaxLength(const AppUiState& ui)
 {
-    (void)ui;
+    if(ui.bake_rename_active)
+        return kBakeRenameStemMax;
     return kRenameUiMaxLength;
 }
 
 void ClampRenameDraft(AppUiState& ui)
 {
-    if(ui.project_rename_length > kRenameUiMaxLength)
-        ui.project_rename_length = kRenameUiMaxLength;
+    const uint8_t cap = RenameMaxLength(ui);
+    if(ui.project_rename_length > cap)
+        ui.project_rename_length = cap;
     ui.project_rename_draft[ui.project_rename_length] = '\0';
 }
 
@@ -1101,7 +1111,78 @@ void BuildRenameDisplayText(const AppProjectState& project,
     if(!out || out_n == 0)
         return;
 
+    if(ui.bake_rename_active)
+    {
+        // Show the editable stem followed by the literal ".bk" so the
+        // user can see what the saved filename will be (the suffix is
+        // not part of the draft, just rendered).
+        std::snprintf(out, out_n, "%s%s",
+                      ui.project_rename_draft,
+                      kBakeRenameSuffix);
+        return;
+    }
     std::snprintf(out, out_n, "%s", ui.project_rename_draft);
+}
+
+// Bake collision check. We don't keep a scanned list of .bk files
+// (the SD browser only tracks .wav), so just probe FATFS directly.
+bool BakeBkExists(const char* full_path)
+{
+    if(!full_path || full_path[0] == '\0')
+        return false;
+    FILINFO info;
+    return f_stat(full_path, &info) == FR_OK;
+}
+
+bool QueueBakeRenameSave(AppUiState& ui)
+{
+    if(!ui.bake_rename_active || ui.project_rename_length == 0u)
+        return false;
+
+    std::snprintf(ui.bake_save_stem,
+                  sizeof(ui.bake_save_stem),
+                  "%.*s",
+                  static_cast<int>(kBakeRenameStemMax),
+                  ui.project_rename_draft);
+
+    char target[24];
+    std::snprintf(target, sizeof(target), "/%s%s",
+                  ui.bake_save_stem, kBakeRenameSuffix);
+
+    if(BakeBkExists(target))
+    {
+        std::snprintf(ui.bake_save_status,
+                      sizeof(ui.bake_save_status),
+                      "%s",
+                      "NAME EXISTS");
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    if(f_rename(kBakeTempPathInternal, target) != FR_OK)
+    {
+        std::snprintf(ui.bake_save_status,
+                      sizeof(ui.bake_save_status),
+                      "%s",
+                      "SAVE ERR");
+        ui.ui_dirty = true;
+        return true;
+    }
+
+    ui.bake_rename_active = false;
+    ui.bake_save_status[0] = '\0';
+    UiNav_Pop(ui.ui_nav);
+    ui.ui_dirty = true;
+    return true;
+}
+
+void CancelBakeRename(AppUiState& ui)
+{
+    // Bake output is discarded — unlink the temp so the next bake
+    // starts clean and the SD card doesn't accumulate orphans.
+    f_unlink(kBakeTempPathInternal);
+    ui.bake_rename_active = false;
+    ui.bake_save_status[0] = '\0';
 }
 } // namespace
 
@@ -1414,6 +1495,20 @@ void RenameProject_OnEnter(UiScreenCtx& ctx)
         ui.ui_dirty = true;
         return;
     }
+    if(ui.bake_rename_active)
+    {
+        // Always start with an empty stem — bakes don't carry forward
+        // the source-sample name (the rename screen is the user's
+        // chance to give the bake its own identity).
+        ui.project_rename_draft[0] = '\0';
+        ui.project_rename_length = 0;
+        ui.bake_save_status[0] = '\0';
+        ui.project_rename_grid_col = 0;
+        ui.project_rename_grid_row = 0;
+        ui.project_rename_focus = ProjectRenameFocus::Grid;
+        ui.ui_dirty = true;
+        return;
+    }
     if(ui.project_rename_for_new_save)
     {
         ui.project_rename_draft[0] = '\0';
@@ -1501,6 +1596,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ui.sd_manage_trim_wait_for_worker = false;
                 ui.sd_manage_trim_save_busy = false;
             }
+            if(ui.bake_rename_active)
+                CancelBakeRename(ui);
             ui.project_rename_for_new_save = false;
             UiNav_Pop(ui.ui_nav);
             ui.ui_dirty = true;
@@ -1527,6 +1624,12 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                     return true;
                 return QueueSdManageTrimSaveRequest(ui, *ctx.worker);
             }
+            if(ui.bake_rename_active)
+            {
+                if(ui.project_rename_length == 0u)
+                    return true;
+                return QueueBakeRenameSave(ui);
+            }
             if(ui.project_rename_for_new_save)
             {
                 if(ui.project_rename_length == 0u)
@@ -1544,6 +1647,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(ui.render_sample_rename_active)
             ui.record_render_status[0] = '\0';
+        if(ui.bake_rename_active)
+            ui.bake_save_status[0] = '\0';
         ui.project_rename_draft[ui.project_rename_length] =
             RenameGridChar(ui.project_rename_grid_row,
                            ui.project_rename_grid_col,
@@ -1560,6 +1665,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(ui.render_sample_rename_active)
                 ui.record_render_status[0] = '\0';
+            if(ui.bake_rename_active)
+                ui.bake_save_status[0] = '\0';
             --ui.project_rename_length;
             ui.project_rename_draft[ui.project_rename_length] = '\0';
             ui.ui_dirty = true;
@@ -1581,6 +1688,8 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.sd_manage_trim_wait_for_worker = false;
             ui.sd_manage_trim_save_busy = false;
         }
+        if(ui.bake_rename_active)
+            CancelBakeRename(ui);
         ui.project_rename_for_new_save = false;
         UiNav_Pop(ui.ui_nav);
         ui.ui_dirty = true;
@@ -1657,6 +1766,8 @@ void RenameProject_Render(UiScreenCtx& ctx)
             && !ui.sd_manage_trim_save_busy
             && ui.sd.save_status[0] != '\0')
         DrawTinyString(d, ui.sd.save_status, 2, 56, true);
+    else if(ui.bake_rename_active && ui.bake_save_status[0] != '\0')
+        DrawTinyString(d, ui.bake_save_status, 2, 56, true);
 
     if(ui.sd_manage_trim_rename_active && ui.sd_manage_trim_wait_for_worker && ui.sd_manage_trim_save_busy)
         DrawCenteredRenameSaveOverlay(d);

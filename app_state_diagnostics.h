@@ -16,6 +16,9 @@ enum DiagGainProbe : uint8_t
     kDiagGainProbeSumPreFx,
     kDiagGainProbeFxPreMaster,
     kDiagGainProbeOutFinal,
+    kDiagGainProbeInputL,
+    kDiagGainProbeInputR,
+    kDiagGainProbeRecordPeak,
     kDiagGainProbeCount
 };
 
@@ -165,8 +168,14 @@ struct AppDiagnosticsState
                                                                     {0},
                                                                     {0},
                                                                     {0},
+                                                                    {0},
+                                                                    {0},
+                                                                    {0},
                                                                     {0}};
     float gain_probe_display_db[kDiagGainProbeCount]{kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
+                                                     kDiagGainFloorDb,
                                                      kDiagGainFloorDb,
                                                      kDiagGainFloorDb,
                                                      kDiagGainFloorDb,

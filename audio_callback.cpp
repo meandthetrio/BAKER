@@ -27,6 +27,12 @@ extern float g_sample_rate_hz;
 
 namespace
 {
+// -10 dB pad on the mic input (in[1]). The bare condenser sits ~9 dB hotter
+// than line at typical sources (finger snap at 2 ft = -3 dBFS vs -12 dBFS
+// reference on line), so pad before any read so capture, monitor, and the
+// input-right diagnostics probe all see the same level.
+static constexpr float kMicInputGain = 0.3162278f; // 10^(-10/20)
+
 static float Clamp01(float value)
 {
     if(value < 0.0f)
@@ -229,10 +235,15 @@ void AudioCallback_ProcessRecording(AudioHandle::InputBuffer in, size_t size)
     if(s_rec_active)
     {
         int16_t* dst = SdRecordBuffer();
+        float    rec_peak = 0.0f;
         for(size_t i = 0; i < size; ++i)
         {
-            const float src = (s_rec_source == static_cast<uint8_t>(RecordInputSource::Mic)) ? in[1][i]
-                                                                                              : in[0][i];
+            const float src = (s_rec_source == static_cast<uint8_t>(RecordInputSource::Mic))
+                                  ? in[1][i] * kMicInputGain
+                                  : in[0][i];
+            const float a = std::fabs(src);
+            if(a > rec_peak)
+                rec_peak = a;
             if(!AudioCallback_WriteCaptureFrame(src, g_app.shared.recording, s_rec_pos, dst))
             {
                 s_rec_active = false;
@@ -242,6 +253,8 @@ void AudioCallback_ProcessRecording(AudioHandle::InputBuffer in, size_t size)
         }
         g_app.shared.recording.rec_pos.store(s_rec_pos, std::memory_order_release);
         g_app.shared.recording.rec_live_gen.fetch_add(1, std::memory_order_acq_rel);
+        DiagnosticsAccumulatePeakAtomic(
+            g_app.diag.gain_probe_peak_bits[kDiagGainProbeRecordPeak], rec_peak);
     }
 }
 
@@ -599,6 +612,25 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     uint32_t       bucket_start = 0u;
 
     AudioCallback_ApplySdSampleHandoffs(g_voice, g_app.shared);
+
+    {
+        float in_peak_l = 0.0f;
+        float in_peak_r = 0.0f;
+        for(size_t i = 0; i < size; ++i)
+        {
+            const float al = std::fabs(in[0][i]);
+            const float ar = std::fabs(in[1][i] * kMicInputGain);
+            if(al > in_peak_l)
+                in_peak_l = al;
+            if(ar > in_peak_r)
+                in_peak_r = ar;
+        }
+        DiagnosticsAccumulatePeakAtomic(
+            g_app.diag.gain_probe_peak_bits[kDiagGainProbeInputL], in_peak_l);
+        DiagnosticsAccumulatePeakAtomic(
+            g_app.diag.gain_probe_peak_bits[kDiagGainProbeInputR], in_peak_r);
+    }
+
     AudioCallback_ProcessRecording(in, size);
 
     const uint32_t pre_tick_start = DWT->CYCCNT;
@@ -788,7 +820,9 @@ void AudioCallback(AudioHandle::InputBuffer  in,
         const uint8_t src = g_app.shared.recording.rec_source_sel.load(std::memory_order_acquire) & 1u;
         for(size_t i = 0; i < size; ++i)
         {
-            const float mon = (src == static_cast<uint8_t>(RecordInputSource::Mic)) ? in[1][i] : in[0][i];
+            const float mon = (src == static_cast<uint8_t>(RecordInputSource::Mic))
+                                  ? in[1][i] * kMicInputGain
+                                  : in[0][i];
             float l = out[0][i] + mon;
             float r = out[1][i] + mon;
             if(l > 1.0f)

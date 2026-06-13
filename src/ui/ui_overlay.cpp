@@ -482,19 +482,23 @@ void UiOverlay_Render(const AppUiState& ui,
         }
         case kDiagOverlayPageOutputAndClamps:
         {
-            FormatProbeDbValue(value0, diag.gain_probe_display_db[kDiagGainProbeFxPreMaster]);
-            FormatProbeDbValue(value1, diag.gain_probe_display_db[kDiagGainProbeOutFinal]);
-            FormatUnsignedValue(value2, diag.sat_softclip_hits.load(std::memory_order_relaxed));
-            FormatUnsignedValue(value3, diag.master_softclip_hits.load(std::memory_order_relaxed));
-            FormatUnsignedValue(value4, diag.monitor_clamp_hits.load(std::memory_order_relaxed));
+            FormatProbeDbValue(value0, diag.gain_probe_display_db[kDiagGainProbeInputL]);
+            FormatProbeDbValue(value1, diag.gain_probe_display_db[kDiagGainProbeInputR]);
+            FormatProbeDbValue(value2, diag.gain_probe_display_db[kDiagGainProbeRecordPeak]);
+            FormatProbeDbValue(value3, diag.gain_probe_display_db[kDiagGainProbeFxPreMaster]);
+            FormatProbeDbValue(value4, diag.gain_probe_display_db[kDiagGainProbeOutFinal]);
+            FormatUnsignedValue(value5, diag.sat_softclip_hits.load(std::memory_order_relaxed));
+            FormatUnsignedValue(value6, diag.master_softclip_hits.load(std::memory_order_relaxed));
             const OverlayMetric metrics[] = {
-                {"effects before master", value0},
-                {"final output", value1},
-                {"sample softclip", value2},
-                {"master softclip", value3},
-                {"monitor clamps", value4},
+                {"input left (line)", value0},
+                {"input right (mic)", value1},
+                {"record peak", value2},
+                {"effects before master", value3},
+                {"final output", value4},
+                {"sample softclip", value5},
+                {"master softclip", value6},
             };
-            DrawOverlayPage(oled, "output and clamps", metrics, 5);
+            DrawOverlayPage(oled, "levels", metrics, 7);
             return;
         }
         case kDiagOverlayPageSys:

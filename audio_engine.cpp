@@ -93,17 +93,19 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
 // stage per block instead of once per sample per stage. DSP is identical.
 
 void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
-                                   float target_pre, float target_wet)
+                                   float target_pre, float target_wet, float target_makeup)
 {
     uint32_t hit_count = 0u;
     float    pre       = sat_pre_smoothed_;
     float    wet       = sat_wet_gain_;
+    float    makeup    = sat_makeup_smoothed_;
     for(size_t i = 0; i < n; ++i)
     {
         // Slow per-sample ramps (~50 ms). Removes drive-fader stepping and
         // smooths the bypass<->softclip transition into a wet/dry blend.
-        pre += (target_pre - pre) * kDelayFxSmoothCoeff;
-        wet += (target_wet - wet) * kDelayFxSmoothCoeff;
+        pre    += (target_pre    - pre)    * kDelayFxSmoothCoeff;
+        wet    += (target_wet    - wet)    * kDelayFxSmoothCoeff;
+        makeup += (target_makeup - makeup) * kDelayFxSmoothCoeff;
         const float dry_l = L[i];
         const float dry_r = R[i];
         const float pre_l = dry_l * pre;
@@ -112,13 +114,14 @@ void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
             ++hit_count;
         if(std::fabs(pre_r) > 1.0f)
             ++hit_count;
-        const float clip_l = SoftClip(pre_l);
-        const float clip_r = SoftClip(pre_r);
+        const float clip_l = SoftClip(pre_l) * makeup;
+        const float clip_r = SoftClip(pre_r) * makeup;
         L[i] = dry_l * (1.0f - wet) + clip_l * wet;
         R[i] = dry_r * (1.0f - wet) + clip_r * wet;
     }
-    sat_pre_smoothed_ = pre;
-    sat_wet_gain_     = wet;
+    sat_pre_smoothed_    = pre;
+    sat_wet_gain_        = wet;
+    sat_makeup_smoothed_ = makeup;
     if(diagnostics_ && hit_count > 0u)
         diagnostics_->sat_softclip_hits.fetch_add(hit_count, std::memory_order_relaxed);
 }
@@ -507,6 +510,9 @@ void AudioEngine::ProcessBlock(const float* inL,
     const bool  sat_on_target = (p.sat_on && p.sat_drive >= 0.0001f);
     const float target_sat_pre = 1.0f + p.sat_drive * 10.0f;
     const float target_sat_wet = sat_on_target ? 1.0f : 0.0f;
+    // Measured 2026-06-12: without makeup, sat_drive 0->1 added 0..+17 dB to
+    // the FX-pre-master probe. `1/pre^0.83` fits the measured curve to ~1 dB.
+    const float target_sat_makeup = 1.0f / std::pow(target_sat_pre, 0.83f);
     constexpr float kSatWetEpsilon = 1e-4f;
     const bool  sat_run = sat_on_target || (sat_wet_gain_ > kSatWetEpsilon);
 
@@ -608,7 +614,7 @@ void AudioEngine::ProcessBlock(const float* inL,
                 if(sat_run)
                 {
                     const uint32_t stage_start = DWT->CYCCNT;
-                    ProcessSatBlock_(outL, outR, size, target_sat_pre, target_sat_wet);
+                    ProcessSatBlock_(outL, outR, size, target_sat_pre, target_sat_wet, target_sat_makeup);
                     sat_cycles += DWT->CYCCNT - stage_start;
                 }
                 break;

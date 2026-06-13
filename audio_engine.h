@@ -40,8 +40,9 @@ class AudioEngine
     // it. `wet_gain` smooths the bypass<->softclip transition (softclip(L)
     // != L for non-tiny |L|, so the gate itself was an amplitude-dependent
     // step). Stage stays running until wet_gain decays to ~0 on the off side.
-    float sat_pre_smoothed_ = 1.0f;
-    float sat_wet_gain_     = 0.0f;
+    float sat_pre_smoothed_    = 1.0f;
+    float sat_wet_gain_        = 0.0f;
+    float sat_makeup_smoothed_ = 1.0f;
 
     // ---- DELAY (stereo dual delay: independent L/R tap times, per-channel feedback) ----
   public:
@@ -117,7 +118,7 @@ class AudioEngine
     // of the previous per-sample switch while amortizing setup/dispatch across
     // `n` samples.
     void ProcessSatBlock_(float* L, float* R, size_t n,
-                          float target_pre, float target_wet);
+                          float target_pre, float target_wet, float target_makeup);
     void ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix);
     void ProcessDelayBlock_(float* L, float* R, size_t n,
                             const PerformParamsCurrent& p,

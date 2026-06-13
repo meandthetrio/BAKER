@@ -33,9 +33,14 @@ void VoiceEngine::RecomputeLayerEmphasisCoeffs_(uint8_t layer)
     const float drive_taper = std::pow(clamped_drive_norm, 1.8f);
     const float shape_blend = std::pow(clamped_drive_norm, 0.72f);
     const float pre_gain = 1.0f + (27.0f * drive_taper);
-    const float base_makeup = 1.0f / (1.0f + (0.24f * drive_taper));
+    // Measured 2026-06-12: old `1/(1+0.24*drive_taper)` left a 20 dB post-emphasis
+    // swing from drive=0 to drive=1 (sat pre_gain ~28x with almost no makeup).
+    // This curve compensates the saturator gain so post-emphasis peak stays within
+    // ~2 dB of drive=0 across the range.
+    const float base_makeup = 1.0f / std::pow(1.0f + (4.0f * drive_taper), 1.5f);
 
     c.odd_drive = (engine_drive_mode_[layer] == 0u);
+    c.odd_mix   = c.odd_drive ? 1.0f : 0.0f;
     c.pre_gain = pre_gain;
     c.shape_blend = shape_blend;
     c.base_makeup = base_makeup;
@@ -80,10 +85,10 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
     const LayerEmphasisCoeffs& t = emphasis_coeff_[layer];
     LayerEmphasisCoeffs& c = emphasis_coeff_z_[layer];
 
-    // Drive-mode toggle is a structural change — snap, don't ramp.
     c.odd_drive = t.odd_drive;
 
     // Ramp every used coefficient toward its target.
+    c.odd_mix            += (t.odd_mix            - c.odd_mix)            * kEmphasisCoeffSmoothCoeff;
     c.pre_gain           += (t.pre_gain           - c.pre_gain)           * kEmphasisCoeffSmoothCoeff;
     c.shape_blend        += (t.shape_blend        - c.shape_blend)        * kEmphasisCoeffSmoothCoeff;
     c.base_makeup        += (t.base_makeup        - c.base_makeup)        * kEmphasisCoeffSmoothCoeff;
@@ -95,14 +100,17 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
     c.pole4_linear_scale += (t.pole4_linear_scale - c.pole4_linear_scale) * kEmphasisCoeffSmoothCoeff;
     c.tanh_input_scale   += (t.tanh_input_scale   - c.tanh_input_scale)   * kEmphasisCoeffSmoothCoeff;
 
-    float driven = 0.0f;
-    if(c.odd_drive)
+    // Crossfade odd/even paths via odd_mix to avoid a click at mode switch.
+    // Both branches are evaluated only during the brief (~50 ms) transition;
+    // steady-state takes the cheap single-path branch.
+    float driven;
+    if(c.odd_mix > 0.999f)
     {
         const float odd_core = FastTanh(input * c.pre_gain);
         const float odd_shaped = input + ((odd_core - input) * c.shape_blend);
         driven = odd_shaped * c.base_makeup;
     }
-    else
+    else if(c.odd_mix < 0.001f)
     {
         const float pos_core = (input > 0.0f) ? FastTanh(input * c.positive_drive) : 0.0f;
         const float neg_core = (input < 0.0f) ? -FastTanh((-input) * c.negative_drive) : 0.0f;
@@ -113,6 +121,24 @@ float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
         state.drive_dc_x = asym;
         state.drive_dc_y = dc_blocked;
         driven = dc_blocked;
+    }
+    else
+    {
+        const float odd_core = FastTanh(input * c.pre_gain);
+        const float odd_shaped = input + ((odd_core - input) * c.shape_blend);
+        const float odd_driven = odd_shaped * c.base_makeup;
+
+        const float pos_core = (input > 0.0f) ? FastTanh(input * c.positive_drive) : 0.0f;
+        const float neg_core = (input < 0.0f) ? -FastTanh((-input) * c.negative_drive) : 0.0f;
+        const float asym_core = pos_core + neg_core;
+        const float even_shaped = input + ((asym_core - input) * c.shape_blend);
+        const float asym = even_shaped * c.even_makeup;
+        const float dc_blocked = asym - state.drive_dc_x + (0.995f * state.drive_dc_y);
+        state.drive_dc_x = asym;
+        state.drive_dc_y = dc_blocked;
+        const float even_driven = dc_blocked;
+
+        driven = (odd_driven * c.odd_mix) + (even_driven * (1.0f - c.odd_mix));
     }
 
     float ladder_in = driven - c.feedback * (state.pole4 - (0.12f * state.pole3));

@@ -130,6 +130,10 @@ struct LayerBusState
 struct LayerEmphasisCoeffs
 {
     bool  odd_drive = true;
+    // Smoothed mix between even (0) and odd (1) paths. Ramped per-sample in
+    // ProcessLayerBusSample_ to crossfade the mode switch instead of snapping
+    // (which produced an audible click at the toggle).
+    float odd_mix = 1.0f;
     float pre_gain = 1.0f;
     float shape_blend = 0.0f;
     float base_makeup = 1.0f;

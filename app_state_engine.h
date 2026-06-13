@@ -51,11 +51,17 @@ struct AppEngineState
     } keyzone{};
 
     // Velocity-mod / mod-block UI (ported from oled_ui_sim). Audio routing TBD.
+    // target_idx indexes into the shared 8-entry list (see ui_screen_perform_velmod.cpp):
+    //   0=----, 1=volume, 2=attack, 3=sustain, 4=release, 5=rev send, 6=delay send, 7=sat send
+    // amount is bipolar -10..+10 for modifying targets, unipolar 0..+10 for send
+    // targets (5/6/7). 0 always gates the lane. Each step = 10% of target's range.
+    // shape: 0=knee (linear ramp threshold→127), 1=gate (binary at threshold).
     struct PerformVelModState
     {
-        uint8_t threshold[2]   = {64u, 64u}; // 0..127
-        uint8_t send_amount[2] = {0u, 0u};   // 0..20
-        uint8_t target_idx[2]  = {0u, 0u};   // index into per-screen target list
+        uint8_t threshold[2]   = {0u, 0u};   // 0..127
+        int8_t  amount[2]      = {0, 0};     // -10..+10 (clamped per target type)
+        uint8_t target_idx[2]  = {0u, 0u};   // index into kVelModTargetList
+        uint8_t shape[2]       = {0u, 0u};   // 0=knee, 1=gate
         bool    threshold_linked = false;    // when true, threshold edits apply to both lanes
         bool    modblock_threshold_off[2] = {false, false};
     } velmod{};

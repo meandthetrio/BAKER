@@ -289,9 +289,34 @@ static constexpr size_t kSdramHeapSize = 8u * 1024u * 1024u; // 8 MB
 ADSR2_SECTION(".sdram_bss") __attribute__((aligned(8))) static uint8_t s_sdram_heap[kSdramHeapSize];
 static size_t s_sdram_heap_used = 0;
 
+// Early heap arena in AXI SRAM (.bss) for allocations that happen BEFORE main()
+// brings SDRAM online. The Daisy bootloader v6.4 does NOT leave the SDRAM/FMC
+// controller initialized at hand-off (v6.2 did), and System::Init() only sets
+// it up inside hw.Init(). Any global constructor that allocates before that —
+// notably SignalsmithStretch's `std::random_device{}` in s_stretch's ctor —
+// would otherwise route through _sbrk into the SDRAM buffer and bus-fault on a
+// dead controller, hanging before main(). Until g_heap_sdram_ready is set
+// (right after hw.Init()), _sbrk serves from this SRAM arena instead. 64 KB is
+// far more than the handful of KB any pre-main ctor needs; the big PSOLA
+// vectors (~100-200 KB) allocate later from SDRAM, after the flag flips.
+static constexpr size_t kEarlyHeapSize = 64u * 1024u; // 64 KB
+__attribute__((aligned(8))) static uint8_t s_early_heap[kEarlyHeapSize];
+static size_t s_early_heap_used = 0;
+volatile bool g_heap_sdram_ready = false;
+
 extern "C" void* _sbrk(intptr_t incr)
 {
     const size_t requested = (incr > 0) ? static_cast<size_t>(incr) : 0u;
+    if(!g_heap_sdram_ready)
+    {
+        // Pre-SDRAM phase (global ctors / early main): serve from SRAM arena.
+        if((s_early_heap_used + requested) > sizeof(s_early_heap))
+            return reinterpret_cast<void*>(-1);
+        void* prev = &s_early_heap[s_early_heap_used];
+        s_early_heap_used += requested;
+        return prev;
+    }
+    // SDRAM phase (after hw.Init()): serve from the 8 MB SDRAM heap.
     if((s_sdram_heap_used + requested) > sizeof(s_sdram_heap))
     {
         // Out of heap. newlib expects (void*)-1 on failure; malloc then
@@ -343,6 +368,9 @@ extern "C" void Pod_MidiPanic()
 int main(void)
 {
     hw.Init();
+    // SDRAM/FMC controller is initialized by hw.Init(); from here on, heap
+    // allocations route to the 8 MB SDRAM arena (pre-main ctors used SRAM).
+    g_heap_sdram_ready = true;
     hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
     hw.SetAudioBlockSize(48);
     g_sample_rate_hz = hw.AudioSampleRate();

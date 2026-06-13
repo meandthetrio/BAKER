@@ -3,6 +3,7 @@
 #include "app_state_shared.h"
 #include "bk_file_format.h"
 #include "bk_file_reader.h"
+#include "sample_edit.h"
 #include "sd_sample_pool.h"
 
 #include <cstring>
@@ -62,6 +63,15 @@ bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
               ? static_cast<uint32_t>(hdr.root_midi_note - hdr.lo_note)
               : 0u;
     shared.sample.publish.sd_slots[1] = shared.bk_layer_b.slice_sample[root_slice_idx];
+
+    // Initialize layer B's SampleEdit to full-length, exactly as the normal
+    // .wav worker load does (ui_worker_sample_load.cpp). The engine-screen
+    // waveform preview derives its draw range from sd_edit_slots[1]; without
+    // this, an empty layer B keeps end_frame==0 and DrawWaveformPreview bails
+    // (`end <= start + 1`), so the .bk renders no preview. Replacing an
+    // existing sample only "worked" because it left stale edit bounds behind.
+    shared.sample.edit.sd_edit_slots[1]
+        = SampleEdit_Default(hdr.source_duration_samples);
     return true;
 }
 

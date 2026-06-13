@@ -53,14 +53,14 @@ void Controls_Init(ControlsState& cs)
                        0.0f,
                        Switch::Type::TYPE_MOMENTARY,
                        Switch::Polarity::POLARITY_INVERTED,
-                       Switch::Pull::PULL_UP);
+                       GPIO::Pull::PULLUP);
 
     // LShift button wiring: A1/D16 to GND (internal pull-up)
     cs.lshift_btn.Init(cs.hw->seed.GetPin(16),
                        0.0f,
                        Switch::Type::TYPE_MOMENTARY,
                        Switch::Polarity::POLARITY_INVERTED,
-                       Switch::Pull::PULL_UP);
+                       GPIO::Pull::PULLUP);
 }
 
 void Controls_Tick(ControlsState& cs, AppUiState& ui, uint32_t now_ms)

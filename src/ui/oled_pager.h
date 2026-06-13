@@ -30,6 +30,7 @@ class OledPager
     void Fill(bool on) override;
     void DrawPixel(uint_fast8_t x, uint_fast8_t y, bool on) override;
     void Update() override {}
+    bool UpdateFinished() override { return !transferring_; }
 
   private:
     static constexpr uint16_t kWidth      = 128;

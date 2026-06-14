@@ -292,6 +292,7 @@ bool VoiceEngine::TryStartPolyPortoVoice_(const Sample* sample,
 
         v.sample = sample;
         v.vel_layer = vel_layer;
+        v.send_active = false; // sends not applied on steal path
         v.mod_env.Trigger(env_attack_ms_, env_decay_ms_);
         v.stop_fade_active = false;
         v.stop_fade_samples_remaining = 0;

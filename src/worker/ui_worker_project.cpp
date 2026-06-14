@@ -546,6 +546,16 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     if(saved_master < 0.0f)       saved_master = 0.0f;
     else if(saved_master > 2.0f)  saved_master = 2.0f;
     manifest.master_level = saved_master;
+
+    // Velocity-mod lanes (global). Saved from the published param targets,
+    // which mirror engine.velmod.
+    for(uint8_t lane = 0; lane < PerformParamsTargets::kVelModLaneCount; ++lane)
+    {
+        manifest.velmod_target[lane]    = targets.velmod_target[lane];
+        manifest.velmod_amount[lane]    = targets.velmod_amount[lane];
+        manifest.velmod_threshold[lane] = targets.velmod_threshold[lane];
+        manifest.velmod_shape[lane]     = targets.velmod_shape[lane];
+    }
 }
 
 bool ScanProjectSlots(AppUiState& ui, AppProjectState& project)

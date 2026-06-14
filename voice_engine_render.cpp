@@ -295,6 +295,34 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     // its source_layer; StealFadeOut writes only the victim/old layer until
     // fade completes).
     bool layer_active[2] = {false, false};
+
+    // Velmod 2b: detect which effects any sounding voice sends to this block.
+    // Only then do we clear + route the send buses; otherwise the FX-chain
+    // injection and the per-sample tap are skipped (default = zero overhead).
+    bool sends_any = false;
+    bool send_eff[kSendBusCount] = {false, false, false};
+    for(size_t vi = 0; vi < kMaxVoices; ++vi)
+    {
+        const Voice& vv = voices_[vi];
+        if(vv.state == VoiceState::Idle || !vv.send_active)
+            continue;
+        sends_any = true;
+        for(uint8_t k = 0; k < kSendBusCount; ++k)
+            if(vv.send_level[k] != 0.0f)
+                send_eff[k] = true;
+    }
+    sends_any_active_ = sends_any;
+    for(uint8_t k = 0; k < kSendBusCount; ++k)
+        send_bus_active_[k] = send_eff[k];
+    if(sends_any)
+    {
+        // Clear all routed buses (the per-sample tap writes to all three for
+        // branch simplicity; unused effects just accumulate zeros).
+        const size_t n = (size < kSendBusMaxFrames) ? size : kSendBusMaxFrames;
+        for(uint8_t k = 0; k < kSendBusCount; ++k)
+            std::memset(send_bus_[k], 0, n * sizeof(float));
+    }
+
     const RenderVoiceContext render_ctx{
         outL,
         outR,
@@ -311,6 +339,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         diag_on ? &env_presim_cycles : nullptr,
         diag_on ? &fetch_seam_cycles : nullptr,
         diag_on ? &fetch_seam_count : nullptr,
+        {sends_any ? send_bus_[0] : nullptr,
+         sends_any ? send_bus_[1] : nullptr,
+         sends_any ? send_bus_[2] : nullptr},
     };
 
     for(size_t vi = 0; vi < kMaxVoices; vi++)

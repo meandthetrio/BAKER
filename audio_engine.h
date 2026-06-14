@@ -25,7 +25,12 @@ class AudioEngine
                       float* outR,
                       size_t size,
                       const PerformParamsCurrent& p,
-                      bool sd_wav_load_busy = false);
+                      bool sd_wav_load_busy = false,
+                      // Velmod 2b: per-effect mono send buses (0=reverb, 1=delay,
+                      // 2=sat), injected into each effect's chain slot. nullptr /
+                      // sends_active=false when no voice is sending this block.
+                      const float* const* send_bus = nullptr,
+                      bool sends_active = false);
 
   private:
     float  sample_rate_ = 48000.0f;
@@ -56,6 +61,11 @@ class AudioEngine
     uint32_t delay_tail_blocks_left_ = 0;
     uint16_t delay_quiet_blocks_     = 0;
     float    delay_tail_mix_         = 0.0f;
+    // True once the tail has produced audible wet at least once. The
+    // quiet-detector only counts quiet blocks after this — otherwise a short
+    // velmod send (written into the line but not yet echoed) would be wiped
+    // during the pre-echo gap (up to the delay time) before it could return.
+    bool     delay_tail_heard_ = false;
 
     // Amortized buffer clear. A full memset of the SDRAM delay lines (~384 KB)
     // inside one audio block overruns the codec and produces a click on toggle.
@@ -117,16 +127,23 @@ class AudioEngine
     // the user-configured fx_order. This preserves the stage-ordering semantics
     // of the previous per-sample switch while amortizing setup/dispatch across
     // `n` samples.
+    // Velmod 2b: `send`/`send_scale` are an optional per-effect mono send
+    // (nullptr = none) fed into the effect's WET generator at full level,
+    // bypassing the global dry/wet fader so per-voice sends are heard even
+    // with the effect's fader down.
     void ProcessSatBlock_(float* L, float* R, size_t n,
-                          float target_pre, float target_wet, float target_makeup);
+                          float target_pre, float target_wet, float target_makeup,
+                          const float* send = nullptr, float send_scale = 0.0f);
     void ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix);
     void ProcessDelayBlock_(float* L, float* R, size_t n,
                             const PerformParamsCurrent& p,
                             size_t len_l, size_t len_r, float fb,
-                            float& wet_peak);
+                            float& wet_peak,
+                            const float* send = nullptr, float send_scale = 0.0f);
     void ProcessReverbBlock_(float* L, float* R, size_t n,
                              const PerformParamsCurrent& p,
-                             float& wet_peak);
+                             float& wet_peak,
+                             const float* send = nullptr, float send_scale = 0.0f);
     void ApplyMasterBlock_(float* L, float* R, size_t n,
                            float level, float bypass_comp);
 
@@ -155,8 +172,17 @@ class AudioEngine
     // Tightening these saves up to 1.2s of reverb CPU and 0.6s of delay CPU
     // per bypass event. Audibly generous; revert to (900/1800/150) if the
     // tighter caps ever feel abrupt on hardware.
-    static constexpr uint32_t kDelayTailMaxBlocks  = 600;  // ~0.6s max tail
+    static constexpr uint32_t kDelayTailMaxBlocks  = 3600; // ~3.6s max tail (covers
+                                                           // the 1s max delay time
+                                                           // plus several feedback
+                                                           // repeats decaying out)
     static constexpr uint32_t kReverbTailMaxBlocks = 1200; // ~1.2s max tail
     static constexpr uint16_t kQuietBlocksToStop   = 100;  // ~100ms quiet -> stop early
+    // Delay needs a longer quiet window than reverb: feedback echoes are spaced
+    // by the delay TIME (up to 1000ms), so a short window would trip during the
+    // gap between echoes and clear the buffer mid-feedback (only one echo
+    // heard). This must exceed the max delay time so each echo resets the
+    // counter; it only runs out once the echo train has actually decayed.
+    static constexpr uint16_t kDelayQuietBlocksToStop = 1200; // ~1.2s
     static constexpr float    kTailSilenceThresh   = 1e-4f;
 };

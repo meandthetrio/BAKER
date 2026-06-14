@@ -201,10 +201,28 @@ float VoiceEngine::VelModFractionForTarget_(uint8_t target_code, uint8_t velocit
         }
         else
         {
-            // knee: linear ramp from 0 at threshold to 1 at velocity 127.
+            // knee: ramp from 0 at threshold to 1 at velocity 127, then shaped
+            // by a power curve. Linear (exponent 1) felt compressed at the top
+            // — only +6 dB across vel 64..127. The square (exponent 2) roughly
+            // doubles the dB contrast over the upper range so harder hits read
+            // clearly; kVelModKneeCurve is the tuning knob.
             const int span = 127 - static_cast<int>(thr);
-            scale = (span <= 0) ? ((velocity >= 127u) ? 1.0f : 0.0f)
-                                : (static_cast<float>(velocity - thr) / static_cast<float>(span));
+            const float lin = (span <= 0) ? ((velocity >= 127u) ? 1.0f : 0.0f)
+                                          : (static_cast<float>(velocity - thr)
+                                             / static_cast<float>(span));
+            // Effect sends (codes 5=reverb, 6=delay, 7=sat) get a power curve so
+            // harder hits scale disproportionately — a subtle diffuse send reads
+            // "flat" with a linear ramp (only +6 dB over vel 64..127). Volume and
+            // the ADSR targets stay linear (direct / clearly audible already).
+            if(target_code >= 5u)
+            {
+                constexpr float kVelModSendKneeCurve = 1.5f; // tuning knob
+                scale = std::pow(lin, kVelModSendKneeCurve);
+            }
+            else
+            {
+                scale = lin;
+            }
         }
         return (static_cast<float>(velmod_amount_[lane]) * 0.1f) * scale;
     }

@@ -61,7 +61,7 @@ struct AppEngineState
         uint8_t threshold[2]   = {0u, 0u};   // 0..127
         int8_t  amount[2]      = {0, 0};     // -10..+10 (clamped per target type)
         uint8_t target_idx[2]  = {0u, 0u};   // index into kVelModTargetList
-        uint8_t shape[2]       = {0u, 0u};   // 0=knee, 1=gate
+        uint8_t shape[2]       = {1u, 1u};   // 0=knee, 1=gate (default gate)
         bool    threshold_linked = false;    // when true, threshold edits apply to both lanes
         bool    modblock_threshold_off[2] = {false, false};
     } velmod{};

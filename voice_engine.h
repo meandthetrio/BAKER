@@ -78,6 +78,12 @@ struct Voice
     // one-shot voices honor the UI release and velmod release survives to
     // note-off.
     float         resolved_release_ms = 30.0f;
+    // Velmod Phase 2b: per-voice send levels into the global effects, frozen at
+    // note-on from velocity. Index 0=reverb, 1=delay, 2=sat. 0 = no send.
+    // send_active is the fast-skip so voices with no send pay nothing in the
+    // per-sample mix loop.
+    float         send_level[3] = {0.0f, 0.0f, 0.0f};
+    bool          send_active = false;
     bool          gate = false;
     bool          loop_voice = false;
     int8_t        dir  = 1;
@@ -284,7 +290,24 @@ class VoiceEngine
     uint32_t ActiveLastBlock() const { return active_last_block_; }
     uint32_t StealsTotal() const { return steals_total_; }
 
+    // Velmod 2b: per-effect send accumulators filled during RenderBlock.
+    // Index 0=reverb, 1=delay, 2=sat. Valid until the next RenderBlock.
+    // SendsActiveLastBlock() is false when no sounding voice had a send, so
+    // the FX-chain injection can skip entirely.
+    static constexpr uint8_t kSendBusCount = 3;
+    const float* SendBus(uint8_t k) const { return send_bus_[k & 3u]; }
+    bool SendsActiveLastBlock() const { return sends_any_active_; }
+    // Per-effect: true if any sounding voice sent to effect k this block. Used
+    // by the FX chain to run + inject only the effects that actually received
+    // a send (0=reverb, 1=delay, 2=sat).
+    bool SendBusActive(uint8_t k) const { return send_bus_active_[k & 3u]; }
+
   private:
+    static constexpr size_t kSendBusMaxFrames = 48; // == max audio block size
+    float   send_bus_[kSendBusCount][kSendBusMaxFrames] = {};
+    bool    sends_any_active_ = false;
+    bool    send_bus_active_[kSendBusCount] = {false, false, false};
+
     Voice*  voices_     = nullptr;
     float   sample_rate_ = 48000.0f;
     size_t  block_size_  = 48;
@@ -510,6 +533,9 @@ class VoiceEngine
         uint32_t* presim_cycles;
         uint32_t* fetch_seam_cycles;
         uint32_t* fetch_seam_count;
+        // Velmod 2b: global per-effect send accumulators (mono, block-sized).
+        // Index 0=reverb, 1=delay, 2=sat. nullptr when no voice has sends.
+        float* send_bus[3];
     };
 
     struct RenderNormalVoicePerBlockSetup
@@ -547,6 +573,10 @@ class VoiceEngine
         // envelope stages are slow enough (>= 5 ms ≈ step ≤ 1/240).
         bool     block_rate_env;
         float    env_per_sample_delta;
+        // Velmod 2b: copied from the voice at block start so the mix loops can
+        // tap the per-sample voice output into the send buses.
+        bool     send_active;
+        float    send_level[3];
     };
 
     struct RenderStealFadeOutSetup

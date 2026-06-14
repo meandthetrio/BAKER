@@ -427,6 +427,12 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
         s *= st.stop_fade.level;
     float* layer_bus = (setup.source_layer == 0u) ? ctx.outL : ctx.outR;
     layer_bus[i] += s;
+    if(setup.send_active)
+    {
+        ctx.send_bus[0][i] += s * setup.send_level[0];
+        ctx.send_bus[1][i] += s * setup.send_level[1];
+        ctx.send_bus[2][i] += s * setup.send_level[2];
+    }
 
     if(StopFade_AdvanceAndFinishIfDone_(v, st.stop_fade))
     {
@@ -602,13 +608,27 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
     uint32_t envmix_start = 0u;
     if(ctx.envmix_cycles)
         envmix_start = DWT->CYCCNT;
+    const bool   send_active = setup.send_active;
+    const float  sl0 = setup.send_level[0];
+    const float  sl1 = setup.send_level[1];
+    const float  sl2 = setup.send_level[2];
+    float* const sb0 = ctx.send_bus[0];
+    float* const sb1 = ctx.send_bus[1];
+    float* const sb2 = ctx.send_bus[2];
     for(size_t i = 0; i < N; ++i)
     {
         const float fin = fade_saturated ? 1.0f : fade;
         float m = env * fin;
         if(sf_active)
             m *= sf_level;
-        layer_bus[i] += buf[i] * m;
+        const float vs = buf[i] * m; // pre-emphasis voice output this sample
+        layer_bus[i] += vs;
+        if(send_active)
+        {
+            sb0[i] += vs * sl0;
+            sb1[i] += vs * sl1;
+            sb2[i] += vs * sl2;
+        }
 
         if(sf_active)
         {
@@ -752,6 +772,13 @@ void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
     float   sf_step      = st.stop_fade.step;
     int32_t sf_remaining = st.stop_fade.remaining;
 
+    const bool   send_active = setup.send_active;
+    const float  sl0 = setup.send_level[0];
+    const float  sl1 = setup.send_level[1];
+    const float  sl2 = setup.send_level[2];
+    float* const sb0 = ctx.send_bus[0];
+    float* const sb1 = ctx.send_bus[1];
+    float* const sb2 = ctx.send_bus[2];
     uint32_t envmix_start = 0u;
     if(ctx.envmix_cycles)
         envmix_start = DWT->CYCCNT;
@@ -761,7 +788,14 @@ void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
         float m = env * fin;
         if(sf_active)
             m *= sf_level;
-        layer_bus[i] += buf[i] * m;
+        const float vs = buf[i] * m; // pre-emphasis voice output this sample
+        layer_bus[i] += vs;
+        if(send_active)
+        {
+            sb0[i] += vs * sl0;
+            sb1[i] += vs * sl1;
+            sb2[i] += vs * sl2;
+        }
 
         if(sf_active)
         {
@@ -964,6 +998,12 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     setup.use_edit              = cache.use_edit;
     // Per-voice/per-block values (not cached — depend on v.* or per-block scalars).
     setup.gain  = v.gain * cache.edit_gain * ctx.engine_voice_gain[source_layer];
+    // Velmod 2b: send tap is live only if the voice has a send AND the block has
+    // routed send buses (ctx.send_bus[0] non-null when any voice sends).
+    setup.send_active = v.send_active && (ctx.send_bus[0] != nullptr);
+    setup.send_level[0] = v.send_level[0];
+    setup.send_level[1] = v.send_level[1];
+    setup.send_level[2] = v.send_level[2];
     setup.ratio = v.ratio;
     setup.pitch_ratio_scale
         = cache.preview_sample ? 1.0f : (ctx.engine_tune_scale[source_layer] * pitch_scale);

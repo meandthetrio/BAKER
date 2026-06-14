@@ -93,7 +93,8 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
 // stage per block instead of once per sample per stage. DSP is identical.
 
 void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
-                                   float target_pre, float target_wet, float target_makeup)
+                                   float target_pre, float target_wet, float target_makeup,
+                                   const float* send, float send_scale)
 {
     uint32_t hit_count = 0u;
     float    pre       = sat_pre_smoothed_;
@@ -116,8 +117,18 @@ void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
             ++hit_count;
         const float clip_l = SoftClip(pre_l) * makeup;
         const float clip_r = SoftClip(pre_r) * makeup;
-        L[i] = dry_l * (1.0f - wet) + clip_l * wet;
-        R[i] = dry_r * (1.0f - wet) + clip_r * wet;
+        float out_l = dry_l * (1.0f - wet) + clip_l * wet;
+        float out_r = dry_r * (1.0f - wet) + clip_r * wet;
+        if(send != nullptr)
+        {
+            // Velmod sat send: saturate the send with the current drive and add
+            // its wet at unity — independent of the global wet/dry mix.
+            const float s = send[i] * send_scale;
+            out_l += SoftClip(s * pre) * makeup;
+            out_r += SoftClip(s * pre) * makeup;
+        }
+        L[i] = out_l;
+        R[i] = out_r;
     }
     sat_pre_smoothed_    = pre;
     sat_wet_gain_        = wet;
@@ -134,7 +145,8 @@ void AudioEngine::ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix)
 void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
                                      const PerformParamsCurrent& p,
                                      size_t len_l, size_t len_r, float fb,
-                                     float& wet_peak)
+                                     float& wet_peak,
+                                     const float* send, float send_scale)
 {
     const float target_feed = p.delay_on ? 1.0f : 0.0f;
     // Both branches below feed the same internal one-pole. The tail branch
@@ -167,8 +179,15 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
         len_rf += (target_len_r_f - len_rf) * kDelayFxSmoothCoeff;
         const float l   = L[i];
         const float r   = R[i];
-        const float inL = fg * l;
-        const float inR = fg * r;
+        // Velmod delay send: written into the line at FULL level so it echoes
+        // regardless of the fader. SEND mode feeds the global dry scaled by mix
+        // (the "send amount" INTO the line) so echoes can return at unity — that
+        // makes the velmod send fully fader-independent, exactly like the reverb
+        // send. MIX mode feeds full dry and crossfades at the output (insert).
+        const float ssend = (send != nullptr) ? send[i] * send_scale : 0.0f;
+        const float gscale = mix_mode ? fg : (fg * mix);
+        const float inL = gscale * l + ssend;
+        const float inR = gscale * r + ssend;
 
         // Fractional read taps with linear interpolation. The integer part of
         // len picks the nearer cell, the fractional part blends in the next-
@@ -197,13 +216,19 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
         float dl_out, dr_out;
         if(mix_mode)
         {
+            // MIX mode (insert): crossfade dry/wet by the fader. A velmod send
+            // here is still partly fader-dependent — use SEND mode for a fully
+            // independent send.
             dl_out = l * (1.0f - mix) + dL * mix;
             dr_out = r * (1.0f - mix) + dR * mix;
         }
         else
         {
-            dl_out = l + dL * mix;
-            dr_out = r + dR * mix;
+            // SEND mode: echoes return at UNITY (the fader already scaled the
+            // input), so a velmod send fed at full is independent of the fader —
+            // it rings even with the delay's own mix all the way down.
+            dl_out = l + dL;
+            dr_out = r + dR;
         }
 
         const float abs_dl = std::fabs(dl_out - l);
@@ -224,108 +249,69 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
 
 void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
                                       const PerformParamsCurrent& p,
-                                      float& wet_peak)
+                                      float& wet_peak,
+                                      const float* send, float send_scale)
 {
     const bool  feed = p.reverb_on;
     const float mix  = p.reverb_on ? p.reverb_mix : reverb_tail_mix_;
     const bool  mix_mode = (p.reverb_fader_mode == kReverbFaderModeMix);
     float       peak = wet_peak;
 
-    // Fixed-size stack scratch buffers sized to the hardware audio block
-    // (48 samples on this target). 2 buffers * 48 floats = 384 bytes total.
+    // Fixed-size stack scratch (48-sample hardware block). in* is the explicit
+    // tank input, tmp* the dattorro output.
     constexpr size_t kReverbScratchMax = 48;
-    float            tmpL[kReverbScratchMax];
-    float            tmpR[kReverbScratchMax];
+    float tmpL[kReverbScratchMax], tmpR[kReverbScratchMax];
+    float inL[kReverbScratchMax], inR[kReverbScratchMax];
 
-    if(feed)
+    // Tank input = global feed + velmod send. Global feed: MIX mode sees the
+    // full dry, SEND mode sees mix-scaled dry, the tail/off path feeds zero.
+    // The velmod send is added at FULL level regardless of the fader, so its
+    // reverb survives even with the reverb mix down (and even when reverb is
+    // off — the FX-chain gate runs this stage when a reverb send is present).
+    for(size_t i = 0; i < n; ++i)
     {
-        // In MIX mode, the tank sees the full dry signal and `mix` crossfades
-        // dry vs wet at the output. In SEND mode, `mix` scales the dry going
-        // INTO the tank (linear taper, 0 dB at full) and the wet is summed at
-        // unity — so sweeping mix to zero stops new input but lets the tank
-        // ring out audibly. DattorroReverb::ProcessBlock writes in + wet, so
-        // wet = out - in regardless of how the input was scaled.
+        const float gl = feed ? (mix_mode ? L[i] : L[i] * mix) : 0.0f;
+        const float gr = feed ? (mix_mode ? R[i] : R[i] * mix) : 0.0f;
+        const float s  = (send != nullptr) ? send[i] * send_scale : 0.0f;
+        inL[i] = gl + s;
+        inR[i] = gr + s;
+    }
+    dattorro_.ProcessBlock(inL, inR, tmpL, tmpR, n);
+
+    for(size_t i = 0; i < n; ++i)
+    {
+        const float l = L[i];
+        const float r = R[i];
+        // wet = tank out - tank in removes ALL dry (global + send), leaving only
+        // the reverb tail. DattorroReverb writes in + wet, so this holds for any
+        // input scaling.
+        const float wetL = tmpL[i] - inL[i];
+        const float wetR = tmpR[i] - inR[i];
+
+        float rl, rr;
         if(mix_mode)
         {
-            dattorro_.ProcessBlock(L, R, tmpL, tmpR, n);
+            // MIX mode crossfades dry/wet by the fader at the output, so a send
+            // here is still partly fader-dependent (use SEND mode for a fully
+            // independent send).
+            rl = l * (1.0f - mix) + wetL * mix;
+            rr = r * (1.0f - mix) + wetR * mix;
         }
         else
         {
-            float sendL[kReverbScratchMax];
-            float sendR[kReverbScratchMax];
-            for(size_t i = 0; i < n; ++i)
-            {
-                sendL[i] = L[i] * mix;
-                sendR[i] = R[i] * mix;
-            }
-            dattorro_.ProcessBlock(sendL, sendR, tmpL, tmpR, n);
+            // SEND mode (and all tail/off paths): dry + wet at unity. The send's
+            // reverb comes through at unity, independent of the mix fader.
+            rl = l + wetL;
+            rr = r + wetR;
         }
-        for(size_t i = 0; i < n; ++i)
-        {
-            const float l    = L[i];
-            const float r    = R[i];
-            const float wetL = mix_mode ? (tmpL[i] - l) : (tmpL[i] - l * mix);
-            const float wetR = mix_mode ? (tmpR[i] - r) : (tmpR[i] - r * mix);
 
-            float rl, rr;
-            if(mix_mode)
-            {
-                rl = l * (1.0f - mix) + wetL * mix;
-                rr = r * (1.0f - mix) + wetR * mix;
-            }
-            else
-            {
-                rl = l + wetL;
-                rr = r + wetR;
-            }
+        const float abs_rl = std::fabs(rl - l);
+        const float abs_rr = std::fabs(rr - r);
+        if(abs_rl > peak) peak = abs_rl;
+        if(abs_rr > peak) peak = abs_rr;
 
-            const float abs_rl = std::fabs(rl - l);
-            const float abs_rr = std::fabs(rr - r);
-            if(abs_rl > peak) peak = abs_rl;
-            if(abs_rr > peak) peak = abs_rr;
-
-            L[i] = rl;
-            R[i] = rr;
-        }
-    }
-    else
-    {
-        // Tail path: feed zeros to let the tank decay. Matches the old
-        // ReverbProcessDattorro_ behavior when feed_input == false, where
-        // outL/outR are the full wet output (no dry component).
-        float zL[kReverbScratchMax] = {0.0f};
-        float zR[kReverbScratchMax] = {0.0f};
-        dattorro_.ProcessBlock(zL, zR, tmpL, tmpR, n);
-        for(size_t i = 0; i < n; ++i)
-        {
-            const float l    = L[i];
-            const float r    = R[i];
-            const float wetL = tmpL[i];
-            const float wetR = tmpR[i];
-
-            // Match feed-on dry/wet math so neither mode steps across the
-            // active->tail boundary. SEND mode sums wet at unity (matches the
-            // feed=true SEND path).
-            float rl, rr;
-            if(mix_mode)
-            {
-                rl = l * (1.0f - mix) + wetL * mix;
-                rr = r * (1.0f - mix) + wetR * mix;
-            }
-            else
-            {
-                rl = l + wetL;
-                rr = r + wetR;
-            }
-
-            const float abs_rl = std::fabs(rl - l);
-            const float abs_rr = std::fabs(rr - r);
-            if(abs_rl > peak) peak = abs_rl;
-            if(abs_rr > peak) peak = abs_rr;
-
-            L[i] = rl;
-            R[i] = rr;
-        }
+        L[i] = rl;
+        R[i] = rr;
     }
     wet_peak = peak;
 }
@@ -395,7 +381,9 @@ void AudioEngine::ProcessBlock(const float* inL,
                                float* outR,
                                size_t size,
                                const PerformParamsCurrent& p,
-                               bool sd_wav_load_busy)
+                               bool sd_wav_load_busy,
+                               const float* const* send_bus,
+                               bool sends_active)
 {
     const uint32_t fx_total_start = DWT->CYCCNT;
     uint32_t       sat_cycles     = 0u;
@@ -426,6 +414,14 @@ void AudioEngine::ProcessBlock(const float* inL,
 
     const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
 
+    // Velmod 2b: a per-effect send keeps the effect "wanted on" so its tank/line
+    // tail rings out after the sending voice ends (otherwise a send-only reverb
+    // cuts the moment the note's release finishes). Sat is memoryless — no tail.
+    const bool rev_send_present
+        = sends_active && (send_bus != nullptr) && (send_bus[0] != nullptr);
+    const bool dly_send_present
+        = sends_active && (send_bus != nullptr) && (send_bus[1] != nullptr);
+
     // ---- Delay ON/OFF -> active/tail ----
     // Buffer-cleanliness invariant: between deactivation and next activation,
     // the buffer must be fully zeroed. Otherwise dL reads through a sharp
@@ -436,7 +432,7 @@ void AudioEngine::ProcessBlock(const float* inL,
     // the user re-activates while the cursor is in flight, activation is
     // parked and ProcessDelayBlock_ stays skipped — user hears dry only for
     // up to ~12 ms until the cursor finishes.
-    if(p.delay_on)
+    if(p.delay_on || dly_send_present)
     {
         if(delay_clear_pending_)
         {
@@ -458,6 +454,8 @@ void AudioEngine::ProcessBlock(const float* inL,
             delay_tailing_ = true;
             delay_tail_blocks_left_ = kDelayTailMaxBlocks;
             delay_quiet_blocks_     = 0;
+            delay_tail_heard_       = false; // wait for the first echo before
+                                            // arming the quiet-stop detector
             delay_tail_mix_         = p.delay_mix;
             // Cursor is NOT started here — tail needs the buffer alive.
         }
@@ -469,7 +467,7 @@ void AudioEngine::ProcessBlock(const float* inL,
     // the reverb toggle click. The tank decays naturally to below kTailSilence-
     // Thresh (1e-4 / -80 dBFS) during the quiet-block window, so re-activation
     // picks up from inaudible state. Boot Init() still does the full clear.
-    if(p.reverb_on)
+    if(p.reverb_on || rev_send_present)
     {
         reverb_active_  = true;
         reverb_tailing_ = false;
@@ -605,16 +603,34 @@ void AudioEngine::ProcessBlock(const float* inL,
         }
     }
 
+    // Velmod 2b (true wet-send): each per-effect send is fed into the effect's
+    // wet generator at full level (inside the effect), bypassing the global
+    // dry/wet fader — so per-voice sends are heard even with the effect's fader
+    // down. Send index: 0=reverb, 1=delay, 2=sat. nullptr = that effect got no
+    // send. The effect runs if it's globally active OR a send routed to it.
+    // kSendFeedScale is the send-into-effect level (tunable by ear).
+    constexpr float kSendFeedScale = 0.7f;
+    const float* rev_send = (send_bus != nullptr) ? send_bus[0] : nullptr;
+    const float* dly_send = (send_bus != nullptr) ? send_bus[1] : nullptr;
+    const float* sat_send = (send_bus != nullptr) ? send_bus[2] : nullptr;
+    if(!sends_active)
+    {
+        rev_send = nullptr;
+        dly_send = nullptr;
+        sat_send = nullptr;
+    }
+
     for(uint8_t stage_idx = 0; stage_idx < 4; ++stage_idx)
     {
         const uint8_t fx = p.fx_order[stage_idx];
         switch(fx)
         {
             case 0:
-                if(sat_run)
+                if(sat_run || sat_send != nullptr)
                 {
                     const uint32_t stage_start = DWT->CYCCNT;
-                    ProcessSatBlock_(outL, outR, size, target_sat_pre, target_sat_wet, target_sat_makeup);
+                    ProcessSatBlock_(outL, outR, size, target_sat_pre, target_sat_wet,
+                                     target_sat_makeup, sat_send, kSendFeedScale);
                     sat_cycles += DWT->CYCCNT - stage_start;
                 }
                 break;
@@ -627,18 +643,20 @@ void AudioEngine::ProcessBlock(const float* inL,
                 }
                 break;
             case 2:
-                if(!sd_wav_load_busy && (delay_active_ || delay_tailing_))
+                if(!sd_wav_load_busy && (delay_active_ || delay_tailing_ || dly_send != nullptr))
                 {
                     const uint32_t stage_start = DWT->CYCCNT;
-                    ProcessDelayBlock_(outL, outR, size, p, len_l, len_r, delay_fb, delay_wet_peak);
+                    ProcessDelayBlock_(outL, outR, size, p, len_l, len_r, delay_fb,
+                                       delay_wet_peak, dly_send, kSendFeedScale);
                     delay_cycles += DWT->CYCCNT - stage_start;
                 }
                 break;
             case 3:
-                if(!sd_wav_load_busy && (reverb_active_ || reverb_tailing_))
+                if(!sd_wav_load_busy && (reverb_active_ || reverb_tailing_ || rev_send != nullptr))
                 {
                     const uint32_t stage_start = DWT->CYCCNT;
-                    ProcessReverbBlock_(outL, outR, size, p, reverb_wet_peak);
+                    ProcessReverbBlock_(outL, outR, size, p, reverb_wet_peak,
+                                        rev_send, kSendFeedScale);
                     reverb_cycles += DWT->CYCCNT - stage_start;
                 }
                 break;
@@ -681,12 +699,23 @@ void AudioEngine::ProcessBlock(const float* inL,
         // ---- Delay tail bookkeeping ----
         if(delay_tailing_)
         {
-            if(delay_wet_peak < kTailSilenceThresh) delay_quiet_blocks_++;
-            else delay_quiet_blocks_ = 0;
+            if(delay_wet_peak >= kTailSilenceThresh)
+            {
+                delay_tail_heard_   = true; // an echo returned
+                delay_quiet_blocks_ = 0;
+            }
+            else if(delay_tail_heard_)
+            {
+                // Only count quiet once we've actually heard an echo — otherwise
+                // the pre-echo gap (up to the delay time) would trip the
+                // quiet-stop and the buffer clear would wipe the in-flight send.
+                delay_quiet_blocks_++;
+            }
 
             if(delay_tail_blocks_left_ > 0) delay_tail_blocks_left_--;
 
-            if(delay_tail_blocks_left_ == 0 || delay_quiet_blocks_ >= kQuietBlocksToStop)
+            if(delay_tail_blocks_left_ == 0
+               || (delay_tail_heard_ && delay_quiet_blocks_ >= kDelayQuietBlocksToStop))
             {
                 delay_tailing_ = false;
                 delay_active_  = false;
@@ -699,7 +728,7 @@ void AudioEngine::ProcessBlock(const float* inL,
                 delay_clear_cursor_  = 0;
             }
         }
-        else if(!p.delay_on)
+        else if(!p.delay_on && !dly_send_present)
         {
             delay_active_ = false;
         }
@@ -720,8 +749,12 @@ void AudioEngine::ProcessBlock(const float* inL,
                 // kTailSilenceThresh and any residual is inaudible.
             }
         }
-        else if(!p.reverb_on)
+        else if(!p.reverb_on && !rev_send_present)
         {
+            // Keep reverb_active_ asserted while a velmod send is still feeding
+            // the tank — otherwise this would clear it every block and the
+            // send->silence falling edge would never trigger the tail (the
+            // reverb would cut the instant the note ends).
             reverb_active_ = false;
         }
     }

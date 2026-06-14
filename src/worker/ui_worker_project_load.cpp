@@ -139,6 +139,15 @@ static void PublishProjectPerformParams(Params& params,
         t.engine_loop_crossfade_amount[layer] = engine.adsr.perform_adsr_loop_crossfade[layer];
         t.engine_loop_crossfade_shape[layer] = engine.adsr.perform_adsr_loop_crossfade_shape[layer];
     }
+    // Velocity-mod lanes (global) → param snapshot so the loaded config reaches
+    // the voice engine without needing a manual toggle on the velmod screen.
+    for(uint8_t lane = 0; lane < PerformParamsTargets::kVelModLaneCount; ++lane)
+    {
+        t.velmod_target[lane]    = engine.velmod.target_idx[lane];
+        t.velmod_amount[lane]    = engine.velmod.amount[lane];
+        t.velmod_threshold[lane] = engine.velmod.threshold[lane];
+        t.velmod_shape[lane]     = engine.velmod.shape[lane];
+    }
     params.PublishTargets();
 }
 
@@ -217,6 +226,26 @@ static void ApplyProjectManifestGlobalState(AppSharedState& shared, const Projec
                                              std::memory_order_release);
 }
 
+static void ApplyProjectManifestVelMod(AppEngineState& engine, const ProjectManifestV11& manifest)
+{
+    for(uint8_t lane = 0; lane < 2u; ++lane)
+    {
+        uint8_t target = manifest.velmod_target[lane];
+        if(target > 7u)
+            target = 0u;
+        int amount = manifest.velmod_amount[lane];
+        if(amount < -10) amount = -10;
+        if(amount > 10)  amount = 10;
+        uint8_t thr = manifest.velmod_threshold[lane];
+        if(thr > 127u) thr = 127u;
+        engine.velmod.target_idx[lane] = target;
+        engine.velmod.amount[lane]     = static_cast<int8_t>(amount);
+        engine.velmod.threshold[lane]  = thr;
+        engine.velmod.shape[lane]      = (manifest.velmod_shape[lane] != 0u) ? 1u : 0u;
+    }
+    engine.velmod.threshold_linked = (manifest.velmod_threshold_linked != 0u);
+}
+
 static void ApplyProjectManifestLayerState(AppEngineState& engine, const ProjectManifestV11& manifest)
 {
     for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
@@ -277,6 +306,7 @@ void ApplyProjectLoadState(AppEngineState& engine,
 {
     ApplyProjectManifestGlobalState(shared, manifest);
     ApplyProjectManifestLayerState(engine, manifest);
+    ApplyProjectManifestVelMod(engine, manifest);
     PublishProjectPerformParams(params,
                                 engine,
                                 manifest.engine_layer_master_level,

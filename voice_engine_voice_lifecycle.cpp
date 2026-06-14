@@ -91,6 +91,7 @@ void VoiceEngine::StartVoice_(Voice& v,
         v.vel_layer = vel_layer;
         v.loop_voice = false;
         v.start_id = start_id;
+        v.send_active = false;
         return;
     }
 
@@ -146,6 +147,28 @@ void VoiceEngine::StartVoice_(Voice& v,
         velmod_attack_delta_ms  = VelModFractionForTarget_(2u, velocity) * 1000.0f;
         velmod_sustain_delta    = VelModFractionForTarget_(3u, velocity) * 1.0f;
         velmod_release_delta_ms = VelModFractionForTarget_(4u, velocity) * 1000.0f;
+
+        // Phase 2b sends: targets 5=reverb, 6=delay, 7=sat → send_level[0..2].
+        // Unipolar frac (0..1) scaled so amount 10 at full velocity = +6 dB
+        // (gain ~1.995) sent to that effect; 0 = nothing sent.
+        constexpr float kSendMaxGain = 1.99526f; // 10^(6/20)
+        bool any_send = false;
+        for(uint8_t k = 0; k < 3u; ++k)
+        {
+            const float f = VelModFractionForTarget_(static_cast<uint8_t>(5u + k), velocity);
+            const float lvl = f * kSendMaxGain;
+            v.send_level[k] = lvl;
+            if(lvl != 0.0f)
+                any_send = true;
+        }
+        v.send_active = any_send;
+    }
+    else
+    {
+        v.send_level[0] = 0.0f;
+        v.send_level[1] = 0.0f;
+        v.send_level[2] = 0.0f;
+        v.send_active   = false;
     }
     v.lpf_z = 0.0f;
     v.lpf_bp = 0.0f;

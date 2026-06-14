@@ -94,7 +94,7 @@ struct PerformParamsTargets
     uint8_t velmod_target[kVelModLaneCount]    = {0u, 0u};
     int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
     uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
-    uint8_t velmod_shape[kVelModLaneCount]     = {0u, 0u};
+    uint8_t velmod_shape[kVelModLaneCount]     = {1u, 1u}; // default gate
 };
 
 struct PerformParamsCurrent
@@ -174,7 +174,7 @@ struct PerformParamsCurrent
     uint8_t velmod_target[kVelModLaneCount]    = {0u, 0u};
     int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
     uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
-    uint8_t velmod_shape[kVelModLaneCount]     = {0u, 0u};
+    uint8_t velmod_shape[kVelModLaneCount]     = {1u, 1u}; // default gate
 };
 
 class Params

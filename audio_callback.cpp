@@ -812,8 +812,17 @@ void AudioCallback(AudioHandle::InputBuffer  in,
 #endif
     const bool sd_wav_load_busy
         = (g_app.shared.sample.publish.sd_wav_load_busy.load(std::memory_order_acquire) != 0);
+    // Velmod 2b: hand the voice engine's per-effect send buses to the FX chain.
+    // A null pointer means that effect got no send this block (so it isn't run
+    // or injected just for a send).
+    const float* send_buses[3]
+        = {g_voice.SendBusActive(0) ? g_voice.SendBus(0) : nullptr,
+           g_voice.SendBusActive(1) ? g_voice.SendBus(1) : nullptr,
+           g_voice.SendBusActive(2) ? g_voice.SendBus(2) : nullptr};
+    const bool sends_active = g_voice.SendsActiveLastBlock();
     bucket_start = DWT->CYCCNT;
-    g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy);
+    g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy,
+                         send_buses, sends_active);
     DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketFxTotal, DWT->CYCCNT - bucket_start);
 
     bucket_start = DWT->CYCCNT;

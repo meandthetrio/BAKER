@@ -28,6 +28,16 @@ ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap1_buf[kDtcTa
 ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap2_buf[kDtcTankAp2Max];
 ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap3_buf[kDtcTankAp3Max];
 ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap4_buf[kDtcTankAp4Max];
+
+// Reverb tone mapping (used by Process/ProcessBlock control-rate updates).
+// The input bandwidth filter is fixed and bright — it is NOT driven by the
+// damping knob (classic Dattorro). The damping knob only darkens the tank
+// tail, mapped exponentially between these two cutoffs so the knob travel
+// feels perceptually even. The bright end stays within the SVF stability
+// limit so the whole range is active (no dead plateau).
+constexpr float kInputBandwidthHz = 16000.0f; // fixed bright input LPF
+constexpr float kDampCutoffBright  = 11000.0f; // damp = 0 (brightest tail)
+constexpr float kDampCutoffDark    = 400.0f;   // damp = 1 (darkest tail)
 } // namespace
 
 float DattorroReverb::Clamp01_(float value)
@@ -347,6 +357,17 @@ float DattorroReverb::StateVariable::Process(float input)
 void DattorroReverb::StateVariable::UpdateCoefficient()
 {
     f = static_cast<float>(2.0f * std::sin(3.141592654f * frequency / sample_rate));
+    // Stability clamp. For this Chamberlin SVF the discrete state matrix keeps
+    // both poles inside the unit circle only while f < -q + sqrt(q*q + 4). At
+    // the resonance-0 setting used here (q = 2) that limit is ~0.828. The
+    // damping/bandwidth filters are driven up to ~18.5 kHz against the
+    // 2x-oversampled 96 kHz rate, which at low damp pushes f past the limit and
+    // makes the filter diverge — the resulting NaN recirculates through the
+    // reverb tank's feedback path and silences all output until reset. Cap f at
+    // 90% of the stability limit so no parameter setting can blow the tank up.
+    const float f_max = 0.9f * (-q + std::sqrt(q * q + 4.0f));
+    if(f > f_max) f = f_max;
+    if(f < 0.0f)  f = 0.0f;
 }
 
 void DattorroReverb::ConfigureSize_(float size)
@@ -618,7 +639,6 @@ void DattorroReverb::Process(const float inL,
         // engine, so updating feedback at 1 kHz rather than 48 kHz is
         // sonically transparent while removing 48x redundant work per block.
         const float damping_param   = damping_;
-        const float bandwidth_param = 1.0f - damping_;
         current_decay_    = (0.7995f * decay_) + 0.005f;
         current_density2_ = current_decay_ + 0.15f;
         if(current_density2_ > 0.5f)
@@ -631,10 +651,12 @@ void DattorroReverb::Process(const float inL,
         tank_allpass_[2].SetFeedback(kDensity);
         tank_allpass_[3].SetFeedback(current_density2_);
 
-        bandwidth_filter_[0].Frequency((bandwidth_param * 18400.0f) + 100.0f);
-        bandwidth_filter_[1].Frequency((bandwidth_param * 18400.0f) + 100.0f);
-        damping_filter_[0].Frequency(((1.0f - damping_param) * 18400.0f) + 100.0f);
-        damping_filter_[1].Frequency(((1.0f - damping_param) * 18400.0f) + 100.0f);
+        const float damp_cutoff = kDampCutoffBright
+            * std::pow(kDampCutoffDark / kDampCutoffBright, damping_param);
+        bandwidth_filter_[0].Frequency(kInputBandwidthHz);
+        bandwidth_filter_[1].Frequency(kInputBandwidthHz);
+        damping_filter_[0].Frequency(damp_cutoff);
+        damping_filter_[1].Frequency(damp_cutoff);
 
         // Light predelay modulation for “Dattorro-ish” movement.
         // We run the oscillator at the control update rate, so scale its frequency accordingly.
@@ -750,9 +772,18 @@ void DattorroReverb::ProcessBlock(const float* inL,
                                   float*       outR,
                                   size_t       n)
 {
+    // Safety net: if the tank feedback state ever goes non-finite (NaN/Inf),
+    // it would recirculate forever and silence all output until a power cycle.
+    // Re-initialise the tank so it recovers within one block instead. Cheap:
+    // two float checks per block on the normal path.
+    if(!std::isfinite(previous_left_tank_) || !std::isfinite(previous_right_tank_))
+        Clear_();
+
     // ---- Block-constant scalars (hoisted out of the inner loop) ----
     const float damping_param   = damping_;
-    const float bandwidth_param = 1.0f - damping_;
+    // Fixed bright input bandwidth; exponential damping cutoff (see Process).
+    const float damp_cutoff     = kDampCutoffBright
+        * std::pow(kDampCutoffDark / kDampCutoffBright, damping_param);
     const float decay           = (0.7995f * decay_) + 0.005f;
     float       density2_tmp    = decay + 0.15f;
     if(density2_tmp > 0.5f)
@@ -788,10 +819,10 @@ void DattorroReverb::ProcessBlock(const float* inL,
         if(ctr >= crate)
         {
             ctr = 0;
-            bandwidth_filter_[0].Frequency((bandwidth_param * 18400.0f) + 100.0f);
-            bandwidth_filter_[1].Frequency((bandwidth_param * 18400.0f) + 100.0f);
-            damping_filter_[0].Frequency(((1.0f - damping_param) * 18400.0f) + 100.0f);
-            damping_filter_[1].Frequency(((1.0f - damping_param) * 18400.0f) + 100.0f);
+            bandwidth_filter_[0].Frequency(kInputBandwidthHz);
+            bandwidth_filter_[1].Frequency(kInputBandwidthHz);
+            damping_filter_[0].Frequency(damp_cutoff);
+            damping_filter_[1].Frequency(damp_cutoff);
 
             const float hz = 0.6f;
             oscillator_.SetFreq(hz * static_cast<float>(crate));

@@ -752,15 +752,20 @@ void DattorroReverb::Process(const float inL,
     float wetL = accumulatorL * kGain;
     float wetR = accumulatorR * kGain;
 
-    // Wet-only stereo width: boost side of the reverb wet; `mod_` squared for low-end control.
+    // Wet-only stereo width: `mod_` boosts the side (L-R) of the reverb wet,
+    // squared for finer control near the bottom. Boosting only the side raises
+    // total level, so apply a constant-power makeup that trades mid for side —
+    // the stereo image widens without the wet getting louder (assumes the wet
+    // L/R are roughly decorrelated, i.e. mid≈side power, which holds for a tank
+    // reverb tail).
     constexpr float kWetSideMaxExtra = 1.5f;
     const float     wetMid           = 0.5f * (wetL + wetR);
     const float     wetSide          = 0.5f * (wetL - wetR);
     const float     widthCurve       = mod_ * mod_;
     const float     sideBoost        = 1.0f + widthCurve * kWetSideMaxExtra;
-    const float     wetSideW         = wetSide * sideBoost;
-    wetL                             = wetMid + wetSideW;
-    wetR                             = wetMid - wetSideW;
+    const float     widthMakeup      = std::sqrt(2.0f / (1.0f + sideBoost * sideBoost));
+    wetL                             = (wetMid + wetSide * sideBoost) * widthMakeup;
+    wetR                             = (wetMid - wetSide * sideBoost) * widthMakeup;
 
     outL = inL + wetL * out_gain_;
     outR = inR + wetR * out_gain_;
@@ -795,6 +800,12 @@ void DattorroReverb::ProcessBlock(const float* inL,
     const float    mod_val       = mod_;
     const uint32_t crate         = control_rate_;
     const size_t   predelay_base = predelay_base_samples_;
+
+    // Wet stereo-width (mod): boost side with constant-power makeup so widening
+    // doesn't raise level. Block-constant — hoisted out of the per-sample loop.
+    const float    width_side_boost = 1.0f + (mod_val * mod_val) * 1.5f;
+    const float    width_makeup
+        = std::sqrt(2.0f / (1.0f + width_side_boost * width_side_boost));
 
     // ---- Lift redundant per-sample tank-allpass SetFeedback calls ----
     // `kDensity` is a compile-time constant, and `density2` is derived from
@@ -913,14 +924,10 @@ void DattorroReverb::ProcessBlock(const float* inL,
         float wetL = accumulatorL * kGain;
         float wetR = accumulatorR * kGain;
 
-        constexpr float kWetSideMaxExtra = 1.5f;
-        const float     wetMid           = 0.5f * (wetL + wetR);
-        const float     wetSide          = 0.5f * (wetL - wetR);
-        const float     widthCurve       = mod_val * mod_val;
-        const float     sideBoost        = 1.0f + widthCurve * kWetSideMaxExtra;
-        const float     wetSideW         = wetSide * sideBoost;
-        wetL                             = wetMid + wetSideW;
-        wetR                             = wetMid - wetSideW;
+        const float wetMid = 0.5f * (wetL + wetR);
+        const float wetSide = 0.5f * (wetL - wetR);
+        wetL = (wetMid + wetSide * width_side_boost) * width_makeup;
+        wetR = (wetMid - wetSide * width_side_boost) * width_makeup;
 
         outL[i] = left + wetL * out_gain;
         outR[i] = right + wetR * out_gain;

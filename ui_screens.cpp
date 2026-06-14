@@ -102,6 +102,16 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
                                     t.express_poly_porto_source_mode[i],
                                     t.express_poly_porto_release_ms[i]);
     }
+    // Velocity-mod lanes are global (not per-layer); copy both lanes straight
+    // through. The UI already clamps amount to each target's range, so no
+    // re-clamp needed here.
+    for(uint8_t lane = 0; lane < PerformParamsTargets::kVelModLaneCount; ++lane)
+    {
+        t.velmod_target[lane]    = engine.velmod.target_idx[lane];
+        t.velmod_amount[lane]    = engine.velmod.amount[lane];
+        t.velmod_threshold[lane] = engine.velmod.threshold[lane];
+        t.velmod_shape[lane]     = engine.velmod.shape[lane];
+    }
     ctx.params->PublishTargets();
 }
 

@@ -58,7 +58,6 @@ struct Voice
     float         pos_frac  = 0.0f; // fractional offset within frame [0,1)
     float         ratio  = 1.0f; // playback increment per output sample
     float         gain   = 0.0f; // 0..1
-    float         vel_brightness = 1.0f;
     float         lpf_z  = 0.0f; // low state for filter
     float         lpf_bp = 0.0f; // band state for resonant filter
     ModEnv        mod_env;
@@ -74,6 +73,11 @@ struct Voice
     float         env_d_step = 0.0f;
     float         env_r_step = 0.0f;
     float         env_sustain = 0.70f;
+    // Release time (ms) resolved at note-on from the perform ADSR + velmod,
+    // mode-aware. NoteOff_ reuses this instead of recomputing from a base, so
+    // one-shot voices honor the UI release and velmod release survives to
+    // note-off.
+    float         resolved_release_ms = 30.0f;
     bool          gate = false;
     bool          loop_voice = false;
     int8_t        dir  = 1;
@@ -250,6 +254,16 @@ class VoiceEngine
     void SetPolyPortoSourceRangeSemitones(uint8_t layer, uint8_t semitones);
     void SetPolyPortoSourceMode(uint8_t layer, uint8_t source_mode);
     void SetPolyPortoReleaseMs(uint8_t layer, float release_ms);
+    // Velocity-mod lane config (lane 0/1). target indexes the shared velmod
+    // target list (0=----, 1=volume, 2=attack, 3=sustain, 4=release, 5..7
+    // sends — sends are ignored here; applied in Phase 2b). amount -10..+10,
+    // threshold 0..127, shape 0=knee/1=gate. Pushed once per block from the
+    // audio callback.
+    void SetVelMod(uint8_t lane,
+                   uint8_t target,
+                   int8_t  amount,
+                   uint8_t threshold,
+                   uint8_t shape);
     void SetLoopMode(LoopMode mode)
     {
         const uint8_t old_v
@@ -317,6 +331,21 @@ class VoiceEngine
     float loop_env_decay_ms_[kEngineLayerCount] = {20.0f, 20.0f};
     float loop_env_sustain_level_[kEngineLayerCount] = {1.0f, 1.0f};
     float loop_env_release_ms_[kEngineLayerCount] = {50.0f, 50.0f};
+
+    // Velocity-mod lane config (mirrors PerformParamsCurrent.velmod_*). Read at
+    // note-on by StartVoice_. velmod_any_active_ is the fast-skip: true only if
+    // a lane has a non-"----" target with non-zero amount, so the default state
+    // costs a single branch in the note-on path.
+    static constexpr uint8_t kVelModLaneCount = 2;
+    uint8_t velmod_target_[kVelModLaneCount]    = {0u, 0u};
+    int8_t  velmod_amount_[kVelModLaneCount]    = {0, 0};
+    uint8_t velmod_threshold_[kVelModLaneCount] = {0u, 0u};
+    uint8_t velmod_shape_[kVelModLaneCount]     = {0u, 0u};
+    bool    velmod_any_active_ = false;
+    // Returns the additive modulation fraction for `target_code` given this
+    // note's velocity, or 0 if no lane targets it / it's gated. Fraction is
+    // -1..+1 for modifying targets (amount/10 * velocity-scale).
+    float VelModFractionForTarget_(uint8_t target_code, uint8_t velocity) const;
     float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
     float loop_crossfade_shape_[kEngineLayerCount] = {0.0f, 0.0f};
     bool  layer_seam_baked_[kEngineLayerCount] = {false, false};

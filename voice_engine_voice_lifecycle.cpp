@@ -1,10 +1,6 @@
 #include "voice_engine_internal.h"
 
 static constexpr float kVoiceAmpScale      = 0.15f; // keep headroom for 10 voices + FX
-static constexpr float kDefaultEnvAttackMs = 5.0f;
-static constexpr float kDefaultEnvDecayMs  = 60.0f;
-static constexpr float kDefaultEnvSustainLevel = 0.70f;
-static constexpr float kDefaultEnvReleaseMs = 30.0f;
 
 static inline uint8_t VoiceLayerForAllocation(const Voice& v)
 {
@@ -46,7 +42,6 @@ void VoiceEngine::FinishStopFade_(Voice& v)
     v.lpf_bp = 0.0f;
     v.source_layer = 0;
     v.vel_layer = 0;
-    v.vel_brightness = 1.0f;
     v.fade_in = 0.0f;
     v.fade_in_step = 0.0f;
     v.env_stage = EnvStage::Off;
@@ -118,9 +113,40 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.pos_frame = start_frame;
     v.pos_frac  = 0.0f;
     v.ratio  = ComputeRatio(note, sample->root_key);
-    const float vel01 = (velocity > 127) ? 1.0f : ((float)velocity / 127.0f);
-    v.gain = vel01 * kVoiceAmpScale;
-    v.vel_brightness = (vel_layer == 0) ? 0.35f : 1.0f;
+    // Inherent velocity tracking is intentionally OFF: the base voice gain is
+    // velocity-independent. Any velocity→volume behavior now comes solely from
+    // the velmod "volume" target below. (Previously: v.gain = vel/127 * scale.)
+    v.gain = kVoiceAmpScale;
+
+    // Velocity-mod (Phase 2a): modifying targets only (volume / attack /
+    // sustain / release). Send targets (codes 5..7) are applied in 2b.
+    // velmod_any_active_ keeps the default state to a single branch.
+    float velmod_attack_delta_ms  = 0.0f;
+    float velmod_sustain_delta    = 0.0f;
+    float velmod_release_delta_ms = 0.0f;
+    if(velmod_any_active_)
+    {
+        // volume: boost is linear in amplitude (+1.0 → ×2 ≈ +6 dB), cut is
+        // dB-linear so attenuation sounds evenly graded instead of bunching
+        // near 0 then collapsing to silence. Cut floor: frac -1.0 → -48 dB
+        // (≈ silent). (Asymmetric on purpose: +10 doubles, -10 ≈ silences.)
+        const float fvol = VelModFractionForTarget_(1u, velocity);
+        if(fvol > 0.0f)
+        {
+            v.gain *= (1.0f + fvol);
+        }
+        else if(fvol < 0.0f)
+        {
+            constexpr float kVelModVolCutSpanDb = 48.0f; // |dB| at frac = -1
+            v.gain *= std::pow(10.0f, (fvol * kVelModVolCutSpanDb) / 20.0f);
+        }
+        // attack / release: ±frac * 1000 ms (the UI's 0..1000 ms range).
+        // sustain: ±frac * 1.0 (level 0..1). Deltas are clamped after the
+        // base value is known, just below.
+        velmod_attack_delta_ms  = VelModFractionForTarget_(2u, velocity) * 1000.0f;
+        velmod_sustain_delta    = VelModFractionForTarget_(3u, velocity) * 1.0f;
+        velmod_release_delta_ms = VelModFractionForTarget_(4u, velocity) * 1000.0f;
+    }
     v.lpf_z = 0.0f;
     v.lpf_bp = 0.0f;
     v.gate = true;
@@ -134,17 +160,56 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.stop_fade_level = 0.0f;
     v.stop_fade_step = 0.0f;
     v.new_loop_voice = false;
+    // Envelope resolution. Attack and release always come from the perform
+    // ADSR (both loop and one-shot modes) so one-shot voices honor the UI
+    // instead of a hardcoded default. One-shot mode treats sustain as inactive
+    // (held at full) and skips decay — envelope is attack → hold → release.
+    // Velmod deltas fold in on attack/release (and sustain in loop mode only).
+    // The resolved release is clamped and stashed on the voice so NoteOff_
+    // reuses it (also lets velmod release survive to note-off).
+    const uint8_t elayer = v.source_layer & 1u;
+    float env_attack_ms  = loop_env_attack_ms_[elayer];
+    float env_release_ms = loop_env_release_ms_[elayer];
+    float env_decay_ms;
+    float env_sustain_lv;
+    if(v.loop_voice)
+    {
+        env_decay_ms   = loop_env_decay_ms_[elayer];
+        env_sustain_lv = loop_env_sustain_level_[elayer];
+    }
+    else
+    {
+        // One-shot: sustain inactive (full hold); decay value is irrelevant
+        // once sustain == 1.0 (attack reaches full, then holds).
+        env_decay_ms   = loop_env_decay_ms_[elayer];
+        env_sustain_lv = 1.0f;
+    }
+    if(velmod_any_active_)
+    {
+        env_attack_ms += velmod_attack_delta_ms;
+        if(env_attack_ms < 0.0f)    env_attack_ms = 0.0f;
+        if(env_attack_ms > 1000.0f) env_attack_ms = 1000.0f;
+        env_release_ms += velmod_release_delta_ms;
+        if(env_release_ms < 0.0f)    env_release_ms = 0.0f;
+        if(env_release_ms > 1000.0f) env_release_ms = 1000.0f;
+        if(v.loop_voice) // sustain is inactive in one-shot mode
+        {
+            env_sustain_lv += velmod_sustain_delta;
+            if(env_sustain_lv < 0.0f) env_sustain_lv = 0.0f;
+            if(env_sustain_lv > 1.0f) env_sustain_lv = 1.0f;
+        }
+    }
+    v.resolved_release_ms = env_release_ms;
     InitEnvelope(v.env_stage,
                  v.env_level,
                  v.env_a_step,
                  v.env_d_step,
                  v.env_r_step,
                  v.env_sustain,
-                 v.loop_voice ? loop_env_attack_ms_[v.source_layer] : kDefaultEnvAttackMs,
-                 v.loop_voice ? loop_env_decay_ms_[v.source_layer] : kDefaultEnvDecayMs,
-                 v.loop_voice ? loop_env_sustain_level_[v.source_layer]
-                              : kDefaultEnvSustainLevel,
-                 v.loop_voice ? loop_env_release_ms_[v.source_layer] : kDefaultEnvReleaseMs,
+                 env_attack_ms,
+                 env_decay_ms,
+                 env_sustain_lv,
+                 env_release_ms,
                  sample_rate_);
 
     v.release_coeff = block_release_coeff_;
@@ -310,12 +375,13 @@ void VoiceEngine::NoteOff_(uint8_t note)
         {
             v.state = VoiceState::Releasing;
             MarkPolyPortoReleasedSource_(v);
-            const uint8_t layer = v.source_layer & 1u;
+            // Use the release time resolved at note-on (perform ADSR + velmod,
+            // mode-aware) instead of recomputing from a base — this is what
+            // makes one-shot release honor the UI and velmod release audible.
             SetEnvelopeRelease(v.env_stage,
                                v.env_level,
                                v.env_r_step,
-                               v.loop_voice ? loop_env_release_ms_[layer]
-                                            : kDefaultEnvReleaseMs,
+                               v.resolved_release_ms,
                                sample_rate_);
             if(!v.loop_voice)
                 v.gate = false;
@@ -350,10 +416,12 @@ void VoiceEngine::NoteOff_(uint8_t note)
                 v.fade_in      = 1.0f;
                 v.fade_in_step = 0.0f;
                 v.loop_voice = v.new_loop_voice;
+                // One-shot stolen voice: use the resolved (perform ADSR)
+                // release stashed at steal time, not the hardcoded default.
                 SetEnvelopeRelease(v.new_env_stage,
                                    v.new_env_level,
                                    v.new_env_r_step,
-                                   kDefaultEnvReleaseMs,
+                                   v.resolved_release_ms,
                                    sample_rate_);
                 v.new_gate = false;
                 v.new_dir  = 1;

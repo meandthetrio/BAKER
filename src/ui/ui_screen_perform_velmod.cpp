@@ -493,7 +493,7 @@ bool ModBlockA_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
        && engine.velmod.modblock_threshold_off[0])
         return false;
 velmod_handle:
-    if(VelocityMod_HandleEvent(ui, engine, 0, e)) return true;
+    if(VelocityMod_HandleEvent(ui, engine, 0, e)) { PublishEngineLayerParams(ctx); return true; }
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
         const uint8_t cur = (ui.velmod_focus[0] >= 1 && ui.velmod_focus[0] <= 3) ? ui.velmod_focus[0] - 1u : 1u;
@@ -533,7 +533,7 @@ bool ModBlockB_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
        && engine.velmod.modblock_threshold_off[1])
         return false;
 velmod_handle:
-    if(VelocityMod_HandleEvent(ui, engine, 1, e)) return true;
+    if(VelocityMod_HandleEvent(ui, engine, 1, e)) { PublishEngineLayerParams(ctx); return true; }
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
         const uint8_t cur = (ui.velmod_focus[1] >= 1 && ui.velmod_focus[1] <= 3) ? ui.velmod_focus[1] - 1u : 1u;
@@ -557,7 +557,7 @@ bool VelocityMod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
     AppUiState&     ui     = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    if(VelocityMod_HandleEvent(ui, engine, 0, e)) return true;
+    if(VelocityMod_HandleEvent(ui, engine, 0, e)) { PublishEngineLayerParams(ctx); return true; }
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
         ui.velmod_focus[0] = VelModStepFocusVisual(ui.velmod_focus[0], e.value);
@@ -580,7 +580,7 @@ bool VelocityMod2_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
     AppUiState&     ui     = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-    if(VelocityMod_HandleEvent(ui, engine, 1, e)) return true;
+    if(VelocityMod_HandleEvent(ui, engine, 1, e)) { PublishEngineLayerParams(ctx); return true; }
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
         ui.velmod_focus[1] = VelModStepFocusVisual(ui.velmod_focus[1], e.value);

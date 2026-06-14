@@ -4,10 +4,6 @@ namespace
 {
 static constexpr float kVoiceAmpScale = 0.15f; // keep headroom for 10 voices + FX
 static constexpr float kStealFadeOutMs = 1.25f;
-static constexpr float kDefaultEnvAttackMs = 5.0f;
-static constexpr float kDefaultEnvDecayMs = 60.0f;
-static constexpr float kDefaultEnvSustainLevel = 0.70f;
-static constexpr float kDefaultEnvReleaseMs = 30.0f;
 }
 
 void VoiceEngine::SetPolyPortoEnabled(uint8_t layer, bool enabled)
@@ -292,13 +288,10 @@ bool VoiceEngine::TryStartPolyPortoVoice_(const Sample* sample,
 
     if(stole)
     {
-        const float vel01 = (velocity > 127) ? 1.0f : (static_cast<float>(velocity) / 127.0f);
-        const float vel_brightness = (vel_layer == 0u) ? 0.35f : 1.0f;
         const bool already_fading = (v.state == VoiceState::StealFadeOut);
 
         v.sample = sample;
         v.vel_layer = vel_layer;
-        v.vel_brightness = vel_brightness;
         v.mod_env.Trigger(env_attack_ms_, env_decay_ms_);
         v.stop_fade_active = false;
         v.stop_fade_samples_remaining = 0;
@@ -327,23 +320,26 @@ bool VoiceEngine::TryStartPolyPortoVoice_(const Sample* sample,
             v.new_pos_frame = e.start_frame;
         }
         v.new_ratio = ComputeRatio(note, sample->root_key);
-        v.new_gain = vel01 * kVoiceAmpScale;
+        // Velocity-independent base gain (inherent vel tracking off).
+        v.new_gain = kVoiceAmpScale;
         v.new_source_layer = source_layer;
         v.new_loop_voice = engine_loop_enabled_[source_layer];
         v.new_gate = true;
         v.new_dir = 1;
+        // Mode-aware (matches StartVoice_): attack/release from the perform
+        // ADSR in both modes; one-shot holds sustain at full. Resolved release
+        // stashed for note-off.
+        v.resolved_release_ms = loop_env_release_ms_[source_layer];
         InitEnvelope(v.new_env_stage,
                      v.new_env_level,
                      v.new_env_a_step,
                      v.new_env_d_step,
                      v.new_env_r_step,
                      v.new_env_sustain,
-                     v.new_loop_voice ? loop_env_attack_ms_[source_layer] : kDefaultEnvAttackMs,
-                     v.new_loop_voice ? loop_env_decay_ms_[source_layer] : kDefaultEnvDecayMs,
-                     v.new_loop_voice ? loop_env_sustain_level_[source_layer]
-                                      : kDefaultEnvSustainLevel,
-                     v.new_loop_voice ? loop_env_release_ms_[source_layer]
-                                      : kDefaultEnvReleaseMs,
+                     loop_env_attack_ms_[source_layer],
+                     loop_env_decay_ms_[source_layer],
+                     v.new_loop_voice ? loop_env_sustain_level_[source_layer] : 1.0f,
+                     loop_env_release_ms_[source_layer],
                      sample_rate_);
 
         if(!already_fading)

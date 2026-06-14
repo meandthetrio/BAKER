@@ -155,6 +155,62 @@ void VoiceEngine::SetEngineTuneSemitones(uint8_t layer, float semitones)
     }
 }
 
+void VoiceEngine::SetVelMod(uint8_t lane,
+                           uint8_t target,
+                           int8_t  amount,
+                           uint8_t threshold,
+                           uint8_t shape)
+{
+    if(lane >= kVelModLaneCount)
+        return;
+    velmod_target_[lane]    = target;
+    velmod_amount_[lane]    = amount;
+    velmod_threshold_[lane] = threshold;
+    velmod_shape_[lane]     = shape;
+    // Recompute the fast-skip flag. A lane is "active" only with a real target
+    // (non-zero index = not "----") and non-zero amount.
+    bool any = false;
+    for(uint8_t i = 0; i < kVelModLaneCount; ++i)
+    {
+        if(velmod_target_[i] != 0u && velmod_amount_[i] != 0)
+        {
+            any = true;
+            break;
+        }
+    }
+    velmod_any_active_ = any;
+}
+
+float VoiceEngine::VelModFractionForTarget_(uint8_t target_code, uint8_t velocity) const
+{
+    // Mutual exclusion (enforced at the UI) guarantees at most one lane targets
+    // a given param, so the first match wins.
+    for(uint8_t lane = 0; lane < kVelModLaneCount; ++lane)
+    {
+        if(velmod_target_[lane] != target_code)
+            continue;
+        if(velmod_amount_[lane] == 0)
+            return 0.0f;
+        const uint8_t thr = velmod_threshold_[lane];
+        if(velocity < thr)
+            return 0.0f; // below threshold: no mod (both knee and gate)
+        float scale;
+        if(velmod_shape_[lane] == 1u)
+        {
+            scale = 1.0f; // gate: full amount once at/above threshold
+        }
+        else
+        {
+            // knee: linear ramp from 0 at threshold to 1 at velocity 127.
+            const int span = 127 - static_cast<int>(thr);
+            scale = (span <= 0) ? ((velocity >= 127u) ? 1.0f : 0.0f)
+                                : (static_cast<float>(velocity - thr) / static_cast<float>(span));
+        }
+        return (static_cast<float>(velmod_amount_[lane]) * 0.1f) * scale;
+    }
+    return 0.0f;
+}
+
 void VoiceEngine::SetEngineGainDb(uint8_t layer, float db)
 {
     layer &= 1u;

@@ -758,19 +758,33 @@ void AudioCallback(AudioHandle::InputBuffer  in,
             }
             const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
             g_voice.SetEngineLayerScale(layer, layer_level * bypass_comp);
-            g_voice.SetEngineLoopEnabled(layer, voice_params.engine_loop_mode[layer]);
             g_voice.SetLoopCrossfadeAmount(layer, voice_params.engine_loop_crossfade_amount[layer]);
             g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
         }
-        // Seam-baked flag is set on sample load, which is NOT a UI param edit and
-        // therefore does NOT trigger static_push. Push it every block (one atomic
-        // load + one bool assign, trivially cheap) so the engine sees the new
-        // flag immediately after a sample loads.
+        // Loop-enable and the seam-baked flag must NOT be gated behind
+        // static_push: on project load the param publish happens before the
+        // async sample restore finishes, so the brief settle window can lapse
+        // before playback begins — leaving a loop layer audibly stuck in
+        // one-shot until the user toggles it. Both are trivially cheap (a bool
+        // assign), so push them every block to stay in lockstep with the
+        // published value regardless of sample-load timing.
+        g_voice.SetEngineLoopEnabled(layer, voice_params.engine_loop_mode[layer]);
         {
             const uint8_t baked = g_app.shared.sample.publish.sd_layer_seam_baked[layer]
                                       .load(std::memory_order_acquire);
             g_voice.SetLayerSeamBaked(layer, baked != 0u);
         }
+    }
+    // Velocity-mod lanes are global (not per-layer); push both once. Must
+    // precede ProcessEvents so note-ons fired this block read the current
+    // config in StartVoice_.
+    for(uint8_t lane = 0; lane < PerformParamsCurrent::kVelModLaneCount; ++lane)
+    {
+        g_voice.SetVelMod(lane,
+                          voice_params.velmod_target[lane],
+                          voice_params.velmod_amount[lane],
+                          voice_params.velmod_threshold[lane],
+                          voice_params.velmod_shape[lane]);
     }
     const uint32_t pre_push_cycles = DWT->CYCCNT - pre_push_start;
 

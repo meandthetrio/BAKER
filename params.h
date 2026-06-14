@@ -84,6 +84,17 @@ struct PerformParamsTargets
     uint16_t express_poly_porto_release_ms[kLayerCount]
         = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
     uint8_t fx_order[4] = {0, 2, 3, 1}; // ids: 0=SAT,1=EQ,2=DELAY,3=REVERB; default EQ last
+
+    // Velocity-mod lanes (first/second). Indexed by lane (0/1), independent of
+    // layer — both lanes apply to all voices. target indexes kVelModTargetList
+    // (0=----, 1=volume, 2=attack, 3=sustain, 4=release, 5..7=sends). amount is
+    // -10..+10 (clamped per target type at the UI). threshold 0..127, shape
+    // 0=knee/1=gate. Discrete config: snapped (not smoothed) into Current.
+    static constexpr uint8_t kVelModLaneCount = 2;
+    uint8_t velmod_target[kVelModLaneCount]    = {0u, 0u};
+    int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
+    uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
+    uint8_t velmod_shape[kVelModLaneCount]     = {0u, 0u};
 };
 
 struct PerformParamsCurrent
@@ -157,6 +168,13 @@ struct PerformParamsCurrent
     uint16_t express_poly_porto_release_ms[kLayerCount]
         = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
     uint8_t fx_order[4] = {0, 2, 3, 1}; // ids: 0=SAT,1=EQ,2=DELAY,3=REVERB; default EQ last
+
+    // Velocity-mod lanes (see PerformParamsTargets for field meanings).
+    static constexpr uint8_t kVelModLaneCount = 2;
+    uint8_t velmod_target[kVelModLaneCount]    = {0u, 0u};
+    int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
+    uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
+    uint8_t velmod_shape[kVelModLaneCount]     = {0u, 0u};
 };
 
 class Params

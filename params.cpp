@@ -166,4 +166,13 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.express_poly_porto_source_mode[layer] = t.express_poly_porto_source_mode[layer];
         current.express_poly_porto_release_ms[layer] = t.express_poly_porto_release_ms[layer];
     }
+
+    // Velocity-mod config: discrete, snapped (read once at note-on; no slew).
+    for(uint8_t lane = 0; lane < PerformParamsCurrent::kVelModLaneCount; ++lane)
+    {
+        current.velmod_target[lane]    = t.velmod_target[lane];
+        current.velmod_amount[lane]    = t.velmod_amount[lane];
+        current.velmod_threshold[lane] = t.velmod_threshold[lane];
+        current.velmod_shape[lane]     = t.velmod_shape[lane];
+    }
 }

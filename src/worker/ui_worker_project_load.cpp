@@ -148,6 +148,7 @@ static void PublishProjectPerformParams(Params& params,
         t.velmod_threshold[lane] = engine.velmod.threshold[lane];
         t.velmod_shape[lane]     = engine.velmod.shape[lane];
     }
+    t.perform_keyzone_is_split = engine.keyzone.perform_keyzone_is_split;
     params.PublishTargets();
 }
 
@@ -244,6 +245,7 @@ static void ApplyProjectManifestVelMod(AppEngineState& engine, const ProjectMani
         engine.velmod.shape[lane]      = (manifest.velmod_shape[lane] != 0u) ? 1u : 0u;
     }
     engine.velmod.threshold_linked = (manifest.velmod_threshold_linked != 0u);
+    engine.keyzone.perform_keyzone_is_split = (manifest.perform_keyzone_is_split != 0u);
 }
 
 static void ApplyProjectManifestLayerState(AppEngineState& engine, const ProjectManifestV11& manifest)

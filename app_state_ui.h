@@ -221,7 +221,7 @@ struct AppUiState
     uint16_t sd_manage_edit_index = 0;
     uint8_t sd_manage_trim_choice_cursor = 0;
     char sd_manage_save_stem[kSdRenameStemMax + 1u] = {};
-    uint8_t perform_keyzone_focus = 0; // 0=FULL/SPLIT btn, 1=vel Mod / split pt, 2=mod block A, 3=mod block B
+    uint8_t perform_keyzone_focus = 0; // FULL: 0=FULL/SPLIT btn, 1=vel Mod. SPLIT: 0=FULL/SPLIT btn, 1=mod block A, 2=mod block B
     uint8_t velmod_focus[2] = {2u, 2u}; // 1=threshold 2=amount 3=target 4=shape (default on amount)
 
     // Input queues and helper widgets used entirely on the main/UI thread.

@@ -270,6 +270,10 @@ class VoiceEngine
                    int8_t  amount,
                    uint8_t threshold,
                    uint8_t shape);
+    // When true (keyzone SPLIT), each velmod lane applies only to voices of the
+    // matching layer (lane 0 → layer A, lane 1 → layer B). When false (FULL),
+    // both lanes apply to all voices. Pushed once per block from the callback.
+    void SetVelModSplit(bool split) { velmod_split_ = split; }
     void SetLoopMode(LoopMode mode)
     {
         const uint8_t old_v
@@ -365,10 +369,11 @@ class VoiceEngine
     uint8_t velmod_threshold_[kVelModLaneCount] = {0u, 0u};
     uint8_t velmod_shape_[kVelModLaneCount]     = {0u, 0u};
     bool    velmod_any_active_ = false;
+    bool    velmod_split_      = false;
     // Returns the additive modulation fraction for `target_code` given this
     // note's velocity, or 0 if no lane targets it / it's gated. Fraction is
     // -1..+1 for modifying targets (amount/10 * velocity-scale).
-    float VelModFractionForTarget_(uint8_t target_code, uint8_t velocity) const;
+    float VelModFractionForTarget_(uint8_t target_code, uint8_t velocity, uint8_t layer) const;
     float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
     float loop_crossfade_shape_[kEngineLayerCount] = {0.0f, 0.0f};
     bool  layer_seam_baked_[kEngineLayerCount] = {false, false};

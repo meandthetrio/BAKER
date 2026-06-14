@@ -85,8 +85,9 @@ struct PerformParamsTargets
         = {kExpressPolyPortoReleaseDefaultMs, kExpressPolyPortoReleaseDefaultMs};
     uint8_t fx_order[4] = {0, 2, 3, 1}; // ids: 0=SAT,1=EQ,2=DELAY,3=REVERB; default EQ last
 
-    // Velocity-mod lanes (first/second). Indexed by lane (0/1), independent of
-    // layer — both lanes apply to all voices. target indexes kVelModTargetList
+    // Velocity-mod lanes (first/second). Indexed by lane (0/1). In FULL mode
+    // both lanes apply to all voices; in SPLIT mode lane i applies only to
+    // layer i (see perform_keyzone_is_split). target indexes kVelModTargetList
     // (0=----, 1=volume, 2=attack, 3=sustain, 4=release, 5..7=sends). amount is
     // -10..+10 (clamped per target type at the UI). threshold 0..127, shape
     // 0=knee/1=gate. Discrete config: snapped (not smoothed) into Current.
@@ -95,6 +96,9 @@ struct PerformParamsTargets
     int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
     uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
     uint8_t velmod_shape[kVelModLaneCount]     = {1u, 1u}; // default gate
+    // Keyzone SPLIT: when true, velmod lane i applies only to layer i's voices
+    // (mod block A/B). When false (FULL), both lanes apply to all voices.
+    bool    perform_keyzone_is_split = false;
 };
 
 struct PerformParamsCurrent
@@ -175,6 +179,7 @@ struct PerformParamsCurrent
     int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
     uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
     uint8_t velmod_shape[kVelModLaneCount]     = {1u, 1u}; // default gate
+    bool    perform_keyzone_is_split = false;
 };
 
 class Params

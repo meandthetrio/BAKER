@@ -50,9 +50,9 @@ static bool PerformKeyzone_TryPushSubscreen(UiScreenCtx& ctx)
     AppEngineState& engine = *ctx.engine;
     if(!engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 1u)
         return UiNav_Push(ui.ui_nav, UiScreenId::VelocityMod);
-    if(engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 2u)
+    if(engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 1u)
         return UiNav_Push(ui.ui_nav, UiScreenId::ModBlockA);
-    if(engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 3u)
+    if(engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 2u)
         return UiNav_Push(ui.ui_nav, UiScreenId::ModBlockB);
     return false;
 }
@@ -96,11 +96,19 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     // L encoder cycles focus: CW = forward, CCW = backward.
     // FULL:  0=FULL/SPLIT  1=velocity Mod
-    // SPLIT: 0=FULL/SPLIT  1=split point  2=mod block A  3=mod block B
+    // SPLIT: 0=FULL/SPLIT  1=mod block A  2=mod block B
+    // (Split point is moved by the R encoder anytime in SPLIT mode; it has no
+    //  L-encoder focus slot.)
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const uint8_t num_focus = engine.keyzone.perform_keyzone_is_split ? 4u : 2u;
-        if(e.value > 0)
+        const bool    is_split  = engine.keyzone.perform_keyzone_is_split;
+        const uint8_t num_focus = is_split ? 3u : 2u;
+        // SPLIT scroll direction is reversed: a CW turn from SPLIT (focus 0)
+        // lands on mod block B (focus 2) first, then mod block A, then SPLIT.
+        bool forward = (e.value > 0);
+        if(is_split)
+            forward = !forward;
+        if(forward)
             ui.perform_keyzone_focus = (ui.perform_keyzone_focus + 1u) % num_focus;
         else
             ui.perform_keyzone_focus = (ui.perform_keyzone_focus + num_focus - 1u) % num_focus;
@@ -377,8 +385,8 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
         const int mod_rect_y1 = mod_rect_y0 + mod_rect_h - 1;
         const int mod_text_y  = mod_rect_y1 + 1 + mod_gap;
 
-        const bool a_focused = (ui.perform_keyzone_focus == 2);
-        const bool b_focused = (ui.perform_keyzone_focus == 3);
+        const bool a_focused = (ui.perform_keyzone_focus == 1);
+        const bool b_focused = (ui.perform_keyzone_focus == 2);
 
         if(a_focused)
         {

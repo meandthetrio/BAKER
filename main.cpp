@@ -423,6 +423,7 @@ int main(void)
                                 t.express_max_value[layer][row]);
             }
         }
+        t.perform_keyzone_is_split = g_app.engine.keyzone.perform_keyzone_is_split;
         g_params.PublishTargets();
     }
     ModMatrix_InitDefaults(g_app.shared.performance.modulation.mod_matrix,

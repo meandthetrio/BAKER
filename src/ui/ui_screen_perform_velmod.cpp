@@ -217,8 +217,14 @@ static bool VelocityMod_HandleEvent(AppUiState& ui, AppEngineState& engine, int 
         }
         if(focus == 3)
         {
-            // Skip the index the other lane currently uses (except 0/----).
-            const uint8_t other = engine.velmod.target_idx[idx ^ 1];
+            // In FULL mode the two lanes (first/second) modulate the same
+            // keyzone, so targets are mutually exclusive — skip the index the
+            // other lane uses (except 0/----). In SPLIT mode the lanes belong
+            // to independent layers (mod block A/B), so both may target the
+            // same thing: pass an out-of-range "other" to disable the skip.
+            const uint8_t other = engine.keyzone.perform_keyzone_is_split
+                                      ? 0xFFu
+                                      : engine.velmod.target_idx[idx ^ 1];
             const uint8_t prev  = engine.velmod.target_idx[idx];
             const uint8_t next  = VelModNextTargetIdx(prev, other, delta);
             if(next != prev)
@@ -256,84 +262,6 @@ static bool VelocityMod_HandleEvent(AppUiState& ui, AppEngineState& engine, int 
         return true;
     }
     return false;
-}
-
-static void ModBlock_RenderCommon(OledPager& d,
-                                  AppUiState& ui,
-                                  AppEngineState& engine,
-                                  const AppDiagnosticsState& diag,
-                                  int idx,
-                                  const char* header_label,
-                                  bool rshift)
-{
-    SubScreen_RenderHeader(d, header_label);
-
-    const uint8_t focus = ui.velmod_focus[idx];
-
-    auto draw_lbl = [&](int cx, int y, const char* str) {
-        if(!str) return;
-        const int w = MicroStringWidth(str);
-        const int x = ClampInt(cx - w / 2, 1, 127 - w);
-        DrawMicroString(d, str, x, y, true);
-    };
-
-    DrawMicroString(d, "velocity", 5, 2, true);
-    DrawMicroString(d, "monitor", 5, 10, true);
-    draw_lbl(30, 30, "velocity");
-    draw_lbl(30, 38, "threshold");
-    draw_lbl(72, 20, "send");
-    draw_lbl(72, 28, "amount");
-    draw_lbl(112, 30, "target");
-
-    {
-        char vel_mon[4] = {};
-        FormatVelocityMonitorString(vel_mon, diag);
-        DrawVelModNumeric(d, vel_mon, 16, 18, false);
-    }
-
-    {
-        constexpr int kCx = 30, kY = 48;
-        const bool    focused = (focus == 1);
-        if(engine.velmod.modblock_threshold_off[idx])
-        {
-            static const char kOff[] = "off";
-            const int         w = TinyStringWidth(kOff);
-            const int         x = ClampInt(kCx - w / 2, 1, 127 - w);
-            if(focused)
-            {
-                d.DrawRect(x - 1, kY - 1, x + w, kY + Font5x7::H, true, true);
-                DrawTinyString(d, kOff, x, kY, false);
-            }
-            else
-            {
-                DrawTinyString(d, kOff, x, kY, true);
-            }
-        }
-        else
-        {
-            char buf[4] = {};
-            std::snprintf(buf, sizeof(buf), "%u", engine.velmod.threshold[idx]);
-            const int  w = TinyStringWidth(buf);
-            const int  x = ClampInt(kCx - w / 2, 1, 127 - w);
-            const bool inverted = focused && rshift;
-            if(inverted)
-            {
-                DrawRencFocusTinyString(d, buf, x, kY);
-            }
-            else
-            {
-                DrawVelModNumeric(d, buf, kCx, kY, focused, true);
-            }
-        }
-    }
-
-    {
-        char buf[6] = {};
-        std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(engine.velmod.amount[idx]));
-        DrawVelModNumeric(d, buf, 72, 40, focus == 2);
-    }
-
-    DrawVelModItem(d, kVelModTargetList[engine.velmod.target_idx[idx]], 112, 43, focus == 3);
 }
 
 static void VelocityMod_RenderCommon(OledPager& d,
@@ -435,13 +363,16 @@ static void VelocityMod_RenderCommon(OledPager& d,
     }
 }
 
+// SPLIT mod blocks mirror the velocity-monitor screen exactly (same layout and
+// functions); only the top-right header label differs, and there is a single
+// screen per layer (A=lane 0, B=lane 1) — no first/second pair.
 void ModBlockA_Render(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.engine || !ctx.display)
         return;
     if(!ctx.diag)
         return;
-    ModBlock_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 0, "mod block a", ctx.rshift);
+    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 0, "vel mod", "mod a", ctx.rshift);
 }
 
 void ModBlockB_Render(UiScreenCtx& ctx)
@@ -450,7 +381,7 @@ void ModBlockB_Render(UiScreenCtx& ctx)
         return;
     if(!ctx.diag)
         return;
-    ModBlock_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "mod block b", ctx.rshift);
+    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "vel mod", "mod b", ctx.rshift);
 }
 
 void VelocityMod_Render(UiScreenCtx& ctx)
@@ -471,33 +402,19 @@ void VelocityMod2_Render(UiScreenCtx& ctx)
     VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "vel mod", "second", ctx.rshift);
 }
 
+// SPLIT mod blocks share the velocity-monitor event logic verbatim (lane 0 / 1).
+// The only difference from VelocityMod*_OnEvent is the Pod2 destination, which
+// navigates between the two mod blocks instead of a first/second pair.
 bool ModBlockA_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui || !ctx.engine)
         return false;
     AppUiState&     ui     = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && ui.velmod_focus[0] == 1)
-    {
-        if(engine.velmod.modblock_threshold_off[0])
-            engine.velmod.modblock_threshold_off[0] = false;
-        else if(ui.ui_rshift_held)
-            engine.velmod.modblock_threshold_off[0] = true;
-        else
-            goto velmod_handle;
-        ui.ui_dirty = true;
-        return true;
-    }
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && ui.velmod_focus[0] == 1
-       && engine.velmod.modblock_threshold_off[0])
-        return false;
-velmod_handle:
     if(VelocityMod_HandleEvent(ui, engine, 0, e)) { PublishEngineLayerParams(ctx); return true; }
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const uint8_t cur = (ui.velmod_focus[0] >= 1 && ui.velmod_focus[0] <= 3) ? ui.velmod_focus[0] - 1u : 1u;
-        ui.velmod_focus[0] = (e.value > 0) ? (cur + 1u) % 3u + 1u : (cur + 2u) % 3u + 1u;
+        ui.velmod_focus[0] = VelModStepFocusVisual(ui.velmod_focus[0], e.value);
         ui.ui_dirty = true;
         return true;
     }
@@ -517,27 +434,10 @@ bool ModBlockB_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
     AppUiState&     ui     = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
-
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && ui.velmod_focus[1] == 1)
-    {
-        if(engine.velmod.modblock_threshold_off[1])
-            engine.velmod.modblock_threshold_off[1] = false;
-        else if(ui.ui_rshift_held)
-            engine.velmod.modblock_threshold_off[1] = true;
-        else
-            goto velmod_handle;
-        ui.ui_dirty = true;
-        return true;
-    }
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && ui.velmod_focus[1] == 1
-       && engine.velmod.modblock_threshold_off[1])
-        return false;
-velmod_handle:
     if(VelocityMod_HandleEvent(ui, engine, 1, e)) { PublishEngineLayerParams(ctx); return true; }
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const uint8_t cur = (ui.velmod_focus[1] >= 1 && ui.velmod_focus[1] <= 3) ? ui.velmod_focus[1] - 1u : 1u;
-        ui.velmod_focus[1] = (e.value > 0) ? (cur + 1u) % 3u + 1u : (cur + 2u) % 3u + 1u;
+        ui.velmod_focus[1] = VelModStepFocusVisual(ui.velmod_focus[1], e.value);
         ui.ui_dirty = true;
         return true;
     }

@@ -131,7 +131,7 @@ void VoiceEngine::StartVoice_(Voice& v,
         // dB-linear so attenuation sounds evenly graded instead of bunching
         // near 0 then collapsing to silence. Cut floor: frac -1.0 → -48 dB
         // (≈ silent). (Asymmetric on purpose: +10 doubles, -10 ≈ silences.)
-        const float fvol = VelModFractionForTarget_(1u, velocity);
+        const float fvol = VelModFractionForTarget_(1u, velocity, v.source_layer);
         if(fvol > 0.0f)
         {
             v.gain *= (1.0f + fvol);
@@ -144,9 +144,9 @@ void VoiceEngine::StartVoice_(Voice& v,
         // attack / release: ±frac * 1000 ms (the UI's 0..1000 ms range).
         // sustain: ±frac * 1.0 (level 0..1). Deltas are clamped after the
         // base value is known, just below.
-        velmod_attack_delta_ms  = VelModFractionForTarget_(2u, velocity) * 1000.0f;
-        velmod_sustain_delta    = VelModFractionForTarget_(3u, velocity) * 1.0f;
-        velmod_release_delta_ms = VelModFractionForTarget_(4u, velocity) * 1000.0f;
+        velmod_attack_delta_ms  = VelModFractionForTarget_(2u, velocity, v.source_layer) * 1000.0f;
+        velmod_sustain_delta    = VelModFractionForTarget_(3u, velocity, v.source_layer) * 1.0f;
+        velmod_release_delta_ms = VelModFractionForTarget_(4u, velocity, v.source_layer) * 1000.0f;
 
         // Phase 2b sends: targets 5=reverb, 6=delay, 7=sat → send_level[0..2].
         // Unipolar frac (0..1) scaled so amount 10 at full velocity = +6 dB
@@ -155,7 +155,7 @@ void VoiceEngine::StartVoice_(Voice& v,
         bool any_send = false;
         for(uint8_t k = 0; k < 3u; ++k)
         {
-            const float f = VelModFractionForTarget_(static_cast<uint8_t>(5u + k), velocity);
+            const float f = VelModFractionForTarget_(static_cast<uint8_t>(5u + k), velocity, v.source_layer);
             const float lvl = f * kSendMaxGain;
             v.send_level[k] = lvl;
             if(lvl != 0.0f)

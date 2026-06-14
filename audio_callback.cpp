@@ -786,6 +786,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                           voice_params.velmod_threshold[lane],
                           voice_params.velmod_shape[lane]);
     }
+    g_voice.SetVelModSplit(voice_params.perform_keyzone_is_split);
     const uint32_t pre_push_cycles = DWT->CYCCNT - pre_push_start;
 
     const uint32_t pre_events_start = DWT->CYCCNT;

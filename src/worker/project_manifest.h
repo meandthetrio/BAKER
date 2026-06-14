@@ -658,7 +658,10 @@ struct ProjectManifestV11
     uint8_t  velmod_threshold[2] = {0u, 0u};
     uint8_t  velmod_shape[2] = {1u, 1u}; // default gate
     uint8_t  velmod_threshold_linked = 0u;
-    uint8_t  velmod_pad[3] = {};
+    // Keyzone FULL/SPLIT mode. Repurposed from velmod_pad[0] (still v20; sizeof
+    // unchanged). Pre-existing v20 projects have this byte = 0 → load as FULL.
+    uint8_t  perform_keyzone_is_split = 0u;
+    uint8_t  velmod_pad[2] = {};
 };
 
 // Snapshot of the current V11 in-memory layout as it existed at manifest

@@ -175,4 +175,5 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.velmod_threshold[lane] = t.velmod_threshold[lane];
         current.velmod_shape[lane]     = t.velmod_shape[lane];
     }
+    current.perform_keyzone_is_split = t.perform_keyzone_is_split;
 }

@@ -489,6 +489,8 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
         manifest.express.poly_porto_release_ms[slot] = engine.express.poly_porto_release_ms[slot];
         ClampProjectExpressPolyPorto(manifest.express, slot);
     }
+    // Velmod threshold-link flag (engine-only UI state, not in param targets).
+    manifest.velmod_threshold_linked = engine.velmod.threshold_linked ? 1u : 0u;
 }
 
 static void CollectProjectGlobalState(ProjectManifestV11& manifest,
@@ -547,8 +549,10 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     else if(saved_master > 2.0f)  saved_master = 2.0f;
     manifest.master_level = saved_master;
 
-    // Velocity-mod lanes (global). Saved from the published param targets,
-    // which mirror engine.velmod.
+    // Velocity-mod lanes. Both lanes are always saved regardless of FULL/SPLIT
+    // mode, so SPLIT mod block A/B settings persist even when a project is saved
+    // in FULL. Per-lane data comes from the published param targets (which mirror
+    // engine.velmod); the link flag and split mode live in engine state.
     for(uint8_t lane = 0; lane < PerformParamsTargets::kVelModLaneCount; ++lane)
     {
         manifest.velmod_target[lane]    = targets.velmod_target[lane];
@@ -556,6 +560,10 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
         manifest.velmod_threshold[lane] = targets.velmod_threshold[lane];
         manifest.velmod_shape[lane]     = targets.velmod_shape[lane];
     }
+    // FULL/SPLIT mode flows through the published targets (set in
+    // PublishEngineLayerParams); threshold_linked is saved in the layer-state
+    // collector, which has engine in scope.
+    manifest.perform_keyzone_is_split = targets.perform_keyzone_is_split ? 1u : 0u;
 }
 
 bool ScanProjectSlots(AppUiState& ui, AppProjectState& project)

@@ -112,6 +112,7 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         t.velmod_threshold[lane] = engine.velmod.threshold[lane];
         t.velmod_shape[lane]     = engine.velmod.shape[lane];
     }
+    t.perform_keyzone_is_split = engine.keyzone.perform_keyzone_is_split;
     ctx.params->PublishTargets();
 }
 

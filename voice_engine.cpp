@@ -181,12 +181,18 @@ void VoiceEngine::SetVelMod(uint8_t lane,
     velmod_any_active_ = any;
 }
 
-float VoiceEngine::VelModFractionForTarget_(uint8_t target_code, uint8_t velocity) const
+float VoiceEngine::VelModFractionForTarget_(uint8_t target_code, uint8_t velocity, uint8_t layer) const
 {
-    // Mutual exclusion (enforced at the UI) guarantees at most one lane targets
-    // a given param, so the first match wins.
+    // FULL mode: both lanes apply to every voice. The UI keeps the two lanes'
+    // targets mutually exclusive there, so at most one lane matches a given
+    // param and the first match wins.
+    // SPLIT mode: lane i belongs to layer i (mod block A/B), so a voice only
+    // consults its own layer's lane — the two lanes are independent and may
+    // share a target without colliding.
     for(uint8_t lane = 0; lane < kVelModLaneCount; ++lane)
     {
+        if(velmod_split_ && lane != (layer & 1u))
+            continue;
         if(velmod_target_[lane] != target_code)
             continue;
         if(velmod_amount_[lane] == 0)

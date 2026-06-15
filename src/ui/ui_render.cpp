@@ -27,6 +27,7 @@ void UIRender::Init(PodDisplay* display, DaisyPod& hw)
     last_audio_late_       = 0;
     last_clip_count_       = 0;
     last_velocity_monitor_ = 0;
+    last_note_monitor_     = 0;
     last_playhead_frame_[0]  = 0;
     last_playhead_frame_[1]  = 0;
     last_playhead_active_[0] = 0;
@@ -233,6 +234,12 @@ void UIRender::Tick(AppState& app, const Params& params)
             {
                 ui.ui_dirty = true;
                 last_velocity_monitor_ = v;
+            }
+            const uint32_t n = diag.last_note.load(std::memory_order_relaxed);
+            if(n != last_note_monitor_)
+            {
+                ui.ui_dirty = true;
+                last_note_monitor_ = n;
             }
         }
     }

@@ -73,6 +73,8 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         engine.adsr.perform_adsr_loop_sustain[i] = clamped_sustain;
         engine.adsr.perform_adsr_loop_release[i] = clamped_release;
         t.engine_drive_mode[i] = ClampDriveMode(static_cast<int>(engine.layer.engine_drive_mode[i]));
+        t.engine_filter_mode[i] = static_cast<uint8_t>(
+            ClampInt(static_cast<int>(engine.layer.engine_filter_mode[i]), 0, 2));
         t.perform_keyzone_lo_note[i] = engine.keyzone.perform_keyzone_lo_note[i];
         t.perform_keyzone_hi_note[i] = engine.keyzone.perform_keyzone_hi_note[i];
         t.engine_loop_attack_ms[i] = static_cast<float>(clamped_attack);
@@ -111,6 +113,7 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         t.velmod_amount[lane]    = engine.velmod.amount[lane];
         t.velmod_threshold[lane] = engine.velmod.threshold[lane];
         t.velmod_shape[lane]     = engine.velmod.shape[lane];
+        t.velmod_source[lane]    = engine.velmod.source[lane];
     }
     t.perform_keyzone_is_split = engine.keyzone.perform_keyzone_is_split;
     ctx.params->PublishTargets();

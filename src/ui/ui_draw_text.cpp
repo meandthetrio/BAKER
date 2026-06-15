@@ -142,6 +142,7 @@ void Font5x7::GetGlyphRows(char c, uint8_t out_rows[H])
         case '_': set({0, 0, 0, 0, 0, 0, 0b11111}); return;
         case '>': set({0b10000, 0b01000, 0b00100, 0b00010, 0b00100, 0b01000, 0b10000}); return;
         case '<': set({0b00001, 0b00010, 0b00100, 0b01000, 0b00100, 0b00010, 0b00001}); return;
+        case '#': set({0b01010, 0b11111, 0b01010, 0b11111, 0b01010, 0b01010, 0b00000}); return;
         case '?': set({0b01110, 0b10001, 0b00010, 0b00100, 0b00100, 0, 0b00100}); return;
         default: break;
     }
@@ -396,6 +397,12 @@ static void GetMicroGlyph(char c, uint8_t out_rows[kMicroH])
         case 'y': set(0b0000, 0b1001, 0b1001, 0b0111, 0b0001, 0b1110); return;
         case 'z': set(0b0000, 0b1111, 0b0010, 0b0100, 0b1000, 0b1111); return;
         case '?': set(0b0110, 0b1001, 0b0001, 0b0010, 0b0000, 0b0010); return;
+        // Dedicated 4-wide chevrons. The Font5x7 fallback downsamples through
+        // col_map {0,1,3,4}, which drops the center column where the chevron tip
+        // sits — leaving a broken, gappy glyph. These draw a clean tip at the
+        // x-height (rows 1..5) so they sit level with the adjacent lowercase.
+        case '>': set(0b0000, 0b1000, 0b0100, 0b0010, 0b0100, 0b1000); return;
+        case '<': set(0b0000, 0b0010, 0b0100, 0b1000, 0b0100, 0b0010); return;
         default: break;
     }
 

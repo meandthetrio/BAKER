@@ -156,6 +156,7 @@ struct AppDiagnosticsState
     std::atomic<uint32_t> last_sample_index{0};
     std::atomic<uint32_t> last_vel_layer{0};
     std::atomic<uint32_t> last_velocity{0};
+    std::atomic<uint32_t> last_note{0};
     std::atomic<int32_t> last_lfo{0};
     std::atomic<int32_t> last_env{0};
     std::atomic<uint32_t> lfo_rate_dbg{0};

@@ -146,6 +146,7 @@ static void HandleMidiNoteOn(const NoteOnEvent& note_on)
     const uint8_t vel_layer = Velocity_SelectLayer(note_on.velocity);
     g_app.diag.last_vel_layer.store(vel_layer, std::memory_order_relaxed);
     g_app.diag.last_velocity.store(note_on.velocity, std::memory_order_relaxed);
+    g_app.diag.last_note.store(note_on.note, std::memory_order_relaxed);
 
     // Seam-edit screen: force monophonic audition of the edited layer only. Cut any
     // sounding note first (mono / last-note priority), then play just that layer.
@@ -403,6 +404,10 @@ int main(void)
             if(loop_release_ms > 1000.0f)
                 loop_release_ms = 1000.0f;
             t.engine_drive_mode[layer] = g_app.engine.layer.engine_drive_mode[layer] & 1u;
+            {
+                const uint8_t fm = g_app.engine.layer.engine_filter_mode[layer];
+                t.engine_filter_mode[layer] = (fm > 2u) ? 2u : fm;
+            }
             t.engine_loop_mode[layer] = (g_app.engine.layer.engine_play_mode[layer] != 0);
             t.engine_loop_attack_ms[layer] = loop_attack_ms;
             t.engine_loop_decay_ms[layer] = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_decay[layer]);

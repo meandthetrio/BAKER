@@ -159,7 +159,8 @@ void VoiceEngine::SetVelMod(uint8_t lane,
                            uint8_t target,
                            int8_t  amount,
                            uint8_t threshold,
-                           uint8_t shape)
+                           uint8_t shape,
+                           uint8_t source)
 {
     if(lane >= kVelModLaneCount)
         return;
@@ -167,6 +168,7 @@ void VoiceEngine::SetVelMod(uint8_t lane,
     velmod_amount_[lane]    = amount;
     velmod_threshold_[lane] = threshold;
     velmod_shape_[lane]     = shape;
+    velmod_source_[lane]    = (source > 3u) ? 0u : source;
     // Recompute the fast-skip flag. A lane is "active" only with a real target
     // (non-zero index = not "----") and non-zero amount.
     bool any = false;
@@ -181,7 +183,21 @@ void VoiceEngine::SetVelMod(uint8_t lane,
     velmod_any_active_ = any;
 }
 
-float VoiceEngine::VelModFractionForTarget_(uint8_t target_code, uint8_t velocity, uint8_t layer) const
+// Per-lane source. Domain selects which value drives the gate + knee (velocity
+// or MIDI note); polarity selects whether the lane triggers at/above (>) or
+// at/below (<) the threshold. Note thresholds are constrained to C1..C8 at the
+// UI; the knee ramps over the distance toward the far end of that range.
+static constexpr uint8_t kVelModSourceGtVel  = 0u;
+static constexpr uint8_t kVelModSourceLtVel  = 1u;
+static constexpr uint8_t kVelModSourceGtNote = 2u;
+static constexpr uint8_t kVelModSourceLtNote = 3u;
+static constexpr int kVelModNoteLo = 24; // C1
+static constexpr int kVelModNoteHi = 108; // C8
+
+float VoiceEngine::VelModFractionForTarget_(uint8_t target_code,
+                                            uint8_t velocity,
+                                            uint8_t note,
+                                            uint8_t layer) const
 {
     // FULL mode: both lanes apply to every voice. The UI keeps the two lanes'
     // targets mutually exclusive there, so at most one lane matches a given
@@ -197,29 +213,41 @@ float VoiceEngine::VelModFractionForTarget_(uint8_t target_code, uint8_t velocit
             continue;
         if(velmod_amount_[lane] == 0)
             return 0.0f;
-        const uint8_t thr = velmod_threshold_[lane];
-        if(velocity < thr)
-            return 0.0f; // below threshold: no mod (both knee and gate)
+
+        const uint8_t source = velmod_source_[lane];
+        const bool note_domain = (source == kVelModSourceGtNote) || (source == kVelModSourceLtNote);
+        const bool above       = (source == kVelModSourceGtVel)  || (source == kVelModSourceGtNote);
+        const int  src         = note_domain ? static_cast<int>(note) : static_cast<int>(velocity);
+        const int  thr         = static_cast<int>(velmod_threshold_[lane]);
+        // Knee ramps from 0 at the threshold to 1 at the far end of the domain in
+        // the active direction. Above: threshold -> hi end; below: threshold -> lo end.
+        const int hi = note_domain ? kVelModNoteHi : 127;
+        const int lo = note_domain ? kVelModNoteLo : 0;
+
+        if(above)
+        {
+            if(src < thr)
+                return 0.0f; // gated out below threshold
+        }
+        else if(src > thr)
+            return 0.0f; // gated out above threshold
+
         float scale;
         if(velmod_shape_[lane] == 1u)
         {
-            scale = 1.0f; // gate: full amount once at/above threshold
+            scale = 1.0f; // gate: full amount once on the active side of threshold
         }
         else
         {
-            // knee: ramp from 0 at threshold to 1 at velocity 127, then shaped
-            // by a power curve. Linear (exponent 1) felt compressed at the top
-            // — only +6 dB across vel 64..127. The square (exponent 2) roughly
-            // doubles the dB contrast over the upper range so harder hits read
-            // clearly; kVelModKneeCurve is the tuning knob.
-            const int span = 127 - static_cast<int>(thr);
-            const float lin = (span <= 0) ? ((velocity >= 127u) ? 1.0f : 0.0f)
-                                          : (static_cast<float>(velocity - thr)
-                                             / static_cast<float>(span));
-            // Effect sends (codes 5=reverb, 6=delay, 7=sat) get a power curve so
-            // harder hits scale disproportionately — a subtle diffuse send reads
-            // "flat" with a linear ramp (only +6 dB over vel 64..127). Volume and
-            // the ADSR targets stay linear (direct / clearly audible already).
+            // knee: linear ramp over the distance from threshold toward the
+            // domain's far end (key-tracking for note source). Sends get a power
+            // curve so harder hits scale disproportionately; volume/ADSR stay linear.
+            const int span = above ? (hi - thr) : (thr - lo);
+            const int dist = above ? (src - thr) : (thr - src);
+            float lin = (span <= 0) ? 1.0f
+                                    : (static_cast<float>(dist) / static_cast<float>(span));
+            if(lin < 0.0f) lin = 0.0f;
+            if(lin > 1.0f) lin = 1.0f;
             if(target_code >= 5u)
             {
                 constexpr float kVelModSendKneeCurve = 1.5f; // tuning knob
@@ -284,6 +312,13 @@ void VoiceEngine::SetEngineFilterResonance(uint8_t layer, float resonance)
     if(resonance > 1.0f)
         resonance = 1.0f;
     engine_filter_resonance_[layer] = resonance;
+    emphasis_dirty_[layer] = true;
+}
+
+void VoiceEngine::SetEngineFilterMode(uint8_t layer, uint8_t mode)
+{
+    layer &= 1u;
+    engine_filter_mode_[layer] = (mode > 2u) ? 2u : mode;
     emphasis_dirty_[layer] = true;
 }
 
@@ -442,6 +477,7 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
         engine_layer_scale_[layer] = 1.0f;
         engine_filter_cutoff_hz_[layer] = 20000.0f;
         engine_filter_resonance_[layer] = 0.0f;
+        engine_filter_mode_[layer] = 0u;
         engine_loop_enabled_[layer] = false;
         loop_env_attack_ms_[layer] = 5.0f;
         loop_env_decay_ms_[layer] = 20.0f;

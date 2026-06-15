@@ -415,8 +415,8 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     }
     else
     {
-        // "velocity Mod" button centered in the space below the keyboard.
-        static const char kVelModLabel[] = "velocity Mod";
+        // "modulation" button centered in the space below the keyboard.
+        static const char kVelModLabel[] = "modulation";
         const int vel_w  = TinyStringWidth(kVelModLabel);
         const int vel_tx = (128 - vel_w) / 2;
         const int vel_ty = bottom_y0 + (64 - bottom_y0 - Font5x7::H) / 2;

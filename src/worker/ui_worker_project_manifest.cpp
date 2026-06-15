@@ -66,6 +66,11 @@ static bool ProjectManifestValid(const ProjectManifestV11& m)
     return ManifestMagicVersionOk(m.magic, m.version, kProjectManifestVersion);
 }
 
+static bool ProjectManifestValid(const ProjectManifestV20Legacy& m)
+{
+    return ManifestMagicVersionOk(m.magic, m.version, 20u);
+}
+
 static bool ProjectManifestValid(const ProjectManifestV19Legacy& m)
 {
     return ManifestMagicVersionOk(m.magic, m.version, 19u);
@@ -601,6 +606,63 @@ static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifes
 // v20 and keeps its default gate/off values on dst). Preserves src.version so
 // PrepareProjectLoadManifest can patch version-specific semantics before the
 // final bump to kProjectManifestVersion.
+// v20 → v21: layout is byte-identical except the appended velmod_source[2].
+// Copy every v20 field; velmod_source keeps its default (0 = >vel).
+static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifestV20Legacy& src)
+{
+    dst = ProjectManifestV11{};
+    dst.version = src.version;
+    dst.sample_present_mask = src.sample_present_mask;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
+        dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
+        dst.perform_adsr_row[slot] = src.perform_adsr_row[slot];
+        dst.engine_play_mode[slot] = src.engine_play_mode[slot];
+        dst.perform_adsr_loop_attack[slot] = src.perform_adsr_loop_attack[slot];
+        dst.perform_adsr_loop_decay[slot] = src.perform_adsr_loop_decay[slot];
+        dst.perform_adsr_loop_sustain[slot] = src.perform_adsr_loop_sustain[slot];
+        dst.perform_adsr_loop_release[slot] = src.perform_adsr_loop_release[slot];
+        dst.perform_adsr_loop_crossfade[slot] = src.perform_adsr_loop_crossfade[slot];
+        dst.perform_adsr_loop_crossfade_shape[slot] = src.perform_adsr_loop_crossfade_shape[slot];
+        dst.perform_adsr_env_a_x[slot] = src.perform_adsr_env_a_x[slot];
+        dst.perform_adsr_env_d_x[slot] = src.perform_adsr_env_d_x[slot];
+        dst.perform_adsr_env_r_x[slot] = src.perform_adsr_env_r_x[slot];
+        dst.perform_adsr_env_s_level[slot] = src.perform_adsr_env_s_level[slot];
+        dst.engine_gain_db[slot] = src.engine_gain_db[slot];
+        dst.engine_drive_mode[slot] = src.engine_drive_mode[slot];
+        dst.engine_filter_cutoff_hz[slot] = src.engine_filter_cutoff_hz[slot];
+        dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
+        dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
+        dst.engine_tune_cents[slot] = src.engine_tune_cents[slot];
+        dst.engine_filter_mode[slot] = src.engine_filter_mode[slot];
+    }
+    for(size_t i = 0; i < 4; ++i)
+        dst.fx_order[i] = src.fx_order[i];
+    dst.sat = src.sat;
+    dst.eq = src.eq;
+    dst.delay = src.delay;
+    dst.reverb = src.reverb;
+    dst.express = src.express;
+    dst.express_enabled = src.express_enabled ? 1u : 0u;
+    std::snprintf(dst.project_name, sizeof(dst.project_name), "%s", src.project_name);
+    dst.project_style = src.project_style;
+    CopySharedSeqModTail(dst, src);
+    dst.master_level = src.master_level;
+    for(uint8_t lane = 0; lane < 2u; ++lane)
+    {
+        dst.velmod_target[lane] = src.velmod_target[lane];
+        dst.velmod_amount[lane] = src.velmod_amount[lane];
+        dst.velmod_threshold[lane] = src.velmod_threshold[lane];
+        dst.velmod_shape[lane] = src.velmod_shape[lane];
+    }
+    dst.velmod_threshold_linked = src.velmod_threshold_linked;
+    dst.perform_keyzone_is_split = src.perform_keyzone_is_split;
+}
+
 static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifestV19Legacy& src)
 {
     dst = ProjectManifestV11{};
@@ -734,6 +796,15 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     if(manifest_size == sizeof(ProjectManifestV11))
     {
         rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+    }
+    else if(manifest_size == sizeof(ProjectManifestV20Legacy))
+    {
+        ProjectManifestV20Legacy legacy_v20{};
+        rd = f_read(&s_sd.file, &legacy_v20, sizeof(legacy_v20), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v20) && ProjectManifestValid(legacy_v20))
+            ProjectManifestUpgrade(manifest, legacy_v20);
+        else
+            rd = FR_INVALID_OBJECT;
     }
     else if(manifest_size == sizeof(ProjectManifestV19Legacy))
     {

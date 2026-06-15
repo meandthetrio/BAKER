@@ -57,6 +57,7 @@ struct PerformParamsTargets
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     uint8_t engine_drive_mode[kLayerCount] = {0u, 0u}; // 0=odd, 1=even
+    uint8_t engine_filter_mode[kLayerCount] = {0u, 0u}; // 0=LP, 1=HP, 2=BP
     bool  engine_loop_mode[kLayerCount] = {false, false};
     float engine_loop_attack_ms[kLayerCount] = {5.0f, 5.0f};
     float engine_loop_decay_ms[kLayerCount] = {20.0f, 20.0f};
@@ -96,6 +97,7 @@ struct PerformParamsTargets
     int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
     uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
     uint8_t velmod_shape[kVelModLaneCount]     = {1u, 1u}; // default gate
+    uint8_t velmod_source[kVelModLaneCount]    = {0u, 0u}; // 0=>vel 1=<vel 2=>note 3=<note
     // Keyzone SPLIT: when true, velmod lane i applies only to layer i's voices
     // (mod block A/B). When false (FULL), both lanes apply to all voices.
     bool    perform_keyzone_is_split = false;
@@ -145,6 +147,7 @@ struct PerformParamsCurrent
     float engine_tune_semitones[kLayerCount] = {0.0f, 0.0f};
     float engine_gain_db[kLayerCount] = {0.0f, 0.0f};
     uint8_t engine_drive_mode[kLayerCount] = {0u, 0u}; // 0=odd, 1=even
+    uint8_t engine_filter_mode[kLayerCount] = {0u, 0u}; // 0=LP, 1=HP, 2=BP
     bool  engine_loop_mode[kLayerCount] = {false, false};
     float engine_loop_attack_ms[kLayerCount] = {5.0f, 5.0f};
     float engine_loop_decay_ms[kLayerCount] = {20.0f, 20.0f};
@@ -179,6 +182,7 @@ struct PerformParamsCurrent
     int8_t  velmod_amount[kVelModLaneCount]    = {0, 0};
     uint8_t velmod_threshold[kVelModLaneCount] = {0u, 0u};
     uint8_t velmod_shape[kVelModLaneCount]     = {1u, 1u}; // default gate
+    uint8_t velmod_source[kVelModLaneCount]    = {0u, 0u}; // 0=>vel 1=<vel 2=>note 3=<note
     bool    perform_keyzone_is_split = false;
 };
 

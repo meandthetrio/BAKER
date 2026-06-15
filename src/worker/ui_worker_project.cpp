@@ -427,6 +427,7 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
         manifest.perform_adsr_env_s_level[slot] = engine.adsr.perform_adsr_env_s_level[slot];
         manifest.engine_gain_db[slot] = engine.layer.engine_gain_db[slot];
         manifest.engine_drive_mode[slot] = engine.layer.engine_drive_mode[slot];
+        manifest.engine_filter_mode[slot] = engine.layer.engine_filter_mode[slot];
         manifest.engine_filter_cutoff_hz[slot] = targets.engine_filter_cutoff_hz[slot];
         manifest.engine_filter_resonance[slot] = targets.engine_filter_resonance[slot];
     }
@@ -468,6 +469,8 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
                               manifest.perform_adsr_env_s_level[slot]);
         manifest.engine_gain_db[slot] = ClampProjectEngineGainDb(manifest.engine_gain_db[slot]);
         manifest.engine_drive_mode[slot] = ClampProjectDriveMode(manifest.engine_drive_mode[slot]);
+        if(manifest.engine_filter_mode[slot] > 2u)
+            manifest.engine_filter_mode[slot] = 0u;
         manifest.engine_filter_cutoff_hz[slot]
             = ClampProjectFilterCutoffHz(manifest.engine_filter_cutoff_hz[slot]);
         manifest.engine_filter_resonance[slot]
@@ -559,6 +562,9 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
         manifest.velmod_amount[lane]    = targets.velmod_amount[lane];
         manifest.velmod_threshold[lane] = targets.velmod_threshold[lane];
         manifest.velmod_shape[lane]     = targets.velmod_shape[lane];
+        manifest.velmod_source[lane]    = (targets.velmod_source[lane] > 3u)
+                                              ? 0u
+                                              : targets.velmod_source[lane];
     }
     // FULL/SPLIT mode flows through the published targets (set in
     // PublishEngineLayerParams); threshold_linked is saved in the layer-state

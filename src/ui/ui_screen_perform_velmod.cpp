@@ -134,6 +134,37 @@ static const char* VelModShapeLabel(uint8_t shape)
     return (shape == 0u) ? "knee" : "gate";
 }
 
+// Source: which value drives the gate + knee, and the trigger polarity.
+//   0=>vel  1=<vel  2=>note  3=<note   (default >vel = legacy behavior)
+static const char* const kVelModSourceLabels[] = {">vel", "<vel", ">note", "<note"};
+static constexpr uint8_t kVelModSourceCount = 4u;
+static constexpr int kVelModNoteLoUi      = 24;  // C1
+static constexpr int kVelModNoteHiUi      = 108; // C8
+static constexpr int kVelModNoteDefaultUi = 60;  // C4
+
+static bool VelModSourceIsNote(uint8_t source)
+{
+    return source >= 2u;
+}
+
+// Clamp a threshold to the valid range for its source domain: note = C1..C8,
+// velocity = 0..127.
+static uint8_t VelModClampThreshold(int v, uint8_t source)
+{
+    return VelModSourceIsNote(source)
+               ? static_cast<uint8_t>(ClampInt(v, kVelModNoteLoUi, kVelModNoteHiUi))
+               : static_cast<uint8_t>(ClampInt(v, 0, 127));
+}
+
+// Threshold display: note name (e.g. "C4") for note domain, raw number for vel.
+static void VelModFormatThreshold(char* out, size_t out_n, uint8_t threshold, uint8_t source)
+{
+    if(VelModSourceIsNote(source))
+        FormatMidiNoteName(threshold, out, out_n);
+    else
+        std::snprintf(out, out_n, "%u", threshold);
+}
+
 static void FormatVelocityMonitorString(char buf[4], const AppDiagnosticsState& diag)
 {
     uint32_t v = diag.last_velocity.load(std::memory_order_relaxed);
@@ -143,16 +174,17 @@ static void FormatVelocityMonitorString(char buf[4], const AppDiagnosticsState& 
 }
 
 // Top-to-bottom visual order for LEnc focus scroll on the velmod screens.
-// Focus IDs are 1=threshold, 2=amount, 3=target, 4=shape (historical from the
-// modblock screens that share the same focus field), but the rows render in
-// the order target → threshold → amount → shape. Scroll walks this table so
-// the highlight follows the user's eye instead of the numeric order.
-static constexpr uint8_t kVelModFocusVisualOrder[4] = {3u, 1u, 2u, 4u};
+// Focus IDs are 1=threshold, 2=amount, 3=target, 4=shape, 5=source (historical
+// numbering from the modblock screens that share the same focus field), but the
+// rows render in the order source → target → threshold → amount → shape. Scroll
+// walks this table so the highlight follows the user's eye, not the numeric order.
+static constexpr uint8_t kVelModFocusCount = 5u;
+static constexpr uint8_t kVelModFocusVisualOrder[kVelModFocusCount] = {5u, 3u, 1u, 2u, 4u};
 
 static uint8_t VelModStepFocusVisual(uint8_t cur, int dir)
 {
     int cur_ord = 0;
-    for(int i = 0; i < 4; ++i)
+    for(int i = 0; i < static_cast<int>(kVelModFocusCount); ++i)
     {
         if(kVelModFocusVisualOrder[i] == cur)
         {
@@ -160,7 +192,8 @@ static uint8_t VelModStepFocusVisual(uint8_t cur, int dir)
             break;
         }
     }
-    const int next_ord = (dir > 0) ? (cur_ord + 1) % 4 : (cur_ord + 3) % 4;
+    const int n = static_cast<int>(kVelModFocusCount);
+    const int next_ord = (dir > 0) ? (cur_ord + 1) % n : (cur_ord + n - 1) % n;
     return kVelModFocusVisualOrder[next_ord];
 }
 
@@ -186,21 +219,35 @@ static bool VelocityMod_HandleEvent(AppUiState& ui, AppEngineState& engine, int 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
         const int delta = e.value;
+        if(focus == 5)
+        {
+            // Source row: cycle >vel / <vel / >note / <note. Entering the note
+            // domain snaps an out-of-range threshold to C4 so the user lands on a
+            // sane musical default.
+            int s = static_cast<int>(engine.velmod.source[idx]) + delta;
+            while(s < 0) s += static_cast<int>(kVelModSourceCount);
+            while(s >= static_cast<int>(kVelModSourceCount)) s -= static_cast<int>(kVelModSourceCount);
+            const uint8_t prev = engine.velmod.source[idx];
+            const uint8_t next = static_cast<uint8_t>(s);
+            if(next != prev)
+            {
+                engine.velmod.source[idx] = next;
+                if(VelModSourceIsNote(next) && !VelModSourceIsNote(prev))
+                {
+                    const int t = static_cast<int>(engine.velmod.threshold[idx]);
+                    if(t < kVelModNoteLoUi || t > kVelModNoteHiUi)
+                        engine.velmod.threshold[idx] = static_cast<uint8_t>(kVelModNoteDefaultUi);
+                }
+                ui.ui_dirty = true;
+            }
+            return true;
+        }
         if(focus == 1)
         {
-            auto clamp_apply = [&](uint8_t& v) {
-                int n = (int)v + delta;
-                v     = (uint8_t)(n < 0 ? 0 : n > 127 ? 127 : n);
-            };
-            if(engine.velmod.threshold_linked)
-            {
-                clamp_apply(engine.velmod.threshold[0]);
-                clamp_apply(engine.velmod.threshold[1]);
-            }
-            else
-            {
-                clamp_apply(engine.velmod.threshold[idx]);
-            }
+            // Threshold edits the focused lane only (threshold-link was removed).
+            engine.velmod.threshold[idx] = VelModClampThreshold(
+                static_cast<int>(engine.velmod.threshold[idx]) + delta,
+                engine.velmod.source[idx]);
             ui.ui_dirty = true;
             return true;
         }
@@ -247,12 +294,6 @@ static bool VelocityMod_HandleEvent(AppUiState& ui, AppEngineState& engine, int 
         }
         return false;
     }
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && focus == 1 && ui.ui_rshift_held)
-    {
-        engine.velmod.threshold_linked = !engine.velmod.threshold_linked;
-        ui.ui_dirty = true;
-        return true;
-    }
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && focus == 4)
     {
         // REnc Click on the shape row also toggles knee/gate (matches the
@@ -276,90 +317,82 @@ static void VelocityMod_RenderCommon(OledPager& d,
     SubScreen_RenderHeader(d, header, header2);
     const uint8_t focus = ui.velmod_focus[idx];
 
-    // Left-side parameter list: threshold / amount / target.
-    // Row pitch = 12 px keeps a 1-px gap between focus borders so the
-    // tiny-font box (height 11) on rows 0/1 and the micro box (height 10)
-    // on row 2 never overlap. Labels live at the left edge in micro font;
-    // their value sits centered around kLeftValueCx so it can grow
-    // 1..3 chars wide without disturbing the label or the link badge.
+    // Left-side parameter list: source / target / threshold / amount / shape.
+    // Row pitch = 12 px keeps a 1-px gap between focus borders. Five rows fill
+    // y=6..62 on the 0..63 screen. Labels live at the left edge in micro font;
+    // their value sits centered around kLeftValueCx so it can grow 1..3 chars
+    // wide without disturbing the label or the link badge.
     constexpr int kLeftLabelX  = 2;
-    constexpr int kLeftValueCx = 56;
-    constexpr int kLinkCx      = 76;
-    constexpr int kRow0Y       = 6;   // target label + value
-    constexpr int kRow1Y       = 18;  // threshold + value + link
-    constexpr int kRow2Y       = 30;  // amount + value
-    constexpr int kRow3Y       = 42;  // shape + value
+    constexpr int kLeftValueCx = 59;
+    constexpr int kRow0Y       = 6;   // source label + value
+    constexpr int kRow1Y       = 18;  // target label + value
+    constexpr int kRow2Y       = 30;  // threshold + value + link
+    constexpr int kRow3Y       = 42;  // amount + value
+    constexpr int kRow4Y       = 54;  // shape + value
 
-    DrawMicroString(d, "target",    kLeftLabelX, kRow0Y, true);
-    DrawMicroString(d, "threshold", kLeftLabelX, kRow1Y, true);
-    DrawMicroString(d, "amount",    kLeftLabelX, kRow2Y, true);
-    DrawMicroString(d, "shape",     kLeftLabelX, kRow3Y, true);
+    const uint8_t source = engine.velmod.source[idx];
 
-    // Target value (row 0) — micro-font label string from shared list.
+    DrawMicroString(d, "source",    kLeftLabelX, kRow0Y, true);
+    DrawMicroString(d, "target",    kLeftLabelX, kRow1Y, true);
+    DrawMicroString(d, "threshold", kLeftLabelX, kRow2Y, true);
+    DrawMicroString(d, "amount",    kLeftLabelX, kRow3Y, true);
+    DrawMicroString(d, "shape",     kLeftLabelX, kRow4Y, true);
+
+    // Source value (row 0) — micro-font label from the 4-way list.
+    DrawVelModItem(d, kVelModSourceLabels[source & 3u], kLeftValueCx, kRow0Y, focus == 5);
+
+    // Target value (row 1) — micro-font label string from shared list.
     DrawVelModItem(d,
                    kVelModTargetList[engine.velmod.target_idx[idx]],
                    kLeftValueCx,
-                   kRow0Y,
+                   kRow1Y,
                    focus == 3);
 
-    // Threshold value (row 1).
+    // Threshold value (row 2) — note name for note source, number for velocity.
+    // Solid focus border (matches the other value rows); threshold-link removed.
     {
-        char       buf[4] = {};
-        std::snprintf(buf, sizeof(buf), "%u", engine.velmod.threshold[idx]);
-        const int  w        = TinyStringWidth(buf);
-        const int  x        = ClampInt(kLeftValueCx - w / 2, 1, 127 - w);
-        const bool focused  = (focus == 1);
-        const bool inverted = focused && rshift;
-        if(inverted)
-        {
-            DrawRencFocusTinyString(d, buf, x, kRow1Y);
-        }
-        else
-        {
-            DrawVelModNumeric(d, buf, kLeftValueCx, kRow1Y, focused, true);
-        }
+        char buf[6] = {};
+        VelModFormatThreshold(buf, sizeof(buf), engine.velmod.threshold[idx], source);
+        DrawVelModNumeric(d, buf, kLeftValueCx, kRow2Y, focus == 1);
     }
 
-    // "link" badge on row 1 to the right of the threshold value.
-    // Shown only while threshold_linked is true; RShift+REnc Click on
-    // threshold toggles it. Same flag drives both first and second
-    // velmod screens, so the badge appears/disappears in sync.
-    if(engine.velmod.threshold_linked)
-    {
-        static const char lbl[] = "link";
-        const int         w = MiniString3x5Width(lbl);
-        const int         x = ClampInt(kLinkCx - w / 2, 1, 127 - w);
-        DrawMiniString3x5(d, lbl, x, kRow1Y, true);
-    }
-
-    // Amount value (row 2). Signed format covers the bipolar -10..+10 case;
+    // Amount value (row 3). Signed format covers the bipolar -10..+10 case;
     // unipolar targets only ever scroll into 0..+10 (clamped by the event
     // handler) so the leading '-' just never appears.
     {
         char buf[6] = {};
         std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(engine.velmod.amount[idx]));
-        DrawVelModNumeric(d, buf, kLeftValueCx, kRow2Y, focus == 2);
+        DrawVelModNumeric(d, buf, kLeftValueCx, kRow3Y, focus == 2);
     }
 
-    // Shape value (row 3) — toggle between "knee" and "gate" on REnc Click.
+    // Shape value (row 4) — toggle between "knee" and "gate" on REnc Click.
     DrawVelModItem(d,
                    VelModShapeLabel(engine.velmod.shape[idx]),
                    kLeftValueCx,
-                   kRow3Y,
+                   kRow4Y,
                    focus == 4);
 
-    // Right side: monitor moves to the slot the target used to live in.
-    // Label centered at cx=112 / y=30 (where "target" label sat), value
-    // centered at cx=112 / y=40 (where the target value sat). Monitor is
-    // read-only — no focus border needed.
+    // Right side: monitor in the right column (label y=30, value y=40). Shows the
+    // last note name when this lane's source is note domain, else the last
+    // velocity. Read-only — no focus border needed.
     {
-        char vel_mon[4] = {};
-        FormatVelocityMonitorString(vel_mon, diag);
+        char mon[6] = {};
+        if(VelModSourceIsNote(source))
+        {
+            uint32_t n = diag.last_note.load(std::memory_order_relaxed);
+            if(n > 127u)
+                n = 127u;
+            FormatMidiNoteName(static_cast<uint8_t>(n), mon, sizeof(mon));
+        }
+        else
+        {
+            FormatVelocityMonitorString(mon, diag);
+        }
         const char* lbl = "monitor";
         const int   lw  = MicroStringWidth(lbl);
         const int   lx  = ClampInt(112 - lw / 2, 1, 127 - lw);
         DrawMicroString(d, lbl, lx, 30, true);
-        DrawVelModNumeric(d, vel_mon, 112, 40, false);
+        DrawVelModNumeric(d, mon, 112, 40, false);
     }
 }
 
@@ -390,7 +423,7 @@ void VelocityMod_Render(UiScreenCtx& ctx)
         return;
     if(!ctx.diag)
         return;
-    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 0, "vel mod", "first", ctx.rshift);
+    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 0, "mod", "first", ctx.rshift);
 }
 
 void VelocityMod2_Render(UiScreenCtx& ctx)
@@ -399,7 +432,7 @@ void VelocityMod2_Render(UiScreenCtx& ctx)
         return;
     if(!ctx.diag)
         return;
-    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "vel mod", "second", ctx.rshift);
+    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "mod", "second", ctx.rshift);
 }
 
 // SPLIT mod blocks share the velocity-monitor event logic verbatim (lane 0 / 1).

@@ -87,6 +87,25 @@ static const char* DriveModeLabel(uint8_t mode)
     return (ClampDriveModeLocal(static_cast<int>(mode)) == 0u) ? "odd" : "even";
 }
 
+static uint8_t ClampFilterModeLocal(int value)
+{
+    if(value < 0)
+        return 0u;
+    if(value > 2)
+        return 2u;
+    return static_cast<uint8_t>(value);
+}
+
+static const char* FilterModeLabel(uint8_t mode)
+{
+    switch(ClampFilterModeLocal(static_cast<int>(mode)))
+    {
+        case 1u: return "HP";
+        case 2u: return "BP";
+        default: return "LP";
+    }
+}
+
 static bool PerformEmphasisRowLocked(const AppSharedState& shared,
                                      const AppEngineState& engine,
                                      uint8_t layer,
@@ -211,6 +230,25 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         PerformParamsTargets& t = ctx.params->EditTargets();
         if(engine.perform_nav.perform_emphasis_row == 1)
         {
+            // RShift alternate function: cycle filter type (LP/HP/BP) instead of
+            // sweeping cutoff. Mirrors the DRIVE row's drive-mode alt function.
+            if(ctx.rshift)
+            {
+                int mode = static_cast<int>(engine.layer.engine_filter_mode[layer]) + e.value;
+                while(mode < 0)
+                    mode += 3;
+                while(mode >= 3)
+                    mode -= 3;
+                const uint8_t next_mode = ClampFilterModeLocal(mode);
+                if(next_mode != engine.layer.engine_filter_mode[layer])
+                {
+                    engine.layer.engine_filter_mode[layer] = next_mode;
+                    PublishEngineLayerParams(ctx);
+                    ui.ui_dirty = true;
+                }
+                return true;
+            }
+
             // Keep fast fader motion; map fader space to cutoff using ADSR-style curve.
             float fader = AdsrFltFaderFromCutoffHz(t.engine_filter_cutoff_hz[layer]);
             fader = Clamp01(fader + delta_norm);
@@ -393,17 +431,20 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     {
         DrawTinyString(d, drive_label, kKnobCx[0] - (TinyStringWidth(drive_label) / 2), kKnobCy + kKnobRadius + 5, true);
     }
+    const bool cutoff_mode_focus = (engine.perform_nav.perform_emphasis_row == 1u) && ctx.rshift;
+    const char* cutoff_label = cutoff_mode_focus ? FilterModeLabel(engine.layer.engine_filter_mode[layer]) : "cutoff";
+    const char* cutoff_value = cutoff_mode_focus ? "" : cutoff_buf;
     if(!cutoff_locked)
     {
         draw_knob(kKnobCx[1],
                   kKnobCy,
                   kKnobRadius,
-                  "cutoff",
-                  cutoff_buf,
+                  cutoff_label,
+                  cutoff_value,
                   cutoff_angle,
                   (!PerformEmphasisRowLocked(shared, engine, layer, 1u)
                        && engine.perform_nav.perform_emphasis_row == 1)
-                      ? 1
+                      ? (cutoff_mode_focus ? 1 : 2)
                       : 0);
     }
     else

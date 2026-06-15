@@ -17,6 +17,7 @@ struct AppEngineState
         int8_t  engine_tune_cents[2] = {0, 0};
         int16_t engine_gain_db[2] = {0, 0};
         uint8_t engine_drive_mode[2] = {0u, 0u};
+        uint8_t engine_filter_mode[2] = {0u, 0u}; // 0=LP, 1=HP, 2=BP
         uint8_t engine_play_mode[2] = {1, 0};
         char    engine_sample_path[2][kSdPathMax] = {};
         char    engine_sample_name[2][kSdNameMax] = {};
@@ -58,10 +59,11 @@ struct AppEngineState
     // shape: 0=knee (linear ramp threshold→127), 1=gate (binary at threshold).
     struct PerformVelModState
     {
-        uint8_t threshold[2]   = {0u, 0u};   // 0..127
+        uint8_t threshold[2]   = {0u, 0u};   // 0..127 (vel) or MIDI note 24..108 (note)
         int8_t  amount[2]      = {0, 0};     // -10..+10 (clamped per target type)
         uint8_t target_idx[2]  = {0u, 0u};   // index into kVelModTargetList
         uint8_t shape[2]       = {1u, 1u};   // 0=knee, 1=gate (default gate)
+        uint8_t source[2]      = {0u, 0u};   // 0=>vel 1=<vel 2=>note 3=<note
         bool    threshold_linked = false;    // when true, threshold edits apply to both lanes
     } velmod{};
 

@@ -7,7 +7,7 @@
 #include "macros.h"
 #include "mod_matrix.h"
 
-static constexpr uint16_t kProjectManifestVersion = 20;
+static constexpr uint16_t kProjectManifestVersion = 21;
 static constexpr uint8_t kProjectPathMax = 64;
 static constexpr uint8_t kProjectSampleLayerCount = 2;
 
@@ -661,8 +661,81 @@ struct ProjectManifestV11
     // Keyzone FULL/SPLIT mode. Repurposed from velmod_pad[0] (still v20; sizeof
     // unchanged). Pre-existing v20 projects have this byte = 0 → load as FULL.
     uint8_t  perform_keyzone_is_split = 0u;
-    uint8_t  velmod_pad[2] = {};
+    // Per-layer emphasis filter mode (0=LP,1=HP,2=BP). Repurposed from the
+    // remaining velmod_pad[2] (still v20; sizeof unchanged). Pre-existing v20
+    // projects have these bytes = 0 -> load as LP.
+    uint8_t  engine_filter_mode[kProjectSampleLayerCount] = {0u, 0u};
+    // Velmod source per lane (appended at v21; sizeof grows, hence the bump).
+    // 0=>vel 1=<vel 2=>note 3=<note. Pre-v21 projects default to 0 (>vel).
+    uint8_t  velmod_source[2] = {0u, 0u};
 };
+
+// Snapshot of the current V11 in-memory layout as it existed at manifest
+// version 20 — i.e. before velmod_source was appended at v21. Read directly
+// into the (larger) current manifest; velmod_source keeps its default (>vel).
+// Same magic/version validity check, distinct sizeof.
+struct ProjectManifestV20Legacy
+{
+    char     magic[4] = {'A', 'K', 'P', 'J'};
+    uint16_t version = 20u;
+    uint8_t  sample_present_mask = 0;
+    uint8_t  reserved = 0;
+    char     wav_path[kProjectSampleLayerCount][kProjectPathMax] = {};
+    SampleEdit edit[kProjectSampleLayerCount]{};
+    int8_t   engine_tune_semitones[kProjectSampleLayerCount] = {};
+    uint8_t  perform_keyzone_lo_note[kProjectSampleLayerCount] = {48u, 48u};
+    uint8_t  perform_keyzone_hi_note[kProjectSampleLayerCount] = {60u, 60u};
+    uint8_t  perform_adsr_row[kProjectSampleLayerCount] = {1u, 1u};
+    uint8_t  engine_play_mode[kProjectSampleLayerCount] = {1u, 1u};
+    uint16_t perform_adsr_loop_attack[kProjectSampleLayerCount] = {5u, 5u};
+    uint8_t  perform_adsr_loop_decay[kProjectSampleLayerCount] = {20u, 20u};
+    uint8_t  perform_adsr_loop_sustain[kProjectSampleLayerCount] = {100u, 100u};
+    uint16_t perform_adsr_loop_release[kProjectSampleLayerCount] = {50u, 50u};
+    float    perform_adsr_loop_crossfade[kProjectSampleLayerCount] = {0.0625f, 0.0625f};
+    float    perform_adsr_loop_crossfade_shape[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    uint8_t  perform_adsr_env_a_x[kProjectSampleLayerCount] = {13u, 13u};
+    uint8_t  perform_adsr_env_d_x[kProjectSampleLayerCount] = {38u, 38u};
+    uint8_t  perform_adsr_env_r_x[kProjectSampleLayerCount] = {89u, 89u};
+    uint8_t  perform_adsr_env_s_level[kProjectSampleLayerCount] = {50u, 50u};
+    int16_t  engine_gain_db[kProjectSampleLayerCount] = {0, 0};
+    uint8_t  engine_drive_mode[kProjectSampleLayerCount] = {0u, 0u};
+    float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
+    float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
+    ProjectSatState   sat{};
+    ProjectEqState    eq{};
+    ProjectDelayState delay{};
+    ProjectReverbState reverb{};
+    ProjectExpressState express{};
+    uint8_t  seq_running = 1;
+    uint8_t  plock_apply_enabled = 1;
+    uint8_t  lfo_wave = 0;
+    uint8_t  macro_sel = 0;
+    uint32_t seq_bpm = 120;
+    MacroState macro_ui{};
+    ModRoute mod_routes[kMaxModRoutes]{};
+    uint8_t  mod_route_selected = 0;
+    uint8_t  express_enabled = 0;
+    int8_t   engine_tune_cents[kProjectSampleLayerCount] = {};
+    char     project_name[13] = {};
+    uint8_t  project_style = 0;
+    uint8_t  project_style_pad[2] = {};
+    float    master_level = 1.0f;
+    uint8_t  velmod_target[2] = {0u, 0u};
+    int8_t   velmod_amount[2] = {0, 0};
+    uint8_t  velmod_threshold[2] = {0u, 0u};
+    uint8_t  velmod_shape[2] = {1u, 1u};
+    uint8_t  velmod_threshold_linked = 0u;
+    uint8_t  perform_keyzone_is_split = 0u;
+    uint8_t  engine_filter_mode[kProjectSampleLayerCount] = {0u, 0u};
+};
+
+// The size-based loader requires the v21 append to actually change sizeof; if
+// velmod_source were absorbed into trailing padding, a v20 file would match the
+// current-size branch and misread. This guards that.
+static_assert(sizeof(ProjectManifestV11) != sizeof(ProjectManifestV20Legacy),
+              "v21 velmod_source append must change manifest sizeof");
 
 // Snapshot of the current V11 in-memory layout as it existed at manifest
 // version 19 — i.e. before the velmod tail was appended at v20. Read directly

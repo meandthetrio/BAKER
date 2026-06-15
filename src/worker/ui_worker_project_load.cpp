@@ -104,6 +104,8 @@ static void PublishProjectPerformParams(Params& params,
         }
         t.engine_gain_db[layer] = static_cast<float>(engine.layer.engine_gain_db[layer]);
         t.engine_drive_mode[layer] = ClampProjectDriveMode(engine.layer.engine_drive_mode[layer]);
+        t.engine_filter_mode[layer]
+            = (engine.layer.engine_filter_mode[layer] > 2u) ? 0u : engine.layer.engine_filter_mode[layer];
         if(emphasis_cutoff_hz)
             t.engine_filter_cutoff_hz[layer] = ClampProjectFilterCutoffHz(emphasis_cutoff_hz[layer]);
         if(emphasis_resonance)
@@ -147,6 +149,7 @@ static void PublishProjectPerformParams(Params& params,
         t.velmod_amount[lane]    = engine.velmod.amount[lane];
         t.velmod_threshold[lane] = engine.velmod.threshold[lane];
         t.velmod_shape[lane]     = engine.velmod.shape[lane];
+        t.velmod_source[lane]    = engine.velmod.source[lane];
     }
     t.perform_keyzone_is_split = engine.keyzone.perform_keyzone_is_split;
     params.PublishTargets();
@@ -243,6 +246,9 @@ static void ApplyProjectManifestVelMod(AppEngineState& engine, const ProjectMani
         engine.velmod.amount[lane]     = static_cast<int8_t>(amount);
         engine.velmod.threshold[lane]  = thr;
         engine.velmod.shape[lane]      = (manifest.velmod_shape[lane] != 0u) ? 1u : 0u;
+        engine.velmod.source[lane]     = (manifest.velmod_source[lane] > 3u)
+                                             ? 0u
+                                             : manifest.velmod_source[lane];
     }
     engine.velmod.threshold_linked = (manifest.velmod_threshold_linked != 0u);
     engine.keyzone.perform_keyzone_is_split = (manifest.perform_keyzone_is_split != 0u);
@@ -292,6 +298,8 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
                               engine.adsr.perform_adsr_env_s_level[slot]);
         engine.layer.engine_gain_db[slot] = ClampProjectEngineGainDb(manifest.engine_gain_db[slot]);
         engine.layer.engine_drive_mode[slot] = ClampProjectDriveMode(manifest.engine_drive_mode[slot]);
+        engine.layer.engine_filter_mode[slot]
+            = (manifest.engine_filter_mode[slot] > 2u) ? 0u : manifest.engine_filter_mode[slot];
         for(uint8_t row = 0; row < ProjectExpressState::kRowCount; ++row)
             ApplyProjectExpressRow(engine, manifest, slot, row);
         ApplyProjectExpressPolyPorto(engine, manifest, slot);

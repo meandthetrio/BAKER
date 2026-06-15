@@ -155,6 +155,18 @@ struct LayerEmphasisCoeffs
     float feedback = 0.0f;
     float pole4_linear_scale = 1.0f;
     float tanh_input_scale = 1.12f;
+    // Multimode tap mix (LP/HP/BP). Output = tap_in*x + tap1*y1 + ... + tap4*y4,
+    // where x is the ladder input and y1..y4 are the pole outputs. Ramped per
+    // sample so a mode switch morphs the coefficients click-free.
+    float tap_in = 0.0f;
+    float tap1 = 0.0f;
+    float tap2 = 0.0f;
+    float tap3 = 0.0f;
+    float tap4 = 1.0f;   // default LP4 tap
+    // Bass/passband gain compensation: forward signal is scaled by input_comp to
+    // restore the passband level that ladder feedback subtracts (1/(1+~k)). LP/BP
+    // use it; HP leaves it at 1.0 (we want lows gone there).
+    float input_comp = 1.0f;
 };
 
 class VoiceEngine
@@ -242,6 +254,7 @@ class VoiceEngine
     void SetEngineLayerScale(uint8_t layer, float scale);
     void SetEngineFilterCutoffHz(uint8_t layer, float hz);
     void SetEngineFilterResonance(uint8_t layer, float resonance);
+    void SetEngineFilterMode(uint8_t layer, uint8_t mode); // 0=LP,1=HP,2=BP
     void SetEngineLoopEnabled(uint8_t layer, bool enabled);
     void SetLoopEnvelopeParams(uint8_t layer,
                                float attack_ms,
@@ -269,7 +282,8 @@ class VoiceEngine
                    uint8_t target,
                    int8_t  amount,
                    uint8_t threshold,
-                   uint8_t shape);
+                   uint8_t shape,
+                   uint8_t source);
     // When true (keyzone SPLIT), each velmod lane applies only to voices of the
     // matching layer (lane 0 → layer A, lane 1 → layer B). When false (FULL),
     // both lanes apply to all voices. Pushed once per block from the callback.
@@ -345,6 +359,7 @@ class VoiceEngine
     mutable bool  engine_tune_dirty_[kEngineLayerCount] = {true, true};
     float engine_gain_linear_[kEngineLayerCount]    = {1.0f, 1.0f};
     uint8_t engine_drive_mode_[kEngineLayerCount]   = {0u, 0u};
+    uint8_t engine_filter_mode_[kEngineLayerCount]  = {0u, 0u}; // 0=LP,1=HP,2=BP
     float engine_layer_scale_[kEngineLayerCount]    = {1.0f, 1.0f};
     float engine_filter_cutoff_hz_[kEngineLayerCount] = {20000.0f, 20000.0f};
     float engine_filter_resonance_[kEngineLayerCount] = {0.0f, 0.0f};
@@ -368,12 +383,18 @@ class VoiceEngine
     int8_t  velmod_amount_[kVelModLaneCount]    = {0, 0};
     uint8_t velmod_threshold_[kVelModLaneCount] = {0u, 0u};
     uint8_t velmod_shape_[kVelModLaneCount]     = {0u, 0u};
+    uint8_t velmod_source_[kVelModLaneCount]    = {0u, 0u}; // 0=>vel 1=<vel 2=>note 3=<note
     bool    velmod_any_active_ = false;
     bool    velmod_split_      = false;
     // Returns the additive modulation fraction for `target_code` given this
-    // note's velocity, or 0 if no lane targets it / it's gated. Fraction is
-    // -1..+1 for modifying targets (amount/10 * velocity-scale).
-    float VelModFractionForTarget_(uint8_t target_code, uint8_t velocity, uint8_t layer) const;
+    // note's velocity and note number, or 0 if no lane targets it / it's gated.
+    // Each lane's source selects which value (velocity or note) drives the gate
+    // + knee and the polarity (>= or <= threshold). Fraction is -1..+1 for
+    // modifying targets (amount/10 * source-scale).
+    float VelModFractionForTarget_(uint8_t target_code,
+                                   uint8_t velocity,
+                                   uint8_t note,
+                                   uint8_t layer) const;
     float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
     float loop_crossfade_shape_[kEngineLayerCount] = {0.0f, 0.0f};
     bool  layer_seam_baked_[kEngineLayerCount] = {false, false};

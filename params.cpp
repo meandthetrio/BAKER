@@ -151,6 +151,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     {
         current.engine_loop_mode[layer] = t.engine_loop_mode[layer];
         current.engine_drive_mode[layer] = t.engine_drive_mode[layer];
+        current.engine_filter_mode[layer] = t.engine_filter_mode[layer];
         current.perform_keyzone_lo_note[layer] = t.perform_keyzone_lo_note[layer];
         current.perform_keyzone_hi_note[layer] = t.perform_keyzone_hi_note[layer];
         for(uint8_t row = 0; row < kExpressRowCount; ++row)
@@ -174,6 +175,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.velmod_amount[lane]    = t.velmod_amount[lane];
         current.velmod_threshold[lane] = t.velmod_threshold[lane];
         current.velmod_shape[lane]     = t.velmod_shape[lane];
+        current.velmod_source[lane]    = t.velmod_source[lane];
     }
     current.perform_keyzone_is_split = t.perform_keyzone_is_split;
 }

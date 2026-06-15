@@ -740,6 +740,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
             // Static group: only changes on a UI edit.
             g_voice.SetEngineTuneSemitones(layer, voice_params.engine_tune_semitones[layer]);
             g_voice.SetEngineDriveMode(layer, voice_params.engine_drive_mode[layer]);
+            g_voice.SetEngineFilterMode(layer, voice_params.engine_filter_mode[layer]);
             float layer_level = voice_params.engine_layer_master_level[layer];
             if(layer_level < 0.0f)
                 layer_level = 0.0f;
@@ -784,7 +785,8 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                           voice_params.velmod_target[lane],
                           voice_params.velmod_amount[lane],
                           voice_params.velmod_threshold[lane],
-                          voice_params.velmod_shape[lane]);
+                          voice_params.velmod_shape[lane],
+                          voice_params.velmod_source[lane]);
     }
     g_voice.SetVelModSplit(voice_params.perform_keyzone_is_split);
     const uint32_t pre_push_cycles = DWT->CYCCNT - pre_push_start;

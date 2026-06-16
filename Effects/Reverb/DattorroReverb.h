@@ -158,12 +158,16 @@ class DattorroReverb
     static constexpr size_t kTankDelay4Max = 5280;
     static constexpr size_t kEarlyDelayLMax = 4272;
     static constexpr size_t kEarlyDelayRMax = 3312;
+    static constexpr size_t kChorusMax      = 1024; // ~21 ms @ 48k; holds center+depth
 
     static float Clamp01_(float value);
 
     void  Clear_();
     void  ConfigureSize_(float size);
     float ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line, float input);
+    // Post-tank stereo chorus: write wet into the L/R chorus lines, read back at
+    // the current modulated delay, and blend `mix` of the chorused voice in.
+    void  ApplyChorus_(float& wetL, float& wetR, float mix);
 
     float sample_rate_ = kSampleRate;
     float damping_     = 0.0f;
@@ -177,25 +181,32 @@ class DattorroReverb
     uint32_t control_rate_counter_ = 0;
 
     // P3: cached per-sample reverb feedback parameters, recomputed inside the
-    // 1 kHz control-rate block. `current_decay_` mirrors `(0.7995 * decay_) +
-    // 0.005` and `current_density2_` mirrors the clamped `current_decay_ +
-    // 0.15` at the last control update. Per-sample reads these directly
-    // instead of recomputing every sample, and `tank_allpass_[].SetFeedback`
-    // is updated alongside them. Default values match Init's post-SetDecay
-    // state so the first block has valid feedback until the first control
-    // update lands at sample 48.
-    float current_decay_    = 0.005f;
-    float current_density2_ = 0.25f;
+    // 1 kHz control-rate block. `current_decay_` mirrors the decay-fader ->
+    // feedback map (kDecayFbMin..kDecayFbMax, see DattorroReverb.cpp) and
+    // `current_density2_` mirrors the clamped `current_decay_ + 0.15` at the
+    // last control update. Per-sample reads these directly instead of
+    // recomputing every sample, and `tank_allpass_[].SetFeedback` is updated
+    // alongside them. Defaults are seeded again in Init/Clear_ so the first
+    // block has valid feedback until the first control update lands at sample
+    // 48 (the literal here just matches the default decay_ = 1.0 ceiling).
+    float current_decay_    = 0.94f;
+    float current_density2_ = 0.5f;
 
     daisysp::Oscillator                      oscillator_;
+    daisysp::Oscillator                      oscillator2_;
     daisysp::DelayLine<float, kPredelayMax> predelay_;
     daisysp::DelayLine<float, kPredelayMax> predelay_r_;
+    daisysp::DelayLine<float, kChorusMax>   chorus_l_;
+    daisysp::DelayLine<float, kChorusMax>   chorus_r_;
+    float chorus_delay_l_ = 0.0f; // current modulated chorus delay (samples)
+    float chorus_delay_r_ = 0.0f;
 
     Allpass               allpass_[4];
     Allpass               allpass_r_[4];
     StaticAllpassFourTap  tank_allpass_[4];
     StateVariable         bandwidth_filter_[2];
     StateVariable         damping_filter_[2];
+    StateVariable         output_lpf_[2];
     StaticDelayLineFourTap tank_delay_[4];
     StaticDelayLineEightTap early_delay_[2];
 

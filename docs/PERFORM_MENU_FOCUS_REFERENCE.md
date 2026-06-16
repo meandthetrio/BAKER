@@ -551,9 +551,9 @@
 - Notes:
   - Phase A Baker reverb detail screen exposes four faders plus one right-side mode slot:
     - `Pre` = pre-delay amount into the tank
-    - `Dmp` = high-frequency damping / tail softening inside the feedback loop
+    - `Dmp` = high-frequency darkening, split across two stages so it decouples from decay time: a *gentle* in-loop damping filter (classic "tail softens as it decays", kept gentle so it never collapses the tail) plus a post-tank output lowpass outside the feedback loop (carries the heavy darkening with no effect on tail length). This is what lets the reverb be long AND dark at once. See `Effects/Reverb/DattorroReverb.cpp` tone-mapping constants.
     - `Dcy` = overall tank decay / feedback amount
-    - `Mod` = movement/modulation amount in the tank
+    - `Mod` = stereo chorus amount on the wet tail. A true post-tank chorus: each wet channel runs through its own short modulated delay line, swept by two slow incommensurate LFOs mixed differently per channel (wide, swirly stereo). The knob controls the wet/dry blend of the chorused voice (0 = bypass / pure tank wet, up to 50%). (Replaces the old M/S width behavior.) See the chorus constants in `Effects/Reverb/DattorroReverb.cpp`.
     - `Mode` = shows the active `MIX` or `SEND` label on the right; when focused, a single bordered box appears and EXT scroll toggles between them
   - `reverb_mix` remains on the main PROCESS quick fader, not as a fader inside REVERB detail; the right-side mode slot changes how that amount behaves.
   - The current Baker backend is denser internally than the original 4-line version, but the visible REVERB controls above stay unchanged.

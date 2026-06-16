@@ -30,14 +30,60 @@ ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap3_buf[kDtcTa
 ADSR2_SECTION(".dtcmram_bss") ADSR2_ALIGN32 float g_dattorro_tank_ap4_buf[kDtcTankAp4Max];
 
 // Reverb tone mapping (used by Process/ProcessBlock control-rate updates).
-// The input bandwidth filter is fixed and bright — it is NOT driven by the
-// damping knob (classic Dattorro). The damping knob only darkens the tank
-// tail, mapped exponentially between these two cutoffs so the knob travel
-// feels perceptually even. The bright end stays within the SVF stability
-// limit so the whole range is active (no dead plateau).
+//
+// Darkness is split across two stages so it decouples from decay time:
+//
+//   1. In-loop damping filter (inside the tank feedback path). This is the
+//      classic Dattorro "tail softens as it decays" character. Because it sits
+//      in the feedback loop, its cutoff is ALSO frequency-dependent decay — the
+//      lower it goes, the shorter the tail, no matter what `decay` is set to.
+//      So we keep its range GENTLE (never below kDampCutoffDark) so it adds
+//      realism without collapsing the tail.
+//   2. Post-tank output lowpass (outside the loop, on the wet output). This
+//      carries the heavy darkening. It is NOT in the feedback path, so it
+//      darkens the wet with ZERO effect on tail length — this is what lets the
+//      reverb be long AND dark at the same time.
+//
+// The input bandwidth filter is fixed and bright (classic Dattorro) — it is NOT
+// driven by the damping knob. All damp-driven cutoffs are mapped exponentially
+// so knob travel feels perceptually even.
+// Decay fader -> tank feedback coefficient. The fader is normalized 0..1 and
+// maps linearly onto [kDecayFbMin, kDecayFbMax]. The floor is well above zero
+// so even the shortest setting still rings as a small room rather than a few
+// discrete echoes (a near-zero feedback tank just sounds like a strange delay).
+// The ceiling is high for a long tail but stays below ~0.97 so the loop never
+// runs away / turns metallic.
+constexpr float kDecayFbMin = 0.55f; // fader 0: short but real small-room tail
+constexpr float kDecayFbMax = 0.94f; // fader 1: long tail
+
 constexpr float kInputBandwidthHz = 16000.0f; // fixed bright input LPF
-constexpr float kDampCutoffBright  = 11000.0f; // damp = 0 (brightest tail)
-constexpr float kDampCutoffDark    = 400.0f;   // damp = 1 (darkest tail)
+constexpr float kDampCutoffBright  = 11000.0f; // in-loop damp, damp = 0 (brightest)
+constexpr float kDampCutoffDark    = 2500.0f;  // in-loop damp, damp = 1 (gentle floor)
+constexpr float kOutLpfBright      = 18000.0f; // post-tank LPF, damp = 0 (effectively open)
+constexpr float kOutLpfDark        = 1200.0f;  // post-tank LPF, damp = 1 (genuinely dark wet)
+
+// True stereo chorus on the wet tail (driven by the `mod` knob). After the
+// tank, each wet channel is run through its own short modulated delay line and
+// blended back with the straight wet. The delay time is swept by two slow,
+// incommensurate LFOs mixed differently per channel — the per-channel
+// decorrelation produces the wide, swirly stereo image, and the non-harmonic
+// rate ratio keeps the motion from sounding like a fixed periodic wobble. The
+// sweep is centred at kChorusCenterSamples so the delay stays positive; reads
+// are fractional (DelayLine interpolates) so the sweep is click-free.
+//
+// `mod` scales the wet/dry blend of the chorused voice from 0 (bypass — pure
+// tank wet, no chorus) up to kChorusMaxMix. Sweep depth is fixed and musical;
+// the knob controls how much chorus is folded in.
+constexpr float kChorusRateAHz       = 0.60f;          // primary LFO
+constexpr float kChorusRateBHz       = 0.91f;          // secondary LFO (incommensurate)
+constexpr float kChorusCenterSamples = 11.0f * 48.0f;  // ~11 ms center delay @ 48k
+constexpr float kChorusDepthSamples  = 5.0f * 48.0f;   // ~±5 ms sweep @ 48k
+constexpr float kChorusMaxMix        = 0.5f;           // wet/dry of chorus voice at mod = 1
+// L<->R cross-feed of the chorus voices: 0 = straight (each side hears only its
+// own delay line), 1 = full swap (each side hears the OPPOSITE line's wandering
+// voice). Cross-coupling the detuned voices across channels is what widens the
+// image into an ensemble. Tune to taste; 1 is the widest.
+constexpr float kChorusCross         = 1.0f;
 } // namespace
 
 float DattorroReverb::Clamp01_(float value)
@@ -443,10 +489,26 @@ void DattorroReverb::Clear_()
     damping_filter_[0].Type(StateVariable::LOWPASS);
     damping_filter_[1].Type(StateVariable::LOWPASS);
 
+    // Post-tank output lowpass (outside the feedback loop): carries the heavy
+    // darkening without affecting tail length.
+    output_lpf_[0].SetSampleRate(sample_rate_);
+    output_lpf_[1].SetSampleRate(sample_rate_);
+    output_lpf_[0].Reset();
+    output_lpf_[1].Reset();
+    output_lpf_[0].Resonance(0.0f);
+    output_lpf_[1].Resonance(0.0f);
+    output_lpf_[0].Type(StateVariable::LOWPASS);
+    output_lpf_[1].Type(StateVariable::LOWPASS);
+
     predelay_.Reset();
     predelay_.SetDelay(static_cast<size_t>(0));
     predelay_r_.Reset();
     predelay_r_.SetDelay(static_cast<size_t>(0));
+
+    chorus_l_.Reset();
+    chorus_r_.Reset();
+    chorus_delay_l_ = kChorusCenterSamples;
+    chorus_delay_r_ = kChorusCenterSamples;
 
     allpass_[0].Clear();
     allpass_[1].Clear();
@@ -503,7 +565,7 @@ void DattorroReverb::Clear_()
     // P3: ensure cached feedback params are in sync with current `decay_` on
     // Clear_, in case the reverb is re-prepared mid-session (rather than only
     // via Init). Clear_ is also called from Init so this mirrors the Init seed.
-    current_decay_    = (0.7995f * decay_) + 0.005f;
+    current_decay_    = kDecayFbMin + (kDecayFbMax - kDecayFbMin) * decay_;
     current_density2_ = current_decay_ + 0.15f;
     if(current_density2_ > 0.5f)
         current_density2_ = 0.5f;
@@ -517,6 +579,27 @@ float DattorroReverb::ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMa
     const float output = line.Read();
     line.Write(input);
     return output;
+}
+
+void DattorroReverb::ApplyChorus_(float& wetL, float& wetR, float mix)
+{
+    chorus_l_.Write(wetL);
+    chorus_r_.Write(wetR);
+    const float chL = chorus_l_.Read(chorus_delay_l_);
+    const float chR = chorus_r_.Read(chorus_delay_r_);
+    // Cross-couple the detuned voices across channels for an ensemble width:
+    // each side takes the opposite line's wandering voice (kChorusCross = 1 →
+    // full swap).
+    const float voiceL = chL + (chR - chL) * kChorusCross;
+    const float voiceR = chR + (chL - chR) * kChorusCross;
+    // Keep the dry wet at FULL level and ADD the voice (vs. crossfading): the
+    // dry stays present so the mid comb is shallower (less hollow), and the
+    // level doesn't collapse. The voice is decorrelated from the dry, so power
+    // adds as 1 + mix^2 — divide by sqrt(1 + mix^2) so total level holds steady
+    // as `mod` opens up. mix = 0 → untouched wet (bypass).
+    const float makeup = 1.0f / std::sqrt(1.0f + mix * mix);
+    wetL = (wetL + voiceL * mix) * makeup;
+    wetR = (wetR + voiceR * mix) * makeup;
 }
 
 void DattorroReverb::Init()
@@ -563,10 +646,33 @@ void DattorroReverb::Init()
     damping_filter_[0].Type(StateVariable::LOWPASS);
     damping_filter_[1].Type(StateVariable::LOWPASS);
 
+    output_lpf_[0].SetSampleRate(sample_rate_);
+    output_lpf_[1].SetSampleRate(sample_rate_);
+    output_lpf_[0].Resonance(0.0f);
+    output_lpf_[1].Resonance(0.0f);
+    output_lpf_[0].Type(StateVariable::LOWPASS);
+    output_lpf_[1].Type(StateVariable::LOWPASS);
+    // Seed bright so the first block (before the first control-rate update) does
+    // not run the wet through the 1 kHz SVF default.
+    output_lpf_[0].Frequency(kOutLpfBright);
+    output_lpf_[1].Frequency(kOutLpfBright);
+
+    // Both chorus LFOs are ticked once per control-rate block (~1 kHz), so the
+    // effective LFO rate is SetFreq / control_rate_. Scale accordingly.
     oscillator_.Init(sample_rate_);
     oscillator_.SetWaveform(daisysp::Oscillator::WAVE_SIN);
-    oscillator_.SetFreq(0.6f * static_cast<float>(control_rate_));
+    oscillator_.SetFreq(kChorusRateAHz * static_cast<float>(control_rate_));
     oscillator_.SetAmp(1.0f);
+
+    oscillator2_.Init(sample_rate_);
+    oscillator2_.SetWaveform(daisysp::Oscillator::WAVE_SIN);
+    oscillator2_.SetFreq(kChorusRateBHz * static_cast<float>(control_rate_));
+    oscillator2_.SetAmp(1.0f);
+
+    chorus_l_.Init();
+    chorus_r_.Init();
+    chorus_delay_l_ = kChorusCenterSamples;
+    chorus_delay_r_ = kChorusCenterSamples;
 
     SetDamping(0.0f);
     SetDecay(1.0f);
@@ -577,7 +683,7 @@ void DattorroReverb::Init()
     // per-sample reads have correct values before the first control-rate
     // update fires (which won't happen until control_rate_counter_ reaches
     // control_rate_, i.e. sample 48).
-    current_decay_    = (0.7995f * decay_) + 0.005f;
+    current_decay_    = kDecayFbMin + (kDecayFbMax - kDecayFbMin) * decay_;
     current_density2_ = current_decay_ + 0.15f;
     if(current_density2_ > 0.5f)
         current_density2_ = 0.5f;
@@ -639,7 +745,7 @@ void DattorroReverb::Process(const float inL,
         // engine, so updating feedback at 1 kHz rather than 48 kHz is
         // sonically transparent while removing 48x redundant work per block.
         const float damping_param   = damping_;
-        current_decay_    = (0.7995f * decay_) + 0.005f;
+        current_decay_    = kDecayFbMin + (kDecayFbMax - kDecayFbMin) * decay_;
         current_density2_ = current_decay_ + 0.15f;
         if(current_density2_ > 0.5f)
             current_density2_ = 0.5f;
@@ -653,29 +759,24 @@ void DattorroReverb::Process(const float inL,
 
         const float damp_cutoff = kDampCutoffBright
             * std::pow(kDampCutoffDark / kDampCutoffBright, damping_param);
+        const float out_lpf_cutoff = kOutLpfBright
+            * std::pow(kOutLpfDark / kOutLpfBright, damping_param);
         bandwidth_filter_[0].Frequency(kInputBandwidthHz);
         bandwidth_filter_[1].Frequency(kInputBandwidthHz);
         damping_filter_[0].Frequency(damp_cutoff);
         damping_filter_[1].Frequency(damp_cutoff);
+        output_lpf_[0].Frequency(out_lpf_cutoff);
+        output_lpf_[1].Frequency(out_lpf_cutoff);
 
-        // Light predelay modulation for “Dattorro-ish” movement.
-        // We run the oscillator at the control update rate, so scale its frequency accordingly.
-        // Keep this subtle to avoid obvious pitch warble.
-        const float hz = 0.6f;
-        oscillator_.SetFreq(hz * static_cast<float>(control_rate_));
-
-        // `mod_` scales wet Mid/Side width after the tank (see below); predelay uses fixed depth.
-        constexpr float kPredelayModDepthSamples = 5.0f; // ~0.1ms @ 48k
-        const float m = oscillator_.Process(); // [-1..1]
-        const int32_t mod_samps = static_cast<int32_t>(m * kPredelayModDepthSamples);
-        int32_t want = static_cast<int32_t>(predelay_base_samples_) + mod_samps;
-        if(want < 0)
-            want = 0;
-        if(want >= static_cast<int32_t>(kPredelayMax - 1))
-            want = static_cast<int32_t>(kPredelayMax - 1);
-        const size_t d = static_cast<size_t>(want);
-        predelay_.SetDelay(d);
-        predelay_r_.SetDelay(d);
+        // Stereo chorus LFO update (post-tank chorus, applied per-sample below).
+        // Two slow incommensurate LFOs mixed differently per channel decorrelate
+        // the L/R sweep for a wide, swirly image. Centred so the delay stays > 0.
+        const float lfo_a = oscillator_.Process();  // [-1..1]
+        const float lfo_b = oscillator2_.Process(); // [-1..1]
+        const float lfo_l = 0.6f * lfo_a + 0.4f * lfo_b;
+        const float lfo_r = 0.6f * lfo_b - 0.4f * lfo_a;
+        chorus_delay_l_   = kChorusCenterSamples + kChorusDepthSamples * lfo_l;
+        chorus_delay_r_   = kChorusCenterSamples + kChorusDepthSamples * lfo_r;
     }
     ++control_rate_counter_;
 
@@ -752,20 +853,12 @@ void DattorroReverb::Process(const float inL,
     float wetL = accumulatorL * kGain;
     float wetR = accumulatorR * kGain;
 
-    // Wet-only stereo width: `mod_` boosts the side (L-R) of the reverb wet,
-    // squared for finer control near the bottom. Boosting only the side raises
-    // total level, so apply a constant-power makeup that trades mid for side —
-    // the stereo image widens without the wet getting louder (assumes the wet
-    // L/R are roughly decorrelated, i.e. mid≈side power, which holds for a tank
-    // reverb tail).
-    constexpr float kWetSideMaxExtra = 1.5f;
-    const float     wetMid           = 0.5f * (wetL + wetR);
-    const float     wetSide          = 0.5f * (wetL - wetR);
-    const float     widthCurve       = mod_ * mod_;
-    const float     sideBoost        = 1.0f + widthCurve * kWetSideMaxExtra;
-    const float     widthMakeup      = std::sqrt(2.0f / (1.0f + sideBoost * sideBoost));
-    wetL                             = (wetMid + wetSide * sideBoost) * widthMakeup;
-    wetR                             = (wetMid - wetSide * sideBoost) * widthMakeup;
+    // True stereo chorus on the wet tail (`mod_` = chorus amount).
+    ApplyChorus_(wetL, wetR, mod_ * kChorusMaxMix);
+
+    // Post-tank darkening (outside the feedback loop — no effect on tail length).
+    wetL = output_lpf_[0].Process(wetL);
+    wetR = output_lpf_[1].Process(wetR);
 
     outL = inL + wetL * out_gain_;
     outR = inR + wetR * out_gain_;
@@ -789,7 +882,9 @@ void DattorroReverb::ProcessBlock(const float* inL,
     // Fixed bright input bandwidth; exponential damping cutoff (see Process).
     const float damp_cutoff     = kDampCutoffBright
         * std::pow(kDampCutoffDark / kDampCutoffBright, damping_param);
-    const float decay           = (0.7995f * decay_) + 0.005f;
+    const float out_lpf_cutoff  = kOutLpfBright
+        * std::pow(kOutLpfDark / kOutLpfBright, damping_param);
+    const float decay           = kDecayFbMin + (kDecayFbMax - kDecayFbMin) * decay_;
     float       density2_tmp    = decay + 0.15f;
     if(density2_tmp > 0.5f)
         density2_tmp = 0.5f;
@@ -799,13 +894,10 @@ void DattorroReverb::ProcessBlock(const float* inL,
     const float    out_gain      = out_gain_;
     const float    mod_val       = mod_;
     const uint32_t crate         = control_rate_;
-    const size_t   predelay_base = predelay_base_samples_;
 
-    // Wet stereo-width (mod): boost side with constant-power makeup so widening
-    // doesn't raise level. Block-constant — hoisted out of the per-sample loop.
-    const float    width_side_boost = 1.0f + (mod_val * mod_val) * 1.5f;
-    const float    width_makeup
-        = std::sqrt(2.0f / (1.0f + width_side_boost * width_side_boost));
+    // Chorus blend (mod): block-constant wet/dry of the post-tank chorus voice.
+    // mod = 0 → bypass (untouched wet); mod = 1 → kChorusMaxMix.
+    const float    chorus_mix    = mod_val * kChorusMaxMix;
 
     // ---- Lift redundant per-sample tank-allpass SetFeedback calls ----
     // `kDensity` is a compile-time constant, and `density2` is derived from
@@ -834,21 +926,18 @@ void DattorroReverb::ProcessBlock(const float* inL,
             bandwidth_filter_[1].Frequency(kInputBandwidthHz);
             damping_filter_[0].Frequency(damp_cutoff);
             damping_filter_[1].Frequency(damp_cutoff);
+            output_lpf_[0].Frequency(out_lpf_cutoff);
+            output_lpf_[1].Frequency(out_lpf_cutoff);
 
-            const float hz = 0.6f;
-            oscillator_.SetFreq(hz * static_cast<float>(crate));
-
-            constexpr float kPredelayModDepthSamples = 5.0f;
-            const float     m         = oscillator_.Process();
-            const int32_t   mod_samps = static_cast<int32_t>(m * kPredelayModDepthSamples);
-            int32_t         want      = static_cast<int32_t>(predelay_base) + mod_samps;
-            if(want < 0)
-                want = 0;
-            if(want >= static_cast<int32_t>(kPredelayMax - 1))
-                want = static_cast<int32_t>(kPredelayMax - 1);
-            const size_t d = static_cast<size_t>(want);
-            predelay_.SetDelay(d);
-            predelay_r_.SetDelay(d);
+            // Stereo chorus LFO update (post-tank chorus applied per-sample
+            // below): two slow incommensurate LFOs mixed differently per
+            // channel decorrelate the L/R sweep for a wide, swirly image.
+            const float lfo_a = oscillator_.Process();  // [-1..1]
+            const float lfo_b = oscillator2_.Process(); // [-1..1]
+            const float lfo_l = 0.6f * lfo_a + 0.4f * lfo_b;
+            const float lfo_r = 0.6f * lfo_b - 0.4f * lfo_a;
+            chorus_delay_l_   = kChorusCenterSamples + kChorusDepthSamples * lfo_l;
+            chorus_delay_r_   = kChorusCenterSamples + kChorusDepthSamples * lfo_r;
         }
         ++ctr;
 
@@ -924,10 +1013,12 @@ void DattorroReverb::ProcessBlock(const float* inL,
         float wetL = accumulatorL * kGain;
         float wetR = accumulatorR * kGain;
 
-        const float wetMid = 0.5f * (wetL + wetR);
-        const float wetSide = 0.5f * (wetL - wetR);
-        wetL = (wetMid + wetSide * width_side_boost) * width_makeup;
-        wetR = (wetMid - wetSide * width_side_boost) * width_makeup;
+        // True stereo chorus on the wet tail (`mod_` = chorus amount).
+        ApplyChorus_(wetL, wetR, chorus_mix);
+
+        // Post-tank darkening (outside the feedback loop — no effect on tail length).
+        wetL = output_lpf_[0].Process(wetL);
+        wetR = output_lpf_[1].Process(wetR);
 
         outL[i] = left + wetL * out_gain;
         outR[i] = right + wetR * out_gain;

@@ -347,14 +347,16 @@
 
 #### Focusable Objects
 1. **Row selector (`perform_emphasis_row`)**
-- Type: row selector (`DRIVE`, `CUTOFF`, `RESO`)
+- Type: row selector (`CUTOFF`, `RESO`, `DRIVE`)
 - Purpose: choose editable emphasis field.
 - Behavior:
   - `kUiEncPod` cycles 3 rows.
 - Result:
   - Changes edit focus.
 - Notes:
-  - Row order matches the simulator knob order left-to-right.
+  - Row order is `CUTOFF`, `RESO`, `DRIVE` (left-to-right), matching the signal
+    chain order: the ladder filter (cutoff/resonance) runs first, then drive
+    (saturation) on the filtered output. Row index 0 = cutoff, 1 = reso, 2 = drive.
 
 2. **Gain field (`engine_gain_db[layer]`)**
 - Type: numeric field
@@ -381,6 +383,12 @@
 - Notes:
   - Uses accelerated encoder timing.
   - Default startup value is fully open at `20 kHz` for both layers.
+  - while `CUTOFF` is focused and `RShift` is held:
+    - the focus border switches from dotted to solid
+    - `kUiEncExt` fine-tunes the cutoff by 1/100th of the current (displayed)
+      value per detent instead of the coarse ADSR-curve sweep
+    - in the `1 kHz .. 10 kHz` range the readout gains a hundredths digit
+      (10 Hz resolution, e.g. `2.53k`) so the fine steps are visible
 
 4. **Resonance field (`engine_filter_resonance[layer]`)**
 - Type: normalized field
@@ -391,6 +399,10 @@
   - Params published.
 - Notes:
   - Rendered as percentage-like value.
+  - while `RESO` is focused and `RShift` is held (filter-type selection lives here now):
+    - the knob label temporarily shows `LP`, `HP`, or `BP`
+    - the focus border switches from dotted to solid
+    - `kUiEncExt` cycles the active layer's filter type instead of resonance
 
 5. **Layer toggle (`perform_layer`)**
 - Type: toggle action
@@ -409,10 +421,12 @@
 
 #### Render Notes
 - Render matches the simulator layout intent:
-  - upper-right micro header `emph a/b`
-  - three centered knobs in `drive`, `cutoff`, `reso` order
-  - value text above `drive` and `cutoff`
-  - while `DRIVE` is focused and `RShift` is held, the left knob label swaps from `drive` to `odd` or `even`
+  - top-center micro header `emph a/b`, over the middle (reso) knob
+  - three centered knobs in `cutoff`, `reso`, `drive` order (left -> right)
+  - value text above `cutoff` and `drive`
+  - while `DRIVE` is focused and `RShift` is held, the right knob label swaps from `drive` to `odd` or `even`
+  - while `RESO` is focused and `RShift` is held, the middle knob label swaps from `reso` to `LP`/`HP`/`BP`
+  - focus borders are dotted normally and solid while `RShift` is held
   - focus styling by row:
     - `drive` uses solid label box
     - `cutoff` and `reso` use dotted label boxes

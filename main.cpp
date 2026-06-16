@@ -372,6 +372,19 @@ int main(void)
     // SDRAM/FMC controller is initialized by hw.Init(); from here on, heap
     // allocations route to the 8 MB SDRAM arena (pre-main ctors used SRAM).
     g_heap_sdram_ready = true;
+
+    // Flush-to-zero. Denormal FP operands stall the Cortex-M7 FPU for tens of
+    // cycles each. Decaying tails (long reverb feedback, emphasis ladder/DC
+    // blocker) pass through the denormal range for thousands of samples and,
+    // without FZ, can spike the audio-callback peak toward 100% during the
+    // decay. Set FZ (FPSCR bit 24) for the current context AND as the default
+    // for exception contexts — the audio callback runs in the SAI DMA ISR,
+    // which loads its FPSCR from FPDSCR on FP-context creation.
+    __set_FPSCR(__get_FPSCR() | (1u << 24));
+    FPU->FPDSCR |= (1u << 24);
+    __DSB();
+    __ISB();
+
     hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
     hw.SetAudioBlockSize(48);
     g_sample_rate_hz = hw.AudioSampleRate();

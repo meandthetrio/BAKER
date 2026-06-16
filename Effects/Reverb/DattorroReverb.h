@@ -167,7 +167,8 @@ class DattorroReverb
     float ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line, float input);
     // Post-tank stereo chorus: write wet into the L/R chorus lines, read back at
     // the current modulated delay, and blend `mix` of the chorused voice in.
-    void  ApplyChorus_(float& wetL, float& wetR, float mix);
+    // `makeup` (1/sqrt(1+mix^2)) is precomputed once per block by the caller.
+    void  ApplyChorus_(float& wetL, float& wetR, float mix, float makeup);
 
     float sample_rate_ = kSampleRate;
     float damping_     = 0.0f;
@@ -204,9 +205,29 @@ class DattorroReverb
     Allpass               allpass_[4];
     Allpass               allpass_r_[4];
     StaticAllpassFourTap  tank_allpass_[4];
-    StateVariable         bandwidth_filter_[2];
+    // Input bandwidth LPF (fixed bright, ~16 kHz). One-pole per channel instead
+    // of a 2x-oversampled StateVariable: at this cutoff the audible difference
+    // is negligible (a hair brighter) and it drops two oversampled SVFs out of
+    // the always-on reverb path. `bw_g_` is the fixed one-pole coefficient.
+    float                 bw_yl_ = 0.0f;
+    float                 bw_yr_ = 0.0f;
+    float                 bw_g_  = 1.0f;
     StateVariable         damping_filter_[2];
-    StateVariable         output_lpf_[2];
+
+    // Post-tank darkening: a cheap one-pole LPF per channel (outside the tank
+    // feedback, so no oversampled-SVF stability concern). `out_lpf_g_` is the
+    // one-pole coefficient, recomputed at the control rate from the damp knob.
+    float out_lpf_yl_ = 0.0f;
+    float out_lpf_yr_ = 0.0f;
+    float out_lpf_g_  = 1.0f;
+
+    // Tail CPU saver: true once the reverb input has gone silent AND the input
+    // section (bandwidth filters / predelay / input allpasses / early
+    // reflections) has flushed to zero. While set, ProcessBlock feeds the tank
+    // zero and skips that whole section — the long tail rings out at much lower
+    // CPU with identical tail length and tone. Cleared instantly when input
+    // returns (the skipped section's state sits at ~0, so resuming is seamless).
+    bool input_skipping_ = false;
     StaticDelayLineFourTap tank_delay_[4];
     StaticDelayLineEightTap early_delay_[2];
 

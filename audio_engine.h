@@ -143,7 +143,8 @@ class AudioEngine
     void ProcessReverbBlock_(float* L, float* R, size_t n,
                              const PerformParamsCurrent& p,
                              float& wet_peak,
-                             const float* send = nullptr, float send_scale = 0.0f);
+                             const float* send = nullptr, float send_scale = 0.0f,
+                             float wet_scale = 1.0f);
     void ApplyMasterBlock_(float* L, float* R, size_t n,
                            float level, float bypass_comp);
 
@@ -176,7 +177,13 @@ class AudioEngine
                                                            // the 1s max delay time
                                                            // plus several feedback
                                                            // repeats decaying out)
-    static constexpr uint32_t kReverbTailMaxBlocks = 1200; // ~1.2s max tail
+    // Reverb tail backstop. Sized to cover the longer tank decays (max feedback
+    // ~0.94, see kDecayFbMax). For normal/short settings the quiet-block early
+    // stop (below) ends the tail well before this. To keep the cap from ever
+    // chopping a still-audible tail, the last kReverbTailFadeBlocks of the tail
+    // are ramped to silence (declick) before the stage is deactivated.
+    static constexpr uint32_t kReverbTailMaxBlocks = 2400; // ~2.4s max tail
+    static constexpr uint32_t kReverbTailFadeBlocks = 96;  // ~96ms declick fade-out
     static constexpr uint16_t kQuietBlocksToStop   = 100;  // ~100ms quiet -> stop early
     // Delay needs a longer quiet window than reverb: feedback echoes are spaced
     // by the delay TIME (up to 1000ms), so a short window would trip during the

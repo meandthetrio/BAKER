@@ -250,11 +250,16 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
 void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
                                       const PerformParamsCurrent& p,
                                       float& wet_peak,
-                                      const float* send, float send_scale)
+                                      const float* send, float send_scale,
+                                      float wet_scale)
 {
     const bool  feed = p.reverb_on;
     const float mix  = p.reverb_on ? p.reverb_mix : reverb_tail_mix_;
     const bool  mix_mode = (p.reverb_fader_mode == kReverbFaderModeMix);
+    // Tail declick: wet_scale ramps 1->0 over the last blocks before the tail
+    // backstop deactivates the stage, so the cap never chops an audible tail.
+    // It only differs from 1.0 during that fade window.
+    const float emix = mix * wet_scale;
     float       peak = wet_peak;
 
     // Fixed-size stack scratch (48-sample hardware block). in* is the explicit
@@ -293,16 +298,18 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
         {
             // MIX mode crossfades dry/wet by the fader at the output, so a send
             // here is still partly fader-dependent (use SEND mode for a fully
-            // independent send).
-            rl = l * (1.0f - mix) + wetL * mix;
-            rr = r * (1.0f - mix) + wetR * mix;
+            // independent send). emix folds in the tail declick: as it -> 0 the
+            // dry comes back to full while the wet fades, so no level step.
+            rl = l * (1.0f - emix) + wetL * emix;
+            rr = r * (1.0f - emix) + wetR * emix;
         }
         else
         {
             // SEND mode (and all tail/off paths): dry + wet at unity. The send's
             // reverb comes through at unity, independent of the mix fader.
-            rl = l + wetL;
-            rr = r + wetR;
+            // wet_scale applies the tail declick fade.
+            rl = l + wetL * wet_scale;
+            rr = r + wetR * wet_scale;
         }
 
         const float abs_rl = std::fabs(rl - l);
@@ -620,6 +627,18 @@ void AudioEngine::ProcessBlock(const float* inL,
         sat_send = nullptr;
     }
 
+    // Reverb tail declick: ramp the wet to silence over the last
+    // kReverbTailFadeBlocks before the backstop cap deactivates the stage, so a
+    // long tail (raised max decay) is never chopped. reverb_tail_blocks_left_ is
+    // decremented later in the tail bookkeeping, so it holds this block's value
+    // here. 1.0 except during the fade window (or when not tailing).
+    float reverb_wet_scale = 1.0f;
+    if(reverb_tailing_ && reverb_tail_blocks_left_ <= kReverbTailFadeBlocks)
+    {
+        reverb_wet_scale = static_cast<float>(reverb_tail_blocks_left_)
+                         / static_cast<float>(kReverbTailFadeBlocks);
+    }
+
     for(uint8_t stage_idx = 0; stage_idx < 4; ++stage_idx)
     {
         const uint8_t fx = p.fx_order[stage_idx];
@@ -656,7 +675,7 @@ void AudioEngine::ProcessBlock(const float* inL,
                 {
                     const uint32_t stage_start = DWT->CYCCNT;
                     ProcessReverbBlock_(outL, outR, size, p, reverb_wet_peak,
-                                        rev_send, kSendFeedScale);
+                                        rev_send, kSendFeedScale, reverb_wet_scale);
                     reverb_cycles += DWT->CYCCNT - stage_start;
                 }
                 break;

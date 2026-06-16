@@ -84,7 +84,28 @@ constexpr float kChorusMaxMix        = 0.5f;           // wet/dry of chorus voic
 // voice). Cross-coupling the detuned voices across channels is what widens the
 // image into an ensemble. Tune to taste; 1 is the widest.
 constexpr float kChorusCross         = 1.0f;
+
+// Tail input-skip thresholds. The reverb input goes silent during a tail, so
+// the whole input section (bandwidth filters, predelay, input allpasses, early
+// reflections) just grinds through zeros. Once the input AND that section's
+// output fall below these (~ -120 dBFS, inaudible — and the delay-line portion
+// reaches exactly zero anyway), the section is bypassed for the rest of the
+// tail. Self-calibrating: we wait for the section to actually empty, so the
+// bypass and the later resume are click-free.
+constexpr float kInputSilenceEps     = 1.0e-6f;
+constexpr float kInputFlushEps       = 1.0e-6f;
 } // namespace
+
+// One-pole lowpass coefficient for a given cutoff: g = 1 - e^(-2*pi*fc/fs),
+// clamped to [0,1]. Cheap to apply (y += g*(x-y)); recomputed only at the
+// control rate, so the exp() cost is negligible.
+static float OnePoleG_(float cutoff_hz, float sample_rate)
+{
+    float g = 1.0f - std::exp(-6.2831853072f * cutoff_hz / sample_rate);
+    if(g < 0.0f) g = 0.0f;
+    if(g > 1.0f) g = 1.0f;
+    return g;
+}
 
 float DattorroReverb::Clamp01_(float value)
 {
@@ -471,14 +492,10 @@ void DattorroReverb::Clear_()
 {
     control_rate_counter_ = 0;
 
-    bandwidth_filter_[0].SetSampleRate(sample_rate_);
-    bandwidth_filter_[1].SetSampleRate(sample_rate_);
-    bandwidth_filter_[0].Reset();
-    bandwidth_filter_[1].Reset();
-    bandwidth_filter_[0].Resonance(0.0f);
-    bandwidth_filter_[1].Resonance(0.0f);
-    bandwidth_filter_[0].Type(StateVariable::LOWPASS);
-    bandwidth_filter_[1].Type(StateVariable::LOWPASS);
+    // Input bandwidth one-pole LPF: reset state, seed the fixed coefficient.
+    bw_yl_ = 0.0f;
+    bw_yr_ = 0.0f;
+    bw_g_  = OnePoleG_(kInputBandwidthHz, sample_rate_);
 
     damping_filter_[0].SetSampleRate(sample_rate_);
     damping_filter_[1].SetSampleRate(sample_rate_);
@@ -489,16 +506,10 @@ void DattorroReverb::Clear_()
     damping_filter_[0].Type(StateVariable::LOWPASS);
     damping_filter_[1].Type(StateVariable::LOWPASS);
 
-    // Post-tank output lowpass (outside the feedback loop): carries the heavy
-    // darkening without affecting tail length.
-    output_lpf_[0].SetSampleRate(sample_rate_);
-    output_lpf_[1].SetSampleRate(sample_rate_);
-    output_lpf_[0].Reset();
-    output_lpf_[1].Reset();
-    output_lpf_[0].Resonance(0.0f);
-    output_lpf_[1].Resonance(0.0f);
-    output_lpf_[0].Type(StateVariable::LOWPASS);
-    output_lpf_[1].Type(StateVariable::LOWPASS);
+    // Post-tank output one-pole LPF (outside the feedback loop): carries the
+    // heavy darkening without affecting tail length. Reset its state.
+    out_lpf_yl_ = 0.0f;
+    out_lpf_yr_ = 0.0f;
 
     predelay_.Reset();
     predelay_.SetDelay(static_cast<size_t>(0));
@@ -509,6 +520,8 @@ void DattorroReverb::Clear_()
     chorus_r_.Reset();
     chorus_delay_l_ = kChorusCenterSamples;
     chorus_delay_r_ = kChorusCenterSamples;
+
+    input_skipping_ = false; // start in full mode; the tail skip re-arms itself
 
     allpass_[0].Clear();
     allpass_[1].Clear();
@@ -581,10 +594,15 @@ float DattorroReverb::ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMa
     return output;
 }
 
-void DattorroReverb::ApplyChorus_(float& wetL, float& wetR, float mix)
+void DattorroReverb::ApplyChorus_(float& wetL, float& wetR, float mix, float makeup)
 {
+    // Always write so the delay lines keep fresh history (cheap), but skip the
+    // read + cross-couple + blend when the chorus is effectively off (mod ~ 0)
+    // — that work is pure overhead at mix = 0.
     chorus_l_.Write(wetL);
     chorus_r_.Write(wetR);
+    if(mix < 1.0e-4f)
+        return;
     const float chL = chorus_l_.Read(chorus_delay_l_);
     const float chR = chorus_r_.Read(chorus_delay_r_);
     // Cross-couple the detuned voices across channels for an ensemble width:
@@ -595,9 +613,8 @@ void DattorroReverb::ApplyChorus_(float& wetL, float& wetR, float mix)
     // Keep the dry wet at FULL level and ADD the voice (vs. crossfading): the
     // dry stays present so the mid comb is shallower (less hollow), and the
     // level doesn't collapse. The voice is decorrelated from the dry, so power
-    // adds as 1 + mix^2 — divide by sqrt(1 + mix^2) so total level holds steady
-    // as `mod` opens up. mix = 0 → untouched wet (bypass).
-    const float makeup = 1.0f / std::sqrt(1.0f + mix * mix);
+    // adds as 1 + mix^2; `makeup` = 1/sqrt(1 + mix^2) (computed once per block by
+    // the caller) holds total level steady as `mod` opens up.
     wetL = (wetL + voiceL * mix) * makeup;
     wetR = (wetR + voiceR * mix) * makeup;
 }
@@ -632,12 +649,10 @@ void DattorroReverb::Init()
     if(control_rate_ == 0)
         control_rate_ = 1;
 
-    bandwidth_filter_[0].SetSampleRate(sample_rate_);
-    bandwidth_filter_[1].SetSampleRate(sample_rate_);
-    bandwidth_filter_[0].Resonance(0.0f);
-    bandwidth_filter_[1].Resonance(0.0f);
-    bandwidth_filter_[0].Type(StateVariable::LOWPASS);
-    bandwidth_filter_[1].Type(StateVariable::LOWPASS);
+    // Input bandwidth one-pole LPF: reset state, seed the fixed coefficient.
+    bw_yl_ = 0.0f;
+    bw_yr_ = 0.0f;
+    bw_g_  = OnePoleG_(kInputBandwidthHz, sample_rate_);
 
     damping_filter_[0].SetSampleRate(sample_rate_);
     damping_filter_[1].SetSampleRate(sample_rate_);
@@ -646,16 +661,11 @@ void DattorroReverb::Init()
     damping_filter_[0].Type(StateVariable::LOWPASS);
     damping_filter_[1].Type(StateVariable::LOWPASS);
 
-    output_lpf_[0].SetSampleRate(sample_rate_);
-    output_lpf_[1].SetSampleRate(sample_rate_);
-    output_lpf_[0].Resonance(0.0f);
-    output_lpf_[1].Resonance(0.0f);
-    output_lpf_[0].Type(StateVariable::LOWPASS);
-    output_lpf_[1].Type(StateVariable::LOWPASS);
-    // Seed bright so the first block (before the first control-rate update) does
-    // not run the wet through the 1 kHz SVF default.
-    output_lpf_[0].Frequency(kOutLpfBright);
-    output_lpf_[1].Frequency(kOutLpfBright);
+    // Post-tank one-pole darkening LPF: reset state, seed coefficient bright so
+    // the first block (before the first control-rate update) runs open.
+    out_lpf_yl_ = 0.0f;
+    out_lpf_yr_ = 0.0f;
+    out_lpf_g_  = OnePoleG_(kOutLpfBright, sample_rate_);
 
     // Both chorus LFOs are ticked once per control-rate block (~1 kHz), so the
     // effective LFO rate is SetFreq / control_rate_. Scale accordingly.
@@ -673,6 +683,8 @@ void DattorroReverb::Init()
     chorus_r_.Init();
     chorus_delay_l_ = kChorusCenterSamples;
     chorus_delay_r_ = kChorusCenterSamples;
+
+    input_skipping_ = false; // start in full mode; the tail skip re-arms itself
 
     SetDamping(0.0f);
     SetDecay(1.0f);
@@ -761,12 +773,9 @@ void DattorroReverb::Process(const float inL,
             * std::pow(kDampCutoffDark / kDampCutoffBright, damping_param);
         const float out_lpf_cutoff = kOutLpfBright
             * std::pow(kOutLpfDark / kOutLpfBright, damping_param);
-        bandwidth_filter_[0].Frequency(kInputBandwidthHz);
-        bandwidth_filter_[1].Frequency(kInputBandwidthHz);
         damping_filter_[0].Frequency(damp_cutoff);
         damping_filter_[1].Frequency(damp_cutoff);
-        output_lpf_[0].Frequency(out_lpf_cutoff);
-        output_lpf_[1].Frequency(out_lpf_cutoff);
+        out_lpf_g_ = OnePoleG_(out_lpf_cutoff, sample_rate_);
 
         // Stereo chorus LFO update (post-tank chorus, applied per-sample below).
         // Two slow incommensurate LFOs mixed differently per channel decorrelate
@@ -780,8 +789,10 @@ void DattorroReverb::Process(const float inL,
     }
     ++control_rate_counter_;
 
-    const float bandwidthLeft  = bandwidth_filter_[0].Process(left);
-    const float bandwidthRight = bandwidth_filter_[1].Process(right);
+    bw_yl_ += bw_g_ * (left - bw_yl_);
+    bw_yr_ += bw_g_ * (right - bw_yr_);
+    const float bandwidthLeft  = bw_yl_;
+    const float bandwidthRight = bw_yr_;
 
     const float earlyReflectionsL =
         static_cast<float>(early_delay_[0].Process(bandwidthLeft * 0.5f + bandwidthRight * 0.3f)
@@ -854,11 +865,15 @@ void DattorroReverb::Process(const float inL,
     float wetR = accumulatorR * kGain;
 
     // True stereo chorus on the wet tail (`mod_` = chorus amount).
-    ApplyChorus_(wetL, wetR, mod_ * kChorusMaxMix);
+    const float chorus_mix_p    = mod_ * kChorusMaxMix;
+    const float chorus_makeup_p = 1.0f / std::sqrt(1.0f + chorus_mix_p * chorus_mix_p);
+    ApplyChorus_(wetL, wetR, chorus_mix_p, chorus_makeup_p);
 
     // Post-tank darkening (outside the feedback loop — no effect on tail length).
-    wetL = output_lpf_[0].Process(wetL);
-    wetR = output_lpf_[1].Process(wetR);
+    out_lpf_yl_ += out_lpf_g_ * (wetL - out_lpf_yl_);
+    out_lpf_yr_ += out_lpf_g_ * (wetR - out_lpf_yr_);
+    wetL = out_lpf_yl_;
+    wetR = out_lpf_yr_;
 
     outL = inL + wetL * out_gain_;
     outR = inR + wetR * out_gain_;
@@ -884,6 +899,7 @@ void DattorroReverb::ProcessBlock(const float* inL,
         * std::pow(kDampCutoffDark / kDampCutoffBright, damping_param);
     const float out_lpf_cutoff  = kOutLpfBright
         * std::pow(kOutLpfDark / kOutLpfBright, damping_param);
+    const float out_lpf_g       = OnePoleG_(out_lpf_cutoff, sample_rate_);
     const float decay           = kDecayFbMin + (kDecayFbMax - kDecayFbMin) * decay_;
     float       density2_tmp    = decay + 0.15f;
     if(density2_tmp > 0.5f)
@@ -896,8 +912,11 @@ void DattorroReverb::ProcessBlock(const float* inL,
     const uint32_t crate         = control_rate_;
 
     // Chorus blend (mod): block-constant wet/dry of the post-tank chorus voice.
-    // mod = 0 → bypass (untouched wet); mod = 1 → kChorusMaxMix.
+    // mod = 0 → bypass (untouched wet); mod = 1 → kChorusMaxMix. The makeup
+    // (1/sqrt(1+mix^2)) is hoisted here so the sqrt runs once per block, not
+    // per sample.
     const float    chorus_mix    = mod_val * kChorusMaxMix;
+    const float    chorus_makeup = 1.0f / std::sqrt(1.0f + chorus_mix * chorus_mix);
 
     // ---- Lift redundant per-sample tank-allpass SetFeedback calls ----
     // `kDensity` is a compile-time constant, and `density2` is derived from
@@ -913,6 +932,31 @@ void DattorroReverb::ProcessBlock(const float* inL,
     uint32_t ctr        = control_rate_counter_;
     float    prev_left  = previous_left_tank_;
     float    prev_right = previous_right_tank_;
+    float    out_lpf_yl = out_lpf_yl_;
+    float    out_lpf_yr = out_lpf_yr_;
+    float    bw_yl      = bw_yl_;
+    float    bw_yr      = bw_yr_;
+    const float bw_g    = bw_g_;
+
+    // Tail input-skip decision (see kInputSilenceEps). Scan this block's input
+    // for any signal; if present, the input section must run. `skip` is held
+    // across blocks once the section has flushed, and only released here when
+    // input returns — so the long silent tail runs without the input half.
+    float in_max = 0.0f;
+    for(size_t i = 0; i < n; ++i)
+    {
+        const float al = std::fabs(inL[i]);
+        const float ar = std::fabs(inR[i]);
+        if(al > in_max)
+            in_max = al;
+        if(ar > in_max)
+            in_max = ar;
+    }
+    const bool in_silent = (in_max < kInputSilenceEps);
+    if(!in_silent)
+        input_skipping_ = false;
+    const bool skip     = input_skipping_;
+    float      sec_peak = 0.0f; // peak of the input-section output this block
 
     for(size_t i = 0; i < n; ++i)
     {
@@ -922,12 +966,8 @@ void DattorroReverb::ProcessBlock(const float* inL,
         if(ctr >= crate)
         {
             ctr = 0;
-            bandwidth_filter_[0].Frequency(kInputBandwidthHz);
-            bandwidth_filter_[1].Frequency(kInputBandwidthHz);
             damping_filter_[0].Frequency(damp_cutoff);
             damping_filter_[1].Frequency(damp_cutoff);
-            output_lpf_[0].Frequency(out_lpf_cutoff);
-            output_lpf_[1].Frequency(out_lpf_cutoff);
 
             // Stereo chorus LFO update (post-tank chorus applied per-sample
             // below): two slow incommensurate LFOs mixed differently per
@@ -941,38 +981,70 @@ void DattorroReverb::ProcessBlock(const float* inL,
         }
         ++ctr;
 
-        const float bandwidthLeft  = bandwidth_filter_[0].Process(left);
-        const float bandwidthRight = bandwidth_filter_[1].Process(right);
+        float tankInL, tankInR;
+        float earlyReflectionsL, earlyReflectionsR;
+        if(skip)
+        {
+            // Tail: input silent and input section flushed. Feed the tank zero
+            // and skip the bandwidth filters, predelay, input allpasses and
+            // early reflections entirely (they would only output zeros).
+            tankInL = 0.0f;
+            tankInR = 0.0f;
+            earlyReflectionsL = 0.0f;
+            earlyReflectionsR = 0.0f;
+        }
+        else
+        {
+            bw_yl += bw_g * (left - bw_yl);
+            bw_yr += bw_g * (right - bw_yr);
+            const float bandwidthLeft  = bw_yl;
+            const float bandwidthRight = bw_yr;
 
-        const float earlyReflectionsL =
-            static_cast<float>(early_delay_[0].Process(bandwidthLeft * 0.5f + bandwidthRight * 0.3f)
-                             + early_delay_[0].GetIndex(2) * 0.6f
-                             + early_delay_[0].GetIndex(3) * 0.4f
-                             + early_delay_[0].GetIndex(4) * 0.3f
-                             + early_delay_[0].GetIndex(5) * 0.3f
-                             + early_delay_[0].GetIndex(6) * 0.1f
-                             + early_delay_[0].GetIndex(7) * 0.1f
-                             + (bandwidthLeft * 0.4f + bandwidthRight * 0.2f) * 0.5f);
+            earlyReflectionsL =
+                static_cast<float>(early_delay_[0].Process(bandwidthLeft * 0.5f + bandwidthRight * 0.3f)
+                                 + early_delay_[0].GetIndex(2) * 0.6f
+                                 + early_delay_[0].GetIndex(3) * 0.4f
+                                 + early_delay_[0].GetIndex(4) * 0.3f
+                                 + early_delay_[0].GetIndex(5) * 0.3f
+                                 + early_delay_[0].GetIndex(6) * 0.1f
+                                 + early_delay_[0].GetIndex(7) * 0.1f
+                                 + (bandwidthLeft * 0.4f + bandwidthRight * 0.2f) * 0.5f);
 
-        const float earlyReflectionsR =
-            static_cast<float>(early_delay_[1].Process(bandwidthLeft * 0.3f + bandwidthRight * 0.5f)
-                             + early_delay_[1].GetIndex(2) * 0.6f
-                             + early_delay_[1].GetIndex(3) * 0.4f
-                             + early_delay_[1].GetIndex(4) * 0.3f
-                             + early_delay_[1].GetIndex(5) * 0.3f
-                             + early_delay_[1].GetIndex(6) * 0.1f
-                             + early_delay_[1].GetIndex(7) * 0.1f
-                             + (bandwidthLeft * 0.2f + bandwidthRight * 0.4f) * 0.5f);
+            earlyReflectionsR =
+                static_cast<float>(early_delay_[1].Process(bandwidthLeft * 0.3f + bandwidthRight * 0.5f)
+                                 + early_delay_[1].GetIndex(2) * 0.6f
+                                 + early_delay_[1].GetIndex(3) * 0.4f
+                                 + early_delay_[1].GetIndex(4) * 0.3f
+                                 + early_delay_[1].GetIndex(5) * 0.3f
+                                 + early_delay_[1].GetIndex(6) * 0.1f
+                                 + early_delay_[1].GetIndex(7) * 0.1f
+                                 + (bandwidthLeft * 0.2f + bandwidthRight * 0.4f) * 0.5f);
 
-        float smearedL = ProcessPredelayLine_(predelay_, bandwidthLeft);
-        float smearedR = ProcessPredelayLine_(predelay_r_, bandwidthRight);
-        for(int j = 0; j < 4; ++j)
-            smearedL = allpass_[j].Process(smearedL);
-        for(int j = 0; j < 4; ++j)
-            smearedR = allpass_r_[j].Process(smearedR);
+            float smearedL = ProcessPredelayLine_(predelay_, bandwidthLeft);
+            float smearedR = ProcessPredelayLine_(predelay_r_, bandwidthRight);
+            for(int j = 0; j < 4; ++j)
+                smearedL = allpass_[j].Process(smearedL);
+            for(int j = 0; j < 4; ++j)
+                smearedR = allpass_r_[j].Process(smearedR);
 
-        const float tankInL = smearedL;
-        const float tankInR = smearedR;
+            tankInL = smearedL;
+            tankInR = smearedR;
+
+            // Track the loudest input-section output this block so we know when
+            // it has emptied (and the section can be skipped next block).
+            float p = std::fabs(tankInL);
+            float q = std::fabs(tankInR);
+            if(q > p)
+                p = q;
+            q = std::fabs(earlyReflectionsL);
+            if(q > p)
+                p = q;
+            q = std::fabs(earlyReflectionsR);
+            if(q > p)
+                p = q;
+            if(p > sec_peak)
+                sec_peak = p;
+        }
 
         float leftTank = tank_allpass_[0].Process(tankInL + prev_right);
         leftTank       = tank_delay_[0].Process(leftTank);
@@ -1014,17 +1086,31 @@ void DattorroReverb::ProcessBlock(const float* inL,
         float wetR = accumulatorR * kGain;
 
         // True stereo chorus on the wet tail (`mod_` = chorus amount).
-        ApplyChorus_(wetL, wetR, chorus_mix);
+        ApplyChorus_(wetL, wetR, chorus_mix, chorus_makeup);
 
-        // Post-tank darkening (outside the feedback loop — no effect on tail length).
-        wetL = output_lpf_[0].Process(wetL);
-        wetR = output_lpf_[1].Process(wetR);
+        // Post-tank darkening (one-pole, outside the feedback loop — no effect
+        // on tail length).
+        out_lpf_yl += out_lpf_g * (wetL - out_lpf_yl);
+        out_lpf_yr += out_lpf_g * (wetR - out_lpf_yr);
+        wetL = out_lpf_yl;
+        wetR = out_lpf_yr;
 
         outL[i] = left + wetL * out_gain;
         outR[i] = right + wetR * out_gain;
     }
 
+    // If we ran the full input section this block and both the input and the
+    // section output are now silent, the section has flushed — bypass it next
+    // block. (When skipping, sec_peak stays 0 and we simply keep skipping until
+    // input returns and clears the flag at the top.)
+    if(!skip && in_silent && sec_peak < kInputFlushEps)
+        input_skipping_ = true;
+
     control_rate_counter_ = ctr;
     previous_left_tank_   = prev_left;
     previous_right_tank_  = prev_right;
+    out_lpf_yl_           = out_lpf_yl;
+    out_lpf_yr_           = out_lpf_yr;
+    bw_yl_                = bw_yl;
+    bw_yr_                = bw_yr;
 }

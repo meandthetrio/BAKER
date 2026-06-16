@@ -111,12 +111,13 @@ static bool PerformEmphasisRowLocked(const AppSharedState& shared,
                                      uint8_t layer,
                                      uint8_t row)
 {
+    // Row order: 0 = cutoff, 1 = resonance, 2 = drive (cutoff/resonance first).
     switch(row % 3u)
     {
-        case 0: return ExpressUiTargetLocked(shared, engine, layer, kExpressDrive);
-        case 1: return ExpressUiTargetLocked(shared, engine, layer, kExpressCutoff);
+        case 0: return ExpressUiTargetLocked(shared, engine, layer, kExpressCutoff);
+        case 1: return ExpressUiTargetLocked(shared, engine, layer, kExpressResonance);
         case 2:
-        default: return ExpressUiTargetLocked(shared, engine, layer, kExpressResonance);
+        default: return ExpressUiTargetLocked(shared, engine, layer, kExpressDrive);
     }
 }
 
@@ -195,43 +196,39 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             return true;
         }
         const float delta_norm = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_ext_t_ms, 0.02f);
+        PerformParamsTargets& t = ctx.params->EditTargets();
         if(engine.perform_nav.perform_emphasis_row == 0)
         {
+            // CUTOFF row. RShift alternate function: fine-tune the cutoff by
+            // 1/100th of the current (displayed) value per detent, instead of
+            // the coarse ADSR-curve sweep.
             if(ctx.rshift)
             {
-                int mode = static_cast<int>(engine.layer.engine_drive_mode[layer]) + e.value;
-                while(mode < 0)
-                    mode += 2;
-                while(mode >= 2)
-                    mode -= 2;
-                const uint8_t next_mode = ClampDriveModeLocal(mode);
-                if(next_mode != engine.layer.engine_drive_mode[layer])
-                {
-                    engine.layer.engine_drive_mode[layer] = next_mode;
-                    PublishEngineLayerParams(ctx);
-                    ui.ui_dirty = true;
-                }
+                float hz = t.engine_filter_cutoff_hz[layer];
+                if(hz < 20.0f) hz = 20.0f;
+                if(hz > 20000.0f) hz = 20000.0f;
+                hz += static_cast<float>(e.value) * (hz * 0.01f);
+                if(hz < 20.0f) hz = 20.0f;
+                if(hz > 20000.0f) hz = 20000.0f;
+                t.engine_filter_cutoff_hz[layer] = hz;
+                ctx.params->PublishTargets();
+                ui.ui_dirty = true;
                 return true;
             }
 
-            // DRIVE row: 0.0 dB at 7 o'clock through +6.0 dB at 5 o'clock in 0.1 dB steps.
-            int v = static_cast<int>(engine.layer.engine_gain_db[layer]) + e.value;
-            v = ClampInt(v, 0, 60);
-            const int16_t vv = static_cast<int16_t>(v);
-            if(vv != engine.layer.engine_gain_db[layer])
-            {
-                engine.layer.engine_gain_db[layer] = vv;
-                PublishEngineLayerParams(ctx);
-                ui.ui_dirty = true;
-            }
+            // Keep fast fader motion; map fader space to cutoff using ADSR-style curve.
+            float fader = AdsrFltFaderFromCutoffHz(t.engine_filter_cutoff_hz[layer]);
+            fader = Clamp01(fader + delta_norm);
+            t.engine_filter_cutoff_hz[layer] = AdsrFltCutoffHzFromFader(fader);
+            ctx.params->PublishTargets();
+            ui.ui_dirty = true;
             return true;
         }
 
-        PerformParamsTargets& t = ctx.params->EditTargets();
         if(engine.perform_nav.perform_emphasis_row == 1)
         {
-            // RShift alternate function: cycle filter type (LP/HP/BP) instead of
-            // sweeping cutoff. Mirrors the DRIVE row's drive-mode alt function.
+            // RESONANCE row. RShift alternate function: cycle filter type
+            // (LP/HP/BP). Mirrors how the DRIVE row's RShift cycles drive mode.
             if(ctx.rshift)
             {
                 int mode = static_cast<int>(engine.layer.engine_filter_mode[layer]) + e.value;
@@ -249,19 +246,42 @@ bool PerformEmphasis_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 return true;
             }
 
-            // Keep fast fader motion; map fader space to cutoff using ADSR-style curve.
-            float fader = AdsrFltFaderFromCutoffHz(t.engine_filter_cutoff_hz[layer]);
-            fader = Clamp01(fader + delta_norm);
-            t.engine_filter_cutoff_hz[layer] = AdsrFltCutoffHzFromFader(fader);
+            // RESONANCE sweep.
+            t.engine_filter_resonance[layer] = Clamp01(t.engine_filter_resonance[layer] + delta_norm);
             ctx.params->PublishTargets();
             ui.ui_dirty = true;
             return true;
         }
 
-        // RESONANCE
-        t.engine_filter_resonance[layer] = Clamp01(t.engine_filter_resonance[layer] + delta_norm);
-        ctx.params->PublishTargets();
-        ui.ui_dirty = true;
+        // DRIVE row (now last). RShift alternate function: cycle drive mode
+        // (odd/even). Mirrors the CUTOFF row's filter-type alt function.
+        if(ctx.rshift)
+        {
+            int mode = static_cast<int>(engine.layer.engine_drive_mode[layer]) + e.value;
+            while(mode < 0)
+                mode += 2;
+            while(mode >= 2)
+                mode -= 2;
+            const uint8_t next_mode = ClampDriveModeLocal(mode);
+            if(next_mode != engine.layer.engine_drive_mode[layer])
+            {
+                engine.layer.engine_drive_mode[layer] = next_mode;
+                PublishEngineLayerParams(ctx);
+                ui.ui_dirty = true;
+            }
+            return true;
+        }
+
+        // DRIVE: 0.0 dB at 7 o'clock through +6.0 dB at 5 o'clock in 0.1 dB steps.
+        int v = static_cast<int>(engine.layer.engine_gain_db[layer]) + e.value;
+        v = ClampInt(v, 0, 60);
+        const int16_t vv = static_cast<int16_t>(v);
+        if(vv != engine.layer.engine_gain_db[layer])
+        {
+            engine.layer.engine_gain_db[layer] = vv;
+            PublishEngineLayerParams(ctx);
+            ui.ui_dirty = true;
+        }
         return true;
     }
 
@@ -307,15 +327,17 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
     const float cutoff_hz = t.engine_filter_cutoff_hz[layer];
     const float resonance = Clamp01(t.engine_filter_resonance[layer]);
-    const bool drive_locked = PerformEmphasisRowLocked(shared, engine, layer, 0u);
-    const bool cutoff_locked = PerformEmphasisRowLocked(shared, engine, layer, 1u);
-    const bool reso_locked = PerformEmphasisRowLocked(shared, engine, layer, 2u);
+    // Row order: 0 = cutoff, 1 = resonance, 2 = drive.
+    const bool cutoff_locked = PerformEmphasisRowLocked(shared, engine, layer, 0u);
+    const bool reso_locked = PerformEmphasisRowLocked(shared, engine, layer, 1u);
+    const bool drive_locked = PerformEmphasisRowLocked(shared, engine, layer, 2u);
     char header_label[16] = {};
     std::snprintf(header_label, sizeof(header_label), "emph %c", layer == 0 ? 'a' : 'b');
     const int header_w = MicroStringWidth(header_label);
     const int box_w = header_w + 4;
     const int box_h = kMicroH + 4;
-    int box_x = 128 - box_w;
+    // Top-center, over the middle (reso) knob at screen center x=64.
+    int box_x = (128 - box_w) / 2;
     if(box_x < 0)
         box_x = 0;
     const bool header_invert_flash
@@ -380,9 +402,13 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
 
     char gain_buf[12];
     FormatDbTenths(engine.layer.engine_gain_db[layer], gain_buf, sizeof(gain_buf));
-    const bool drive_mode_focus = (engine.perform_nav.perform_emphasis_row == 0u) && ctx.rshift;
+    const bool drive_mode_focus = (engine.perform_nav.perform_emphasis_row == 2u) && ctx.rshift;
     const char* drive_label = drive_mode_focus ? DriveModeLabel(engine.layer.engine_drive_mode[layer]) : "drive";
     const char* drive_value = drive_mode_focus ? "" : gain_buf;
+
+    // Cutoff RShift fine-tune: solid focus border + hundredths-of-kHz readout so
+    // the 1/100th steps are visible (1 kHz .. 10 kHz range).
+    const bool cutoff_fine_focus = (engine.perform_nav.perform_emphasis_row == 0u) && ctx.rshift;
 
     float cutoff = cutoff_hz;
     if(cutoff < 20.0f) cutoff = 20.0f;
@@ -391,7 +417,14 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     const uint32_t lpf_hz = static_cast<uint32_t>(cutoff + 0.5f);
     if(lpf_hz >= 1000u)
     {
-        if((lpf_hz % 1000u) == 0u)
+        if(cutoff_fine_focus && lpf_hz < 10000u)
+            // Hundredths of a kHz (10 Hz resolution) for the fine-tune readout.
+            std::snprintf(cutoff_buf,
+                          sizeof(cutoff_buf),
+                          "%lu.%02luk",
+                          (unsigned long)(lpf_hz / 1000u),
+                          (unsigned long)((lpf_hz % 1000u) / 10u));
+        else if((lpf_hz % 1000u) == 0u)
             std::snprintf(cutoff_buf, sizeof(cutoff_buf), "%luk", (unsigned long)(lpf_hz / 1000u));
         else
             std::snprintf(cutoff_buf,
@@ -414,55 +447,64 @@ void PerformEmphasis_Render(UiScreenCtx& ctx)
     constexpr int kKnobRadius = 12;
     constexpr int kKnobCy = 28;
     constexpr int kKnobCx[3] = {22, 64, 106};
-    if(!drive_locked)
-    {
-        draw_knob(kKnobCx[0],
-                  kKnobCy,
-                  kKnobRadius,
-                  drive_label,
-                  drive_value,
-                  gain_angle,
-                  (!PerformEmphasisRowLocked(shared, engine, layer, 0u)
-                       && engine.perform_nav.perform_emphasis_row == 0)
-                      ? (drive_mode_focus ? 1 : 2)
-                      : 0);
-    }
-    else
-    {
-        DrawTinyString(d, drive_label, kKnobCx[0] - (TinyStringWidth(drive_label) / 2), kKnobCy + kKnobRadius + 5, true);
-    }
-    const bool cutoff_mode_focus = (engine.perform_nav.perform_emphasis_row == 1u) && ctx.rshift;
-    const char* cutoff_label = cutoff_mode_focus ? FilterModeLabel(engine.layer.engine_filter_mode[layer]) : "cutoff";
-    const char* cutoff_value = cutoff_mode_focus ? "" : cutoff_buf;
+
+    // Knob order (left -> right): cutoff, resonance, drive.
+    // Cutoff: label always "cutoff"; the value (with hundredths in fine mode)
+    // stays visible. Focus border is dotted normally, solid while RShift held.
+    const char* cutoff_label = "cutoff";
+    const char* cutoff_value = cutoff_buf;
     if(!cutoff_locked)
     {
-        draw_knob(kKnobCx[1],
+        draw_knob(kKnobCx[0],
                   kKnobCy,
                   kKnobRadius,
                   cutoff_label,
                   cutoff_value,
                   cutoff_angle,
-                  (!PerformEmphasisRowLocked(shared, engine, layer, 1u)
-                       && engine.perform_nav.perform_emphasis_row == 1)
-                      ? (cutoff_mode_focus ? 1 : 2)
+                  (!PerformEmphasisRowLocked(shared, engine, layer, 0u)
+                       && engine.perform_nav.perform_emphasis_row == 0)
+                      ? (cutoff_fine_focus ? 1 : 2)
                       : 0);
     }
     else
     {
         const char* label = "cutoff";
-        DrawTinyString(d, label, kKnobCx[1] - (TinyStringWidth(label) / 2), kKnobCy + kKnobRadius + 5, true);
+        DrawTinyString(d, label, kKnobCx[0] - (TinyStringWidth(label) / 2), kKnobCy + kKnobRadius + 5, true);
     }
+
+    // Reso: RShift shows the filter type (LP/HP/BP) and switches the focus
+    // border from dotted to solid; RShift cycles the type.
+    const bool reso_mode_focus = (engine.perform_nav.perform_emphasis_row == 1u) && ctx.rshift;
+    const char* reso_label = reso_mode_focus ? FilterModeLabel(engine.layer.engine_filter_mode[layer]) : "reso";
     if(!reso_locked)
+    {
+        draw_knob(kKnobCx[1],
+                  kKnobCy,
+                  kKnobRadius,
+                  reso_label,
+                  "",
+                  reso_angle,
+                  (!PerformEmphasisRowLocked(shared, engine, layer, 1u)
+                       && engine.perform_nav.perform_emphasis_row == 1)
+                      ? (reso_mode_focus ? 1 : 2)
+                      : 0);
+    }
+
+    if(!drive_locked)
     {
         draw_knob(kKnobCx[2],
                   kKnobCy,
                   kKnobRadius,
-                  "reso",
-                  "",
-                  reso_angle,
+                  drive_label,
+                  drive_value,
+                  gain_angle,
                   (!PerformEmphasisRowLocked(shared, engine, layer, 2u)
                        && engine.perform_nav.perform_emphasis_row == 2)
-                      ? 1
+                      ? (drive_mode_focus ? 1 : 2)
                       : 0);
+    }
+    else
+    {
+        DrawTinyString(d, drive_label, kKnobCx[2] - (TinyStringWidth(drive_label) / 2), kKnobCy + kKnobRadius + 5, true);
     }
 }

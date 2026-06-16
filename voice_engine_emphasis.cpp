@@ -127,91 +127,167 @@ void VoiceEngine::RecomputeLayerEmphasisCoeffs_(uint8_t layer)
 // Express (or any source) sweeps cutoff/drive quickly.
 static constexpr float kEmphasisCoeffSmoothCoeff = 1.0f / 2400.0f;
 
-float VoiceEngine::ProcessLayerBusSample_(uint8_t layer, float input)
+// One sample of the emphasis chain: ladder filter (cutoff/resonance) FIRST,
+// then drive (saturation) on the filtered signal. Factored out so the batched
+// block processor below single-sources the math while still inlining at -O2
+// (same TU). `s` carries the filter/DC state across samples; `c` is the
+// effective coefficient set for this sample (fixed in steady state, ramped
+// during a transition). Bit-identical to the previous per-sample path.
+static inline float EmphasisRunSample_(LayerBusState& s, const LayerEmphasisCoeffs& c, float input)
 {
-    layer &= 1u;
-    LayerBusState& state = layer_bus_state_[layer];
-    const LayerEmphasisCoeffs& t = emphasis_coeff_[layer];
-    LayerEmphasisCoeffs& c = emphasis_coeff_z_[layer];
+    // ---- Phase 1: ladder filter (cutoff / resonance) on the raw input ----
+    float ladder_in = (input * c.input_comp) - c.feedback * (s.pole4 - (0.12f * s.pole3));
+    ladder_in = FastTanh(ladder_in);
 
-    c.odd_drive = t.odd_drive;
+    s.pole1 += c.g * (ladder_in - s.pole1);
+    s.pole2 += c.g * (s.pole1 - s.pole2);
+    s.pole3 += c.g * (s.pole2 - s.pole3);
+    s.pole4 += c.g * (s.pole3 - s.pole4);
 
-    // Ramp every used coefficient toward its target.
-    c.odd_mix            += (t.odd_mix            - c.odd_mix)            * kEmphasisCoeffSmoothCoeff;
-    c.pre_gain           += (t.pre_gain           - c.pre_gain)           * kEmphasisCoeffSmoothCoeff;
-    c.shape_blend        += (t.shape_blend        - c.shape_blend)        * kEmphasisCoeffSmoothCoeff;
-    c.base_makeup        += (t.base_makeup        - c.base_makeup)        * kEmphasisCoeffSmoothCoeff;
-    c.positive_drive     += (t.positive_drive     - c.positive_drive)     * kEmphasisCoeffSmoothCoeff;
-    c.negative_drive     += (t.negative_drive     - c.negative_drive)     * kEmphasisCoeffSmoothCoeff;
-    c.even_makeup        += (t.even_makeup        - c.even_makeup)        * kEmphasisCoeffSmoothCoeff;
-    c.g                  += (t.g                  - c.g)                  * kEmphasisCoeffSmoothCoeff;
-    c.feedback           += (t.feedback           - c.feedback)           * kEmphasisCoeffSmoothCoeff;
-    c.pole4_linear_scale += (t.pole4_linear_scale - c.pole4_linear_scale) * kEmphasisCoeffSmoothCoeff;
-    c.tanh_input_scale   += (t.tanh_input_scale   - c.tanh_input_scale)   * kEmphasisCoeffSmoothCoeff;
-    c.tap_in             += (t.tap_in             - c.tap_in)             * kEmphasisCoeffSmoothCoeff;
-    c.tap1               += (t.tap1               - c.tap1)               * kEmphasisCoeffSmoothCoeff;
-    c.tap2               += (t.tap2               - c.tap2)               * kEmphasisCoeffSmoothCoeff;
-    c.tap3               += (t.tap3               - c.tap3)               * kEmphasisCoeffSmoothCoeff;
-    c.tap4               += (t.tap4               - c.tap4)               * kEmphasisCoeffSmoothCoeff;
-    c.input_comp         += (t.input_comp         - c.input_comp)         * kEmphasisCoeffSmoothCoeff;
-    c.output_trim        += (t.output_trim        - c.output_trim)        * kEmphasisCoeffSmoothCoeff;
+    // Multimode tap mix (x = ladder_in). Steady-state this is one mode's fixed
+    // coefficient vector; during a mode change the ramped coeffs morph it.
+    const float tapped = (c.tap_in * ladder_in) + (c.tap1 * s.pole1)
+                         + (c.tap2 * s.pole2) + (c.tap3 * s.pole3)
+                         + (c.tap4 * s.pole4);
 
+    float filtered = tapped * c.pole4_linear_scale * c.output_trim;
+    filtered = FastTanh(filtered * c.tanh_input_scale);
+    filtered *= 0.97f;
+
+    // ---- Phase 2: drive (saturation) on the filtered signal ----
     // Crossfade odd/even paths via odd_mix to avoid a click at mode switch.
     // Both branches are evaluated only during the brief (~50 ms) transition;
     // steady-state takes the cheap single-path branch.
+    const float x = filtered;
     float driven;
     if(c.odd_mix > 0.999f)
     {
-        const float odd_core = FastTanh(input * c.pre_gain);
-        const float odd_shaped = input + ((odd_core - input) * c.shape_blend);
+        const float odd_core = FastTanh(x * c.pre_gain);
+        const float odd_shaped = x + ((odd_core - x) * c.shape_blend);
         driven = odd_shaped * c.base_makeup;
     }
     else if(c.odd_mix < 0.001f)
     {
-        const float pos_core = (input > 0.0f) ? FastTanh(input * c.positive_drive) : 0.0f;
-        const float neg_core = (input < 0.0f) ? -FastTanh((-input) * c.negative_drive) : 0.0f;
+        const float pos_core = (x > 0.0f) ? FastTanh(x * c.positive_drive) : 0.0f;
+        const float neg_core = (x < 0.0f) ? -FastTanh((-x) * c.negative_drive) : 0.0f;
         const float asym_core = pos_core + neg_core;
-        const float even_shaped = input + ((asym_core - input) * c.shape_blend);
+        const float even_shaped = x + ((asym_core - x) * c.shape_blend);
         const float asym = even_shaped * c.even_makeup;
-        const float dc_blocked = asym - state.drive_dc_x + (0.995f * state.drive_dc_y);
-        state.drive_dc_x = asym;
-        state.drive_dc_y = dc_blocked;
+        const float dc_blocked = asym - s.drive_dc_x + (0.995f * s.drive_dc_y);
+        s.drive_dc_x = asym;
+        s.drive_dc_y = dc_blocked;
         driven = dc_blocked;
     }
     else
     {
-        const float odd_core = FastTanh(input * c.pre_gain);
-        const float odd_shaped = input + ((odd_core - input) * c.shape_blend);
+        const float odd_core = FastTanh(x * c.pre_gain);
+        const float odd_shaped = x + ((odd_core - x) * c.shape_blend);
         const float odd_driven = odd_shaped * c.base_makeup;
 
-        const float pos_core = (input > 0.0f) ? FastTanh(input * c.positive_drive) : 0.0f;
-        const float neg_core = (input < 0.0f) ? -FastTanh((-input) * c.negative_drive) : 0.0f;
+        const float pos_core = (x > 0.0f) ? FastTanh(x * c.positive_drive) : 0.0f;
+        const float neg_core = (x < 0.0f) ? -FastTanh((-x) * c.negative_drive) : 0.0f;
         const float asym_core = pos_core + neg_core;
-        const float even_shaped = input + ((asym_core - input) * c.shape_blend);
+        const float even_shaped = x + ((asym_core - x) * c.shape_blend);
         const float asym = even_shaped * c.even_makeup;
-        const float dc_blocked = asym - state.drive_dc_x + (0.995f * state.drive_dc_y);
-        state.drive_dc_x = asym;
-        state.drive_dc_y = dc_blocked;
+        const float dc_blocked = asym - s.drive_dc_x + (0.995f * s.drive_dc_y);
+        s.drive_dc_x = asym;
+        s.drive_dc_y = dc_blocked;
         const float even_driven = dc_blocked;
 
         driven = (odd_driven * c.odd_mix) + (even_driven * (1.0f - c.odd_mix));
     }
 
-    float ladder_in = (driven * c.input_comp) - c.feedback * (state.pole4 - (0.12f * state.pole3));
-    ladder_in = FastTanh(ladder_in);
+    return driven;
+}
 
-    state.pole1 += c.g * (ladder_in - state.pole1);
-    state.pole2 += c.g * (state.pole1 - state.pole2);
-    state.pole3 += c.g * (state.pole2 - state.pole3);
-    state.pole4 += c.g * (state.pole3 - state.pole4);
+// One coefficient is "settled" when ramping it would change it by less than a
+// relative epsilon. The (|t|+1) floor makes near-zero coeffs (e.g. unused taps)
+// use ~absolute eps while large coeffs (pre_gain ~28) use relative eps; the
+// chosen 1e-4 keeps any settle-time snap below ~0.01 % — inaudible.
+static inline bool EmphCoeffClose_(float t, float c)
+{
+    float d = t - c;
+    if(d < 0.0f)
+        d = -d;
+    float a = t;
+    if(a < 0.0f)
+        a = -a;
+    return d <= 1.0e-4f * (a + 1.0f);
+}
 
-    // Multimode tap mix (x = ladder_in). Steady-state this is one mode's fixed
-    // coefficient vector; during a mode change the ramped coeffs morph it.
-    const float tapped = (c.tap_in * ladder_in) + (c.tap1 * state.pole1)
-                         + (c.tap2 * state.pole2) + (c.tap3 * state.pole3)
-                         + (c.tap4 * state.pole4);
+static inline bool EmphasisCoeffsSettled_(const LayerEmphasisCoeffs& t, const LayerEmphasisCoeffs& c)
+{
+    return EmphCoeffClose_(t.odd_mix, c.odd_mix) && EmphCoeffClose_(t.pre_gain, c.pre_gain)
+           && EmphCoeffClose_(t.shape_blend, c.shape_blend)
+           && EmphCoeffClose_(t.base_makeup, c.base_makeup)
+           && EmphCoeffClose_(t.positive_drive, c.positive_drive)
+           && EmphCoeffClose_(t.negative_drive, c.negative_drive)
+           && EmphCoeffClose_(t.even_makeup, c.even_makeup) && EmphCoeffClose_(t.g, c.g)
+           && EmphCoeffClose_(t.feedback, c.feedback)
+           && EmphCoeffClose_(t.pole4_linear_scale, c.pole4_linear_scale)
+           && EmphCoeffClose_(t.tanh_input_scale, c.tanh_input_scale)
+           && EmphCoeffClose_(t.tap_in, c.tap_in) && EmphCoeffClose_(t.tap1, c.tap1)
+           && EmphCoeffClose_(t.tap2, c.tap2) && EmphCoeffClose_(t.tap3, c.tap3)
+           && EmphCoeffClose_(t.tap4, c.tap4) && EmphCoeffClose_(t.input_comp, c.input_comp);
+}
 
-    float out = tapped * c.pole4_linear_scale * c.output_trim;
-    out = FastTanh(out * c.tanh_input_scale);
-    return out * 0.97f;
+// Batched per-layer emphasis. Replaces the old per-sample ProcessLayerBusSample_
+// (a real cross-TU call 48x/block/layer at -O2, with the 18 coefficient ramps
+// re-run every sample). Two wins, both bit-identical to the per-sample path:
+//   1. Filter/DC state is hoisted into a local so it stays register-resident
+//      across the block instead of being reloaded through `this` each sample.
+//   2. The 18 coefficient ramps run only while the smoothed set is still
+//      converging to target (a UI/mod change in the last ~50 ms). Once settled
+//      we snap and read fixed coefficients — no per-sample ramp arithmetic.
+void VoiceEngine::ProcessLayerBusBlock_(uint8_t layer, float* buf, size_t n, float out_scale)
+{
+    if(buf == nullptr || n == 0u)
+        return;
+
+    layer &= 1u;
+    LayerBusState& state = layer_bus_state_[layer];
+    const LayerEmphasisCoeffs& t = emphasis_coeff_[layer];
+    LayerEmphasisCoeffs& cz = emphasis_coeff_z_[layer];
+
+    cz.odd_drive = t.odd_drive;
+
+    LayerBusState s = state; // hoist filter/DC state into a register-resident local
+
+    if(EmphasisCoeffsSettled_(t, cz))
+    {
+        cz = t; // one-time sub-epsilon snap on settle; exact continuity thereafter
+        const LayerEmphasisCoeffs c = cz;
+        for(size_t i = 0; i < n; ++i)
+            buf[i] = EmphasisRunSample_(s, c, buf[i]) * out_scale;
+    }
+    else
+    {
+        // Transition: ramp every used coefficient toward its target per sample
+        // (de-zipper), then process — matches the old per-sample order exactly.
+        for(size_t i = 0; i < n; ++i)
+        {
+            cz.odd_mix       += (t.odd_mix       - cz.odd_mix)       * kEmphasisCoeffSmoothCoeff;
+            cz.pre_gain      += (t.pre_gain      - cz.pre_gain)      * kEmphasisCoeffSmoothCoeff;
+            cz.shape_blend   += (t.shape_blend   - cz.shape_blend)   * kEmphasisCoeffSmoothCoeff;
+            cz.base_makeup   += (t.base_makeup   - cz.base_makeup)   * kEmphasisCoeffSmoothCoeff;
+            cz.positive_drive+= (t.positive_drive- cz.positive_drive)* kEmphasisCoeffSmoothCoeff;
+            cz.negative_drive+= (t.negative_drive- cz.negative_drive)* kEmphasisCoeffSmoothCoeff;
+            cz.even_makeup   += (t.even_makeup   - cz.even_makeup)   * kEmphasisCoeffSmoothCoeff;
+            cz.g             += (t.g             - cz.g)             * kEmphasisCoeffSmoothCoeff;
+            cz.feedback      += (t.feedback      - cz.feedback)      * kEmphasisCoeffSmoothCoeff;
+            cz.pole4_linear_scale += (t.pole4_linear_scale - cz.pole4_linear_scale) * kEmphasisCoeffSmoothCoeff;
+            cz.tanh_input_scale   += (t.tanh_input_scale   - cz.tanh_input_scale)   * kEmphasisCoeffSmoothCoeff;
+            cz.tap_in        += (t.tap_in        - cz.tap_in)        * kEmphasisCoeffSmoothCoeff;
+            cz.tap1          += (t.tap1          - cz.tap1)          * kEmphasisCoeffSmoothCoeff;
+            cz.tap2          += (t.tap2          - cz.tap2)          * kEmphasisCoeffSmoothCoeff;
+            cz.tap3          += (t.tap3          - cz.tap3)          * kEmphasisCoeffSmoothCoeff;
+            cz.tap4          += (t.tap4          - cz.tap4)          * kEmphasisCoeffSmoothCoeff;
+            cz.input_comp    += (t.input_comp    - cz.input_comp)    * kEmphasisCoeffSmoothCoeff;
+            cz.output_trim   += (t.output_trim   - cz.output_trim)   * kEmphasisCoeffSmoothCoeff;
+
+            buf[i] = EmphasisRunSample_(s, cz, buf[i]) * out_scale;
+        }
+    }
+
+    state = s; // commit filter/DC state
 }

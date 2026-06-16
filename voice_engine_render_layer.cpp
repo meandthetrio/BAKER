@@ -56,11 +56,9 @@ void VoiceEngine::RenderBlockMixLayers_(float* outL,
     // layers keep their already-zero bus. Timed into the emphasis bucket.
     const uint32_t emph_start = diag_on ? DWT->CYCCNT : 0u;
     if(!layer_skip[0])
-        for(size_t i = 0; i < size; i++)
-            outL[i] = ProcessLayerBusSample_(0u, outL[i]) * engine_layer_scale_[0u];
+        ProcessLayerBusBlock_(0u, outL, size, engine_layer_scale_[0u]);
     if(!layer_skip[1])
-        for(size_t i = 0; i < size; i++)
-            outR[i] = ProcessLayerBusSample_(1u, outR[i]) * engine_layer_scale_[1u];
+        ProcessLayerBusBlock_(1u, outR, size, engine_layer_scale_[1u]);
     if(diag_on)
         emphasis_cycles = DWT->CYCCNT - emph_start;
 

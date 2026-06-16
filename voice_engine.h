@@ -141,7 +141,7 @@ struct LayerEmphasisCoeffs
 {
     bool  odd_drive = true;
     // Smoothed mix between even (0) and odd (1) paths. Ramped per-sample in
-    // ProcessLayerBusSample_ to crossfade the mode switch instead of snapping
+    // ProcessLayerBusBlock_ to crossfade the mode switch instead of snapping
     // (which produced an audible click at the toggle).
     float odd_mix = 1.0f;
     float pre_gain = 1.0f;
@@ -540,7 +540,10 @@ class VoiceEngine
                                  uint32_t start_id,
                                  uint8_t& out_index);
     void RecomputeLayerEmphasisCoeffs_(uint8_t layer);
-    float ProcessLayerBusSample_(uint8_t layer, float input);
+    // Batched per-layer emphasis (ladder + drive) over `n` samples in `buf`,
+    // applying `out_scale` per sample. Hoists filter state into a local and
+    // skips the per-sample coefficient ramps once they have settled to target.
+    void ProcessLayerBusBlock_(uint8_t layer, float* buf, size_t n, float out_scale);
 
     struct RenderVoiceContext
     {

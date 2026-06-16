@@ -332,6 +332,69 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
         return count; // gate stays true; no end-of-stream in a live forward loop
     }
 
+    // ------------------------------------------------------------------------
+    // Fast path: one-shot forward (non-loop) playback. The general path below
+    // calls AdvancePos and ApplyBoundaryFadeNoSeam per sample; both live in
+    // voice_engine_render_loop.cpp, so without LTO they are real per-sample
+    // calls whose overhead makes one-shot voices COST MORE than looped ones
+    // (which take the inlined fast path above). For a one-shot voice the
+    // boundary fade is a no-op (ApplyBoundaryFadeNoSeam returns s when
+    // loop_voice is false) and the advance is a plain forward step that ends
+    // the stream at p.end. With the loop disabled both the full-sample read
+    // (SampleAtLinear, wrap_end false) and the trimmed-region read
+    // (SampleAtLinearRegion, no region loop) collapse to the SAME two-tap blend
+    // clamped at p.end — for the full-sample case p.end == sample length, so one
+    // path covers both use_edit and non-edit one-shots. Semantics match the
+    // general path exactly, including the post-eos clamp-to-(end-1) and the
+    // clamped re-read for the rest of the batch.
+    // ------------------------------------------------------------------------
+    if(fs != nullptr && fs->pcm != nullptr && fs->length > 0u && !p.layer_loop_voice
+       && !p.loop_enabled && gate && p.end > p.start && p.end <= fs->length)
+    {
+        const int16_t* const pcm   = fs->pcm;
+        const uint32_t       end   = p.end;
+        const float          ratio = p.ratio;
+        const float          gain  = p.gain;
+        uint32_t             pf    = pos_frame;
+        float                pfrac = pos_frac;
+        for(size_t i = 0; i < count; ++i)
+        {
+            // Inlined two-tap linear blend; the +1 tap is clamped to the current
+            // frame at the region/sample end (end == length for full-sample).
+            const int16_t a = pcm[pf];
+            const int16_t b = (pf + 1u < end) ? pcm[pf + 1u] : a;
+            const float fa = static_cast<float>(a) * (1.0f / 32768.0f);
+            const float fb = static_cast<float>(b) * (1.0f / 32768.0f);
+            out_buf[i] = (fa + pfrac * (fb - fa)) * gain;
+            // Boundary fade: no-op for a non-loop voice — skipped.
+
+            // Forward advance (inlined AdvanceFrameFrac; ratio > 0 so the frame
+            // index only increases) + one-shot end-of-stream at p.end.
+            const float    total = pfrac + ratio;
+            const uint32_t whole = static_cast<uint32_t>(total); // floor (total >= 0)
+            pfrac = total - static_cast<float>(whole);
+            pf += whole;
+            if(pf >= end)
+            {
+                // Advance after out_buf[i] crossed the end: stream ends here.
+                // Matches the general path — clamp pos to end-1, drop gate, and
+                // refill the rest of the batch from the clamped boundary frame
+                // (pfrac 0 → just that frame * gain).
+                pos_frame = end - 1u;
+                pos_frac  = 0.0f;
+                gate      = false;
+                const float eos_val
+                    = (static_cast<float>(pcm[end - 1u]) * (1.0f / 32768.0f)) * gain;
+                for(size_t k = i + 1u; k < count; ++k)
+                    out_buf[k] = eos_val;
+                return i;
+            }
+        }
+        pos_frame = pf;
+        pos_frac  = pfrac;
+        return count;
+    }
+
     size_t eos_idx = count;
     const uint32_t seam_offset = p.layer_loop_voice ? p.seam_frames : 0u;
 

@@ -76,8 +76,16 @@ constexpr float kOutLpfDark        = 1200.0f;  // post-tank LPF, damp = 1 (genui
 // the knob controls how much chorus is folded in.
 constexpr float kChorusRateAHz       = 0.60f;          // primary LFO
 constexpr float kChorusRateBHz       = 0.91f;          // secondary LFO (incommensurate)
-constexpr float kChorusCenterSamples = 11.0f * 48.0f;  // ~11 ms center delay @ 48k
-constexpr float kChorusDepthSamples  = 5.0f * 48.0f;   // ~±5 ms sweep @ 48k
+// Samples per ms at the reverb engine rate (halved when REVERB_HALF_RATE so the
+// chorus timing stays the same in ms; every other length derives from
+// sample_rate_ and scales automatically).
+#if REVERB_HALF_RATE
+constexpr float kRevSamplesPerMs     = 24.0f;
+#else
+constexpr float kRevSamplesPerMs     = 48.0f;
+#endif
+constexpr float kChorusCenterSamples = 11.0f * kRevSamplesPerMs; // ~11 ms center delay
+constexpr float kChorusDepthSamples  = 5.0f * kRevSamplesPerMs;  // ~±5 ms sweep
 constexpr float kChorusMaxMix        = 0.5f;           // wet/dry of chorus voice at mod = 1
 // L<->R cross-feed of the chorus voices: 0 = straight (each side hears only its
 // own delay line), 1 = full swap (each side hears the OPPOSITE line's wandering
@@ -522,6 +530,8 @@ void DattorroReverb::Clear_()
     chorus_delay_r_ = kChorusCenterSamples;
 
     input_skipping_ = false; // start in full mode; the tail skip re-arms itself
+    hr_prev_wetL_ = 0.0f;
+    hr_prev_wetR_ = 0.0f;
 
     allpass_[0].Clear();
     allpass_[1].Clear();
@@ -621,7 +631,10 @@ void DattorroReverb::ApplyChorus_(float& wetL, float& wetR, float mix, float mak
 
 void DattorroReverb::Init()
 {
-    sample_rate_ = kSampleRate;
+    // Engine rate. kReverbRateDiv == 2 (REVERB_HALF_RATE) runs the whole reverb
+    // at 24 kHz; ConfigureSize_/filters/predelay/control_rate all derive from
+    // this, so room times are preserved. ProcessBlock decimates in / interps out.
+    sample_rate_ = kSampleRate / static_cast<float>(kReverbRateDiv);
 
     allpass_[0].Init(g_dattorro_input_ap1_buf, kInputAp1Max);
     allpass_[1].Init(g_dattorro_input_ap2_buf, kInputAp2Max);
@@ -685,6 +698,8 @@ void DattorroReverb::Init()
     chorus_delay_r_ = kChorusCenterSamples;
 
     input_skipping_ = false; // start in full mode; the tail skip re-arms itself
+    hr_prev_wetL_ = 0.0f;
+    hr_prev_wetR_ = 0.0f;
 
     SetDamping(0.0f);
     SetDecay(1.0f);
@@ -879,11 +894,11 @@ void DattorroReverb::Process(const float inL,
     outR = inR + wetR * out_gain_;
 }
 
-void DattorroReverb::ProcessBlock(const float* inL,
-                                  const float* inR,
-                                  float*       outL,
-                                  float*       outR,
-                                  size_t       n)
+void DattorroReverb::RenderWet_(const float* inL,
+                                const float* inR,
+                                size_t       n,
+                                float*       wetOutL,
+                                float*       wetOutR)
 {
     // Safety net: if the tank feedback state ever goes non-finite (NaN/Inf),
     // it would recirculate forever and silence all output until a power cycle.
@@ -907,7 +922,6 @@ void DattorroReverb::ProcessBlock(const float* inL,
     if(density2_tmp < 0.25f)
         density2_tmp = 0.25f;
     const float    density2      = density2_tmp;
-    const float    out_gain      = out_gain_;
     const float    mod_val       = mod_;
     const uint32_t crate         = control_rate_;
 
@@ -1095,8 +1109,10 @@ void DattorroReverb::ProcessBlock(const float* inL,
         wetL = out_lpf_yl;
         wetR = out_lpf_yr;
 
-        outL[i] = left + wetL * out_gain;
-        outR[i] = right + wetR * out_gain;
+        // Wet-only output (no dry, no out_gain). ProcessBlock adds the pristine
+        // full-rate dry and applies out_gain after any rate conversion.
+        wetOutL[i] = wetL;
+        wetOutR[i] = wetR;
     }
 
     // If we ran the full input section this block and both the input and the
@@ -1113,4 +1129,65 @@ void DattorroReverb::ProcessBlock(const float* inL,
     out_lpf_yr_           = out_lpf_yr;
     bw_yl_                = bw_yl;
     bw_yr_                = bw_yr;
+}
+
+void DattorroReverb::ProcessBlock(const float* inL,
+                                  const float* inR,
+                                  float*       outL,
+                                  float*       outR,
+                                  size_t       n)
+{
+    constexpr size_t kBlockMax = 48; // hardware block size; bounds the scratch
+    if(n > kBlockMax)
+        n = kBlockMax;
+    const float out_gain = out_gain_;
+
+#if REVERB_HALF_RATE
+    // Whole reverb at half rate. Decimate the input 2:1 (2-tap average — a gentle
+    // anti-alias with a null at Nyquist), run the wet engine over n/2 samples,
+    // then linear-interpolate the wet back to full rate and add the pristine
+    // full-rate dry. Assumes an even block (hardware n = 48).
+    const size_t nH = n / 2u;
+    float dinL[kBlockMax / 2], dinR[kBlockMax / 2];
+    for(size_t i = 0; i < nH; ++i)
+    {
+        dinL[i] = 0.5f * (inL[2u * i] + inL[2u * i + 1u]);
+        dinR[i] = 0.5f * (inR[2u * i] + inR[2u * i + 1u]);
+    }
+
+    float wetHL[kBlockMax / 2], wetHR[kBlockMax / 2];
+    RenderWet_(dinL, dinR, nH, wetHL, wetHR);
+
+    // Linear 2x upsample of the wet, continuous across blocks via hr_prev_wet*_.
+    float prevL = hr_prev_wetL_;
+    float prevR = hr_prev_wetR_;
+    for(size_t i = 0; i < nH; ++i)
+    {
+        const float cL = wetHL[i];
+        const float cR = wetHR[i];
+        outL[2u * i]      = inL[2u * i]      + (0.5f * (prevL + cL)) * out_gain;
+        outL[2u * i + 1u] = inL[2u * i + 1u] + cL * out_gain;
+        outR[2u * i]      = inR[2u * i]      + (0.5f * (prevR + cR)) * out_gain;
+        outR[2u * i + 1u] = inR[2u * i + 1u] + cR * out_gain;
+        prevL = cL;
+        prevR = cR;
+    }
+    hr_prev_wetL_ = prevL;
+    hr_prev_wetR_ = prevR;
+
+    // Defensive odd-n tail (never hit at the fixed 48-sample block): dry + last wet.
+    if(n & 1u)
+    {
+        outL[n - 1u] = inL[n - 1u] + prevL * out_gain;
+        outR[n - 1u] = inR[n - 1u] + prevR * out_gain;
+    }
+#else
+    float wetL[kBlockMax], wetR[kBlockMax];
+    RenderWet_(inL, inR, n, wetL, wetR);
+    for(size_t i = 0; i < n; ++i)
+    {
+        outL[i] = inL[i] + wetL[i] * out_gain;
+        outR[i] = inR[i] + wetR[i] * out_gain;
+    }
+#endif
 }

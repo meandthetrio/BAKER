@@ -5,6 +5,7 @@
 
 #include "daisysp.h"
 #include "../../mem_regions.h"
+#include "build_config.h" // REVERB_HALF_RATE
 
 class DattorroReverb
 {
@@ -160,11 +161,26 @@ class DattorroReverb
     static constexpr size_t kEarlyDelayRMax = 3312;
     static constexpr size_t kChorusMax      = 1024; // ~21 ms @ 48k; holds center+depth
 
+    // Engine rate divisor: 2 runs the whole reverb at half the audio rate
+    // (24 kHz). sample_rate_ is set to kSampleRate / kReverbRateDiv in Init, and
+    // every length/filter/predelay/control-rate derives from sample_rate_, so
+    // the room times stay identical. See REVERB_HALF_RATE in build_config.h.
+#if REVERB_HALF_RATE
+    static constexpr uint32_t kReverbRateDiv = 2u;
+#else
+    static constexpr uint32_t kReverbRateDiv = 1u;
+#endif
+
     static float Clamp01_(float value);
 
     void  Clear_();
     void  ConfigureSize_(float size);
     float ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line, float input);
+    // Runs the full reverb engine over `count` input samples and writes the
+    // WET-only output (post chorus + output LPF, no dry, no out_gain) to
+    // wetL/wetR. ProcessBlock adds the pristine full-rate dry afterward. Shared
+    // by the full-rate and half-rate paths so the tank loop has one copy.
+    void  RenderWet_(const float* inL, const float* inR, size_t count, float* wetL, float* wetR);
     // Post-tank stereo chorus: write wet into the L/R chorus lines, read back at
     // the current modulated delay, and blend `mix` of the chorused voice in.
     // `makeup` (1/sqrt(1+mix^2)) is precomputed once per block by the caller.
@@ -233,6 +249,12 @@ class DattorroReverb
 
     float previous_left_tank_  = 0.0f;
     float previous_right_tank_ = 0.0f;
+
+    // Half-rate wet interpolator continuity (REVERB_HALF_RATE only): the last
+    // half-rate wet sample of the previous block, so the linear 2x upsampler in
+    // ProcessBlock has no per-block seam. Unused at full rate.
+    float hr_prev_wetL_ = 0.0f;
+    float hr_prev_wetR_ = 0.0f;
 
     ADSR2_ALIGN32 float tank_delay1_buf_[kTankDelay1Max];
     ADSR2_ALIGN32 float tank_delay2_buf_[kTankDelay2Max];

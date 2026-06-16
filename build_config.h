@@ -9,3 +9,12 @@
 // neutral pitch (pitch_scale = 1.0). Engine tuning, gain, and EQ are
 // unaffected. Flip to 1 to restore modulation.
 #define MOD_SYSTEM_ENABLED 0
+
+// Run the whole Dattorro reverb at half the audio sample rate (24 kHz): the
+// input is decimated 2:1, the reverb engine runs at half rate (delay lengths,
+// filters, predelay, control rate all auto-scale from sample_rate_), and the
+// wet output is interpolated back to 48 kHz before adding the pristine
+// full-rate dry. Roughly halves the reverb's per-block math. HF rolls off near
+// ~12 kHz across the reverb — inaudible on dark settings. Build-time A/B:
+// 0 = full-rate (current), 1 = half-rate.
+#define REVERB_HALF_RATE 1

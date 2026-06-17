@@ -511,6 +511,10 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     manifest.sat.sat_bit_reso = targets.sat_bit_reso;
     manifest.sat.sat_bit_smpl = targets.sat_bit_smpl;
     ClampProjectSatState(manifest.sat);
+    // TONE/BIAS live top-level on the manifest (v22 append), not in the frozen
+    // ProjectSatState. TONE 0..1, BIAS -1..1.
+    manifest.sat_tone = ClampProjectFloat(targets.sat_tone, 0.0f, 1.0f);
+    manifest.sat_bias = ClampProjectFloat(targets.sat_bias, -1.0f, 1.0f);
     manifest.eq.eq_on = targets.eq_on ? 1u : 0u;
     manifest.eq.eq_mix = targets.eq_mix;
     manifest.eq.eq_center_norm = targets.eq_center_norm;

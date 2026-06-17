@@ -31,11 +31,13 @@ float UiDeltaNormAccelerated(int enc_delta, uint32_t t_ms, uint32_t& last_t_ms, 
     return static_cast<float>(enc_delta) * base_step * UiAccelFromDtMs(dt_ms);
 }
 
-uint8_t ProcessDetailParamCount(uint8_t fx_id)
+uint8_t ProcessDetailParamCount(uint8_t fx_id, uint8_t sat_mode)
 {
     switch(fx_id)
     {
-        case 0: return 3; // SAT/RESO BUMP/SMPL + mode toggle
+        // SAT is mode-dependent: TAPE = SAT BUMP TONE BIAS + mode toggle (5);
+        // BIT = RESO SMPL + mode toggle (3).
+        case 0: return (sat_mode == 0) ? 5 : 3;
         case 1: return 1; // EQ: graph only (no classic detail)
         case 2: return 4; // DELAY: LTM RTM FBK + mode slot
         case 3: return 5; // REVERB: Pre Dmp Dcy Mod + mode slot
@@ -158,46 +160,58 @@ static bool ProcessEditSatDetail(PerformParamsTargets& t,
                                  uint8_t pidx,
                                  float delta)
 {
-    if(pidx == 0)
-    {
-        if(t.sat_mode == 0)
-        {
-            t.sat_drive = Clamp01(t.sat_drive + delta);
-        }
-        else
-        {
-            // ADSR behavior: RESO is a discrete 3-state selector.
-            const int dir = (e.value > 0) ? 1 : -1;
-            int idx = 0;
-            if(t.sat_bit_reso >= 0.75f)
-                idx = 2;
-            else if(t.sat_bit_reso >= 0.25f)
-                idx = 1;
-            idx += dir;
-            if(idx < 0) idx = 0;
-            if(idx > 2) idx = 2;
-            if(idx == 0) t.sat_bit_reso = 0.0f;      // CRUSH
-            if(idx == 1) t.sat_bit_reso = 0.5f;      // STATIC
-            if(idx == 2) t.sat_bit_reso = 1.0f;      // HISS
-        }
-        return true;
-    }
+    const bool    tape      = (t.sat_mode == 0);
+    const uint8_t mode_pidx = tape ? 4u : 2u; // mode toggle is the last param slot
 
-    if(pidx == 1)
+    if(pidx == mode_pidx)
     {
-        if(t.sat_mode == 0)
-            t.sat_bump = Clamp01(t.sat_bump + delta);
-        else
-            t.sat_bit_smpl = Clamp01(t.sat_bit_smpl + delta);
-        return true;
-    }
-
-    if(pidx == 2)
-    {
-        const int dir = (e.value > 0) ? 1 : -1;
-        int steps = (e.value > 0) ? e.value : -e.value;
+        const int dir   = (e.value > 0) ? 1 : -1;
+        int       steps = (e.value > 0) ? e.value : -e.value;
         while(steps-- > 0)
             t.sat_mode = (dir > 0) ? ((t.sat_mode + 1u) & 1u) : ((t.sat_mode == 0) ? 1u : 0u);
+        return true;
+    }
+
+    if(tape)
+    {
+        // TAPE: SAT(drive) BUMP TONE BIAS. BIAS is bipolar (-1..1); the fader
+        // shows it as 0..1, so traverse 2x per detent to span the full range.
+        if(pidx == 0)
+            t.sat_drive = Clamp01(t.sat_drive + delta);
+        else if(pidx == 1)
+            t.sat_bump = Clamp01(t.sat_bump + delta);
+        else if(pidx == 2)
+            t.sat_tone = Clamp01(t.sat_tone + delta);
+        else if(pidx == 3)
+        {
+            float b = t.sat_bias + delta * 2.0f;
+            if(b < -1.0f) b = -1.0f;
+            if(b > 1.0f) b = 1.0f;
+            t.sat_bias = b;
+        }
+        return true;
+    }
+
+    // BIT mode: RESO (discrete 3-state) + SMPL.
+    if(pidx == 0)
+    {
+        const int dir = (e.value > 0) ? 1 : -1;
+        int idx = 0;
+        if(t.sat_bit_reso >= 0.75f)
+            idx = 2;
+        else if(t.sat_bit_reso >= 0.25f)
+            idx = 1;
+        idx += dir;
+        if(idx < 0) idx = 0;
+        if(idx > 2) idx = 2;
+        if(idx == 0) t.sat_bit_reso = 0.0f;      // CRUSH
+        if(idx == 1) t.sat_bit_reso = 0.5f;      // STATIC
+        if(idx == 2) t.sat_bit_reso = 1.0f;      // HISS
+        return true;
+    }
+    if(pidx == 1)
+    {
+        t.sat_bit_smpl = Clamp01(t.sat_bit_smpl + delta);
         return true;
     }
 

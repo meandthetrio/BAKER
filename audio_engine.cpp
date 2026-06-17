@@ -93,36 +93,74 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
 // stage per block instead of once per sample per stage. DSP is identical.
 
 void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
-                                   float target_pre, float target_wet, float target_makeup,
+                                   const PerformParamsCurrent& p,
+                                   float target_wet,
+                                   float target_pre, float target_makeup,
                                    const float* send, float send_scale)
 {
+    const bool tape = (p.sat_mode == 0);
+
+    // TAPE mode: push the (already 5 ms params-smoothed) controls into the L/R
+    // tape saturators once per block. PrepareBlock smooths them and caches every
+    // derived coefficient so the per-sample Process is just the DSP. The
+    // saturator is full-wet; the bypass dry/wet blend below (sat_wet_gain_)
+    // handles on/off so the stage tails cleanly.
+    if(tape)
+    {
+        tape_sat_l_.PrepareBlock(p.sat_drive, p.sat_bump, p.sat_tone, p.sat_bias);
+        tape_sat_r_.PrepareBlock(p.sat_drive, p.sat_bump, p.sat_tone, p.sat_bias);
+    }
+
+    // Drive-proportional makeup applied to the tape wet (see header). Linear in
+    // drive on a dB scale: 0 dB at drive 0 -> kSatTapeMakeupDbAtFull at drive 1.
+    const float target_tape_makeup
+        = tape ? std::pow(10.0f, (kSatTapeMakeupDbAtFull * p.sat_drive) / 20.0f) : 1.0f;
+
     uint32_t hit_count = 0u;
     float    pre       = sat_pre_smoothed_;
     float    wet       = sat_wet_gain_;
     float    makeup    = sat_makeup_smoothed_;
+    float    tape_mk   = sat_tape_makeup_smoothed_;
     for(size_t i = 0; i < n; ++i)
     {
+        tape_mk += (target_tape_makeup - tape_mk) * kDelayFxSmoothCoeff;
         // Slow per-sample ramps (~50 ms). Removes drive-fader stepping and
-        // smooths the bypass<->softclip transition into a wet/dry blend.
+        // smooths the bypass<->wet transition into a dry/wet blend. pre/makeup
+        // are kept smoothed in both modes because the velmod send below always
+        // runs through the lightweight SoftClip path.
         pre    += (target_pre    - pre)    * kDelayFxSmoothCoeff;
         wet    += (target_wet    - wet)    * kDelayFxSmoothCoeff;
         makeup += (target_makeup - makeup) * kDelayFxSmoothCoeff;
         const float dry_l = L[i];
         const float dry_r = R[i];
-        const float pre_l = dry_l * pre;
-        const float pre_r = dry_r * pre;
-        if(std::fabs(pre_l) > 1.0f)
-            ++hit_count;
-        if(std::fabs(pre_r) > 1.0f)
-            ++hit_count;
-        const float clip_l = SoftClip(pre_l) * makeup;
-        const float clip_r = SoftClip(pre_r) * makeup;
-        float out_l = dry_l * (1.0f - wet) + clip_l * wet;
-        float out_r = dry_r * (1.0f - wet) + clip_r * wet;
+        float       wet_l;
+        float       wet_r;
+        if(tape)
+        {
+            wet_l = tape_sat_l_.Process(dry_l) * tape_mk;
+            wet_r = tape_sat_r_.Process(dry_r) * tape_mk;
+        }
+        else
+        {
+            const float pre_l = dry_l * pre;
+            const float pre_r = dry_r * pre;
+            if(std::fabs(pre_l) > 1.0f)
+                ++hit_count;
+            if(std::fabs(pre_r) > 1.0f)
+                ++hit_count;
+            wet_l = SoftClip(pre_l) * makeup;
+            wet_r = SoftClip(pre_r) * makeup;
+        }
+        float out_l = dry_l * (1.0f - wet) + wet_l * wet;
+        float out_r = dry_r * (1.0f - wet) + wet_r * wet;
         if(send != nullptr)
         {
-            // Velmod sat send: saturate the send with the current drive and add
-            // its wet at unity — independent of the global wet/dry mix.
+            // Velmod sat send: saturate the send and add its wet at unity —
+            // independent of the global wet/dry mix (so a send-only activation,
+            // where target_wet is 0, is still heard). Kept on the stateless
+            // SoftClip path in both modes: routing it through the stateful tape
+            // model would need a dedicated send instance and would lose this
+            // fader-independence.
             const float s = send[i] * send_scale;
             out_l += SoftClip(s * pre) * makeup;
             out_r += SoftClip(s * pre) * makeup;
@@ -130,9 +168,10 @@ void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
         L[i] = out_l;
         R[i] = out_r;
     }
-    sat_pre_smoothed_    = pre;
-    sat_wet_gain_        = wet;
-    sat_makeup_smoothed_ = makeup;
+    sat_pre_smoothed_         = pre;
+    sat_wet_gain_             = wet;
+    sat_makeup_smoothed_      = makeup;
+    sat_tape_makeup_smoothed_ = tape_mk;
     if(diagnostics_ && hit_count > 0u)
         diagnostics_->sat_softclip_hits.fetch_add(hit_count, std::memory_order_relaxed);
 }
@@ -365,6 +404,10 @@ void AudioEngine::Init(float sample_rate, size_t block_size)
 
     // Reverb init/clear
     dattorro_.Init();
+
+    // TAPE-mode saturators (one per channel).
+    tape_sat_l_.Init(sample_rate_, block_size_);
+    tape_sat_r_.Init(sample_rate_, block_size_);
 
     delay_active_  = false;
     delay_tailing_ = false;
@@ -648,8 +691,9 @@ void AudioEngine::ProcessBlock(const float* inL,
                 if(sat_run || sat_send != nullptr)
                 {
                     const uint32_t stage_start = DWT->CYCCNT;
-                    ProcessSatBlock_(outL, outR, size, target_sat_pre, target_sat_wet,
-                                     target_sat_makeup, sat_send, kSendFeedScale);
+                    ProcessSatBlock_(outL, outR, size, p, target_sat_wet,
+                                     target_sat_pre, target_sat_makeup, sat_send,
+                                     kSendFeedScale);
                     sat_cycles += DWT->CYCCNT - stage_start;
                 }
                 break;

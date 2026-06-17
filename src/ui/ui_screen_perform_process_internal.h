@@ -52,7 +52,7 @@ void DrawFxDetailScreen(OledPager& d,
 
 // Edit / parameter adjustment (ui_screen_perform_process_edit.cpp).
 float UiDeltaNormAccelerated(int enc_delta, uint32_t t_ms, uint32_t& last_t_ms, float base_step);
-uint8_t ProcessDetailParamCount(uint8_t fx_id);
+uint8_t ProcessDetailParamCount(uint8_t fx_id, uint8_t sat_mode = 0);
 void ProcessHandleLayerToggle(UiScreenCtx& ctx);
 void ProcessHandleLayerMuteToggle(UiScreenCtx& ctx, uint8_t layer);
 void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e, uint8_t layer);

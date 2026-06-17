@@ -54,11 +54,12 @@ static void ProcessEnsureValidMainCursor(const AppSharedState& shared,
 static void ProcessEnsureValidDetailParam(const AppSharedState& shared,
                                           AppEngineState& engine,
                                           uint8_t layer,
-                                          uint8_t fx_cursor)
+                                          uint8_t fx_cursor,
+                                          uint8_t sat_mode)
 {
     const uint8_t cursor = fx_cursor & 0x03u;
     const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
-    const uint8_t count = ProcessDetailParamCount(fx_id);
+    const uint8_t count = ProcessDetailParamCount(fx_id, sat_mode);
     if(count == 0u)
         return;
 
@@ -82,7 +83,8 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppSharedState& shared = *ctx.shared;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     ProcessEnsureValidMainCursor(shared, engine, layer);
-    ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor);
+    ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor,
+                                  ctx.params->EditTargets().sat_mode);
     const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 6u);
     const bool main_selects_fx = (main_cursor >= 2u);
     const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 2u) & 0x03u)
@@ -157,7 +159,8 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 else
                 {
                     engine.process.perform_process_detail_active = true;
-                    const uint8_t detail_count = ProcessDetailParamCount(fid);
+                    const uint8_t detail_count
+                        = ProcessDetailParamCount(fid, ctx.params->EditTargets().sat_mode);
                     if(detail_count > 0u
                        && engine.process.perform_process_detail_param[c] >= detail_count)
                         engine.process.perform_process_detail_param[c] = 0u;
@@ -192,7 +195,8 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(engine.process.perform_process_detail_active)
         {
             int idx = static_cast<int>(engine.process.perform_process_detail_param[cursor]) + e.value;
-            const int count = static_cast<int>(ProcessDetailParamCount(fx_id));
+            const int count = static_cast<int>(
+                ProcessDetailParamCount(fx_id, ctx.params->EditTargets().sat_mode));
             while(idx < 0)
                 idx += count;
             while(idx >= count)
@@ -304,7 +308,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     AppSharedState& shared = *ctx.shared;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     ProcessEnsureValidMainCursor(shared, engine, layer);
-    ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor);
+    ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor,
+                                  ctx.params->EditTargets().sat_mode);
     EngineRefreshLoadedMetadata(ui, engine, shared);
 
     OledPager& d = *ctx.display;

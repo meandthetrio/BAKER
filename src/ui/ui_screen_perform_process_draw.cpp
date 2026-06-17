@@ -198,7 +198,10 @@ static void DrawProcessSatDetail(OledPager& d,
     const int box_h = (block_h - kGap) / 2;
     const bool tape_selected = (t.sat_mode == 0);
     const bool bit_selected = (t.sat_mode == 1);
-    const bool mode_select_active = (selected_param == 3);
+    // Mode toggle is the last detail param: index 4 in TAPE (4 faders), 2 in BIT
+    // (2 faders). Must match ProcessEditSatDetail / ProcessDetailParamCount.
+    const int  mode_pidx = bit_selected ? 2 : 4;
+    const bool mode_select_active = (selected_param == mode_pidx);
     d.DrawRect(block_x, block_y, block_x + block_w - 1, block_y + box_h - 1, true, false);
     d.DrawRect(block_x,
                block_y + box_h + kGap,
@@ -235,18 +238,39 @@ static void DrawProcessSatDetail(OledPager& d,
     if(fader_w <= 4)
         return;
 
-    constexpr int kSatFaderCount = 2;
-    const char* fader_labels[kSatFaderCount] = {(t.sat_mode == 1) ? "RESO" : "SAT",
-                                                (t.sat_mode == 1) ? "SMPL" : "BUMP"};
-    const float fader_values[kSatFaderCount] = {(t.sat_mode == 1) ? t.sat_bit_reso : t.sat_drive,
-                                                (t.sat_mode == 1) ? t.sat_bit_smpl : t.sat_bump};
+    constexpr int kSatFaderMax = 4;
+    // BIT: RESO SMPL (RESO drawn as discrete labels, fader rail/handle hidden).
+    // TAPE: SAT BUMP TONE BIAS. BIAS is bipolar (-1..1) shown as 0..1.
+    const int   sat_fader_count = (t.sat_mode == 1) ? 2 : 4;
+    const char* fader_labels[kSatFaderMax];
+    float       fader_values[kSatFaderMax];
+    int         fader_offsets[kSatFaderMax]  = {0, 0, 0, 0};
+    bool        circle_handles[kSatFaderMax] = {false, false, false, false};
+    bool        hide_rails[kSatFaderMax]     = {false, false, false, false};
+    bool        hide_handles[kSatFaderMax]   = {false, false, false, false};
+    if(t.sat_mode == 1)
+    {
+        fader_labels[0] = "RESO";
+        fader_labels[1] = "SMPL";
+        fader_values[0] = t.sat_bit_reso;
+        fader_values[1] = t.sat_bit_smpl;
+        hide_rails[0]   = true;
+        hide_handles[0] = true;
+    }
+    else
+    {
+        fader_labels[0] = "SAT";
+        fader_labels[1] = "BUMP";
+        fader_labels[2] = "TONE";
+        fader_labels[3] = "BIAS";
+        fader_values[0] = t.sat_drive;
+        fader_values[1] = t.sat_bump;
+        fader_values[2] = t.sat_tone;
+        fader_values[3] = 0.5f + 0.5f * t.sat_bias;
+    }
     int param_index = selected_param;
-    const bool fader_select_active = (param_index >= 0 && param_index < kSatFaderCount);
+    const bool fader_select_active = (param_index >= 0 && param_index < sat_fader_count);
     if(!fader_select_active && !mode_select_active) param_index = 0;
-    const int fader_offsets[kSatFaderCount] = {0, 0};
-    const bool circle_handles[kSatFaderCount] = {false, false};
-    const bool hide_rails[kSatFaderCount] = {t.sat_mode == 1, false};
-    const bool hide_handles[kSatFaderCount] = {t.sat_mode == 1, false};
     const int selected_label_style = 3;
     DrawVerticalFadersInRect(d,
                              fader_x,
@@ -255,7 +279,7 @@ static void DrawProcessSatDetail(OledPager& d,
                              block_h,
                              fader_labels,
                              fader_values,
-                             kSatFaderCount,
+                             sat_fader_count,
                              fader_select_active,
                              param_index,
                              fader_offsets,

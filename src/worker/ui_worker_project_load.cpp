@@ -31,7 +31,9 @@ static void PublishProjectPerformParams(Params& params,
                                         const ProjectReverbState* process_reverb_state,
                                         const float* emphasis_cutoff_hz,
                                         const float* emphasis_resonance,
-                                        const float* output_master_level)
+                                        const float* output_master_level,
+                                        float process_sat_tone,
+                                        float process_sat_bias)
 {
     PerformParamsTargets& t = params.EditTargets();
     if(output_master_level)
@@ -52,6 +54,10 @@ static void PublishProjectPerformParams(Params& params,
         t.sat_bit_reso = ClampProjectFloat(process_sat_state->sat_bit_reso, 0.0f, 1.0f);
         t.sat_bit_smpl = ClampProjectFloat(process_sat_state->sat_bit_smpl, 0.0f, 1.0f);
     }
+    // TONE/BIAS are top-level manifest fields (v22), independent of the sat
+    // sub-struct. TONE 0..1, BIAS -1..1.
+    t.sat_tone = ClampProjectFloat(process_sat_tone, 0.0f, 1.0f);
+    t.sat_bias = ClampProjectFloat(process_sat_bias, -1.0f, 1.0f);
     if(process_eq_state)
     {
         t.eq_on = true;
@@ -327,7 +333,9 @@ void ApplyProjectLoadState(AppEngineState& engine,
                                 &manifest.reverb,
                                 manifest.engine_filter_cutoff_hz,
                                 manifest.engine_filter_resonance,
-                                &manifest.master_level);
+                                &manifest.master_level,
+                                manifest.sat_tone,
+                                manifest.sat_bias);
     SyncProjectProcessVolumeUiState(engine, manifest.engine_layer_master_level);
     SyncProjectProcessFxOrderUiState(engine, manifest.fx_order);
 }

@@ -31,6 +31,8 @@ struct PerformParamsTargets
     float sat_drive  = 0.0f;
     float sat_mix    = 0.0f;
     float sat_bump   = 0.5f;
+    float sat_tone   = 0.5f;   // tape mode: pre-emphasis low/high balance (0..1)
+    float sat_bias   = 0.0f;   // tape mode: waveshaper asymmetry (-1..1)
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit
@@ -121,6 +123,8 @@ struct PerformParamsCurrent
     float sat_drive  = 0.0f;
     float sat_mix    = 0.0f;
     float sat_bump   = 0.5f;
+    float sat_tone   = 0.5f;   // tape mode: pre-emphasis low/high balance (0..1)
+    float sat_bias   = 0.0f;   // tape mode: waveshaper asymmetry (-1..1)
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit

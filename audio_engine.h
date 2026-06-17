@@ -5,6 +5,7 @@
 #include "params.h"
 #include "tilt_eq.h"
 #include "Effects/Reverb/DattorroReverb.h"
+#include "Effects/Saturator/TapeSaturator.h"
 
 struct AppDiagnosticsState;
 
@@ -48,6 +49,21 @@ class AudioEngine
     float sat_pre_smoothed_    = 1.0f;
     float sat_wet_gain_        = 0.0f;
     float sat_makeup_smoothed_ = 1.0f;
+
+    // TAPE-mode drive makeup. The tape model's pre-emphasis + (1+drive)^2 drive
+    // boost raise level far more than the old softclip (which only trims -6 dB
+    // internally at full drive), so the SAT fader was causing heavy peaking.
+    // This attenuates the tape *wet* by a drive-proportional amount, smoothed
+    // per-sample. CALIBRATION KNOB: kSatTapeMakeupDbAtFull is the dB applied at
+    // drive=1 (scaled linearly with drive). Make it more negative if the SAT
+    // fader still peaks, less negative if high drive gets too quiet.
+    // Calibration (measured): at -18 dB, the OutFinal peak was -21 dBFS at SAT 0
+    // and -13 dBFS at full SAT -> full SAT ran +8 dB hot vs dry. The makeup is
+    // linear-in-drive (dB) and the output is ~all wet at full SAT, so it maps
+    // ~1:1 to level there; -18 - 8 = -26 dB targets dry parity at full drive.
+    // Nudge toward 0 if too quiet at full SAT, more negative if it peaks.
+    static constexpr float kSatTapeMakeupDbAtFull = -26.0f;
+    float sat_tape_makeup_smoothed_ = 1.0f;
 
     // ---- DELAY (stereo dual delay: independent L/R tap times, per-channel feedback) ----
   public:
@@ -131,8 +147,13 @@ class AudioEngine
     // (nullptr = none) fed into the effect's WET generator at full level,
     // bypassing the global dry/wet fader so per-voice sends are heard even
     // with the effect's fader down.
+    // `p.sat_mode` selects TAPE (0, real TapeSaturator model) vs BIT (1, the
+    // legacy SoftClip path). `target_pre`/`target_makeup` only feed the BIT
+    // path; `target_wet` is the bypass crossfade target for both modes.
     void ProcessSatBlock_(float* L, float* R, size_t n,
-                          float target_pre, float target_wet, float target_makeup,
+                          const PerformParamsCurrent& p,
+                          float target_wet,
+                          float target_pre, float target_makeup,
                           const float* send = nullptr, float send_scale = 0.0f);
     void ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix);
     void ProcessDelayBlock_(float* L, float* R, size_t n,
@@ -149,6 +170,11 @@ class AudioEngine
                            float level, float bypass_comp);
 
     DattorroReverb dattorro_;
+
+    // TAPE-mode saturation: one mono TapeSaturator per channel (mirrors the
+    // `Cuz` sat_l/sat_r layout). BIT mode still uses the inline SoftClip path.
+    TapeSaturator tape_sat_l_;
+    TapeSaturator tape_sat_r_;
 
     TiltEqStereo tilt_eq_{};
     bool           eq_run_prev_ = false;

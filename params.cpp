@@ -85,6 +85,8 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.sat_drive    = SmoothToward(current.sat_drive, t.sat_drive, coeff);
     current.sat_mix      = SmoothToward(current.sat_mix, t.sat_mix, coeff);
     current.sat_bump     = SmoothToward(current.sat_bump, t.sat_bump, coeff);
+    current.sat_tone     = SmoothToward(current.sat_tone, t.sat_tone, coeff);
+    current.sat_bias     = SmoothToward(current.sat_bias, t.sat_bias, coeff);
     current.sat_bit_reso = SmoothToward(current.sat_bit_reso, t.sat_bit_reso, coeff);
     current.sat_bit_smpl = SmoothToward(current.sat_bit_smpl, t.sat_bit_smpl, coeff);
     current.eq_mix         = SmoothToward(current.eq_mix, t.eq_mix, coeff);

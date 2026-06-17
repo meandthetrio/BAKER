@@ -339,10 +339,76 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
     if(st.stop_fade.active)
         st.old_gate = false;
 
-    for(size_t i = 0; i < ctx.size; i++)
+    // Batched steal fade-out. The per-sample path makes three cross-TU calls
+    // every sample (VoiceRenderFetch_VoiceStream + ApplyBoundaryFadeNoSeam +
+    // AdvancePos, all in voice_engine_render_loop/fetch.cpp) — under heavy voice
+    // stealing several of these run at once and spike CPU. Phase 1 fetches the
+    // whole block's old-voice audio (boundary-faded, ×old_gain) through the same
+    // VoiceRenderFetch_VoiceStreamBatch the normal voices use (one cross-TU call
+    // per block, fast paths inlined); Phase 2 applies the steal/stop-fade ramps
+    // and mixes, with the SAME early termination as the per-sample path. The
+    // batch's end-of-stream clamp (pos→end-1, gate off) matches
+    // ClampPosPastEndWhenGateOff, and the over-advanced old pos is either
+    // discarded on early termination or committed correctly when the voice
+    // survives the block — so this is behaviour-identical, just cheaper.
+    constexpr size_t kStealBatchMax = 48;
+    const size_t     N              = ctx.size;
+    if(N > kStealBatchMax)
     {
-        if(RenderStealFadeOut_ProcessOneSample_(v, ctx, setup, i, st))
-            break;
+        // Oversized block: keep the per-sample path (stack-safe, off the heap).
+        for(size_t i = 0; i < N; i++)
+            if(RenderStealFadeOut_ProcessOneSample_(v, ctx, setup, i, st))
+                break;
+    }
+    else if(N > 0)
+    {
+        float buf[kStealBatchMax];
+
+        VoiceBatchFetchParams p;
+        p.sample                = v.sample;
+        p.start                 = setup.start;
+        p.end                   = setup.end;
+        p.ls_i                  = setup.ls_i;
+        p.le_i                  = setup.le_i;
+        p.length_f              = setup.length_f;
+        p.ls                    = setup.ls;
+        p.le                    = setup.le;
+        p.use_edit              = setup.use_edit;
+        p.region_loop_enabled   = setup.old_loop_enabled;
+        p.loop_enabled          = setup.old_loop_enabled;
+        p.voice_loop_mode       = setup.old_loop_mode;
+        p.layer_loop_voice      = setup.loop_voice;
+        p.seam_frames           = setup.old_seam_frames;
+        p.crossfade_seam_frames = setup.old_crossfade_seam_frames;
+        p.loop_shape            = loop_crossfade_shape_[setup.old_layer];
+        p.sample_rate           = sample_rate_;
+        p.ratio                 = setup.old_ratio;
+        p.gain                  = setup.old_gain;
+        p.fade_start_threshold  = setup.loop_fade_start_threshold;
+        p.fade_end_threshold    = setup.loop_fade_end_threshold;
+
+        // Phase 1: fetch + boundary-fade + pos advance + eos clamp for the block.
+        VoiceRenderFetch_VoiceStreamBatch(
+            p, st.old_pos_frame, st.old_pos_frac, st.old_dir, st.old_gate, N, buf);
+
+        // Phase 2: steal-fade (× optional stop-fade) ramp + mix, matching the
+        // per-sample order of operations and early termination exactly.
+        float* const bus = (setup.old_layer == 0u) ? ctx.outL : ctx.outR;
+        for(size_t i = 0; i < N; ++i)
+        {
+            const float out = buf[i] * st.steal_fade_level;
+            bus[i] += st.stop_fade.active ? (out * st.stop_fade.level) : out;
+
+            if(StopFade_AdvanceAndFinishIfDone_(v, st.stop_fade))
+                break; // stop-fade completed -> voice finalized (Idle)
+
+            st.steal_fade_level -= setup.steal_fade_step;
+            if(st.steal_fade_level <= 0.0f)
+            {
+                CompleteStealFadeOut_(v);
+                break;
+            }
+        }
     }
 
     if(v.state == VoiceState::Idle)

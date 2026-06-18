@@ -59,9 +59,8 @@ static bool StartLoadFromPathInternal(SdBrowserState& sd,
 
     const uint32_t frames = info.data_size / 2u;
     // Per-target cap:
-    //   slot 0     — RAM_D2 (smaller); kSdPlaybackD2MaxFrames (~2.7 s).
-    //   slot 1     — SDRAM; kSdSampleMaxFrames (5 s).
-    //   BakePreview — SDRAM, same 5 s as slot 1 (shares the bake pipeline's
+    //   playback slots — SDRAM; kSdSampleMaxFrames (5 s).
+    //   BakePreview — SDRAM, same 5 s (shares the bake pipeline's
     //                 kMaxFrames=240000 cap downstream).
     //   SdManage   — its own larger SDRAM buffer at kSdManageMaxFrames (10 s),
     //                so users can trim long sources before saving back to a
@@ -174,7 +173,9 @@ static bool StartNextProjectRestoreLoadInternal(SdBrowserState& sd,
             continue;
         }
 
-        engine.perform_nav.perform_layer = slot;
+        // Single layer: the UI always edits layer 0 (the one that sounds). Never
+        // follow the restore slot to layer B, or the UI flips to the silent layer.
+        engine.perform_nav.perform_layer = 0u;
         if(!StartLoadFromPathInternal(sd,
                                       shared,
                                       s_sd.project_restore_path[slot],

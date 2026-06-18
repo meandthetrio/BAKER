@@ -695,7 +695,10 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     const uint32_t pre_tick_cycles = DWT->CYCCNT - pre_tick_start;
 
     const uint32_t pre_push_start = DWT->CYCCNT;
-    for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
+    // Single layer: only slot 0's params are pushed into the (1-layer) engine.
+    // The manifest/params still carry 2 slots (collapsed in Phase D), so cap the
+    // push to the engine's layer count to avoid writing engine arrays out of bounds.
+    for(uint8_t layer = 0; layer < 1; ++layer)
     {
         if(express_push)
         {
@@ -726,9 +729,6 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                 layer, voice_params.express_poly_porto_source_range_semitones[layer]);
             g_voice.SetPolyPortoSourceMode(layer, voice_params.express_poly_porto_source_mode[layer]);
             g_voice.SetPolyPortoReleaseMs(layer, voice_params.express_poly_porto_release_ms[layer]);
-            g_voice.SetEngineGainDb(layer, voice_params.engine_gain_db[layer]);
-            g_voice.SetEngineFilterCutoffHz(layer, voice_params.engine_filter_cutoff_hz[layer]);
-            g_voice.SetEngineFilterResonance(layer, voice_params.engine_filter_resonance[layer]);
             g_voice.SetLoopEnvelopeParams(layer,
                                           voice_params.engine_loop_attack_ms[layer],
                                           voice_params.engine_loop_decay_ms[layer],
@@ -739,8 +739,6 @@ void AudioCallback(AudioHandle::InputBuffer  in,
         {
             // Static group: only changes on a UI edit.
             g_voice.SetEngineTuneSemitones(layer, voice_params.engine_tune_semitones[layer]);
-            g_voice.SetEngineDriveMode(layer, voice_params.engine_drive_mode[layer]);
-            g_voice.SetEngineFilterMode(layer, voice_params.engine_filter_mode[layer]);
             float layer_level = voice_params.engine_layer_master_level[layer];
             if(layer_level < 0.0f)
                 layer_level = 0.0f;
@@ -789,6 +787,8 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                           voice_params.velmod_source[lane]);
     }
     g_voice.SetVelModSplit(voice_params.perform_keyzone_is_split);
+    // Split divider = the keyzone screen's split point (top of zone A).
+    g_voice.SetVelModSplitNote(voice_params.perform_keyzone_hi_note[0]);
     const uint32_t pre_push_cycles = DWT->CYCCNT - pre_push_start;
 
     const uint32_t pre_events_start = DWT->CYCCNT;

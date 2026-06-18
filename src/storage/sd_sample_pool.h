@@ -5,10 +5,6 @@
 #include "storage_limits.h"
 
 static constexpr uint32_t kSdSampleMaxFrames = 240000; // 5 seconds @ 48kHz
-// Playback slot 0 lives in fast internal RAM_D2 (256K), so it is capped to what
-// fits there: 131072 frames * 2 bytes = 256K (~2.73 s @ 48kHz). Slot 1 and the
-// record/baked/bake-preview buffers stay in SDRAM at kSdSampleMaxFrames.
-static constexpr uint32_t kSdPlaybackD2MaxFrames = 131072;
 // SD-manager edit mode loads into its own SDRAM buffer, sized 2× the regular
 // sample cap so users can trim down longer source files before committing them
 // to a playback slot. Decoupled from kSdSampleMaxFrames because doubling that
@@ -16,8 +12,7 @@ static constexpr uint32_t kSdPlaybackD2MaxFrames = 131072;
 // busts SDRAM). 480000 frames * 2 bytes = 960 KB extra in SDRAM.
 static constexpr uint32_t kSdManageMaxFrames = 480000; // 10 seconds @ 48kHz
 
-// Buffer the engine reads (the *baked* playback buffer). For slot 0 that's a
-// RAM_D2 buffer; for slot 1 it's the SDRAM "baked" buffer.
+// Buffer the engine reads (the *baked* playback buffer), SDRAM per slot.
 int16_t* SdSampleBuffer(uint8_t slot);
 // Where the SD loader should DMA chunks for a given slot. Both slots stage in
 // SDRAM (DMA-reachable), then BakeLoopSeamToBuffer renders raw -> playback.
@@ -49,5 +44,5 @@ int16_t* SdBkLayerBBuffer();
 // Per-layer scratch holding the seam-baked copy of a loaded sample. The raw load
 // stays in SdSampleBuffer(slot) for future re-bakes; the baked copy is what plays.
 int16_t* SdBakedBuffer(uint8_t slot);
-// Max loadable frames for a given playback slot (slot 0 = RAM_D2 cap, else SDRAM).
+// Max loadable frames for a playback slot (all SDRAM, uniform cap).
 uint32_t SdSampleMaxFrames(uint8_t slot);

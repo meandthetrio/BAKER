@@ -33,7 +33,6 @@ struct AppEngineState
         uint8_t perform_menu_index = 0;
         uint8_t perform_layer = 0;
         uint8_t perform_engine_row = 0;
-        uint8_t perform_emphasis_row = 0;
         uint8_t perform_express_focus = 0;
     } perform_nav{};
 

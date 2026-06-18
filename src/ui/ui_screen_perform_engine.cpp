@@ -303,13 +303,10 @@ bool PerformEngine_OnEnter(UiScreenCtx& ctx)
     ctx.engine->layer.engine_load_from_perform = true;
     ctx.ui->sd_delete_mode = false;
     ctx.ui->sample_rename_active = false;
-    // Layer B's load path is the only one that exposes .bk files in the SD
-    // browser. Layer A and every other browse caller (bake-source picker,
-    // SD Manager, etc.) keep the default WavOnly filter.
-    const AppUiState::SdScanFilter new_filter
-        = (ctx.engine->layer.engine_load_target_layer == 1u)
-              ? AppUiState::SdScanFilter::WavAndBk
-              : AppUiState::SdScanFilter::WavOnly;
+    // Single layer can load either a plain .wav or a .bk multisample, so the
+    // engine-load browser always exposes both. Other browse callers (bake-source
+    // picker, SD Manager, etc.) keep their own default WavOnly filter.
+    const AppUiState::SdScanFilter new_filter = AppUiState::SdScanFilter::WavAndBk;
     if(new_filter != ctx.ui->sd_scan_filter)
     {
         // Filter changed — invalidate any previous scan results so the
@@ -352,11 +349,7 @@ bool PerformEngine_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        engine.perform_nav.perform_layer ^= 1u;
-        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
-        shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
-        engine.layer.engine_header_invert_until_ms = e.t_ms + 250u;
-        PublishEngineLayerParams(ctx);
+        // Single layer: Button 2 no longer swaps layers — no-op (consume only).
         ui.ui_dirty = true;
         return true;
     }
@@ -441,7 +434,7 @@ void PerformEngine_Render(UiScreenCtx& ctx)
 
     const UiLayout layout = UiLayout_Default();
     char header_label[16] = {};
-    std::snprintf(header_label, sizeof(header_label), "engine %c", layer == 0 ? 'a' : 'b');
+    std::snprintf(header_label, sizeof(header_label), "engine");
     const int header_w = MicroStringWidth(header_label);
     const int box_w = header_w + 4;
     const int box_h = kMicroH + 4;

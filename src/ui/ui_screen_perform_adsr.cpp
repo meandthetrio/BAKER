@@ -167,12 +167,7 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        engine.perform_nav.perform_layer ^= 1u;
-        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
-        shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
-        engine.layer.engine_header_invert_until_ms = e.t_ms + 250u;
-        PerformAdsrEnsureValidFocus(engine, shared, layer);
-        PublishEngineLayerParams(ctx);
+        // Single layer: Button 2 no longer swaps layers — no-op (consume only).
         ui.ui_dirty = true;
         return true;
     }

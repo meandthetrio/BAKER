@@ -26,8 +26,9 @@ static bool ProcessMainCursorLocked(const AppSharedState& shared,
     (void)shared;
     (void)engine;
     (void)layer;
-    (void)main_cursor;
-    return false;
+    // Single layer: cursor slot 1 was layer B's volume — lock it so navigation
+    // skips it (slot 0 = layer A volume, slots 2-5 = the four FX).
+    return main_cursor == 1u;
 }
 
 static void ProcessEnsureValidMainCursor(const AppSharedState& shared,

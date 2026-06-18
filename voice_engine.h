@@ -126,48 +126,6 @@ struct Voice
     float steal_fade_step  = 0.0f;
 };
 
-struct LayerBusState
-{
-    float drive_dc_x = 0.0f;
-    float drive_dc_y = 0.0f;
-    float pole1 = 0.0f;
-    float pole2 = 0.0f;
-    float pole3 = 0.0f;
-    float pole4 = 0.0f;
-};
-
-// Per-block cached scalars for EMPHASIS (drive + ladder); poles/DC stay in LayerBusState.
-struct LayerEmphasisCoeffs
-{
-    bool  odd_drive = true;
-    // Smoothed mix between even (0) and odd (1) paths. Ramped per-sample in
-    // ProcessLayerBusBlock_ to crossfade the mode switch instead of snapping
-    // (which produced an audible click at the toggle).
-    float odd_mix = 1.0f;
-    float pre_gain = 1.0f;
-    float shape_blend = 0.0f;
-    float base_makeup = 1.0f;
-    float positive_drive = 1.0f;
-    float negative_drive = 1.0f;
-    float even_makeup = 1.0f;
-    float output_trim = 1.0f;
-    float g = 0.0f;
-    float feedback = 0.0f;
-    float pole4_linear_scale = 1.0f;
-    float tanh_input_scale = 1.12f;
-    // Multimode tap mix (LP/HP/BP). Output = tap_in*x + tap1*y1 + ... + tap4*y4,
-    // where x is the ladder input and y1..y4 are the pole outputs. Ramped per
-    // sample so a mode switch morphs the coefficients click-free.
-    float tap_in = 0.0f;
-    float tap1 = 0.0f;
-    float tap2 = 0.0f;
-    float tap3 = 0.0f;
-    float tap4 = 1.0f;   // default LP4 tap
-    // Bass/passband gain compensation: forward signal is scaled by input_comp to
-    // restore the passband level that ladder feedback subtracts (1/(1+~k)). LP/BP
-    // use it; HP leaves it at 1.0 (we want lows gone there).
-    float input_comp = 1.0f;
-};
 
 class VoiceEngine
 {
@@ -249,12 +207,7 @@ class VoiceEngine
                       float env_amount);
     void SetLfoWave(uint8_t wave);
     void SetEngineTuneSemitones(uint8_t layer, float semitones);
-    void SetEngineGainDb(uint8_t layer, float db);
-    void SetEngineDriveMode(uint8_t layer, uint8_t mode);
     void SetEngineLayerScale(uint8_t layer, float scale);
-    void SetEngineFilterCutoffHz(uint8_t layer, float hz);
-    void SetEngineFilterResonance(uint8_t layer, float resonance);
-    void SetEngineFilterMode(uint8_t layer, uint8_t mode); // 0=LP,1=HP,2=BP
     void SetEngineLoopEnabled(uint8_t layer, bool enabled);
     void SetLoopEnvelopeParams(uint8_t layer,
                                float attack_ms,
@@ -284,10 +237,12 @@ class VoiceEngine
                    uint8_t threshold,
                    uint8_t shape,
                    uint8_t source);
-    // When true (keyzone SPLIT), each velmod lane applies only to voices of the
-    // matching layer (lane 0 → layer A, lane 1 → layer B). When false (FULL),
-    // both lanes apply to all voices. Pushed once per block from the callback.
+    // When true (keyzone SPLIT), velmod lanes are routed by note relative to the
+    // split note: notes <= split → lane 0 (Mod Block A), notes > split → lane 1
+    // (Mod Block B). When false (FULL), both lanes apply to every note. Pushed
+    // once per block from the callback.
     void SetVelModSplit(bool split) { velmod_split_ = split; }
+    void SetVelModSplitNote(uint8_t note) { velmod_split_note_ = note; }
     void SetLoopMode(LoopMode mode)
     {
         const uint8_t old_v
@@ -350,29 +305,20 @@ class VoiceEngine
     float env_attack_ms_ = 5.0f;
     float env_decay_ms_  = 120.0f;
     float env_amount_    = 0.5f;
-    static constexpr uint8_t kEngineLayerCount = 2;
+    static constexpr uint8_t kEngineLayerCount = 1;
     static constexpr uint8_t kMaxVoicesPerLayer = 10;
-    float engine_tune_semitones_[kEngineLayerCount] = {0.0f, 0.0f};
+    float engine_tune_semitones_[kEngineLayerCount] = {0.0f};
     // Cache of pow(2, semitones/12) per layer; populated lazily from inside
     // PrepareRenderScalars_ (const) when the dirty flag is set.
-    mutable float engine_tune_scale_[kEngineLayerCount] = {1.0f, 1.0f};
-    mutable bool  engine_tune_dirty_[kEngineLayerCount] = {true, true};
-    float engine_gain_linear_[kEngineLayerCount]    = {1.0f, 1.0f};
-    uint8_t engine_drive_mode_[kEngineLayerCount]   = {0u, 0u};
-    uint8_t engine_filter_mode_[kEngineLayerCount]  = {0u, 0u}; // 0=LP,1=HP,2=BP
-    float engine_layer_scale_[kEngineLayerCount]    = {1.0f, 1.0f};
-    float engine_filter_cutoff_hz_[kEngineLayerCount] = {20000.0f, 20000.0f};
-    float engine_filter_resonance_[kEngineLayerCount] = {0.0f, 0.0f};
-    LayerBusState layer_bus_state_[kEngineLayerCount]{};
-    LayerEmphasisCoeffs emphasis_coeff_[kEngineLayerCount]{};   // target (recomputed at block rate)
-    LayerEmphasisCoeffs emphasis_coeff_z_[kEngineLayerCount]{}; // smoothed (ramped per-sample)
-    bool emphasis_dirty_[kEngineLayerCount] = {true, true};
+    mutable float engine_tune_scale_[kEngineLayerCount] = {1.0f};
+    mutable bool  engine_tune_dirty_[kEngineLayerCount] = {true};
+    float engine_layer_scale_[kEngineLayerCount]    = {1.0f};
     float pitch_mod_lut_[256] = {};
-    bool  engine_loop_enabled_[kEngineLayerCount]   = {false, false};
-    float loop_env_attack_ms_[kEngineLayerCount] = {5.0f, 5.0f};
-    float loop_env_decay_ms_[kEngineLayerCount] = {20.0f, 20.0f};
-    float loop_env_sustain_level_[kEngineLayerCount] = {1.0f, 1.0f};
-    float loop_env_release_ms_[kEngineLayerCount] = {50.0f, 50.0f};
+    bool  engine_loop_enabled_[kEngineLayerCount]   = {false};
+    float loop_env_attack_ms_[kEngineLayerCount] = {5.0f};
+    float loop_env_decay_ms_[kEngineLayerCount] = {20.0f};
+    float loop_env_sustain_level_[kEngineLayerCount] = {1.0f};
+    float loop_env_release_ms_[kEngineLayerCount] = {50.0f};
 
     // Velocity-mod lane config (mirrors PerformParamsCurrent.velmod_*). Read at
     // note-on by StartVoice_. velmod_any_active_ is the fast-skip: true only if
@@ -386,6 +332,7 @@ class VoiceEngine
     uint8_t velmod_source_[kVelModLaneCount]    = {0u, 0u}; // 0=>vel 1=<vel 2=>note 3=<note
     bool    velmod_any_active_ = false;
     bool    velmod_split_      = false;
+    uint8_t velmod_split_note_ = 60u; // keyzone SPLIT divider (notes <= → A, > → B)
     // Returns the additive modulation fraction for `target_code` given this
     // note's velocity and note number, or 0 if no lane targets it / it's gated.
     // Each lane's source selects which value (velocity or note) drives the gate
@@ -395,9 +342,9 @@ class VoiceEngine
                                    uint8_t velocity,
                                    uint8_t note,
                                    uint8_t layer) const;
-    float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f, 0.0625f};
-    float loop_crossfade_shape_[kEngineLayerCount] = {0.0f, 0.0f};
-    bool  layer_seam_baked_[kEngineLayerCount] = {false, false};
+    float loop_crossfade_amount_[kEngineLayerCount] = {0.0625f};
+    float loop_crossfade_shape_[kEngineLayerCount] = {0.0f};
+    bool  layer_seam_baked_[kEngineLayerCount] = {false};
 
     // Per-voice cache of the block-constant portion of RenderNormalVoice_'s
     // setup. For a held voice in steady state none of the cached fields change
@@ -438,19 +385,17 @@ class VoiceEngine
     // Starts at 1 so a default-constructed cache (gen_seen == 0) always misses.
     uint32_t setup_cache_gen_ = 1u;
     void BumpSetupCacheGen_() { ++setup_cache_gen_; }
-    bool  poly_porto_enabled_[kEngineLayerCount] = {false, false};
+    bool  poly_porto_enabled_[kEngineLayerCount] = {false};
     uint8_t poly_porto_voice_limit_[kEngineLayerCount]
-        = {kExpressPolyPortoVoicesDefault, kExpressPolyPortoVoicesDefault};
+        = {kExpressPolyPortoVoicesDefault};
     float poly_porto_slide_ms_[kEngineLayerCount]
-        = {static_cast<float>(kExpressPolyPortoSlideDefaultMs),
-           static_cast<float>(kExpressPolyPortoSlideDefaultMs)};
+        = {static_cast<float>(kExpressPolyPortoSlideDefaultMs)};
     uint8_t poly_porto_source_range_semitones_[kEngineLayerCount]
-        = {kExpressPolyPortoRangeDefaultSemitones, kExpressPolyPortoRangeDefaultSemitones};
+        = {kExpressPolyPortoRangeDefaultSemitones};
     uint8_t poly_porto_source_mode_[kEngineLayerCount]
-        = {kExpressPolyPortoSourceClosest, kExpressPolyPortoSourceClosest};
+        = {kExpressPolyPortoSourceClosest};
     float poly_porto_release_ms_[kEngineLayerCount]
-        = {static_cast<float>(kExpressPolyPortoReleaseDefaultMs),
-           static_cast<float>(kExpressPolyPortoReleaseDefaultMs)};
+        = {static_cast<float>(kExpressPolyPortoReleaseDefaultMs)};
     uint32_t poly_porto_source_order_counter_ = 0;
     uint64_t audio_sample_counter_ = 0;
     GlobalLFO lfo_;
@@ -539,11 +484,6 @@ class VoiceEngine
                                  uint8_t vel_layer,
                                  uint32_t start_id,
                                  uint8_t& out_index);
-    void RecomputeLayerEmphasisCoeffs_(uint8_t layer);
-    // Batched per-layer emphasis (ladder + drive) over `n` samples in `buf`,
-    // applying `out_scale` per sample. Hoists filter state into a local and
-    // skips the per-sample coefficient ramps once they have settled to target.
-    void ProcessLayerBusBlock_(uint8_t layer, float* buf, size_t n, float out_scale);
 
     struct RenderVoiceContext
     {
@@ -759,7 +699,6 @@ class VoiceEngine
                                float mix_scale,
                                uint32_t& clip_block,
                                const bool (&layer_skip)[2],
-                               uint32_t& emphasis_cycles,
                                uint32_t& sum_cycles);
     int  FindSampleBankSlot_(const Sample* sample) const;
     bool LookupSampleEdit_(const Sample* sample, SampleEdit& edit) const;

@@ -132,10 +132,10 @@ bool RenderPreviewLayerEligible(const Params& params,
     if(sample.pcm == nullptr || sample.length == 0)
         return false;
 
-    const PerformParamsTargets& t = params.TargetsForUI();
-    return KeyzoneContainsNote(t.perform_keyzone_lo_note[layer],
-                               t.perform_keyzone_hi_note[layer],
-                               note);
+    // Keyzone is modulation-only now; it no longer gates which notes sound.
+    (void)params;
+    (void)note;
+    return true;
 }
 
 bool RenderPreviewAvailable(const Params& params,
@@ -529,7 +529,7 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
         {
             const uint8_t note = ui.record_render_note;
             bool any_started = false;
-            for(uint8_t layer = 0; layer < 2u; ++layer)
+            for(uint8_t layer = 0; layer < 1u; ++layer) // single layer
             {
                 if(!RenderPreviewLayerEligible(params, shared, layer, note))
                     continue;
@@ -940,7 +940,7 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 {
                     const uint8_t note = RenderPreviewMidiNote(ui);
                     bool any_started = false;
-                    for(uint8_t layer = 0; layer < 2u; ++layer)
+                    for(uint8_t layer = 0; layer < 1u; ++layer) // single layer
                     {
                         if(!RenderPreviewLayerEligible(params, shared, layer, note))
                             continue;

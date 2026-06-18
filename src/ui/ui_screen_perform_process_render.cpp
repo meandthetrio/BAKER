@@ -111,12 +111,10 @@ void DrawProcessLayerVolumePane(OledPager& d,
     constexpr int kVolKnobRadius = 9;
 
     const int knob_cx = kLeftX + (kLeftW / 2) - 1;
-    const int a_cy = left_y + 13;
-    const int b_cy = left_y + left_h - 13;
+    // Single layer: only layer A's volume knob, vertically centred in the pane.
+    const int a_cy = left_y + (left_h / 2);
     DrawProcessKnob(
         d, knob_cx, a_cy, kVolKnobRadius, 'a', ui.value_text[0], ui.angle_rad[0], main_cursor == 0u);
-    DrawProcessKnob(
-        d, knob_cx, b_cy, kVolKnobRadius, 'b', ui.value_text[1], ui.angle_rad[1], main_cursor == 1u);
 }
 
 static bool ProcessEqGraphNeedsRecompute(uint32_t now_ms,

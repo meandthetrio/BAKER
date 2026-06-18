@@ -289,7 +289,10 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
                 const int16_t a = pcm[pf];
                 uint32_t nxt = pf + 1u;
                 if(nxt >= end)
-                    nxt = start; // loop_start == start, loop_start < loop_end
+                    nxt = start + seam; // wrap target matches the position wrap
+                                        // below (start+seam); using `start` here
+                                        // left a per-wrap interpolation step that
+                                        // stacked across detuned voices into a click.
                 const int16_t b = pcm[nxt];
                 const float fa = static_cast<float>(a) * (1.0f / 32768.0f);
                 const float fb = static_cast<float>(b) * (1.0f / 32768.0f);

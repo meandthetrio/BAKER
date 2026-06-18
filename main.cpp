@@ -65,13 +65,12 @@ static void EnableCycleCounter()
 static inline bool LayerEligibleForNote(uint8_t layer, uint8_t note, uint8_t vel)
 {
     (void)vel;
+    (void)note;
     if(layer >= PerformParamsTargets::kLayerCount)
         return false;
-
-    const PerformParamsTargets& t = g_params.TargetsForUI();
-    return KeyzoneContainsNote(t.perform_keyzone_lo_note[layer],
-                               t.perform_keyzone_hi_note[layer],
-                               note);
+    // Keyzone now affects modulation only (FULL/SPLIT routes mod blocks); it no
+    // longer gates which notes sound. The single layer plays the full range.
+    return true;
 }
 
 static inline uint8_t RecordRenderPreviewMidiNote()
@@ -155,7 +154,8 @@ static void HandleMidiNoteOn(const NoteOnEvent& note_on)
     if(seam_audition)
         PushAudioEventFromMain(Event::AllNotesOffEvent());
 
-    for(uint8_t layer = 0; layer < 2; ++layer)
+    // Single layer: only slot 0 is ever sounded now.
+    for(uint8_t layer = 0; layer < 1; ++layer)
     {
         if(seam_audition && layer != seam_layer)
             continue;
@@ -545,7 +545,6 @@ int main(void)
         // - SD BROWSE: solid GREEN.
         // - RECORD > REVIEW: solid GREEN (POD2 preview available).
         // - RECORD > RENDER: solid GREEN when render preview is available.
-        // - PERFORM A/B pages: solid BLUE.
         // - otherwise off.
         const bool sd_browse_active = (g_app.ui.ui_active_screen == UiScreenId::SdBrowse);
         const bool record_review_active = (g_app.ui.ui_active_screen == UiScreenId::Record)
@@ -557,11 +556,6 @@ int main(void)
         const bool record_render_preview_active
             = (g_app.ui.ui_active_screen == UiScreenId::RecordRenderMenu)
               && RecordRenderPreviewAvailable();
-        const bool perform_ab_active
-            = (g_app.ui.ui_active_screen == UiScreenId::PerformEngine)
-              || (g_app.ui.ui_active_screen == UiScreenId::PerformAdsr)
-              || (g_app.ui.ui_active_screen == UiScreenId::PerformEmphasis)
-              || (g_app.ui.ui_active_screen == UiScreenId::PerformExpress);
         // Engine Trim (engine-slot) screen: LED2 green when idle, red while the
         // one-shot window audition is playing.
         const bool engine_trim_active
@@ -694,11 +688,6 @@ int main(void)
                 hw.led2.Set(1.0f, 0.0f, 0.0f); // red while preview playing
             else
                 hw.led2.Set(0.0f, 0.0f, 1.0f); // green idle
-        }
-        else if(perform_ab_active)
-        {
-            hw.led1.Set(0.0f, 0.0f, 0.0f);
-            hw.led2.Set(0.0f, 1.0f, 0.0f);
         }
         else
         {

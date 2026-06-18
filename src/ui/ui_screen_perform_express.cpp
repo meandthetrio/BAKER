@@ -530,10 +530,7 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        engine.perform_nav.perform_layer ^= 1u;
-        const uint8_t next_layer = engine.perform_nav.perform_layer & 1u;
-        shared.sample.publish.sd_current_slot.store(next_layer, std::memory_order_release);
-        engine.layer.engine_header_invert_until_ms = e.t_ms + 250u;
+        // Single layer: Button 2 no longer swaps layers — no-op (consume only).
         ui.ui_dirty = true;
         return true;
     }
@@ -552,7 +549,7 @@ void PerformExpress_Render(UiScreenCtx& ctx)
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     const bool badge_invert = ctx.now_ms < engine.layer.engine_header_invert_until_ms;
     char header_label[16] = {};
-    std::snprintf(header_label, sizeof(header_label), "express %c", layer == 0u ? 'a' : 'b');
+    std::snprintf(header_label, sizeof(header_label), "express");
     DrawHeader(d, header_label, badge_invert);
     const bool express_enabled = ctx.shared->performance.express.enabled.load(std::memory_order_acquire) != 0u;
     DrawBypassButton(d, express_enabled, engine.perform_nav.perform_express_focus == 0u);

@@ -17,8 +17,6 @@ static constexpr float kLockCutoffMaxHz    = 12000.0f;
 static constexpr float kMacroSmoothSec     = 0.005f;
 static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
-static constexpr float kEngineGainMinDb = -48.0f;
-static constexpr float kEngineGainMaxDb = 12.0f;
 static constexpr float kLoopEnvAttackMinMs        = 2.0f;
 static constexpr float kLoopEnvReleaseMinMs       = 1.0f;
 static constexpr float kLoopEnvAttackReleaseMaxMs = 1000.0f;
@@ -199,15 +197,18 @@ float VoiceEngine::VelModFractionForTarget_(uint8_t target_code,
                                             uint8_t note,
                                             uint8_t layer) const
 {
-    // FULL mode: both lanes apply to every voice. The UI keeps the two lanes'
+    // FULL mode: both lanes apply to every note. The UI keeps the two lanes'
     // targets mutually exclusive there, so at most one lane matches a given
     // param and the first match wins.
-    // SPLIT mode: lane i belongs to layer i (mod block A/B), so a voice only
-    // consults its own layer's lane — the two lanes are independent and may
-    // share a target without colliding.
+    // SPLIT mode: the note's position relative to the split note selects the
+    // lane (mod block) — notes <= split use lane 0 (A), notes > split use lane 1
+    // (B). Each side's lane is independent and may share a target without
+    // colliding. (Single layer: routing no longer depends on source_layer.)
+    (void)layer;
+    const uint8_t active_lane = (note > velmod_split_note_) ? 1u : 0u;
     for(uint8_t lane = 0; lane < kVelModLaneCount; ++lane)
     {
-        if(velmod_split_ && lane != (layer & 1u))
+        if(velmod_split_ && lane != active_lane)
             continue;
         if(velmod_target_[lane] != target_code)
             continue;
@@ -263,25 +264,6 @@ float VoiceEngine::VelModFractionForTarget_(uint8_t target_code,
     return 0.0f;
 }
 
-void VoiceEngine::SetEngineGainDb(uint8_t layer, float db)
-{
-    layer &= 1u;
-    db *= 0.1f; // UI/publish path stores tenths of dB.
-    if(db < kEngineGainMinDb)
-        db = kEngineGainMinDb;
-    if(db > kEngineGainMaxDb)
-        db = kEngineGainMaxDb;
-    engine_gain_linear_[layer] = std::pow(10.0f, db / 20.0f);
-    emphasis_dirty_[layer] = true;
-}
-
-void VoiceEngine::SetEngineDriveMode(uint8_t layer, uint8_t mode)
-{
-    layer &= 1u;
-    engine_drive_mode_[layer] = (mode == 0u) ? 0u : 1u;
-    emphasis_dirty_[layer] = true;
-}
-
 void VoiceEngine::SetEngineLayerScale(uint8_t layer, float scale)
 {
     layer &= 1u;
@@ -291,35 +273,6 @@ void VoiceEngine::SetEngineLayerScale(uint8_t layer, float scale)
     if(scale > 14.0f)
         scale = 14.0f;
     engine_layer_scale_[layer] = scale;
-}
-
-void VoiceEngine::SetEngineFilterCutoffHz(uint8_t layer, float hz)
-{
-    layer &= 1u;
-    if(hz < 20.0f)
-        hz = 20.0f;
-    if(hz > 20000.0f)
-        hz = 20000.0f;
-    engine_filter_cutoff_hz_[layer] = hz;
-    emphasis_dirty_[layer] = true;
-}
-
-void VoiceEngine::SetEngineFilterResonance(uint8_t layer, float resonance)
-{
-    layer &= 1u;
-    if(resonance < 0.0f)
-        resonance = 0.0f;
-    if(resonance > 1.0f)
-        resonance = 1.0f;
-    engine_filter_resonance_[layer] = resonance;
-    emphasis_dirty_[layer] = true;
-}
-
-void VoiceEngine::SetEngineFilterMode(uint8_t layer, uint8_t mode)
-{
-    layer &= 1u;
-    engine_filter_mode_[layer] = (mode > 2u) ? 2u : mode;
-    emphasis_dirty_[layer] = true;
 }
 
 void VoiceEngine::SetEngineLoopEnabled(uint8_t layer, bool enabled)
@@ -471,13 +424,7 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
 
     for(uint8_t layer = 0; layer < kEngineLayerCount; ++layer)
     {
-        engine_gain_linear_[layer] = 1.0f;
-        engine_drive_mode_[layer] = 0u;
-        layer_bus_state_[layer] = LayerBusState{};
         engine_layer_scale_[layer] = 1.0f;
-        engine_filter_cutoff_hz_[layer] = 20000.0f;
-        engine_filter_resonance_[layer] = 0.0f;
-        engine_filter_mode_[layer] = 0u;
         engine_loop_enabled_[layer] = false;
         loop_env_attack_ms_[layer] = 5.0f;
         loop_env_decay_ms_[layer] = 20.0f;
@@ -495,9 +442,6 @@ void VoiceEngine::Init(float sample_rate, size_t block_size)
     }
     poly_porto_source_order_counter_ = 0;
     audio_sample_counter_ = 0;
-
-    RecomputeLayerEmphasisCoeffs_(0u);
-    RecomputeLayerEmphasisCoeffs_(1u);
 
     if(voices_active_)
         voices_active_->store(0, std::memory_order_relaxed);

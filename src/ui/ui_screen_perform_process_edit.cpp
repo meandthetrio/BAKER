@@ -50,7 +50,7 @@ void ProcessHandleLayerToggle(UiScreenCtx& ctx)
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
     AppSharedState& shared = *ctx.shared;
-    engine.perform_nav.perform_layer ^= 1u;
+    engine.perform_nav.perform_layer = 0u; // single layer: A/B toggle disabled
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     shared.sample.publish.sd_current_slot.store(layer, std::memory_order_release);
     PublishEngineLayerParams(ctx);

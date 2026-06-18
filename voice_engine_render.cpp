@@ -12,22 +12,6 @@ static constexpr float kMacroSmoothSec     = 0.005f;
 static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
 
-// P1: threshold below which the emphasis ladder/DC-blocker state is considered
-// inaudibly decayed (summed |state| across the four ladder poles + the DC
-// blocker output). ~1e-5 ≈ -100 dB full-scale, well below the noise floor of
-// any downstream stage. Paired with layer activity tracking to avoid clicks
-// when a new voice engages after a skip.
-static constexpr float kEmphasisStateEpsilon = 1e-5f;
-
-static inline float LayerBusState_StateMagnitude(const LayerBusState& s)
-{
-    // drive_dc_x is "previous input"; once input is zero for one sample it's
-    // also zero, so it does not need to participate in the magnitude check.
-    return std::fabs(s.pole1) + std::fabs(s.pole2)
-         + std::fabs(s.pole3) + std::fabs(s.pole4)
-         + std::fabs(s.drive_dc_y);
-}
-
 void VoiceEngine::SnapshotMacroState_()
 {
     if(macro_gen_ && macro_sel_ && macro_a_ && macro_b_)
@@ -271,19 +255,6 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     if(diag_on)
         clear_buffers_cycles = DWT->CYCCNT - clear_start;
 
-    if(diag_on)
-        setup_start = DWT->CYCCNT;
-    for(uint8_t layer = 0u; layer < kEngineLayerCount; ++layer)
-    {
-        if(emphasis_dirty_[layer])
-        {
-            RecomputeLayerEmphasisCoeffs_(layer);
-            emphasis_dirty_[layer] = false;
-        }
-    }
-    if(diag_on)
-        fixed_setup_cycles += DWT->CYCCNT - setup_start;
-
     uint32_t active = 0;
     uint32_t clip_block = 0;
     float max_env = 0.0f;
@@ -423,24 +394,19 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
         }
     }
 
-    // P1: skip per-sample emphasis for layers that (a) had no voice writing to
-    // them this block AND (b) whose ladder/DC-blocker state has decayed below
-    // an inaudible epsilon. Either condition alone would risk a click when a
-    // new voice engages — the gate combines both so fresh input always
-    // traverses (already-settled) state.
-    const float state_mag_a = LayerBusState_StateMagnitude(layer_bus_state_[0]);
-    const float state_mag_b = LayerBusState_StateMagnitude(layer_bus_state_[1]);
+    // A layer bus is silent (skip) when no voice wrote to it this block. The bus
+    // is just per-layer scale + stereo sum now (emphasis removed), so there is no
+    // filter state to keep traversing — pure activity gating is safe.
     const bool layer_skip[2] = {
-        !layer_active[0] && state_mag_a < kEmphasisStateEpsilon,
-        !layer_active[1] && state_mag_b < kEmphasisStateEpsilon,
+        !layer_active[0],
+        !layer_active[1],
     };
-    uint32_t emphasis_cycles = 0u;
     uint32_t sum_cycles = 0u;
     RenderBlockMixLayers_(
-        outL, outR, size, mix_scale, clip_block, layer_skip, emphasis_cycles, sum_cycles);
-    // layer_mix bucket = whole layer stage (emphasis ladder + stereo sum), now with
+        outL, outR, size, mix_scale, clip_block, layer_skip, sum_cycles);
+    // layer_mix bucket = whole layer stage (per-layer scale + stereo sum), with
     // the gain-probe meters excluded so the reading is truthful while the overlay is open.
-    layer_mix_cycles = emphasis_cycles + sum_cycles;
+    layer_mix_cycles = sum_cycles;
 
     WriteRenderDebug_(clip_block,
                       rate_hz,
@@ -472,8 +438,9 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
             *diagnostics_, kDiagVoiceBucketEnvMix, envmix_cycles);
         DiagnosticsStoreVoiceCycleBucket(
             *diagnostics_, kDiagVoiceBucketLayerMix, layer_mix_cycles);
+        // Emphasis removed; bucket retained for layout stability, reports 0.
         DiagnosticsStoreVoiceCycleBucket(
-            *diagnostics_, kDiagVoiceBucketLayerEmphasis, emphasis_cycles);
+            *diagnostics_, kDiagVoiceBucketLayerEmphasis, 0u);
         DiagnosticsStoreVoiceCycleBucket(
             *diagnostics_, kDiagVoiceBucketVoiceSetup, voice_setup_cycles);
         DiagnosticsStoreVoiceCycleBucket(

@@ -106,11 +106,6 @@ const UiScreen& GetScreen(UiScreenId id)
                                             nullptr,
                                             PerformSeamEdit_OnEvent,
                                             PerformSeamEdit_Render};
-    static const UiScreen perform_emphasis{UiScreenId::PerformEmphasis,
-                                           PerformEmphasis_OnScreenEnter,
-                                           nullptr,
-                                           PerformEmphasis_OnEvent,
-                                           PerformEmphasis_Render};
     static const UiScreen perform_express{UiScreenId::PerformExpress,
                                           PerformExpress_OnScreenEnter,
                                           nullptr,
@@ -215,8 +210,6 @@ const UiScreen& GetScreen(UiScreenId id)
             return perform_adsr;
         case UiScreenId::PerformSeamEdit:
             return perform_seam_edit;
-        case UiScreenId::PerformEmphasis:
-            return perform_emphasis;
         case UiScreenId::PerformExpress:
             return perform_express;
         case UiScreenId::PerformProcess:

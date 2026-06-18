@@ -399,12 +399,19 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
     {
         const Sample& sample = shared.sample.publish.sd_slots[slot];
         const char* path = engine.layer.engine_sample_path[slot];
-        if(sample.pcm == nullptr || sample.length == 0 || !path || path[0] == '\0')
+        // A sample is "present" when something audible is loaded on the slot:
+        // a normal sample (pcm) or a .bk multisample on the single layer (slot 0).
+        // The source path is recorded when available (needed to restore on load);
+        // its absence no longer blocks saving an audible project.
+        const bool wav_present = (sample.pcm != nullptr && sample.length != 0);
+        const bool bk_present  = (slot == 0u) && shared.bk_layer_b.loaded;
+        if(!wav_present && !bk_present)
             continue;
 
         const uint8_t bit = static_cast<uint8_t>(1u << slot);
         manifest.sample_present_mask |= bit;
-        std::snprintf(manifest.wav_path[slot], sizeof(manifest.wav_path[slot]), "%s", path);
+        if(path && path[0] != '\0')
+            std::snprintf(manifest.wav_path[slot], sizeof(manifest.wav_path[slot]), "%s", path);
 
         SampleEdit edit = shared.sample.edit.sd_edit_slots[slot];
         SampleEdit_Clamp(edit, sample.length);

@@ -27,14 +27,13 @@ void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
                 if(vel_layer > 1)
                     vel_layer = 1;
                 const Sample* sample = nullptr;
-                // Layer B .bk override: if a .bk multisample is loaded into
-                // layer B's slot, pick the per-note slice instead of the
-                // normal sample bank entry. Off-range notes (outside the
-                // .bk's [lo_note, hi_note]) skip voice allocation entirely
-                // — silence by design.
+                // .bk multisample override: if a .bk multisample is loaded on the
+                // single layer, pick the per-note slice instead of the normal
+                // sample bank entry. Off-range notes (outside the .bk's
+                // [lo_note, hi_note]) skip voice allocation entirely — silence by
+                // design.
                 const bool bk_layer_b_active
-                    = (source_layer == 1u && shared_ != nullptr
-                       && shared_->bk_layer_b.loaded);
+                    = (shared_ != nullptr && shared_->bk_layer_b.loaded);
                 if(bk_layer_b_active)
                 {
                     const bk::BkFileHeader& hdr = shared_->bk_layer_b.hdr;

@@ -61,6 +61,26 @@ make the instrument click.
 
 ## Entries
 
+### 2026-06-20 — `3d0f258` (+ reverb damping coeff caching)
+
+- **Commit:** `3d0f258` (cache reverb damping coeffs), on `016cb4d`.
+- **Change:** the reverb's `RenderWet_` recomputed 2 `pow` + an `exp` + 2 SVF
+  `sin` every block even when `dmp` was static. Now dirty-checked on `damping_`
+  (control-rate). The largest single coeff-recompute in the build.
+
+| Metric | Limit test `now / peak` |
+|---|---|
+| callback total | **38 / 91** |
+| fx total | **28 / 40** |
+
+Notes:
+- **callback peak 97 → 91**, fx_total peak 48 → 40, vs the start of the coeff-cache
+  work — ~6% of worst-case headroom reclaimed (filter + EQ + reverb damping), every
+  effect still ENGAGED. Reverb damping was the biggest single piece.
+- Win applies while `dmp` is static; sweeping it re-pays that block (correct).
+- This headroom is what funds the mono reverb anti-alias (the aliasing-click fix):
+  ~91 + ~3% mono AA stays under 100.
+
 ### 2026-06-20 — `016cb4d` (filter + EQ coeff caching)
 
 - **Commits:** `be7d3ab` (cache process-filter coeffs) + `016cb4d` (cache EQ

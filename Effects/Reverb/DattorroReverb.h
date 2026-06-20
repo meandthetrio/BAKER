@@ -237,6 +237,13 @@ class DattorroReverb
     float out_lpf_yr_ = 0.0f;
     float out_lpf_g_  = 1.0f;
 
+    // Control-rate cache for the damping-derived coeffs (2 pow + an exp + 2 SVF
+    // sin). These are functions of damping_ only, so recompute them — and re-apply
+    // the SVF cutoff — only when damping_ moves. Sentinel -1 forces the first
+    // compute; Clear_ resets it so NaN-recovery re-applies the cutoff.
+    float reverb_damp_cached_       = -1.0f;
+    float reverb_out_lpf_g_cached_  = 1.0f;
+
     // Tail CPU saver: true once the reverb input has gone silent AND the input
     // section (bandwidth filters / predelay / input allpasses / early
     // reflections) has flushed to zero. While set, ProcessBlock feeds the tank

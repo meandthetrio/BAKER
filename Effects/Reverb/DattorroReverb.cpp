@@ -532,6 +532,7 @@ void DattorroReverb::Clear_()
     input_skipping_ = false; // start in full mode; the tail skip re-arms itself
     hr_prev_wetL_ = 0.0f;
     hr_prev_wetR_ = 0.0f;
+    reverb_damp_cached_ = -1.0f; // force damping-coeff recompute + SVF re-apply
 
     allpass_[0].Clear();
     allpass_[1].Clear();
@@ -700,6 +701,7 @@ void DattorroReverb::Init()
     input_skipping_ = false; // start in full mode; the tail skip re-arms itself
     hr_prev_wetL_ = 0.0f;
     hr_prev_wetR_ = 0.0f;
+    reverb_damp_cached_ = -1.0f; // force damping-coeff recompute + SVF re-apply
 
     SetDamping(0.0f);
     SetDecay(1.0f);
@@ -908,13 +910,24 @@ void DattorroReverb::RenderWet_(const float* inL,
         Clear_();
 
     // ---- Block-constant scalars (hoisted out of the inner loop) ----
-    const float damping_param   = damping_;
-    // Fixed bright input bandwidth; exponential damping cutoff (see Process).
-    const float damp_cutoff     = kDampCutoffBright
-        * std::pow(kDampCutoffDark / kDampCutoffBright, damping_param);
-    const float out_lpf_cutoff  = kOutLpfBright
-        * std::pow(kOutLpfDark / kOutLpfBright, damping_param);
-    const float out_lpf_g       = OnePoleG_(out_lpf_cutoff, sample_rate_);
+    // Damping-derived coeffs are a function of damping_ only (2 pow for the
+    // damping/out-LPF cutoffs, an exp in OnePoleG_, and the 2 SVF sin via
+    // Frequency). Recompute them — and re-apply the SVF cutoff — only when
+    // damping_ actually moves; reuse the cached values otherwise. damping_ is
+    // constant within a block, so applying Frequency here (vs the in-loop
+    // control-rate tick) is equivalent. (control-rate caching, not gating.)
+    if(damping_ != reverb_damp_cached_)
+    {
+        const float damp_cutoff = kDampCutoffBright
+            * std::pow(kDampCutoffDark / kDampCutoffBright, damping_);
+        const float out_lpf_cutoff = kOutLpfBright
+            * std::pow(kOutLpfDark / kOutLpfBright, damping_);
+        reverb_out_lpf_g_cached_ = OnePoleG_(out_lpf_cutoff, sample_rate_);
+        damping_filter_[0].Frequency(damp_cutoff);
+        damping_filter_[1].Frequency(damp_cutoff);
+        reverb_damp_cached_ = damping_;
+    }
+    const float out_lpf_g       = reverb_out_lpf_g_cached_;
     const float decay           = kDecayFbMin + (kDecayFbMax - kDecayFbMin) * decay_;
     float       density2_tmp    = decay + 0.15f;
     if(density2_tmp > 0.5f)
@@ -980,8 +993,8 @@ void DattorroReverb::RenderWet_(const float* inL,
         if(ctr >= crate)
         {
             ctr = 0;
-            damping_filter_[0].Frequency(damp_cutoff);
-            damping_filter_[1].Frequency(damp_cutoff);
+            // (damping_filter_ cutoff is applied at block-top, only when damping_
+            // moves; the chorus LFO must keep advancing every control-rate tick.)
 
             // Stereo chorus LFO update (post-tank chorus applied per-sample
             // below): two slow incommensurate LFOs mixed differently per

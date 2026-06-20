@@ -31,6 +31,28 @@ make the instrument click.
 
 ## Entries
 
+### 2026-06-20 — `016cb4d` (filter + EQ coeff caching)
+
+- **Commits:** `be7d3ab` (cache process-filter coeffs) + `016cb4d` (cache EQ
+  coeffs), on `bf356f0`.
+- **Working tree:** clean. Change vs `bf356f0`: both the process filter and the
+  tilt EQ now recompute their coefficients (the filter's `tanf`; the EQ's `exp` +
+  4 biquads of trig/`pow`) only when their controls actually move — control-rate
+  instead of every block. Both live in the un-bucketed `fx_total` remainder.
+
+| Metric | Idle / static, `now` | Notes |
+|---|---|---|
+| fx total | **30** (was 33) | filter + EQ engaged but **static** |
+| filter (process) | ~1 (was 2) | static cutoff; per-block `tanf` removed |
+
+Notes:
+- ~3% of steady, always-on cost reclaimed with EQ + filter still **engaged** —
+  worst-case-valid (only an active *sweep* now pays the recompute), not gating.
+- Caveat: the win only applies while the controls are static. Sweeping the EQ or
+  filter re-pays the recompute that block (correct + click-free).
+- `eq` bucket (~1-2) is the per-sample filtering only; unaffected by this (the
+  cached recompute is in `fx_total`'s remainder, not the `eq` sub-bucket).
+
 ### 2026-06-20 — `bf356f0`
 
 - **Commit:** `bf356f0` ("perf: scale steal fade-out length to victim amplitude"),

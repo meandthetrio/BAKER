@@ -696,7 +696,7 @@ void AudioEngine::ProcessBlock(const float* inL,
     // Mono filter: the dry voice sum is collapsed to mono, filtered once, then
     // written to both channels. Stereo width is (re)created downstream by the
     // stereo sat/delay/reverb/EQ chain. Halves the per-sample cost vs. running
-    // an independent filter per channel. Coeffs once per block -> click-free.
+    // an independent filter per channel. Coeffs cached (control-rate recompute).
     {
         float fc = p.process_cutoff_hz;
         if(fc < 20.0f)    fc = 20.0f;
@@ -704,11 +704,20 @@ void AudioEngine::ProcessBlock(const float* inL,
         float res = p.process_resonance;
         if(res < 0.0f) res = 0.0f;
         if(res > 1.0f) res = 1.0f;
-        const float g  = std::tan(3.14159265f * fc / sample_rate_);
-        const float k  = 2.0f - 2.0f * res; // res 0 -> Q 0.5, res 1 -> self-osc
-        const float a1 = 1.0f / (1.0f + g * (g + k));
-        const float a2 = g * a1;
-        const float a3 = g * a2;
+        // Recompute coeffs (the tan + divide) only when the controls move.
+        if(fc != process_filter_fc_cached_ || res != process_filter_res_cached_)
+        {
+            const float g = std::tan(3.14159265f * fc / sample_rate_);
+            const float k = 2.0f - 2.0f * res; // res 0 -> Q 0.5, res 1 -> self-osc
+            process_filter_a1_ = 1.0f / (1.0f + g * (g + k));
+            process_filter_a2_ = g * process_filter_a1_;
+            process_filter_a3_ = g * process_filter_a2_;
+            process_filter_fc_cached_  = fc;
+            process_filter_res_cached_ = res;
+        }
+        const float a1 = process_filter_a1_;
+        const float a2 = process_filter_a2_;
+        const float a3 = process_filter_a3_;
         for(size_t i = 0; i < size; ++i)
         {
             const float mono = process_svf_.Lp(0.5f * (outL[i] + outR[i]), a1, a2, a3);

@@ -205,6 +205,14 @@ class AudioEngine
     // Global process LPF (TPT SVF) on the summed mix. Mono: the dry voice sum is
     // collapsed to mono and filtered once before the stereo FX chain.
     ProcessTptSvf process_svf_{};
+    // Cached process-filter coefficients. The tan()/divide is only recomputed
+    // when cutoff or resonance actually changes, so a static (non-swept) filter
+    // pays nothing per block for coeffs — just the per-sample loop.
+    float process_filter_a1_ = 0.0f;
+    float process_filter_a2_ = 0.0f;
+    float process_filter_a3_ = 0.0f;
+    float process_filter_fc_cached_  = -1.0f;
+    float process_filter_res_cached_ = -1.0f;
 
     TiltEqStereo tilt_eq_{};
     bool           eq_run_prev_ = false;

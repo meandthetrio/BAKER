@@ -578,7 +578,8 @@ void AudioEngine::ProcessBlock(const float* inL,
     // the stage is already inaudible, so re-engaging is click-safe.
     constexpr float kEqNeutralTiltDb = 0.05f; // below this, the tilt is inaudible
     const bool eq_run = p.eq_on && (std::fabs(p.eq_tilt_db) >= kEqNeutralTiltDb);
-    if(eq_run && !eq_run_prev_)
+    const bool eq_edge = (eq_run && !eq_run_prev_);
+    if(eq_edge)
         tilt_eq_.Reset();
     eq_run_prev_ = eq_run;
     if(eq_run)
@@ -588,8 +589,21 @@ void AudioEngine::ProcessBlock(const float* inL,
             tilt = -kTiltEqTiltMaxDb;
         else if(tilt > kTiltEqTiltMaxDb)
             tilt = kTiltEqTiltMaxDb;
-        const float center_hz = TiltEq_CenterNormToHz(p.eq_center_norm);
-        tilt_eq_.SetFromParams(center_hz, tilt, sample_rate_, p.eq_q);
+        // Control-rate coeff recompute: TiltEq_CenterNormToHz (an exp) +
+        // SetFromParams (4 biquads, each sin/cos/pow) are pure functions of the
+        // EQ controls, so only redo them when a control moves. Forced on the
+        // re-engage edge since SetFromParams was skipped while the stage was off
+        // (and Reset just cleared state). SetFromParams sets coeffs only — no
+        // filter state — so reusing cached coeffs is safe.
+        if(eq_edge || tilt != eq_tilt_cached_
+           || p.eq_center_norm != eq_center_norm_cached_ || p.eq_q != eq_q_cached_)
+        {
+            const float center_hz = TiltEq_CenterNormToHz(p.eq_center_norm);
+            tilt_eq_.SetFromParams(center_hz, tilt, sample_rate_, p.eq_q);
+            eq_tilt_cached_        = tilt;
+            eq_center_norm_cached_ = p.eq_center_norm;
+            eq_q_cached_           = p.eq_q;
+        }
     }
 
     // Delay L/R times + feedback (smoothed params, constant within block)

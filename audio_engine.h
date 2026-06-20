@@ -216,6 +216,12 @@ class AudioEngine
 
     TiltEqStereo tilt_eq_{};
     bool           eq_run_prev_ = false;
+    // Cached EQ control values; the coeff recompute (an exp + 4 biquads of
+    // sin/cos/pow) is skipped when none of these moved (sentinels force the
+    // first compute). See the eq_run block in ProcessBlock.
+    float          eq_tilt_cached_        = 1e30f;
+    float          eq_center_norm_cached_ = -1.0f;
+    float          eq_q_cached_           = -1.0f;
 
     // FX-order swap declick: a brief 0->1 cosine ramp on the post-FX bus when
     // fx_order changes between blocks. Kills the boundary click from swapping

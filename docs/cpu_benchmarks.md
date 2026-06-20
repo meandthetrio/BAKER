@@ -4,6 +4,36 @@ A running record of audio-callback CPU measurements, anchored to the build that
 produced them. Append a new entry per build of interest; never edit old entries
 (they are point-in-time facts).
 
+## ⭐ Most reliable way to reduce CPU — START HERE
+
+**Control-rate coefficient caching.** Effects derive DSP coefficients from control
+knobs using expensive math (`tanf`/`expf`/`powf`/`sin`/`cos`) and re-run it **every
+audio block even when the knob hasn't moved**. Coefficients are *control-rate* — they
+only change when a control turns. So: **dirty-check the raw control params and
+recompute the coefficients only when one changed** (force a recompute on any
+re-engage edge, since the cache is stale while a stage is off).
+
+Why this beats everything else:
+- It deletes genuinely redundant work — a predictable, measurable saving, not one
+  the cache absorbs or measurement noise hides.
+- It is **worst-case-valid, not gating** — the effect stays fully engaged; only an
+  active *sweep* re-pays. So it lowers the "everything on" number that decides
+  whether a user can ever make it click.
+- Audio-identical and safe (coeff-only writes; no filter state touched).
+
+Shipped: process filter (`be7d3ab`) + tilt EQ (`016cb4d`) → **fx_total 33→30 (~3%)**
+with both still engaged. The saturator (`TapeSaturator::PrepareBlock`) already does it.
+
+Audit checklist: grep FX/voice setup for per-block `tanf`/`expf`/`powf`/`sin`/`cos`/
+`SetFromParams`; cache each behind a dirty-check. Note the recompute usually lives in
+the **un-bucketed `fx_total` remainder**, not the effect's own sub-bucket — so measure
+`fx_total`/`callback` `now` with the control held **static**.
+
+What did NOT reliably help (this project): moving data to RAM_D2/DTCM (already in fast
+AXI SRAM; cache absorbs the rest), float-vs-fixed (FPU makes float free), and chasing
+per-bucket *peaks* (latched on the worst block, contaminated by stalls/preemption —
+trust `callback` total and bucket `now`).
+
 ## How to read these
 
 - Values are **`now / peak`** as **% of the per-block budget** (one audio block

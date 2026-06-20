@@ -639,6 +639,11 @@ class VoiceEngine
     bool StopFade_AdvanceAndFinishIfDone_(Voice& v, StopFadeState& sf);
     void BeginStopFadeOnStreamEnd_(Voice& v, StopFadeState& sf);
     void CompleteStealFadeOut_(Voice& v);
+    // Per-sample steal-fade decrement (1/n), with the fade length scaled to the
+    // stolen voice's amplitude: a quiet (e.g. attack-stage) victim needs only a
+    // short anti-click fade, which also cuts steal-render cost. victim_gain is
+    // the captured old_gain (gain*fade_in*env).
+    float ComputeStealFadeStep_(float victim_gain) const;
 
     struct RenderNormalVoiceLoopState
     {

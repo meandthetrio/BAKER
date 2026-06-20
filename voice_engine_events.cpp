@@ -3,8 +3,27 @@
 #include "app_state_shared.h"
 
 static constexpr float kVoiceAmpScale      = 0.15f; // keep headroom for 10 voices + FX
-static constexpr float kStealFadeOutMs     = 1.25f;
+static constexpr float kStealFadeOutMs     = 1.25f; // full fade for a full-level victim
+static constexpr float kStealFadeOutMinMs  = 0.25f; // floor for a near-silent victim
 static constexpr float kLoopBoundaryFadeMs = 1.0f;
+
+float VoiceEngine::ComputeStealFadeStep_(float victim_gain) const
+{
+    // Scale the steal anti-click fade to how loud the stolen voice actually is.
+    // A victim caught mid-attack (env ~ 0) is near-silent, so it needs only a
+    // short fade — which also cuts steal-render cost (fewer StealFadeOut samples).
+    // A full-level victim still gets the full kStealFadeOutMs. victim_gain is the
+    // captured old_gain (= gain*fade_in*env); normalize by the nominal full-voice
+    // gain and clamp to [0,1].
+    float amp = (kVoiceAmpScale > 0.0f) ? (victim_gain / kVoiceAmpScale) : 1.0f;
+    if(amp < 0.0f) amp = 0.0f;
+    if(amp > 1.0f) amp = 1.0f;
+    const float fade_ms = kStealFadeOutMinMs + (kStealFadeOutMs - kStealFadeOutMinMs) * amp;
+    int n = static_cast<int>(sample_rate_ * 0.001f * fade_ms);
+    if(n < 1)
+        n = 1;
+    return 1.0f / static_cast<float>(n);
+}
 
 void VoiceEngine::ProcessEvents(EventQueueSPSC& q)
 {
@@ -205,11 +224,8 @@ void VoiceEngine::HandleNoteOnEvent_(const Event& e)
 
             if(!already_fading)
             {
-                int n = static_cast<int>(sample_rate_ * 0.001f * kStealFadeOutMs);
-                if(n < 1)
-                    n = 1;
                 v.steal_fade_level = 1.0f;
-                v.steal_fade_step  = 1.0f / static_cast<float>(n);
+                v.steal_fade_step  = ComputeStealFadeStep_(v.old_gain);
             }
 
             v.state    = VoiceState::StealFadeOut;

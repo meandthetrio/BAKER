@@ -3,7 +3,6 @@
 namespace
 {
 static constexpr float kVoiceAmpScale = 0.15f; // keep headroom for 10 voices + FX
-static constexpr float kStealFadeOutMs = 1.25f;
 }
 
 void VoiceEngine::SetPolyPortoEnabled(uint8_t layer, bool enabled)
@@ -347,11 +346,8 @@ bool VoiceEngine::TryStartPolyPortoVoice_(const Sample* sample,
 
         if(!already_fading)
         {
-            int n = static_cast<int>(sample_rate_ * 0.001f * kStealFadeOutMs);
-            if(n < 1)
-                n = 1;
             v.steal_fade_level = 1.0f;
-            v.steal_fade_step = 1.0f / static_cast<float>(n);
+            v.steal_fade_step = ComputeStealFadeStep_(v.old_gain);
         }
 
         v.state = VoiceState::StealFadeOut;

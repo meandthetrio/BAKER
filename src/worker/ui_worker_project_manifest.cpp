@@ -1,6 +1,7 @@
 #include "ui_worker_internal.h"
 
 #include "app_state_project.h"
+#include "mem_regions.h"
 
 #include <cstdio>
 #include <cstring>
@@ -852,6 +853,33 @@ static void ProjectManifestUpgrade(ProjectManifestV10& dst, const ProjectManifes
     CopySharedSeqModTail(dst, src);
 }
 
+// SDMMC DMA on this STM32H7 cannot reach DTCM, where these manifest structs live
+// as main-loop-stack locals. f_read straight into them silently transfers 0 bytes
+// (or garbage), so a valid file "fails validation" and save/load report ERROR.
+// Bounce every manifest read through this SDRAM-resident scratch, then memcpy the
+// bytes out (CPU copy to the DTCM destination is fine — only DMA can't reach it).
+// Same constraint/fix the baker uses (see bk_file_reader.cpp).
+ADSR2_SECTION(".sdram_bss") static uint8_t s_manifest_rd_io[4096];
+static_assert(sizeof(ProjectManifestV11) <= sizeof(s_manifest_rd_io),
+              "manifest read scratch too small");
+
+// Drop-in replacement for ReadSdDmaSafe(&s_sd.file, dst, n, br) whose DMA target is the
+// SDRAM scratch rather than the caller's (DTCM) buffer.
+static FRESULT ReadSdDmaSafe(FIL* fp, void* dst, UINT n, UINT* br)
+{
+    if(br)
+        *br = 0;
+    if(n > sizeof(s_manifest_rd_io))
+        return FR_INVALID_OBJECT;
+    UINT got = 0;
+    const FRESULT res = f_read(fp, s_manifest_rd_io, n, &got);
+    if(br)
+        *br = got;
+    if(res == FR_OK && got > 0)
+        std::memcpy(dst, s_manifest_rd_io, got);
+    return res;
+}
+
 bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
 {
     const FSIZE_t manifest_size = f_size(&s_sd.file);
@@ -859,12 +887,12 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     FRESULT rd = FR_INT_ERR;
     if(manifest_size == sizeof(ProjectManifestV11))
     {
-        rd = f_read(&s_sd.file, &manifest, sizeof(manifest), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &manifest, sizeof(manifest), &br);
     }
     else if(manifest_size == sizeof(ProjectManifestV21Legacy))
     {
         ProjectManifestV21Legacy legacy_v21{};
-        rd = f_read(&s_sd.file, &legacy_v21, sizeof(legacy_v21), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v21, sizeof(legacy_v21), &br);
         if(rd == FR_OK && br == sizeof(legacy_v21) && ProjectManifestValid(legacy_v21))
             ProjectManifestUpgrade(manifest, legacy_v21);
         else
@@ -873,7 +901,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV20Legacy))
     {
         ProjectManifestV20Legacy legacy_v20{};
-        rd = f_read(&s_sd.file, &legacy_v20, sizeof(legacy_v20), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v20, sizeof(legacy_v20), &br);
         if(rd == FR_OK && br == sizeof(legacy_v20) && ProjectManifestValid(legacy_v20))
             ProjectManifestUpgrade(manifest, legacy_v20);
         else
@@ -882,7 +910,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV19Legacy))
     {
         ProjectManifestV19Legacy legacy_v19{};
-        rd = f_read(&s_sd.file, &legacy_v19, sizeof(legacy_v19), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v19, sizeof(legacy_v19), &br);
         if(rd == FR_OK && br == sizeof(legacy_v19) && ProjectManifestValid(legacy_v19))
             ProjectManifestUpgrade(manifest, legacy_v19);
         else
@@ -891,7 +919,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV18Legacy))
     {
         ProjectManifestV18Legacy legacy_v18{};
-        rd = f_read(&s_sd.file, &legacy_v18, sizeof(legacy_v18), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v18, sizeof(legacy_v18), &br);
         if(rd == FR_OK && br == sizeof(legacy_v18) && ProjectManifestValid(legacy_v18))
             ProjectManifestUpgrade(manifest, legacy_v18);
         else
@@ -900,7 +928,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV15Legacy))
     {
         ProjectManifestV15Legacy legacy_v15{};
-        rd = f_read(&s_sd.file, &legacy_v15, sizeof(legacy_v15), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v15, sizeof(legacy_v15), &br);
         if(rd == FR_OK && br == sizeof(legacy_v15) && ProjectManifestValid(legacy_v15))
             ProjectManifestUpgrade(manifest, legacy_v15);
         else
@@ -909,7 +937,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV14Legacy))
     {
         ProjectManifestV14Legacy legacy_v14{};
-        rd = f_read(&s_sd.file, &legacy_v14, sizeof(legacy_v14), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v14, sizeof(legacy_v14), &br);
         if(rd == FR_OK && br == sizeof(legacy_v14) && ProjectManifestValid(legacy_v14))
             ProjectManifestUpgrade(manifest, legacy_v14);
         else
@@ -918,7 +946,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV13Legacy))
     {
         ProjectManifestV13Legacy legacy_v13{};
-        rd = f_read(&s_sd.file, &legacy_v13, sizeof(legacy_v13), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v13, sizeof(legacy_v13), &br);
         if(rd == FR_OK && br == sizeof(legacy_v13) && ProjectManifestValid(legacy_v13))
             ProjectManifestUpgrade(manifest, legacy_v13);
         else
@@ -927,7 +955,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV12Legacy))
     {
         ProjectManifestV12Legacy legacy_v12{};
-        rd = f_read(&s_sd.file, &legacy_v12, sizeof(legacy_v12), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v12, sizeof(legacy_v12), &br);
         if(rd == FR_OK && br == sizeof(legacy_v12) && ProjectManifestValid(legacy_v12))
             ProjectManifestUpgrade(manifest, legacy_v12);
         else
@@ -936,7 +964,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV11Legacy))
     {
         ProjectManifestV11Legacy legacy_v11{};
-        rd = f_read(&s_sd.file, &legacy_v11, sizeof(legacy_v11), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v11, sizeof(legacy_v11), &br);
         if(rd == FR_OK && br == sizeof(legacy_v11) && ProjectManifestValid(legacy_v11))
             ProjectManifestUpgrade(manifest, legacy_v11);
         else
@@ -945,7 +973,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV10))
     {
         ProjectManifestV10 legacy_v10{};
-        rd = f_read(&s_sd.file, &legacy_v10, sizeof(legacy_v10), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v10, sizeof(legacy_v10), &br);
         if(rd == FR_OK && br == sizeof(legacy_v10) && ProjectManifestValid(legacy_v10))
             ProjectManifestUpgrade(manifest, legacy_v10);
         else
@@ -954,7 +982,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV9))
     {
         ProjectManifestV9 legacy_v9{};
-        rd = f_read(&s_sd.file, &legacy_v9, sizeof(legacy_v9), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v9, sizeof(legacy_v9), &br);
         if(rd == FR_OK && br == sizeof(legacy_v9) && ProjectManifestValid(legacy_v9))
         {
             ProjectManifestV10 legacy_v10{};
@@ -967,7 +995,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV8))
     {
         ProjectManifestV8 legacy_v8{};
-        rd = f_read(&s_sd.file, &legacy_v8, sizeof(legacy_v8), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v8, sizeof(legacy_v8), &br);
         if(rd == FR_OK && br == sizeof(legacy_v8) && ProjectManifestValid(legacy_v8))
         {
             ProjectManifestV9 legacy_v9{};
@@ -982,7 +1010,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV7))
     {
         ProjectManifestV7 legacy_v7{};
-        rd = f_read(&s_sd.file, &legacy_v7, sizeof(legacy_v7), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v7, sizeof(legacy_v7), &br);
         if(rd == FR_OK && br == sizeof(legacy_v7) && ProjectManifestValid(legacy_v7))
         {
             ProjectManifestV8 legacy_v8{};
@@ -999,7 +1027,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV6))
     {
         ProjectManifestV6 legacy_v6{};
-        rd = f_read(&s_sd.file, &legacy_v6, sizeof(legacy_v6), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v6, sizeof(legacy_v6), &br);
         if(rd == FR_OK && br == sizeof(legacy_v6) && ProjectManifestValid(legacy_v6))
         {
             ProjectManifestV7 legacy_v7{};
@@ -1018,7 +1046,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV5))
     {
         ProjectManifestV5 legacy_v5{};
-        rd = f_read(&s_sd.file, &legacy_v5, sizeof(legacy_v5), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v5, sizeof(legacy_v5), &br);
         if(rd == FR_OK && br == sizeof(legacy_v5) && ProjectManifestValid(legacy_v5))
         {
             ProjectManifestV6 legacy_v6{};
@@ -1039,7 +1067,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV4))
     {
         ProjectManifestV4 legacy_v4{};
-        rd = f_read(&s_sd.file, &legacy_v4, sizeof(legacy_v4), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v4, sizeof(legacy_v4), &br);
         if(rd == FR_OK && br == sizeof(legacy_v4) && ProjectManifestValid(legacy_v4))
         {
             ProjectManifestV5 legacy_v5{};
@@ -1062,7 +1090,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV3))
     {
         ProjectManifestV3 legacy_v3{};
-        rd = f_read(&s_sd.file, &legacy_v3, sizeof(legacy_v3), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v3, sizeof(legacy_v3), &br);
         if(rd == FR_OK && br == sizeof(legacy_v3) && ProjectManifestValid(legacy_v3))
         {
             ProjectManifestV4 legacy_v4{};
@@ -1087,7 +1115,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifest))
     {
         ProjectManifest legacy_v2{};
-        rd = f_read(&s_sd.file, &legacy_v2, sizeof(legacy_v2), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v2, sizeof(legacy_v2), &br);
         if(rd == FR_OK && br == sizeof(legacy_v2) && ProjectManifestValid(legacy_v2))
         {
             ProjectManifestV3 legacy_v3{};
@@ -1114,7 +1142,7 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     else if(manifest_size == sizeof(ProjectManifestV1))
     {
         ProjectManifestV1 legacy{};
-        rd = f_read(&s_sd.file, &legacy, sizeof(legacy), &br);
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy, sizeof(legacy), &br);
         if(rd == FR_OK && br == sizeof(legacy) && ProjectManifestValid(legacy))
         {
             ProjectManifest legacy_v2{};

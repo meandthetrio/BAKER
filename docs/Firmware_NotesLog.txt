@@ -1,4 +1,24 @@
 **Running Document to capture firmware edits inside of BAKER/EXPRESS**
+6/20/26:
+-- FIXED Project Save/Load "ERROR" — manifest f_read/f_write used a DTCM main-loop
+   stack buffer that SDMMC DMA cannot reach (save wrote 0 bytes, load read garbage /
+   "valid file fails validation"). Now bounced through an .sdram_bss scratch
+   (ReadSdDmaSafe + write scratches). Regression dated to the bootloader/libDaisy port
+   moving the stack into DTCM. NOTE: projects saved while broken are 0-byte/garbage and
+   must be re-saved.
+-- Fixed log-release envelope stalling at long times (>~1s) — tiny 0.0001 overshoot
+   underflowed float precision near level 1.0; log release now uses a 0.1 overshoot.
+-- Converted loop ADSR envelope from LINEAR to EXPONENTIAL (natural analog-style attack/
+   decay/release). Consequence: P5 block-rate env path disabled (would kink an exp curve);
+   all voices now per-sample exp with batched fetch — watch CPU.
+-- Added per-stage EXP/LOG curve toggle: hold RShift + turn REnc while Attack or Release
+   is focused (right=log/convex/holds-longer, left=exp). EXP/LOG shows in the value slot
+   with a solid border; A/R show a dotted border normally to flag the shift function.
+   Saved per project (repurposed manifest reserved byte; old projects default to exp).
+-- Extended Attack/Release max 1000ms -> 4000ms (ADSR + Express ranges, all clamp sites).
+-- Added REnc velocity acceleration on ADSR & Express value editing (fast spin =
+   100ms/detent on attack/release, ~10 on sustain; fine 1ms when slow).
+
 5/22/26:
 -- Added Retroactive.DSP Boot up logos
 -- Added Boot up LED logic (cyan)

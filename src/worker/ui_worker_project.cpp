@@ -12,6 +12,7 @@
 #include "mod_matrix.h"
 #include "express_state.h"
 #include "tilt_eq.h"
+#include "mem_regions.h"
 
 #include <cstdio>
 #include <cstring>
@@ -626,6 +627,10 @@ bool ScanProjectSlots(AppUiState& ui, AppProjectState& project)
     return true;
 }
 
+// SDRAM-resident write scratch (see comment in WriteProjectManifestFile below /
+// the matching read scratch in ui_worker_project_manifest.cpp).
+ADSR2_SECTION(".sdram_bss") static uint8_t s_manifest_wr_io[sizeof(ProjectManifestV11)];
+
 static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifestV11& manifest)
 {
     char tmp_path[kProjectPathMax];
@@ -640,8 +645,13 @@ static bool WriteProjectManifestFile(uint8_t project_slot, const ProjectManifest
     if(f_open(&s_sd.file, tmp_path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
         return false;
 
+    // SDMMC DMA can't reach DTCM (the main-loop stack where `manifest` lives), so
+    // f_write straight from it silently writes 0 bytes -> bw != sizeof -> ERROR.
+    // Bounce through an SDRAM-resident scratch. Mirrors ReadProjectManifestFromFile
+    // / the baker (see sdmmc-dma-dtcm note).
+    std::memcpy(s_manifest_wr_io, &manifest, sizeof(manifest));
     UINT bw = 0;
-    const FRESULT wr = f_write(&s_sd.file, &manifest, sizeof(manifest), &bw);
+    const FRESULT wr = f_write(&s_sd.file, s_manifest_wr_io, sizeof(manifest), &bw);
     f_close(&s_sd.file);
     if(wr != FR_OK || bw != sizeof(manifest))
     {

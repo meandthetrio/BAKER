@@ -10,6 +10,7 @@
 
 #include "fatfs.h"
 #include "ff.h"
+#include "mem_regions.h"
 
 #include <cstdio>
 #include <cstring>
@@ -157,6 +158,11 @@ bool BuildReplaceTempPath(const char* original_path, char* out_path, size_t out_
 }
 } // namespace
 
+// SDRAM-resident write scratch: SDMMC DMA can't reach the DTCM main-loop stack
+// where `manifest` lives, so f_write straight from it silently writes 0 bytes.
+// (Same fix as WriteProjectManifestFile / ReadProjectManifestFromFile.)
+ADSR2_SECTION(".sdram_bss") static uint8_t s_sampleops_manifest_io[sizeof(ProjectManifestV11)];
+
 static bool WriteProjectManifestToSlot(uint8_t project_slot, const ProjectManifestV11& manifest)
 {
     char tmp_path[kProjectPathMax];
@@ -171,8 +177,9 @@ static bool WriteProjectManifestToSlot(uint8_t project_slot, const ProjectManife
     if(f_open(&s_sd.file, tmp_path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
         return false;
 
+    std::memcpy(s_sampleops_manifest_io, &manifest, sizeof(manifest));
     UINT bw = 0;
-    const FRESULT wr = f_write(&s_sd.file, &manifest, sizeof(manifest), &bw);
+    const FRESULT wr = f_write(&s_sd.file, s_sampleops_manifest_io, sizeof(manifest), &bw);
     f_close(&s_sd.file);
     if(wr != FR_OK || bw != sizeof(manifest))
     {

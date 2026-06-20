@@ -10,14 +10,20 @@
 #include <cmath>
 #include <cstdio>
 
-void DrawProcessKnob(OledPager& d,
-                     int cx,
-                     int cy,
-                     int radius,
-                     char side_letter,
-                     const char* value_text,
-                     float angle_rad,
-                     bool focused);
+void DrawProcessVolumeKnob(OledPager& d,
+                           int cx,
+                           int cy,
+                           int radius,
+                           const char* label,
+                           float angle_rad,
+                           bool focused);
+void DrawProcessFilterKnob(OledPager& d,
+                           int cx,
+                           int cy,
+                           int radius,
+                           const char* label,
+                           float angle_rad,
+                           bool focused);
 
 float Clamp01(float x)
 {
@@ -97,6 +103,19 @@ ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(AppEngineState& engine,
         const float norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[i]);
         ui.angle_rad[i] = 2.0943951f + (norm * 5.2359878f);
     }
+
+    // Global process filter knob angles (log cutoff 20 Hz..20 kHz; linear res).
+    float fc = t.process_cutoff_hz;
+    if(fc < 20.0f) fc = 20.0f;
+    if(fc > 20000.0f) fc = 20000.0f;
+    float cnorm = std::log(fc / 20.0f) / std::log(1000.0f); // log(20000/20)=log(1000)
+    if(cnorm < 0.0f) cnorm = 0.0f;
+    if(cnorm > 1.0f) cnorm = 1.0f;
+    ui.cutoff_angle = 2.0943951f + (cnorm * 5.2359878f);
+    float rnorm = t.process_resonance;
+    if(rnorm < 0.0f) rnorm = 0.0f;
+    if(rnorm > 1.0f) rnorm = 1.0f;
+    ui.res_angle = 2.0943951f + (rnorm * 5.2359878f);
     return ui;
 }
 
@@ -108,13 +127,22 @@ void DrawProcessLayerVolumePane(OledPager& d,
 {
     constexpr int kLeftX = 0;
     constexpr int kLeftW = 60;
-    constexpr int kVolKnobRadius = 9;
+    const int cx_mid = kLeftX + (kLeftW / 2) - 1; // 29
 
-    const int knob_cx = kLeftX + (kLeftW / 2) - 1;
-    // Single layer: only layer A's volume knob, vertically centred in the pane.
-    const int a_cy = left_y + (left_h / 2);
-    DrawProcessKnob(
-        d, knob_cx, a_cy, kVolKnobRadius, 'a', ui.value_text[0], ui.angle_rad[0], main_cursor == 0u);
+    // Triangle: volume on top (full pane width, label above), resonance
+    // bottom-left, cutoff bottom-right (labels below). Cursor: 0=vol, 1=res,
+    // 2=cut. Knob hands track the live global-filter params.
+    constexpr int kVolRadius  = 7;
+    constexpr int kFiltRadius = 6;
+    const int vol_cy = left_y + 13;
+    const int res_cy = left_y + left_h - 27; // res up 3
+    const int cut_cy = left_y + left_h - 21; // cut up 2
+    const int res_cx = cx_mid - 15;
+    const int cut_cx = cx_mid + 14;          // cut left 1
+
+    DrawProcessVolumeKnob(d, cx_mid, vol_cy, kVolRadius, "vol", ui.angle_rad[0], main_cursor == 0u);
+    DrawProcessFilterKnob(d, res_cx, res_cy, kFiltRadius, "res", ui.res_angle, main_cursor == 1u);
+    DrawProcessFilterKnob(d, cut_cx, cut_cy, kFiltRadius, "cut", ui.cutoff_angle, main_cursor == 2u);
 }
 
 static bool ProcessEqGraphNeedsRecompute(uint32_t now_ms,

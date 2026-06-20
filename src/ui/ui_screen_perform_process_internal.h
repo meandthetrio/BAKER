@@ -15,6 +15,8 @@ struct ProcessLayerVolumeUiState
 {
     char  value_text[2][12];
     float angle_rad[2];
+    float cutoff_angle; // global process LPF cutoff knob angle
+    float res_angle;    // global process LPF resonance knob angle
 };
 
 float Clamp01(float x);
@@ -56,6 +58,8 @@ uint8_t ProcessDetailParamCount(uint8_t fx_id, uint8_t sat_mode = 0);
 void ProcessHandleLayerToggle(UiScreenCtx& ctx);
 void ProcessHandleLayerMuteToggle(UiScreenCtx& ctx, uint8_t layer);
 void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e, uint8_t layer);
+void ProcessHandleProcessCutoffEdit(UiScreenCtx& ctx, const UiInputEvent& e);
+void ProcessHandleProcessResonanceEdit(UiScreenCtx& ctx, const UiInputEvent& e);
 void ProcessEditEqGraph(UiScreenCtx& ctx, float delta);
 bool ProcessEditFxDetail(UiScreenCtx& ctx,
                          const UiInputEvent& e,

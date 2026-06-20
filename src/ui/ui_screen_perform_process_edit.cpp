@@ -14,6 +14,7 @@
 #include "ui_input.h"
 
 #include <atomic>
+#include <cmath>
 
 static float UiAccelFromDtMs(uint32_t dt_ms)
 {
@@ -137,6 +138,41 @@ void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e, uint8
     t.engine_layer_master_level[layer] = next;
     engine.process.perform_process_vol_unmuted_level[layer] = next;
     engine.process.perform_process_vol_pct[layer] = static_cast<uint16_t>(next * 100.0f + 0.5f);
+    ctx.params->PublishTargets();
+    ui.ui_dirty = true;
+}
+
+void ProcessHandleProcessCutoffEdit(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    AppUiState&           ui = *ctx.ui;
+    PerformParamsTargets& t  = ctx.params->EditTargets();
+
+    // Edit in log space so the step feels even across 20 Hz .. 20 kHz.
+    static uint32_t s_last_t_ms = 0u;
+    const float     delta       = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_t_ms, 0.02f);
+    constexpr float kMinHz = 20.0f, kMaxHz = 20000.0f;
+    float fc = t.process_cutoff_hz;
+    if(fc < kMinHz) fc = kMinHz;
+    if(fc > kMaxHz) fc = kMaxHz;
+    float norm = std::log(fc / kMinHz) / std::log(kMaxHz / kMinHz) + delta;
+    if(norm < 0.0f) norm = 0.0f;
+    if(norm > 1.0f) norm = 1.0f;
+    t.process_cutoff_hz = kMinHz * std::pow(kMaxHz / kMinHz, norm);
+    ctx.params->PublishTargets();
+    ui.ui_dirty = true;
+}
+
+void ProcessHandleProcessResonanceEdit(UiScreenCtx& ctx, const UiInputEvent& e)
+{
+    AppUiState&           ui = *ctx.ui;
+    PerformParamsTargets& t  = ctx.params->EditTargets();
+
+    static uint32_t s_last_t_ms = 0u;
+    const float     delta       = UiDeltaNormAccelerated(e.value, e.t_ms, s_last_t_ms, 0.02f);
+    float           r           = t.process_resonance + delta;
+    if(r < 0.0f) r = 0.0f;
+    if(r > 1.0f) r = 1.0f;
+    t.process_resonance = r;
     ctx.params->PublishTargets();
     ui.ui_dirty = true;
 }

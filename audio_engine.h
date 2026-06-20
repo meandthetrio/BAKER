@@ -9,6 +9,26 @@
 
 struct AppDiagnosticsState;
 
+// Compact TPT (zero-delay-feedback) state-variable lowpass — one channel.
+// Stable at any cutoff and clean under modulation, and transparent at high
+// cutoff (unlike a clamped Chamberlin SVF). Coeffs (a1/a2/a3) are computed once
+// per block from cutoff/resonance; Lp() runs per sample.
+struct ProcessTptSvf
+{
+    float ic1eq = 0.0f;
+    float ic2eq = 0.0f;
+    void  Reset() { ic1eq = 0.0f; ic2eq = 0.0f; }
+    inline float Lp(float v0, float a1, float a2, float a3)
+    {
+        const float v3 = v0 - ic2eq;
+        const float v1 = a1 * ic1eq + a2 * v3;
+        const float v2 = ic2eq + a2 * ic1eq + a3 * v3;
+        ic1eq = 2.0f * v1 - ic1eq;
+        ic2eq = 2.0f * v2 - ic2eq;
+        return v2;
+    }
+};
+
 // Audio Engine Layer:
 // - Reads Params::current only.
 // - Hard bypass: DSP does not run when OFF.
@@ -181,6 +201,10 @@ class AudioEngine
     // `Cuz` sat_l/sat_r layout). BIT mode still uses the inline SoftClip path.
     TapeSaturator tape_sat_l_;
     TapeSaturator tape_sat_r_;
+
+    // Global process LPF (TPT SVF) on the summed mix, one per channel.
+    ProcessTptSvf process_svf_l_{};
+    ProcessTptSvf process_svf_r_{};
 
     TiltEqStereo tilt_eq_{};
     bool           eq_run_prev_ = false;

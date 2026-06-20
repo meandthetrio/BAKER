@@ -6,76 +6,8 @@
 #include "params.h"
 #include "ui_draw_controls.h"
 
-static int ProcessValueAdvance(char ch, char next_ch)
-{
-    if(ch == '.')
-        return 3;
-    if(next_ch == 'd')
-        return 6;
-    if(ch == 'd' && next_ch == 'b')
-        return 6;
-    if(next_ch == '.')
-        return 5;
-    return 5;
-}
-
-static int ProcessValueWidth(const char* s)
-{
-    if(s == nullptr || s[0] == '\0')
-        return 0;
-
-    int width = 0;
-    for(int i = 0; s[i] != '\0'; ++i)
-        width += ProcessValueAdvance(s[i], s[i + 1]);
-    return width;
-}
-
-static void DrawProcessValueText(OledPager& d, const char* s, int x, int y)
-{
-    if(s == nullptr)
-        return;
-
-    int pen_x = x;
-    for(int i = 0; s[i] != '\0'; ++i)
-    {
-        char ch = s[i];
-        if(ch >= 'A' && ch <= 'Z')
-            ch = static_cast<char>(ch - 'A' + 'a');
-
-        uint8_t rows[Font5x7::H] = {};
-        Font5x7::GetGlyphRows(ch, rows);
-        for(int yy = 0; yy < Font5x7::H; ++yy)
-        {
-            const uint8_t row = rows[yy];
-            for(int xx = 0; xx < Font5x7::W; ++xx)
-            {
-                if((row >> (Font5x7::W - 1 - xx)) & 1)
-                {
-                    const int px = pen_x + xx - ((ch == '.') ? 1 : 0);
-                    const int py = y + yy;
-                    if(px >= 0 && px < 128 && py >= 0 && py < 64)
-                        d.DrawPixel(px, py, true);
-                }
-            }
-        }
-        pen_x += ProcessValueAdvance(ch, s[i + 1]);
-    }
-}
-
-static void DrawProcessPlusGlyph(OledPager& d, int x, int y)
-{
-    d.DrawLine(x + 2, y + 1, x + 2, y + 5, true);
-    d.DrawLine(x, y + 3, x + 4, y + 3, true);
-}
-
-void DrawProcessKnob(OledPager& d,
-                     int cx,
-                     int cy,
-                     int radius,
-                     char side_letter,
-                     const char* value_text,
-                     float angle_rad,
-                     bool focused)
+// Circle + centre dot + indicator hand. Shared by every process knob.
+static void DrawProcessKnobBody(OledPager& d, int cx, int cy, int radius, float angle_rad)
 {
     DrawCirclePixels(d, cx, cy, radius, true);
     d.DrawPixel(cx, cy, true);
@@ -83,36 +15,47 @@ void DrawProcessKnob(OledPager& d,
     const int hx = cx + static_cast<int>(std::cos(angle_rad) * static_cast<float>(hand_r));
     const int hy = cy + static_cast<int>(std::sin(angle_rad) * static_cast<float>(hand_r));
     d.DrawLine(cx, cy, hx, hy, true);
+}
 
-    char side_text[2] = {side_letter, '\0'};
-    const int label_x = cx - radius - 9;
-    const int label_y = cy - (Font5x7::H / 2);
+// Knob name label in micro font (matches the page header), focused or plain.
+static void DrawProcessKnobLabel(OledPager& d, const char* label, int x, int y, bool focused)
+{
     if(focused)
-    {
-        DrawRencFocusTinyString(d, side_text, label_x, label_y);
-    }
+        DrawRencFocusMicroString(d, label, x, y);
     else
-    {
-        DrawTinyString(d, side_text, label_x, label_y, true);
-    }
+        DrawMicroString(d, label, x, y, true);
+}
 
-    if(value_text == nullptr || value_text[0] == '\0')
-        return;
+// Gap (px) between a knob's circle and its label.
+static constexpr int kKnobLabelGap = 4;
 
-    if(value_text[0] == '+')
-    {
-        const char* rest = value_text + 1;
-        const int rest_w = ProcessValueWidth(rest);
-        const int value_w = 5 + 1 + rest_w;
-        const int value_x = cx - (value_w / 2);
-        const int value_y = cy - radius - 8;
-        DrawProcessPlusGlyph(d, value_x, value_y);
-        DrawProcessValueText(d, rest, value_x + 6, value_y);
-        return;
-    }
+// Volume knob (top of the process left-pane triangle): micro label centred
+// ABOVE the knob, no value readout.
+void DrawProcessVolumeKnob(OledPager& d,
+                           int cx,
+                           int cy,
+                           int radius,
+                           const char* label,
+                           float angle_rad,
+                           bool focused)
+{
+    DrawProcessKnobBody(d, cx, cy, radius, angle_rad);
+    const int lw = MicroStringWidth(label);
+    DrawProcessKnobLabel(d, label, cx - (lw / 2), cy - radius - kKnobLabelGap - kMicroH, focused);
+}
 
-    const int value_w = ProcessValueWidth(value_text);
-    DrawProcessValueText(d, value_text, cx - (value_w / 2), cy - radius - 8);
+// Filter knob (cutoff / resonance): micro label centred BELOW the knob, no value.
+void DrawProcessFilterKnob(OledPager& d,
+                           int cx,
+                           int cy,
+                           int radius,
+                           const char* label,
+                           float angle_rad,
+                           bool focused)
+{
+    DrawProcessKnobBody(d, cx, cy, radius, angle_rad);
+    const int lw = MicroStringWidth(label);
+    DrawProcessKnobLabel(d, label, cx - (lw / 2), cy + radius + kKnobLabelGap, focused);
 }
 
 static void DrawProcessReorderLeftArrow(OledPager& d, int tip_x, int cy)

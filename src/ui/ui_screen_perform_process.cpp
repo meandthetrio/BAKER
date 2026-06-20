@@ -26,27 +26,28 @@ static bool ProcessMainCursorLocked(const AppSharedState& shared,
     (void)shared;
     (void)engine;
     (void)layer;
-    // Single layer: cursor slot 1 was layer B's volume — lock it so navigation
-    // skips it (slot 0 = layer A volume, slots 2-5 = the four FX).
-    return main_cursor == 1u;
+    (void)main_cursor;
+    // 7-slot model: 0=vol, 1=cut, 2=res, 3-6 = the four FX. Nothing is locked
+    // (layer B's volume slot was removed when the engine went single-layer).
+    return false;
 }
 
 static void ProcessEnsureValidMainCursor(const AppSharedState& shared,
                                          AppEngineState& engine,
                                          uint8_t layer)
 {
-    engine.process.perform_process_main_cursor %= 6u;
+    engine.process.perform_process_main_cursor %= 7u;
     if(!ProcessMainCursorLocked(shared, engine, layer, engine.process.perform_process_main_cursor))
         return;
 
-    for(uint8_t step = 1; step < 6u; ++step)
+    for(uint8_t step = 1; step < 7u; ++step)
     {
-        const uint8_t next = static_cast<uint8_t>((engine.process.perform_process_main_cursor + step) % 6u);
+        const uint8_t next = static_cast<uint8_t>((engine.process.perform_process_main_cursor + step) % 7u);
         if(!ProcessMainCursorLocked(shared, engine, layer, next))
         {
             engine.process.perform_process_main_cursor = next;
-            if(next >= 2u)
-                engine.process.perform_process_fx_cursor = static_cast<uint8_t>((next - 2u) & 0x03u);
+            if(next >= 3u)
+                engine.process.perform_process_fx_cursor = static_cast<uint8_t>((next - 3u) & 0x03u);
             return;
         }
     }
@@ -86,16 +87,16 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     ProcessEnsureValidMainCursor(shared, engine, layer);
     ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor,
                                   ctx.params->EditTargets().sat_mode);
-    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 6u);
-    const bool main_selects_fx = (main_cursor >= 2u);
-    const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 2u) & 0x03u)
+    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 7u);
+    const bool main_selects_fx = (main_cursor >= 3u);
+    const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 3u) & 0x03u)
                                            : static_cast<uint8_t>(engine.process.perform_process_fx_cursor & 0x03u);
     const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
     auto apply_fx_reorder = [&](int encoder_delta) -> bool
     {
         if(!ctx.rshift || !main_selects_fx || encoder_delta == 0)
             return false;
-        const int from = static_cast<int>(main_cursor - 2u);
+        const int from = static_cast<int>(main_cursor - 3u);
         if(from < 0 || from > 3)
             return true;
         if(engine.process.perform_process_fx_order[from] == 1u)
@@ -109,7 +110,7 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         engine.process.perform_process_fx_order[from] = engine.process.perform_process_fx_order[to];
         engine.process.perform_process_fx_order[to] = tmp;
         engine.process.perform_process_fx_cursor = static_cast<uint8_t>(to);
-        engine.process.perform_process_main_cursor = static_cast<uint8_t>(to + 2);
+        engine.process.perform_process_main_cursor = static_cast<uint8_t>(to + 3);
 
         PerformParamsTargets& t = ctx.params->EditTargets();
         for(int i = 0; i < 4; ++i)
@@ -147,11 +148,12 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(!main_selects_fx)
             {
-                ProcessHandleLayerMuteToggle(ctx, main_cursor & 1u); // 0=VOL A, 1=VOL B
+                if(main_cursor == 0u) // vol: R-click toggles mute. cut/res: no-op.
+                    ProcessHandleLayerMuteToggle(ctx, 0u);
                 return true;
             }
             {
-                const uint8_t c = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 2u) & 0x03u);
+                const uint8_t c = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 3u) & 0x03u);
                 const uint8_t fid = engine.process.perform_process_fx_order[c];
                 if(fid == 1u)
                 {
@@ -210,14 +212,14 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         do
         {
             while(idx < 0)
-                idx += 6;
-            while(idx >= 6)
-                idx -= 6;
+                idx += 7;
+            while(idx >= 7)
+                idx -= 7;
             engine.process.perform_process_main_cursor = static_cast<uint8_t>(idx);
             idx += (e.value < 0) ? -1 : 1;
         } while(ProcessMainCursorLocked(shared, engine, layer, engine.process.perform_process_main_cursor));
-        if(engine.process.perform_process_main_cursor >= 2u)
-            engine.process.perform_process_fx_cursor = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 2u) & 0x03u);
+        if(engine.process.perform_process_main_cursor >= 3u)
+            engine.process.perform_process_fx_cursor = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 3u) & 0x03u);
         ui.ui_dirty = true;
         return true;
     }
@@ -257,7 +259,12 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(!main_selects_fx)
         {
-            ProcessHandleLayerVolumeEdit(ctx, e, main_cursor & 1u);
+            if(main_cursor == 0u)
+                ProcessHandleLayerVolumeEdit(ctx, e, 0u);
+            else if(main_cursor == 1u)
+                ProcessHandleProcessResonanceEdit(ctx, e);
+            else // main_cursor == 2u
+                ProcessHandleProcessCutoffEdit(ctx, e);
             return true;
         }
 
@@ -361,8 +368,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
         DrawMicroString(d, header_label, box_x + 2, 2, false);
     }
 
-    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 6u);
-    const int32_t selected_index = (main_cursor >= 2u) ? static_cast<int32_t>(main_cursor - 2u) : -1;
+    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 7u);
+    const int32_t selected_index = (main_cursor >= 3u) ? static_cast<int32_t>(main_cursor - 3u) : -1;
     const int box_y = layout.y_body;
     const int box_h = layout.y_footer - layout.y_body + layout.line_h;
     const PerformParamsTargets& t = ctx.params->TargetsForUI();

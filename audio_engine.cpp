@@ -409,6 +409,10 @@ void AudioEngine::Init(float sample_rate, size_t block_size)
     tape_sat_l_.Init(sample_rate_, block_size_);
     tape_sat_r_.Init(sample_rate_, block_size_);
 
+    // Global process LPF state.
+    process_svf_l_.Reset();
+    process_svf_r_.Reset();
+
     delay_active_  = false;
     delay_tailing_ = false;
     delay_tail_blocks_left_ = 0;
@@ -680,6 +684,28 @@ void AudioEngine::ProcessBlock(const float* inL,
     {
         reverb_wet_scale = static_cast<float>(reverb_tail_blocks_left_)
                          / static_cast<float>(kReverbTailFadeBlocks);
+    }
+
+    // ---- Global process filter: TPT SVF lowpass on the summed mix ----
+    // Runs every block (cheap, ~1%). Transparent near max cutoff; engages as the
+    // cutoff drops or resonance rises. Coeffs once per block -> click-free sweeps.
+    {
+        float fc = p.process_cutoff_hz;
+        if(fc < 20.0f)    fc = 20.0f;
+        if(fc > 20000.0f) fc = 20000.0f;
+        float res = p.process_resonance;
+        if(res < 0.0f) res = 0.0f;
+        if(res > 1.0f) res = 1.0f;
+        const float g  = std::tan(3.14159265f * fc / sample_rate_);
+        const float k  = 2.0f - 2.0f * res; // res 0 -> Q 0.5, res 1 -> self-osc
+        const float a1 = 1.0f / (1.0f + g * (g + k));
+        const float a2 = g * a1;
+        const float a3 = g * a2;
+        for(size_t i = 0; i < size; ++i)
+        {
+            outL[i] = process_svf_l_.Lp(outL[i], a1, a2, a3);
+            outR[i] = process_svf_r_.Lp(outR[i], a1, a2, a3);
+        }
     }
 
     for(uint8_t stage_idx = 0; stage_idx < 4; ++stage_idx)

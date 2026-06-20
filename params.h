@@ -36,6 +36,10 @@ struct PerformParamsTargets
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit
+    // Global process LPF (TPT SVF) on the summed mix. cutoff in Hz; transparent
+    // at max. resonance 0..1 (0 = none, ->1 = self-oscillation).
+    float process_cutoff_hz = 20000.0f;
+    float process_resonance = 0.0f;
     float eq_mix          = 1.0f;
     float eq_center_norm  = 0.5f;
     float eq_tilt_db      = 0.0f;
@@ -130,6 +134,10 @@ struct PerformParamsCurrent
     float sat_bit_reso = 0.5f;
     float sat_bit_smpl = 0.5f;
     uint8_t sat_mode = 0; // 0=tape, 1=bit
+    // Global process LPF (TPT SVF) on the summed mix. cutoff in Hz; transparent
+    // at max. resonance 0..1 (0 = none, ->1 = self-oscillation).
+    float process_cutoff_hz = 20000.0f;
+    float process_resonance = 0.0f;
     float eq_mix          = 1.0f;
     float eq_center_norm  = 0.5f;
     float eq_tilt_db      = 0.0f;

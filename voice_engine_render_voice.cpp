@@ -903,19 +903,24 @@ void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
             }
         }
 
-        // Inlined StepEnvelope (mirrors voice_engine_playback.cpp).
+        // Inlined StepEnvelope (mirrors voice_engine_internal.h). a_step/d_step/
+        // r_step hold the per-stage one-pole gain g; the sign of a_step/r_step
+        // selects exp (>=0) vs log (<0) and the target follows.
         switch(env_stage)
         {
             case EnvStage::Attack:
-                env += a_step;
+            {
+                const float a_t = (a_step >= 0.0f) ? kEnvAttackTarget : kEnvAttackTargetLog;
+                env += (a_t - env) * a_step;
                 if(env >= 1.0f)
                 {
                     env       = 1.0f;
                     env_stage = EnvStage::Decay;
                 }
                 break;
+            }
             case EnvStage::Decay:
-                env -= d_step;
+                env += ((sustain - kEnvDecRelOvershoot) - env) * d_step;
                 if(env <= sustain)
                 {
                     env       = sustain;
@@ -926,13 +931,16 @@ void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
                 env = sustain;
                 break;
             case EnvStage::Release:
-                env -= r_step;
+            {
+                const float r_t = (r_step >= 0.0f) ? kEnvReleaseTargetExp : kEnvReleaseTargetLog;
+                env += (r_t - env) * r_step;
                 if(env <= 0.0f)
                 {
                     env       = 0.0f;
                     env_stage = EnvStage::Off;
                 }
                 break;
+            }
             case EnvStage::Off:
             default:
                 env = 0.0f;
@@ -1109,15 +1117,18 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
                                            st.pos_frame,
                                            st.pos_frac);
 
-    // P5: decide whether this voice can use block-rate envelope simulation
-    // for this block. Only "slow" voices (all stages >= 5 ms) qualify; any
-    // stage faster than the threshold keeps the per-sample state machine.
-    // Fast-path is scoped to RenderNormalVoice_; StealFadeOut keeps per-sample.
-    setup.block_rate_env       = !st.glide_active
-                              && (setup.env_a_step <= kFastEnvelopeStepThreshold)
-                              && (setup.env_d_step <= kFastEnvelopeStepThreshold)
-                              && (st.env_r_step    <= kFastEnvelopeStepThreshold);
+    // P5 block-rate envelope is disabled: it linearly ramps env_level between
+    // block-start/end levels, which is exact for a linear envelope but visibly
+    // wrong for the exponential one-pole curve (a 5 ms decay moves ~1.7 time
+    // constants per 48-sample block, so a linear chord would add audible
+    // block-rate kinks). Every non-glide voice now takes the per-sample
+    // exponential path (RenderNormalVoice_BatchedFastEnv_); the expensive fetch
+    // is still batched there, so the extra cost is just the cheap per-sample
+    // one-pole. RenderNormalVoice_Batched_ / the pre-sim below are retained but
+    // dormant. kFastEnvelopeStepThreshold is likewise unused now.
+    setup.block_rate_env       = false;
     setup.env_per_sample_delta = 0.0f;
+    (void)kFastEnvelopeStepThreshold;
 
     if(ctx.setup_cycles)
         *ctx.setup_cycles += DWT->CYCCNT - setup_start;

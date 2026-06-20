@@ -76,6 +76,10 @@ struct AppEngineState
         uint8_t perform_adsr_loop_decay[2] = {20u, 20u};
         uint8_t perform_adsr_loop_sustain[2] = {100u, 100u};
         uint16_t perform_adsr_loop_release[2] = {50u, 50u};
+        // Attack/Release curve per layer: 0 = exponential (default), 1 = logarithmic.
+        // Toggled by RShift + REnc while the A or R stage is focused.
+        uint8_t  perform_adsr_attack_curve[2] = {0u, 0u};
+        uint8_t  perform_adsr_release_curve[2] = {0u, 0u};
         float   perform_adsr_loop_crossfade[2] = {0.0625f, 0.0625f};
         float   perform_adsr_loop_crossfade_shape[2] = {0.0f, 0.0f};
         // Set true by the loader once a slot's loop crossfade has been baked into

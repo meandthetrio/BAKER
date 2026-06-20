@@ -12,7 +12,7 @@
 static constexpr uint8_t kPerformLayerCount = 2;
 static constexpr uint16_t kPerformAdsrAttackMinMs   = 2u;
 static constexpr uint16_t kPerformAdsrReleaseMinMs  = 1u;
-static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 1000u;
+static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 4000u;
 static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
 static constexpr uint16_t kPerformAdsrSustainMax = 100u;
 
@@ -81,6 +81,8 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         t.engine_loop_decay_ms[i] = static_cast<float>(clamped_decay);
         t.engine_loop_sustain_level[i] = static_cast<float>(clamped_sustain) * 0.01f;
         t.engine_loop_release_ms[i] = static_cast<float>(clamped_release);
+        t.engine_loop_attack_curve[i] = engine.adsr.perform_adsr_attack_curve[i] & 1u;
+        t.engine_loop_release_curve[i] = engine.adsr.perform_adsr_release_curve[i] & 1u;
         t.engine_loop_crossfade_amount[i] = engine.adsr.perform_adsr_loop_crossfade[i];
         t.engine_loop_crossfade_shape[i] = engine.adsr.perform_adsr_loop_crossfade_shape[i];
         for(uint8_t row = 0; row < kExpressRowCount; ++row)

@@ -607,7 +607,11 @@ struct ProjectManifestV11
     char     magic[4] = {'A', 'K', 'P', 'J'};
     uint16_t version = kProjectManifestVersion;
     uint8_t  sample_present_mask = 0;
-    uint8_t  reserved = 0;
+    // Repurposed from the old `reserved` pad (sizeof unchanged, no version bump):
+    // per-layer Attack/Release envelope curve bits. 0 = exponential (default for
+    // all pre-existing projects, since the pad was always 0), 1 = logarithmic.
+    // bit0=attack L0, bit1=attack L1, bit2=release L0, bit3=release L1.
+    uint8_t  adsr_curve_flags = 0;
     char     wav_path[kProjectSampleLayerCount][kProjectPathMax] = {};
     SampleEdit edit[kProjectSampleLayerCount]{};
     int8_t   engine_tune_semitones[kProjectSampleLayerCount] = {};

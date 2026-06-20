@@ -131,6 +131,8 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.engine_loop_decay_ms[layer] = t.engine_loop_decay_ms[layer];
         current.engine_loop_sustain_level[layer] = t.engine_loop_sustain_level[layer];
         current.engine_loop_release_ms[layer] = t.engine_loop_release_ms[layer];
+        current.engine_loop_attack_curve[layer] = t.engine_loop_attack_curve[layer];
+        current.engine_loop_release_curve[layer] = t.engine_loop_release_curve[layer];
         current.engine_loop_crossfade_amount[layer] = t.engine_loop_crossfade_amount[layer];
         current.engine_loop_crossfade_shape[layer] = t.engine_loop_crossfade_shape[layer];
     }

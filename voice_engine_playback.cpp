@@ -43,7 +43,9 @@ void InitEnvelope(EnvStage& stage,
                   float     decay_ms,
                   float     sustain_level,
                   float     release_ms,
-                  float     sample_rate)
+                  float     sample_rate,
+                  bool      attack_log,
+                  bool      release_log)
 {
     if(attack_ms < 0.0f)
         attack_ms = 0.0f;
@@ -68,27 +70,41 @@ void InitEnvelope(EnvStage& stage,
     sustain = sustain_level;
     stage   = EnvStage::Attack;
     level   = 0.0f;
-    a_step  = 1.0f / static_cast<float>(a_samps);
-    d_step  = (1.0f - sustain) / static_cast<float>(d_samps);
-    r_step  = sustain / static_cast<float>(r_samps);
-    if(r_step < 1e-6f)
-        r_step = 1e-6f;
+    // One-pole gains: g = 1 - exp(-/+ ln(target_ratio) / samples). The +sign
+    // (log) branch yields a negative g — exponential growth, the convex curve —
+    // while keeping the same crossing time. Decay is always exponential. The
+    // sign of a_step/r_step is what StepEnvelope reads to pick exp vs log.
+    a_step  = attack_log
+                  ? 1.0f - std::exp( kEnvAttackLn / static_cast<float>(a_samps))
+                  : 1.0f - std::exp(-kEnvAttackLn / static_cast<float>(a_samps));
+    d_step  = 1.0f - std::exp(-kEnvDecRelLn / static_cast<float>(d_samps));
+    r_step  = release_log
+                  ? 1.0f - std::exp( kEnvReleaseLnLog / static_cast<float>(r_samps))
+                  : 1.0f - std::exp(-kEnvDecRelLn    / static_cast<float>(r_samps));
+    // Keep g away from 0 (which would stall the stage) without flipping its sign.
+    if(r_step >= 0.0f) { if(r_step <  1e-6f) r_step =  1e-6f; }
+    else               { if(r_step > -1e-6f) r_step = -1e-6f; }
 }
 
 void SetEnvelopeRelease(EnvStage& stage,
                         float&    level,
                         float&    r_step,
                         float     release_ms,
-                        float     sample_rate)
+                        float     sample_rate,
+                        bool      release_log)
 {
     if(release_ms < 0.0f)
         release_ms = 0.0f;
     int r_samps = static_cast<int>(sample_rate * 0.001f * release_ms);
     if(r_samps < 1) r_samps = 1;
     stage = EnvStage::Release;
-    r_step = level / static_cast<float>(r_samps);
-    if(r_step < 1e-6f)
-        r_step = 1e-6f;
+    // Same gain rule as InitEnvelope's release: exp (+target below 0, g>0) falls
+    // fast then tapers; log (+target above 1, g<0) holds then falls.
+    r_step = release_log
+                 ? 1.0f - std::exp( kEnvReleaseLnLog / static_cast<float>(r_samps))
+                 : 1.0f - std::exp(-kEnvDecRelLn    / static_cast<float>(r_samps));
+    if(r_step >= 0.0f) { if(r_step <  1e-6f) r_step =  1e-6f; }
+    else               { if(r_step > -1e-6f) r_step = -1e-6f; }
 }
 
 // StepEnvelope is now defined inline in voice_engine_internal.h to remove the

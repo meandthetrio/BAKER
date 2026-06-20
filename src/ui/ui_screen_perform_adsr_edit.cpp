@@ -24,7 +24,7 @@ static constexpr float kPerformLoopCrossfadeShapeMax = 1.0f;
 static constexpr float kPerformLoopCrossfadeShapeStep = 1.0f / 64.0f;
 static constexpr uint16_t kPerformAdsrAttackMinMs  = 2u;
 static constexpr uint16_t kPerformAdsrReleaseMinMs = 1u;
-static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 1000u;
+static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 4000u;
 static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
 static constexpr uint16_t kPerformAdsrSustainMax = 100u;
 
@@ -35,6 +35,51 @@ static int ClampInt(int v, int lo, int hi)
     if(v > hi)
         return hi;
     return v;
+}
+
+// REnc value-edit acceleration. A fast spin should cover the full (now 4000 ms)
+// attack/release range without endless clicking, while slow deliberate clicks
+// still nudge by 1. The elapsed time between successive value-edit detents picks
+// a tier (0 = fine, 1 = moderate, 2 = fast); a per-range step table turns the
+// tier into a delta. Called exactly once per numeric edit event so the static
+// timestamp tracks real inter-detent timing (event t_ms is the capture time, so
+// queue batching does not distort it).
+static int PerformAdsrAccelTier(uint32_t t_ms)
+{
+    static uint32_t s_last_ms = 0;
+    const uint32_t dt = t_ms - s_last_ms; // unsigned; first call -> huge -> fine
+    s_last_ms = t_ms;
+    if(dt <= 22u)
+        return 2; // rapid spin
+    if(dt <= 55u)
+        return 1; // moderate
+    return 0;     // fine / single clicks
+}
+
+// Per-detent step for a wide ms range (attack/release, 0..4000): fast spin jumps
+// by 100 ms so the full range is a turn or two away.
+static int PerformAdsrMsStepForTier(int tier)
+{
+    static const int kStep[3] = {1, 10, 100};
+    return kStep[(tier < 0) ? 0 : (tier > 2 ? 2 : tier)];
+}
+
+// Per-detent step for a narrow 0..100 range (sustain, decay, env handles): fast
+// spin jumps by 10.
+static int PerformAdsrUnitStepForTier(int tier)
+{
+    static const int kStep[3] = {1, 5, 10};
+    return kStep[(tier < 0) ? 0 : (tier > 2 ? 2 : tier)];
+}
+
+// Net signed delta for an encoder event after applying the tier step. |e.value|
+// > 1 means multiple detents landed in one poll (already a fast gesture), so the
+// per-detent step is multiplied by the magnitude.
+static int PerformAdsrAccelDelta(int enc_value, int step)
+{
+    const int magnitude = (enc_value < 0) ? -enc_value : enc_value;
+    const int dir = (enc_value < 0) ? -1 : 1;
+    return dir * step * magnitude;
 }
 
 static void SetPerformAdsrStageValue(AppEngineState& engine, uint8_t layer, uint8_t stage, uint16_t value)
@@ -163,7 +208,9 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
         if(stage == 2u)
         {
             uint8_t& level = PerformAdsrEnvSLevel(engine, layer);
-            const int next_level = ClampInt(static_cast<int>(level) + e.value, 0, 100);
+            const int level_step = PerformAdsrUnitStepForTier(PerformAdsrAccelTier(e.t_ms));
+            const int next_level = ClampInt(
+                static_cast<int>(level) + PerformAdsrAccelDelta(e.value, level_step), 0, 100);
             if(next_level == static_cast<int>(level))
                 return false;
             level = static_cast<uint8_t>(next_level);
@@ -192,7 +239,9 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
             min_value = d_x + kAdsrEnvMinGap;
         }
 
-        const int next_value = ClampInt(static_cast<int>(value) + e.value, min_value, max_value);
+        const int env_step = PerformAdsrUnitStepForTier(PerformAdsrAccelTier(e.t_ms));
+        const int next_value = ClampInt(
+            static_cast<int>(value) + PerformAdsrAccelDelta(e.value, env_step), min_value, max_value);
         if(next_value == static_cast<int>(value))
             return false;
         value = static_cast<uint8_t>(next_value);
@@ -209,7 +258,14 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
     const uint16_t value = PerformAdsrStageValue(engine, layer, stage);
     const int min_value = PerformAdsrStageMin(stage);
     const int max_value = PerformAdsrStageMax(stage);
-    const int next_value = ClampInt(static_cast<int>(value) + e.value, min_value, max_value);
+    const int tier = PerformAdsrAccelTier(e.t_ms);
+    // Attack (stage 0) and release (stage 3) span 0..4000 ms -> coarse 100 ms
+    // fast step; decay/sustain are 0..100 -> the gentler unit step.
+    const bool wide_stage = (stage == 0u || stage == 3u);
+    const int step = wide_stage ? PerformAdsrMsStepForTier(tier)
+                                : PerformAdsrUnitStepForTier(tier);
+    const int next_value = ClampInt(
+        static_cast<int>(value) + PerformAdsrAccelDelta(e.value, step), min_value, max_value);
     if(next_value == static_cast<int>(value))
         return false;
 

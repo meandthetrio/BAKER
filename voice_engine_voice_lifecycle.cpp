@@ -233,7 +233,9 @@ void VoiceEngine::StartVoice_(Voice& v,
                  env_decay_ms,
                  env_sustain_lv,
                  env_release_ms,
-                 sample_rate_);
+                 sample_rate_,
+                 loop_env_attack_log_[elayer],
+                 loop_env_release_log_[elayer]);
 
     v.release_coeff = block_release_coeff_;
     const float semitones = static_cast<float>((int)note - (int)sample->root_key);
@@ -405,7 +407,8 @@ void VoiceEngine::NoteOff_(uint8_t note)
                                v.env_level,
                                v.env_r_step,
                                v.resolved_release_ms,
-                               sample_rate_);
+                               sample_rate_,
+                               loop_env_release_log_[v.source_layer & 1u]);
             if(!v.loop_voice)
                 v.gate = false;
             v.dir  = 1;
@@ -425,7 +428,8 @@ void VoiceEngine::NoteOff_(uint8_t note)
                                    v.new_env_level,
                                    v.new_env_r_step,
                                    loop_env_release_ms_[layer],
-                                   sample_rate_);
+                                   sample_rate_,
+                                   loop_env_release_log_[layer]);
                 v.new_dir  = 1;
             }
             else
@@ -445,7 +449,8 @@ void VoiceEngine::NoteOff_(uint8_t note)
                                    v.new_env_level,
                                    v.new_env_r_step,
                                    v.resolved_release_ms,
-                                   sample_rate_);
+                                   sample_rate_,
+                                   loop_env_release_log_[v.new_source_layer & 1u]);
                 v.new_gate = false;
                 v.new_dir  = 1;
                 v.poly_porto_source_valid = true;

@@ -215,6 +215,9 @@ class VoiceEngine
                                float decay_ms,
                                float sustain_level,
                                float release_ms);
+    // Per-layer attack/release curve: false = exponential (default), true =
+    // logarithmic. Read at note-on (InitEnvelope) and note-off (SetEnvelopeRelease).
+    void SetLoopEnvelopeCurves(uint8_t layer, bool attack_log, bool release_log);
     void SetLoopCrossfadeAmount(uint8_t layer, float amount);
     void SetLoopCrossfadeShape(uint8_t layer, float shape);
     // When true, the layer's sample already has the loop crossfade baked into its
@@ -321,6 +324,8 @@ class VoiceEngine
     float loop_env_decay_ms_[kEngineLayerCount] = {20.0f};
     float loop_env_sustain_level_[kEngineLayerCount] = {1.0f};
     float loop_env_release_ms_[kEngineLayerCount] = {50.0f};
+    bool  loop_env_attack_log_[kEngineLayerCount] = {false};
+    bool  loop_env_release_log_[kEngineLayerCount] = {false};
 
     // Velocity-mod lane config (mirrors PerformParamsCurrent.velmod_*). Read at
     // note-on by StartVoice_. velmod_any_active_ is the fast-skip: true only if

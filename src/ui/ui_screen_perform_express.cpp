@@ -28,6 +28,23 @@ static int ClampInt(int v, int lo, int hi)
     return v;
 }
 
+// REnc value-edit acceleration, mirroring the ADSR screen. A fast spin returns a
+// larger tier factor so the per-target step (e.g. attack/release's 5 ms base)
+// scales up to cover the full range quickly; slow clicks stay at the base step.
+// Called once per range-edit event so the static timestamp tracks real
+// inter-detent timing (event t_ms is the capture time, immune to queue batching).
+static int ExpressAccelFactor(uint32_t t_ms)
+{
+    static uint32_t s_last_ms = 0;
+    const uint32_t dt = t_ms - s_last_ms; // unsigned; first call -> huge -> base
+    s_last_ms = t_ms;
+    if(dt <= 22u)
+        return 20; // rapid spin: 5 ms base -> 100 ms/detent for attack/release
+    if(dt <= 55u)
+        return 4; // moderate
+    return 1;     // fine / single clicks
+}
+
 static void FormatTargetValue(uint8_t target, uint16_t value, char* out, size_t out_n)
 {
     switch(ExpressClampTarget(target))
@@ -493,7 +510,7 @@ bool PerformExpress_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         const uint8_t target = engine.express.target[layer][row];
         const int lo = static_cast<int>(ExpressTargetMin(target));
         const int hi = static_cast<int>(ExpressTargetMax(target));
-        const int delta = e.value * ExpressTargetStep(target);
+        const int delta = e.value * ExpressTargetStep(target) * ExpressAccelFactor(e.t_ms);
 
         if(col == 0u)
         {

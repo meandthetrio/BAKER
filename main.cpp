@@ -409,13 +409,13 @@ int main(void)
             float loop_attack_ms = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_attack[layer]);
             if(loop_attack_ms < 2.0f)
                 loop_attack_ms = 2.0f;
-            if(loop_attack_ms > 1000.0f)
-                loop_attack_ms = 1000.0f;
+            if(loop_attack_ms > 4000.0f)
+                loop_attack_ms = 4000.0f;
             float loop_release_ms = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_release[layer]);
             if(loop_release_ms < 1.0f)
                 loop_release_ms = 1.0f;
-            if(loop_release_ms > 1000.0f)
-                loop_release_ms = 1000.0f;
+            if(loop_release_ms > 4000.0f)
+                loop_release_ms = 4000.0f;
             t.engine_drive_mode[layer] = g_app.engine.layer.engine_drive_mode[layer] & 1u;
             {
                 const uint8_t fm = g_app.engine.layer.engine_filter_mode[layer];
@@ -427,6 +427,8 @@ int main(void)
             t.engine_loop_sustain_level[layer]
                 = static_cast<float>(g_app.engine.adsr.perform_adsr_loop_sustain[layer]) * 0.01f;
             t.engine_loop_release_ms[layer] = loop_release_ms;
+            t.engine_loop_attack_curve[layer] = g_app.engine.adsr.perform_adsr_attack_curve[layer] & 1u;
+            t.engine_loop_release_curve[layer] = g_app.engine.adsr.perform_adsr_release_curve[layer] & 1u;
             t.engine_loop_crossfade_amount[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade[layer];
             t.engine_loop_crossfade_shape[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade_shape[layer];
             t.perform_keyzone_lo_note[layer] = g_app.engine.keyzone.perform_keyzone_lo_note[layer];

@@ -65,6 +65,8 @@ struct PerformParamsTargets
     float engine_loop_decay_ms[kLayerCount] = {20.0f, 20.0f};
     float engine_loop_sustain_level[kLayerCount] = {1.0f, 1.0f}; // 0=-inf, 1=0 dB
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
+    uint8_t engine_loop_attack_curve[kLayerCount] = {0u, 0u};  // 0=exp, 1=log
+    uint8_t engine_loop_release_curve[kLayerCount] = {0u, 0u}; // 0=exp, 1=log
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
@@ -157,6 +159,8 @@ struct PerformParamsCurrent
     float engine_loop_decay_ms[kLayerCount] = {20.0f, 20.0f};
     float engine_loop_sustain_level[kLayerCount] = {1.0f, 1.0f}; // 0=-inf, 1=0 dB
     float engine_loop_release_ms[kLayerCount] = {50.0f, 50.0f};
+    uint8_t engine_loop_attack_curve[kLayerCount] = {0u, 0u};  // 0=exp, 1=log
+    uint8_t engine_loop_release_curve[kLayerCount] = {0u, 0u}; // 0=exp, 1=log
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3

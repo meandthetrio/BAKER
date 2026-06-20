@@ -117,9 +117,9 @@ inline uint16_t ExpressTargetMax(uint8_t target)
         case kExpressCutoff: return 20000u;
         case kExpressDrive: return 60u;
         case kExpressResonance: return 100u;
-        case kExpressAttack: return 1000u;
+        case kExpressAttack: return 4000u;
         case kExpressSustain: return 100u;
-        case kExpressRelease: return 1000u;
+        case kExpressRelease: return 4000u;
         case kExpressReverb: return 100u;
         case kExpressPolyPorto: return 1u;
         default: return 100u;

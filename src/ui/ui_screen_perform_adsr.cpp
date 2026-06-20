@@ -219,6 +219,37 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
     }
 
+    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0 && ctx.rshift)
+    {
+        // RShift + REnc while Attack or Release is focused selects that stage's
+        // envelope curve: turn right = log (convex, holds longer), left = exp
+        // (concave, the analog default). Applies to the real attack/release
+        // envelope, so only the Loop/OneShot rows (not the Adsr visual-shape row).
+        const uint8_t layer = engine.perform_nav.perform_layer & 1u;
+        const uint8_t adsr_row = PerformAdsrRow(engine, layer);
+        const bool visual_row = (adsr_row % static_cast<uint8_t>(kAdsrRowCount))
+                                == static_cast<uint8_t>(kAdsrRowAdsr);
+        if(!engine.adsr.perform_adsr_type_focus && !engine.adsr.perform_adsr_wave_focus
+           && !visual_row)
+        {
+            const uint8_t stage
+                = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+            if(stage == 0u || stage == 3u)
+            {
+                uint8_t& curve = (stage == 0u) ? engine.adsr.perform_adsr_attack_curve[layer]
+                                               : engine.adsr.perform_adsr_release_curve[layer];
+                const uint8_t next = (e.value > 0) ? 1u : 0u;
+                if(curve != next)
+                {
+                    curve = next;
+                    PublishEngineLayerParams(ctx);
+                }
+                ui.ui_dirty = true;
+                return true;
+            }
+        }
+    }
+
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
         return PerformAdsr_OnEventExtEncoder(ctx, e);
 

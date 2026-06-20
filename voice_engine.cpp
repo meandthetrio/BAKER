@@ -19,7 +19,7 @@ static constexpr float kEngineTuneMinSemitones = -48.0f;
 static constexpr float kEngineTuneMaxSemitones = 48.0f;
 static constexpr float kLoopEnvAttackMinMs        = 2.0f;
 static constexpr float kLoopEnvReleaseMinMs       = 1.0f;
-static constexpr float kLoopEnvAttackReleaseMaxMs = 1000.0f;
+static constexpr float kLoopEnvAttackReleaseMaxMs = 4000.0f;
 
 // Voice pool lives in fast RAM (DTCM). Uses `mem_regions.h` section macro.
 ADSR2_SECTION(".dtcmram_bss") static Voice g_voice_pool[VoiceEngine::kMaxVoices];
@@ -306,6 +306,13 @@ void VoiceEngine::SetLoopEnvelopeParams(uint8_t layer,
     loop_env_decay_ms_[layer] = decay_ms;
     loop_env_sustain_level_[layer] = sustain_level;
     loop_env_release_ms_[layer] = release_ms;
+}
+
+void VoiceEngine::SetLoopEnvelopeCurves(uint8_t layer, bool attack_log, bool release_log)
+{
+    layer &= 1u;
+    loop_env_attack_log_[layer] = attack_log;
+    loop_env_release_log_[layer] = release_log;
 }
 
 void VoiceEngine::SetLoopCrossfadeAmount(uint8_t layer, float amount)

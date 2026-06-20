@@ -770,6 +770,9 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                                           voice_params.engine_loop_decay_ms[layer],
                                           voice_params.engine_loop_sustain_level[layer],
                                           voice_params.engine_loop_release_ms[layer]);
+            g_voice.SetLoopEnvelopeCurves(layer,
+                                          voice_params.engine_loop_attack_curve[layer] != 0u,
+                                          voice_params.engine_loop_release_curve[layer] != 0u);
         }
         if(static_push)
         {

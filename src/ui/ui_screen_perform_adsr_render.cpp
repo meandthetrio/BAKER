@@ -266,6 +266,10 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
     const uint8_t stage_focus = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
     const bool loop_stage_editing
         = (adsr_row % static_cast<uint8_t>(kAdsrRowCount)) == static_cast<uint8_t>(kAdsrRowLoop);
+
+    // Whether RShift is held — drives the Attack/Release "EXP"/"LOG" curve label
+    // (shown in place of the number) and the dotted-border affordance below.
+    const bool rshift_held = ctx.ui && ctx.ui->ui_rshift_held;
     const int preview_x0 = kWaveX + 1;
     const int preview_x1 = kWaveX + kWaveW - 2;
     const int preview_y0 = kWaveY + 1;
@@ -351,11 +355,30 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
         if(loop_stage_editing && !type_focused && !wave_focused
            && stage_focus == static_cast<uint8_t>(i))
         {
+            // Attack (0) and Release (3) carry a RShift curve function.
+            const bool ar_stage = (i == 0 || i == 3);
+            const bool show_curve = ar_stage && rshift_held;
+
             char value_buf[6] = {};
-            const uint16_t value = PerformAdsrStageValue(engine, layer, static_cast<uint8_t>(i));
-            std::snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(value));
-            const int value_w = MiniString3x5Width(value_buf);
-            const int box_w = value_w + 6;
+            const char* content;
+            int content_w;
+            if(show_curve)
+            {
+                // RShift held: EXP/LOG (current curve) replaces the number.
+                const uint8_t cv = (i == 0) ? engine.adsr.perform_adsr_attack_curve[layer]
+                                            : engine.adsr.perform_adsr_release_curve[layer];
+                content = (cv != 0u) ? "LOG" : "EXP";
+                content_w = TinyStringWidth(content);
+            }
+            else
+            {
+                const uint16_t value = PerformAdsrStageValue(engine, layer, static_cast<uint8_t>(i));
+                std::snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(value));
+                content = value_buf;
+                content_w = MiniString3x5Width(value_buf);
+            }
+
+            const int box_w = content_w + 6;
             int box_x0 = seg_center - (box_w / 2);
             int box_x1 = box_x0 + box_w - 1;
             if(box_x0 < seg_start)
@@ -369,12 +392,28 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
                 box_x0 = box_x1 - box_w + 1;
             }
 
-            const int box_y0 = bottom_y - 2;
-            const int box_y1 = bottom_y + kMini3x5H + 1;
-            const int value_x = box_x0 + ((box_w - value_w) / 2);
-            const int value_y = bottom_y;
-            d.DrawRect(box_x0, box_y0, box_x1, box_y1, true, false);
-            DrawMiniString3x5(d, value_buf, value_x, value_y, true);
+            const int content_x = box_x0 + ((box_w - content_w) / 2);
+            const int content_y = bottom_y;
+            if(show_curve)
+            {
+                // Solid border around the EXP/LOG label.
+                const int box_y0 = bottom_y - 2;
+                const int box_y1 = bottom_y + Font5x7::H - 1;
+                d.DrawRect(box_x0, box_y0, box_x1, box_y1, true, false);
+                DrawTinyString(d, content, content_x, content_y, true);
+            }
+            else
+            {
+                const int box_y0 = bottom_y - 2;
+                const int box_y1 = bottom_y + kMini3x5H + 1;
+                // A/R: dotted border hints that a RShift (curve) function exists.
+                // D/S: plain solid border.
+                if(ar_stage)
+                    DrawDottedRect(d, box_x0, box_y0, box_x1, box_y1, true);
+                else
+                    d.DrawRect(box_x0, box_y0, box_x1, box_y1, true, false);
+                DrawMiniString3x5(d, content, content_x, content_y, true);
+            }
         }
         else
         {
@@ -393,7 +432,28 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
             if(stage_enabled && !type_focused && !wave_focused
                && stage_focus == static_cast<uint8_t>(i))
             {
-                d.DrawRect(x - 2, bottom_y - 2, x + w + 1, bottom_y + Font5x7::H - 1, true, false);
+                // One-shot row: Attack/Release also carry the RShift curve function
+                // (they map to the same audio envelope), so mirror the affordance.
+                const bool ar_stage = (i == 0 || i == 3);
+                if(ar_stage && rshift_held)
+                {
+                    const uint8_t cv = (i == 0) ? engine.adsr.perform_adsr_attack_curve[layer]
+                                                : engine.adsr.perform_adsr_release_curve[layer];
+                    const char* lbl = (cv != 0u) ? "LOG" : "EXP";
+                    const int lblw = TinyStringWidth(lbl);
+                    const int lbl_box_w = lblw + 6;
+                    int bx0 = seg_center - (lbl_box_w / 2);
+                    int bx1 = bx0 + lbl_box_w - 1;
+                    if(bx0 < seg_start) { bx0 = seg_start; bx1 = bx0 + lbl_box_w - 1; }
+                    if(bx1 > seg_end)   { bx1 = seg_end;   bx0 = bx1 - lbl_box_w + 1; }
+                    d.DrawRect(bx0, bottom_y - 2, bx1, bottom_y + Font5x7::H - 1, true, false);
+                    DrawTinyString(d, lbl, bx0 + 3, bottom_y, true);
+                    continue;
+                }
+                if(ar_stage)
+                    DrawDottedRect(d, x - 2, bottom_y - 2, x + w + 1, bottom_y + Font5x7::H - 1, true);
+                else
+                    d.DrawRect(x - 2, bottom_y - 2, x + w + 1, bottom_y + Font5x7::H - 1, true, false);
                 DrawTinyString(d, kBottomLetters[i], x, bottom_y, true);
                 continue;
             }

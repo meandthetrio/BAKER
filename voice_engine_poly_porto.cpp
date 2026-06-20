@@ -341,7 +341,9 @@ bool VoiceEngine::TryStartPolyPortoVoice_(const Sample* sample,
                      loop_env_decay_ms_[source_layer],
                      v.new_loop_voice ? loop_env_sustain_level_[source_layer] : 1.0f,
                      loop_env_release_ms_[source_layer],
-                     sample_rate_);
+                     sample_rate_,
+                     loop_env_attack_log_[source_layer],
+                     loop_env_release_log_[source_layer]);
 
         if(!already_fading)
         {

@@ -275,8 +275,8 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
         engine.adsr.perform_adsr_loop_attack[slot] = manifest.perform_adsr_loop_attack[slot];
         if(engine.adsr.perform_adsr_loop_attack[slot] < 2u)
             engine.adsr.perform_adsr_loop_attack[slot] = 2u;
-        if(engine.adsr.perform_adsr_loop_attack[slot] > 1000u)
-            engine.adsr.perform_adsr_loop_attack[slot] = 1000u;
+        if(engine.adsr.perform_adsr_loop_attack[slot] > 4000u)
+            engine.adsr.perform_adsr_loop_attack[slot] = 4000u;
         engine.adsr.perform_adsr_loop_decay[slot] = manifest.perform_adsr_loop_decay[slot];
         if(engine.adsr.perform_adsr_loop_decay[slot] < 1u)
             engine.adsr.perform_adsr_loop_decay[slot] = 1u;
@@ -288,8 +288,13 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
         engine.adsr.perform_adsr_loop_release[slot] = manifest.perform_adsr_loop_release[slot];
         if(engine.adsr.perform_adsr_loop_release[slot] < 1u)
             engine.adsr.perform_adsr_loop_release[slot] = 1u;
-        if(engine.adsr.perform_adsr_loop_release[slot] > 1000u)
-            engine.adsr.perform_adsr_loop_release[slot] = 1000u;
+        if(engine.adsr.perform_adsr_loop_release[slot] > 4000u)
+            engine.adsr.perform_adsr_loop_release[slot] = 4000u;
+        // Per-layer Attack/Release curve bits (repurposed reserved byte; 0=exp).
+        engine.adsr.perform_adsr_attack_curve[slot]
+            = (manifest.adsr_curve_flags & static_cast<uint8_t>(1u << slot)) ? 1u : 0u;
+        engine.adsr.perform_adsr_release_curve[slot]
+            = (manifest.adsr_curve_flags & static_cast<uint8_t>(1u << (2u + slot))) ? 1u : 0u;
         engine.adsr.perform_adsr_loop_crossfade[slot]
             = ClampProjectFloat(manifest.perform_adsr_loop_crossfade[slot], 0.0f, 0.5f);
         engine.adsr.perform_adsr_loop_crossfade_shape[slot]

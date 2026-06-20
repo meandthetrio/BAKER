@@ -72,6 +72,11 @@ struct AppSharedState
         std::atomic<uint32_t> rec_pos{0};
         std::atomic<uint32_t> rec_length{0};
         std::atomic<uint32_t> rec_live_gen{0};
+        // Always-on input-level meter for the armed/ready screen. Holds the
+        // latest audio-block peak (float magnitude, stored as bits) for the
+        // currently selected source so the UI can show whether the incoming
+        // signal sits in a healthy recording range.
+        std::atomic<uint32_t> rec_input_level_bits{0};
         // Dry record/review preview bridge. UI/main only requests start/stop;
         // audio thread owns active playback and frame position.
         std::atomic<uint8_t> preview_start_req{0};
@@ -184,6 +189,10 @@ struct AppSharedState
             std::atomic<uint8_t> midi_mod_value{0};
         } express{};
     } performance{};
+
+    // Global "auto-normalize loaded samples" setting (UI → audio). 1 = on.
+    // Default on. Read by the voice engine each block to gate per-sample norm_gain.
+    std::atomic<uint8_t> settings_normalize_enabled{1};
 
     AppSharedState()
     {

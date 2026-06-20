@@ -62,7 +62,13 @@ class AudioEngine
     // linear-in-drive (dB) and the output is ~all wet at full SAT, so it maps
     // ~1:1 to level there; -18 - 8 = -26 dB targets dry parity at full drive.
     // Nudge toward 0 if too quiet at full SAT, more negative if it peaks.
-    static constexpr float kSatTapeMakeupDbAtFull = -26.0f;
+    // Recalibrated 2026-06-18: -26 dB over-corrected — the tape model only gains
+    // ~4 dB from half->full drive (tanh flattens), so subtracting 26 dB at full
+    // made full *quieter* than half (measured: full -36 dBFS, half -27 dBFS).
+    // Solving from those two points: internal level is -10 dB at full / -14 dB at
+    // half, so -4 dB makeup at full -> full ~-14, half ~-16: a gentle rise where
+    // pushing the fader is slightly louder. Flat would be -8.
+    static constexpr float kSatTapeMakeupDbAtFull = -4.0f;
     float sat_tape_makeup_smoothed_ = 1.0f;
 
     // ---- DELAY (stereo dual delay: independent L/R tap times, per-channel feedback) ----

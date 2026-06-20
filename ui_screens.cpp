@@ -165,6 +165,52 @@ void EngineRefreshLoadedMetadata(AppUiState& ui, AppEngineState& engine, AppShar
     ui.ui_dirty = true;
 }
 
+int WaveformColumns(const int16_t* pcm,
+                    uint32_t start,
+                    uint32_t end,
+                    int cols,
+                    int16_t* col_min,
+                    int16_t* col_max)
+{
+    // Fills col_min/col_max with the per-column min/max over [start,end) and
+    // returns the window peak magnitude (1..32768) for display auto-fit. One
+    // pass over the window — callers reuse the column buffers to draw.
+    if(cols < 1 || pcm == nullptr || end <= start)
+        return 1;
+    const uint32_t frames = end - start;
+    int peak = 1;
+    for(int px = 0; px < cols; ++px)
+    {
+        uint32_t seg0
+            = start + static_cast<uint32_t>((static_cast<uint64_t>(frames) * static_cast<uint32_t>(px)) / static_cast<uint32_t>(cols));
+        uint32_t seg1
+            = start + static_cast<uint32_t>((static_cast<uint64_t>(frames) * static_cast<uint32_t>(px + 1)) / static_cast<uint32_t>(cols));
+        if(seg1 <= seg0)
+            seg1 = seg0 + 1;
+        if(seg1 > end)
+            seg1 = end;
+        int16_t mn = 32767;
+        int16_t mx = -32768;
+        for(uint32_t i = seg0; i < seg1; ++i)
+        {
+            const int16_t v = pcm[i];
+            if(v < mn)
+                mn = v;
+            if(v > mx)
+                mx = v;
+        }
+        col_min[px] = mn;
+        col_max[px] = mx;
+        const int a = (mx < 0) ? -mx : mx;
+        const int b = (mn < 0) ? -mn : mn;
+        if(a > peak)
+            peak = a;
+        if(b > peak)
+            peak = b;
+    }
+    return peak;
+}
+
 void DrawWaveformPreview(OledPager& d,
                          const Sample& sample,
                          const SampleEdit* edit,
@@ -207,35 +253,28 @@ void DrawWaveformPreview(OledPager& d,
     if(end <= start + 1)
         return;
 
-    const uint32_t frames = end - start;
-    const int draw_w = w - 2;
+    int draw_w = w - 2;
+    if(draw_w > 128)
+        draw_w = 128;
     const int mid = y0 + h / 2;
     const int amp_h = (h - 2) / 2;
+
+    static int16_t col_min[128];
+    static int16_t col_max[128];
+    const int peak = WaveformColumns(sample.pcm, start, end, draw_w, col_min, col_max);
+    // Auto-fit: map the loudest column to ~95% of the half-height so the
+    // waveform always fills the preview with a small margin top and bottom,
+    // never jamming the edge (independent of the audio normalization setting).
+    const float disp = 0.95f * static_cast<float>(amp_h) / static_cast<float>(peak);
+
     bool have_prev = false;
     int prev_x = 0;
     int prev_top = 0;
     int prev_bot = 0;
     for(int px = 0; px < draw_w; ++px)
     {
-        const uint32_t seg0 = start + (frames * static_cast<uint32_t>(px)) / draw_w;
-        uint32_t seg1 = start + (frames * static_cast<uint32_t>(px + 1)) / draw_w;
-        if(seg1 <= seg0)
-            seg1 = seg0 + 1;
-        if(seg1 > end)
-            seg1 = end;
-
-        int16_t mn = 32767;
-        int16_t mx = -32768;
-        for(uint32_t i = seg0; i < seg1; ++i)
-        {
-            const int16_t v = sample.pcm[i];
-            if(v < mn)
-                mn = v;
-            if(v > mx)
-                mx = v;
-        }
-        const int y_top = mid - (static_cast<int>(mx) * amp_h) / 32768;
-        const int y_bot = mid - (static_cast<int>(mn) * amp_h) / 32768;
+        const int y_top = mid - static_cast<int>(static_cast<float>(col_max[px]) * disp);
+        const int y_bot = mid - static_cast<int>(static_cast<float>(col_min[px]) * disp);
         const int xx = x0 + 1 + px;
         int top = y_top;
         int bot = y_bot;

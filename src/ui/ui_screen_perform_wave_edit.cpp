@@ -25,16 +25,6 @@ bool WaveEditIsSdManage(const AppUiState& ui)
     return ui.wave_edit_source == WaveEditSource::SdManage;
 }
 
-void StartTrimPreview(AppUiState& ui)
-{
-    ui.ui_trim_preview_hold = true;
-}
-
-void StopTrimPreview(AppUiState& ui)
-{
-    ui.ui_trim_preview_hold = false;
-}
-
 const Sample& WaveEditActiveSample(AppUiState& ui, AppEngineState& engine, AppSharedState& shared)
 {
     if(WaveEditIsRenderReview(ui))
@@ -79,6 +69,31 @@ void WaveEditWriteEdit(const AppUiState& ui,
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     shared.sample.edit.sd_edit_slots[layer] = edit;
 }
+
+// RShift-held "zoom to window": returns the frame span the preview should show
+// when zoomed — exactly the selected window, with no surrounding material, so
+// the window fills the entire preview. Both the waveform draw and the encoder
+// step size derive from this so the view and the edit resolution stay consistent.
+void WaveEditZoomSpan(const SampleEdit& edit,
+                      uint32_t total,
+                      uint32_t& view_lo,
+                      uint32_t& view_hi)
+{
+    uint32_t s = edit.start_frame;
+    uint32_t e = edit.end_frame;
+    if(e < s)
+    {
+        const uint32_t t = s;
+        s = e;
+        e = t;
+    }
+    if(e > total)
+        e = total;
+    view_lo = s;
+    view_hi = e;
+    if(view_hi <= view_lo)
+        view_hi = (view_lo + 1u <= total) ? (view_lo + 1u) : total;
+}
 } // namespace
 
 void PerformWaveEdit_Render(UiScreenCtx& ctx)
@@ -101,23 +116,14 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
     SampleEdit edit = WaveEditActiveEdit(ui, engine, shared);
     SampleEdit_Clamp(edit, sample.length);
 
-    const uint32_t selected_frames = sample_loaded
-                                         ? ((edit.end_frame >= edit.start_frame)
-                                                ? (edit.end_frame - edit.start_frame + 1u)
-                                                : 0u)
-                                         : 0u;
-    const uint32_t sample_rate = (sample.sample_rate > 0u) ? sample.sample_rate : 48000u;
-    const uint32_t tenths = (sample_loaded && sample_rate > 0u)
-                                ? ((selected_frames * 10u) + (sample_rate / 2u)) / sample_rate
-                                : 0u;
-    char length_buf[16];
-    std::snprintf(length_buf,
-                  sizeof(length_buf),
-                  "%lu.%lus",
-                  static_cast<unsigned long>(tenths / 10u),
-                  static_cast<unsigned long>(tenths % 10u));
-    DrawMicroString(d, "sample length", 2, 1, true);
-    DrawTinyString(d, length_buf, 73, 0, true);
+    // Momentary RShift zooms the preview to the window; show a small top-right
+    // indicator while it is held so the active mode is obvious.
+    if(ctx.rshift && sample_loaded)
+    {
+        const char* zoom_label = "ZOOM";
+        const int zw = TinyStringWidth(zoom_label);
+        DrawTinyString(d, zoom_label, 127 - zw, 0, true);
+    }
 
     const int wave_x = 0;
     const int wave_y = 12;
@@ -144,9 +150,25 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
             return;
 
         const uint32_t frames = sample.length;
-        const uint32_t denom = (frames > 1) ? (frames - 1) : 1;
-        int start_x = x0 + static_cast<int>((static_cast<uint64_t>(edit.start_frame) * (wave_w - 1)) / denom);
-        int end_x = x0 + static_cast<int>((static_cast<uint64_t>(edit.end_frame) * (wave_w - 1)) / denom);
+
+        // While RShift is held, zoom the preview to the selected window (plus a
+        // margin of context) so the encoders edit across a magnified span;
+        // otherwise show the whole sample as before.
+        const bool zoom = ctx.rshift;
+        uint32_t view_lo = 0u;
+        uint32_t view_hi = frames;
+        if(zoom)
+            WaveEditZoomSpan(edit, frames, view_lo, view_hi);
+        const uint32_t view_span = (view_hi > view_lo) ? (view_hi - view_lo) : 1u;
+        const uint32_t denom = zoom ? view_span : ((frames > 1) ? (frames - 1) : 1u);
+
+        auto frame_to_x = [&](uint32_t f) -> int
+        {
+            const uint32_t fr = (f > view_lo) ? (f - view_lo) : 0u;
+            return x0 + static_cast<int>((static_cast<uint64_t>(fr) * (wave_w - 1)) / denom);
+        };
+        int start_x = frame_to_x(edit.start_frame);
+        int end_x = frame_to_x(edit.end_frame);
         if(end_x < start_x)
         {
             const int t = start_x;
@@ -163,30 +185,22 @@ void PerformWaveEdit_Render(UiScreenCtx& ctx)
         // Invert selected trim window.
         d.DrawRect(start_x, waveform_y0, end_x, waveform_y1, true, true);
 
-        const int draw_w = wave_w - 2;
-        const uint32_t total = sample.length;
+        int draw_w = wave_w - 2;
+        if(draw_w > 128)
+            draw_w = 128;
+        const uint32_t wf_lo = view_lo;
+        const uint32_t wf_span = zoom ? view_span : frames;
+        const uint32_t wf_hi = wf_lo + wf_span;
+
+        static int16_t col_min[128];
+        static int16_t col_max[128];
+        const int peak = WaveformColumns(sample.pcm, wf_lo, wf_hi, draw_w, col_min, col_max);
+        // Auto-fit the displayed range peak to ~95% of the half-height (5% margin).
+        const float disp = 0.95f * static_cast<float>(amp_h) / static_cast<float>(peak);
         for(int px = 0; px < draw_w; ++px)
         {
-            const uint32_t seg0 = (static_cast<uint64_t>(total) * static_cast<uint32_t>(px)) / draw_w;
-            uint32_t seg1 = (static_cast<uint64_t>(total) * static_cast<uint32_t>(px + 1)) / draw_w;
-            if(seg1 <= seg0)
-                seg1 = seg0 + 1;
-            if(seg1 > total)
-                seg1 = total;
-
-            int16_t mn = 32767;
-            int16_t mx = -32768;
-            for(uint32_t i = seg0; i < seg1; ++i)
-            {
-                const int16_t v = sample.pcm[i];
-                if(v < mn)
-                    mn = v;
-                if(v > mx)
-                    mx = v;
-            }
-
-            int top = mid - (static_cast<int>(mx) * amp_h) / 32768;
-            int bot = mid - (static_cast<int>(mn) * amp_h) / 32768;
+            int top = mid - static_cast<int>(static_cast<float>(col_max[px]) * disp);
+            int bot = mid - static_cast<int>(static_cast<float>(col_min[px]) * disp);
             if(top < waveform_y0) top = waveform_y0;
             if(bot > waveform_y1) bot = waveform_y1;
             if(bot < top) bot = top;
@@ -282,8 +296,7 @@ void PerformWaveEdit_OnScreenEnter(UiScreenCtx& ctx)
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
     AppSharedState& shared = *ctx.shared;
-    StopTrimPreview(ui);
-    ui.ui_trim_preview_gate = false;
+    shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
     if(WaveEditIsRenderReview(ui))
     {
         SampleEdit edit = shared.recording.rec_edit;
@@ -317,8 +330,7 @@ bool PerformWaveEdit_OnEnter(UiScreenCtx& ctx)
     AppUiState& ui = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
     AppSharedState& shared = *ctx.shared;
-    StopTrimPreview(ui);
-    ui.ui_trim_preview_gate = false;
+    shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
     if(WaveEditIsRenderReview(ui))
     {
         SampleEdit edit = shared.recording.rec_edit;
@@ -387,29 +399,22 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(!render_review && !sd_manage)
+        // All trim modes: Button2 toggles a one-shot audition of the selected
+        // window. Press to start (plays start..end once, non-looping); press
+        // again while playing to stop. Auto-stops at the window end.
+        if(shared.recording.win_preview_active.load(std::memory_order_acquire) != 0u)
         {
-            // Engine Trim: Button2 toggles a one-shot audition of the selected
-            // window. Press to start (plays start..end once, non-looping); press
-            // again while playing to stop. Auto-stops at the window end.
-            if(shared.recording.win_preview_active.load(std::memory_order_acquire) != 0u)
-            {
-                shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
-            }
-            else
-            {
-                SampleEdit edit = WaveEditActiveEdit(ui, engine, shared);
-                SampleEdit_Clamp(edit, sample.length);
-                shared.recording.win_preview_sample = sample;
-                shared.recording.win_preview_start = edit.start_frame;
-                shared.recording.win_preview_end
-                    = (edit.end_frame > edit.start_frame) ? edit.end_frame : sample.length;
-                shared.recording.win_preview_start_req.store(1, std::memory_order_release);
-            }
+            shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
         }
         else
         {
-            StartTrimPreview(ui);
+            SampleEdit edit = WaveEditActiveEdit(ui, engine, shared);
+            SampleEdit_Clamp(edit, sample.length);
+            shared.recording.win_preview_sample = sample;
+            shared.recording.win_preview_start = edit.start_frame;
+            shared.recording.win_preview_end
+                = (edit.end_frame > edit.start_frame) ? edit.end_frame : sample.length;
+            shared.recording.win_preview_start_req.store(1, std::memory_order_release);
         }
         ui.ui_dirty = true;
         return true;
@@ -417,19 +422,14 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnUp && e.id == kUiBtnPod2)
     {
-        // HOLD semantics only apply to render-review / sd-manage. The engine-slot
-        // case is a press-toggle one-shot, so button-up is a no-op there.
-        if(render_review || sd_manage)
-            StopTrimPreview(ui);
-        ui.ui_dirty = true;
+        // Press-toggle in every mode now; button-up is a no-op.
         return true;
     }
 
     // Cancel trim edit session: restore entry snapshot and return.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPodEnc)
     {
-        StopTrimPreview(ui);
-        ui.ui_trim_preview_gate = false;
+        shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
         if(render_review)
         {
             if(ui.render_review_trim_has_entry)
@@ -475,7 +475,25 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         const int32_t start_delta = (e.id == kUiEncPod) ? e.value : 0;
         const int32_t end_delta = (e.id == kUiEncExt) ? e.value : 0;
-        const float base_step = ctx.rshift ? (1.0f / 64.0f) : (1.0f / 32.0f);
+        // While RShift zooms the preview to the window, scale one detent to the
+        // visible span (~1/64 of it) so editing is as fine as the zoom suggests;
+        // unzoomed keeps the coarse whole-sample step.
+        float base_step;
+        if(ctx.rshift)
+        {
+            uint32_t view_lo = 0u;
+            uint32_t view_hi = frames;
+            WaveEditZoomSpan(edit, frames, view_lo, view_hi);
+            const uint32_t view_span = (view_hi > view_lo) ? (view_hi - view_lo) : 1u;
+            base_step = (static_cast<float>(view_span) / denom) / 64.0f;
+            const float min_step = 1.0f / denom; // at least ~1 frame per detent
+            if(base_step < min_step)
+                base_step = min_step;
+        }
+        else
+        {
+            base_step = 1.0f / 32.0f;
+        }
         auto step = [&](int d)
         {
             int mag = (d < 0) ? -d : d;
@@ -522,6 +540,9 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         edit.end_frame = end_frame;
 
         SampleEdit_Clamp(edit, frames);
+        // Window changed → recompute the (ungated) -12 dBFS normalization gain so
+        // it tracks the new window peak. The voice gates it by the global setting.
+        edit.norm_gain = SampleEdit_ComputeNormGain(sample.pcm, edit.start_frame, edit.end_frame);
         WaveEditWriteEdit(ui, engine, shared, edit);
         ui.ui_dirty = true;
         return true;

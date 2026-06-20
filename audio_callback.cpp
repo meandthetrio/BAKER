@@ -27,11 +27,26 @@ extern float g_sample_rate_hz;
 
 namespace
 {
-// -10 dB pad on the mic input (in[1]). The bare condenser sits ~9 dB hotter
-// than line at typical sources (finger snap at 2 ft = -3 dBFS vs -12 dBFS
-// reference on line), so pad before any read so capture, monitor, and the
-// input-right diagnostics probe all see the same level.
-static constexpr float kMicInputGain = 0.3162278f; // 10^(-10/20)
+// Mic input (in[1]) digital gain. This used to be a -10 dB pad to normalize the
+// hotter condenser to line level, but a *post-ADC* pad can't add converter
+// headroom: it only made the level meter read ~10 dB low, so chasing the "good"
+// range drove the ADC into clipping (and stored a clipped signal sitting ~10 dB
+// down, which also made the waveform look small). Unity keeps the meter honest
+// so "good" on the meter means a clean, un-clipped converter level. Set the
+// recording level with the source/mic distance, not a digital pad.
+static constexpr float kMicInputGain = 1.0f;
+
+// Review/record preview plays the raw recorded PCM straight to the output,
+// bypassing the voice + master gain chain. At unity a near-full-scale sample
+// hits the headphone amp at 0 dBFS (clean but painfully loud), so pad it down
+// to a safe monitoring level.
+static constexpr float kRecordPreviewGain = 0.2511886f; // 10^(-12/20)
+
+// Live input monitor passthrough pad (line and mic). The monitor mixes the raw
+// input straight to the output for level-setting; at unity a hot source is loud
+// in the cans, so pad it to a comfortable monitoring level. This is a
+// monitoring-only attenuation and does not affect the recorded/metered level.
+static constexpr float kInputMonitorGain = 0.2511886f; // 10^(-12/20)
 
 static float Clamp01(float value)
 {
@@ -256,6 +271,26 @@ void AudioCallback_ProcessRecording(AudioHandle::InputBuffer in, size_t size)
         DiagnosticsAccumulatePeakAtomic(
             g_app.diag.gain_probe_peak_bits[kDiagGainProbeRecordPeak], rec_peak);
     }
+    else
+    {
+        // Not capturing: publish a live input-level meter for the armed/ready
+        // screen. Uses the same source mapping as the capture path so the bar
+        // reflects exactly what would be recorded.
+        const uint8_t src
+            = g_app.shared.recording.rec_source_sel.load(std::memory_order_acquire) & 1u;
+        float lvl_peak = 0.0f;
+        for(size_t i = 0; i < size; ++i)
+        {
+            const float v = (src == static_cast<uint8_t>(RecordInputSource::Mic))
+                                ? in[1][i] * kMicInputGain
+                                : in[0][i];
+            const float a = std::fabs(v);
+            if(a > lvl_peak)
+                lvl_peak = a;
+        }
+        g_app.shared.recording.rec_input_level_bits.store(
+            DiagnosticsFloatToBits(lvl_peak), std::memory_order_release);
+    }
 }
 
 void AudioCallback_ProcessRenderCapture(float* post_fx_left, size_t size)
@@ -352,7 +387,8 @@ void AudioCallback_ProcessRecordPreview(float* outL, float* outR, size_t size)
             break;
         }
 
-        const float dry = static_cast<float>(sample.pcm[s_preview_pos]) / 32768.0f;
+        const float dry
+            = (static_cast<float>(sample.pcm[s_preview_pos]) / 32768.0f) * kRecordPreviewGain;
         float left = outL[i] + dry;
         float right = outR[i] + dry;
         if(left > 1.0f)
@@ -472,8 +508,8 @@ void AudioCallback_ProcessWindowPreview(float* outL, float* outR, size_t size)
             = (remaining < kWinFadeFrames) ? (static_cast<float>(remaining) * kWinFadeStep) : 1.0f;
 
         const float dry
-            = (static_cast<float>(sample.pcm[s_win_preview_pos]) / 32768.0f) * s_win_preview_gain
-              * pos_gain;
+            = (static_cast<float>(sample.pcm[s_win_preview_pos]) / 32768.0f) * kRecordPreviewGain
+              * s_win_preview_gain * pos_gain;
         float left = outL[i] + dry;
         float right = outR[i] + dry;
         if(left > 1.0f)
@@ -774,6 +810,10 @@ void AudioCallback(AudioHandle::InputBuffer  in,
             g_voice.SetLayerSeamBaked(layer, baked != 0u);
         }
     }
+    // Global auto-normalize gate (cheap bool); push every block so a toggle takes
+    // effect immediately without rescanning samples.
+    g_voice.SetNormalizeEnabled(
+        g_app.shared.settings_normalize_enabled.load(std::memory_order_acquire) != 0u);
     // Velocity-mod lanes are global (not per-layer); push both once. Must
     // precede ProcessEvents so note-ons fired this block read the current
     // config in StartVoice_.
@@ -853,8 +893,8 @@ void AudioCallback(AudioHandle::InputBuffer  in,
         for(size_t i = 0; i < size; ++i)
         {
             const float mon = (src == static_cast<uint8_t>(RecordInputSource::Mic))
-                                  ? in[1][i] * kMicInputGain
-                                  : in[0][i];
+                                  ? in[1][i] * kInputMonitorGain
+                                  : in[0][i] * kInputMonitorGain;
             float l = out[0][i] + mon;
             float r = out[1][i] + mon;
             if(l > 1.0f)

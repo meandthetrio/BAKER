@@ -173,7 +173,9 @@ void VoiceEngine::ResolveEffectivePlaybackRegion_(const Voice& v,
         out.ls_i = e.loop_start;
         out.le_i = e.loop_end;
         loop_enabled_base = (e.loop_enable != 0);
-        out.edit_gain = e.gain;
+        // Fold in the (ungated) peak-normalization gain only when enabled, so the
+        // setting toggles instantly without rescanning samples.
+        out.edit_gain = e.gain * (normalize_enabled_ ? e.norm_gain : 1.0f);
     }
 }
 

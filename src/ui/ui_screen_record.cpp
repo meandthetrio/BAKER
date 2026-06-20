@@ -159,9 +159,23 @@ void Record_ApplyMonitorState(const AppUiState& ui,
 {
     const bool mic_source = (recording.record_source_index
                              == static_cast<uint8_t>(RecordInputSource::Mic));
-    const bool active_state = (recording.record_state == RecordUiState::Countdown)
-                              || (recording.record_state == RecordUiState::Recording);
-    const uint8_t enabled = (ui.settings_mic_monitor_enabled && mic_source && active_state) ? 1u : 0u;
+    const bool line_source = !mic_source;
+    const RecordUiState st = recording.record_state;
+
+    // Mic monitoring (settings-gated) runs only during the active capture run.
+    const bool mic_active_state = (st == RecordUiState::Countdown)
+                                  || (st == RecordUiState::Recording);
+    const bool mic_on = ui.settings_mic_monitor_enabled && mic_source && mic_active_state;
+
+    // Line-in monitoring is always on across the whole ready/record flow so the
+    // user can hear the source while dialing levels: Ready (Armed), the
+    // countdown, and the recording itself. Strictly line-in.
+    const bool line_active_state = (st == RecordUiState::Armed)
+                                   || (st == RecordUiState::Countdown)
+                                   || (st == RecordUiState::Recording);
+    const bool line_on = line_source && line_active_state;
+
+    const uint8_t enabled = (mic_on || line_on) ? 1u : 0u;
     shared.recording.rec_monitor_enable.store(enabled, std::memory_order_release);
 }
 
@@ -546,6 +560,81 @@ static void Record_RenderReadyCuzStyle(UiScreenCtx& ctx)
     }
 }
 
+// Horizontal input-level meter drawn along the bottom of the Ready screen.
+// Shows the live incoming signal and whether it sits below / within / above a
+// comfortable recording range. The audio thread publishes the per-block input
+// peak (for the selected source) into rec_input_level_bits.
+static void Record_DrawInputMeter(UiScreenCtx& ctx)
+{
+    if(!ctx.display || !ctx.shared)
+        return;
+    OledPager& d = *ctx.display;
+
+    const float level = DiagnosticsBitsToFloat(
+        ctx.shared->recording.rec_input_level_bits.load(std::memory_order_acquire));
+
+    // Smoothed attack + gentle release so the bar reads steadily and settles
+    // unhurriedly instead of snapping around.
+    static float held = 0.0f;
+    if(level > held)
+        held += (level - held) * 0.45f;
+    else
+        held += (level - held) * 0.12f;
+    if(held < 0.0f)
+        held = 0.0f;
+
+    // Peak magnitude -> dBFS, mapped linearly in dB across the bar.
+    constexpr float kFloorDb  = -48.0f;
+    constexpr float kGoodLoDb = -18.0f; // below this: too quiet
+    constexpr float kGoodHiDb = -6.0f;  // above this: getting hot
+    constexpr float kClipDb   = -1.0f;  // at/above this: clipping risk
+
+    auto db_of = [](float mag) -> float
+    {
+        if(mag < 1.0e-6f)
+            return -120.0f;
+        return 20.0f * std::log10(mag);
+    };
+    auto db_to_x = [&](float db, int x0, int x1) -> int
+    {
+        float f = (db - kFloorDb) / (0.0f - kFloorDb);
+        if(f < 0.0f) f = 0.0f;
+        if(f > 1.0f) f = 1.0f;
+        return x0 + static_cast<int>(f * static_cast<float>(x1 - x0) + 0.5f);
+    };
+
+    // Reserve and clear the bottom strip (the ready animation paints over it).
+    d.DrawRect(0, 49, 127, 63, false, true);
+
+    const int bx0 = 4;   // bar inner left
+    const int bx1 = 123; // bar inner right
+    const int by0 = 58;  // bar top
+    const int by1 = 63;  // bar bottom (screen edge)
+
+    const float level_db = db_of(held);
+
+    // Status word reflecting the current zone.
+    const char* word;
+    if(level_db < kGoodLoDb)      word = "LOW";
+    else if(level_db < kGoodHiDb) word = "GOOD";
+    else if(level_db < kClipDb)   word = "HIGH";
+    else                          word = "CLIP";
+    DrawTinyString(d, "INPUT", 2, 49, true);
+    DrawTinyString(d, word, bx1 - TinyStringWidth(word), 49, true);
+
+    // Good-range boundary ticks (extend a couple px above the bar).
+    const int gx_lo = db_to_x(kGoodLoDb, bx0, bx1);
+    const int gx_hi = db_to_x(kGoodHiDb, bx0, bx1);
+    d.DrawLine(gx_lo, by0 - 2, gx_lo, by1, true);
+    d.DrawLine(gx_hi, by0 - 2, gx_hi, by1, true);
+
+    // Bar outline + level fill.
+    d.DrawRect(bx0 - 1, by0 - 1, bx1 + 1, by1, true, false);
+    const int lx = db_to_x(level_db, bx0, bx1);
+    if(lx > bx0)
+        d.DrawRect(bx0, by0, lx, by1 - 1, true, true);
+}
+
 void Record_Render(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.display)
@@ -623,6 +712,7 @@ void Record_Render(UiScreenCtx& ctx)
         case RecordUiState::Armed:
         {
             Record_RenderReadyCuzStyle(ctx);
+            Record_DrawInputMeter(ctx);
         }
         break;
 

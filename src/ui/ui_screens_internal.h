@@ -22,6 +22,15 @@ void ExtractBaseName(const char* path, char* out, size_t out_n);
 // Definition lives with the perform-keyzone screen (originated there) and is
 // re-used by other screens (e.g. the Bake screen) via this declaration.
 void FormatMidiNoteName(uint8_t note, char* out, size_t out_n);
+// Computes per-column min/max over [start,end) into col_min/col_max (size cols)
+// and returns the window peak magnitude (1..32768) for display auto-fit. One
+// pass; reuse the buffers to draw. Shared by all waveform previews.
+int WaveformColumns(const int16_t* pcm,
+                    uint32_t start,
+                    uint32_t end,
+                    int cols,
+                    int16_t* col_min,
+                    int16_t* col_max);
 void DrawWaveformPreview(OledPager& d,
                          const Sample& sample,
                          const SampleEdit* edit,

@@ -497,6 +497,50 @@ static void DrawRecordRenderReviewActions(OledPager& d, uint8_t focus)
         DrawMicroString(d, kRerecordLabel, rerecord_x, y, true);
 }
 
+// Draws only the selected [start,end) window of a sample, stretched to fill the
+// preview rectangle. The review screen shows just the trimmed window (the full
+// waveform lives in the trim editor); min/max peaks per pixel column.
+static void DrawSampleWindow(OledPager& d,
+                             const Sample& sample,
+                             uint32_t start,
+                             uint32_t end,
+                             int x,
+                             int y,
+                             int w,
+                             int h,
+                             bool on)
+{
+    if(sample.pcm == nullptr || sample.length == 0u || w <= 0 || h <= 0)
+        return;
+    if(end > sample.length)
+        end = sample.length;
+    if(start >= end)
+        start = (end > 0u) ? (end - 1u) : 0u;
+    int cols = w;
+    if(cols > 128)
+        cols = 128;
+    const int mid = y + h / 2;
+    const int amp_h = (h - 1) / 2;
+
+    static int16_t col_min[128];
+    static int16_t col_max[128];
+    const int peak = WaveformColumns(sample.pcm, start, end, cols, col_min, col_max);
+    // Auto-fit the window peak to ~95% of the half-height (5% margin).
+    const float disp = 0.95f * static_cast<float>(amp_h) / static_cast<float>(peak);
+    for(int px = 0; px < cols; ++px)
+    {
+        int top = mid - static_cast<int>(static_cast<float>(col_max[px]) * disp);
+        int bot = mid - static_cast<int>(static_cast<float>(col_min[px]) * disp);
+        if(top < y)
+            top = y;
+        if(bot > y + h - 1)
+            bot = y + h - 1;
+        if(bot < top)
+            bot = top;
+        d.DrawLine(x + px, top, x + px, bot, on);
+    }
+}
+
 static bool RecordRenderReviewReturnsToPhysicalRecord(const AppUiState& ui)
 {
     return (ui.ui_nav.top > 0u) && (ui.ui_nav.stack[ui.ui_nav.top - 1u] == UiScreenId::Record);
@@ -1950,10 +1994,28 @@ bool RecordRenderReview_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(shared.recording.rec_sample.pcm != nullptr && shared.recording.rec_sample.length > 0u)
+        // Button2 auditions only the selected window (press-toggle), matching the
+        // trim editor and the windowed review display.
+        Sample& s = shared.recording.rec_sample;
+        if(s.pcm != nullptr && s.length > 0u)
         {
-            recording.record_preview_hold = true;
-            recording.record_preview_restart = recording.record_preview_gate;
+            if(shared.recording.win_preview_active.load(std::memory_order_acquire) != 0u)
+            {
+                shared.recording.win_preview_stop_req.store(1, std::memory_order_release);
+            }
+            else
+            {
+                uint32_t ws = shared.recording.rec_edit.start_frame;
+                uint32_t we = shared.recording.rec_edit.end_frame;
+                if(we > s.length)
+                    we = s.length;
+                if(we <= ws)
+                    we = s.length;
+                shared.recording.win_preview_sample = s;
+                shared.recording.win_preview_start = ws;
+                shared.recording.win_preview_end = we;
+                shared.recording.win_preview_start_req.store(1, std::memory_order_release);
+            }
             ui.ui_dirty = true;
         }
         return true;
@@ -2036,14 +2098,17 @@ void RecordRenderReview_Render(UiScreenCtx& ctx)
 
     if(sample.length > 0u)
     {
+        // Show only the selected window; the full waveform lives in the trim editor.
+        const uint32_t win_start = edit ? edit->start_frame : 0u;
+        const uint32_t win_end = edit ? edit->end_frame : sample.length;
         if(waveform_focused)
         {
             d.DrawRect(0, 12, 127, 49, true, true);
-            DrawWaveformPreview(d, sample, edit, 0, 12, 128, 38, false, false, false, false);
+            DrawSampleWindow(d, sample, win_start, win_end, 0, 12, 128, 38, false);
         }
         else
         {
-            DrawWaveformPreview(d, sample, edit, 0, 12, 128, 38, true, false, false, false);
+            DrawSampleWindow(d, sample, win_start, win_end, 0, 12, 128, 38, true);
         }
     }
     else

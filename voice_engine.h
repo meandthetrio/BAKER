@@ -182,6 +182,7 @@ class VoiceEngine
         BumpSetupCacheGen_(); // affects cached region start/end/ls/le and edit_gain
     }
     void SetLpfCutoff(float hz) { lpf_cutoff_hz_ = hz; }
+    void SetNormalizeEnabled(bool enabled) { normalize_enabled_ = enabled; }
     void SetModMatrix(const ModMatrixState* state) { mod_matrix_ = state; }
     void SetPLocks(const PLocksState* state) { plocks_ = state; }
     void SetMacros(const MacroState* a,
@@ -297,6 +298,7 @@ class VoiceEngine
     SampleEdit sample_edit_bank_[kMaxSampleBank]{};
     bool sample_edit_valid_[kMaxSampleBank] = {};
     float lpf_cutoff_hz_              = 20000.0f;
+    bool  normalize_enabled_         = true;
     std::atomic<uint8_t> loop_mode_{static_cast<uint8_t>(LoopMode::Forward)};
     int32_t stop_fade_samples_        = 0;
     float lfo_rate_hz_ = 1.0f;

@@ -63,8 +63,6 @@ struct AppUiState
     bool ui_lshift_held = false;
     bool ui_rshift_held = false;
     WaveEditSource wave_edit_source = WaveEditSource::PerformSlot;
-    bool ui_trim_preview_hold = false;
-    bool ui_trim_preview_gate = false;
     // Engine Trim screen gates incoming MIDI note-on/off so the window can be
     // auditioned in isolation. Written by UiTick, read by the MIDI handlers;
     // both run on the main loop thread, so a plain bool is sufficient.
@@ -240,6 +238,9 @@ struct AppUiState
     // SHIFT menu and destructive browser flow state.
     uint8_t shift_menu_cursor = 0;
     bool settings_mic_monitor_enabled = false;
+    // Auto-normalize loaded samples to -12 dBFS (peak, windowed). Default on.
+    // Mirrored into shared.settings_normalize_enabled for the audio thread.
+    bool settings_normalize_enabled = true;
     bool shift_menu_firmware_update_active = false;
     bool shift_menu_bootloader_armed = false;
     uint32_t shift_menu_bootloader_arm_start_ms = 0;

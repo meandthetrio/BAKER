@@ -274,6 +274,30 @@ bool LoadStepInternal(SdBrowserState& sd,
             samp.loop_start   = 0;
             samp.loop_end     = s_sd.sample_frames;
             samp.loop_enabled = false;
+
+            // Force-normalize the bake source to -12 dBFS peak, in place, so every
+            // baked slice lands at a consistent nominal level — the audition you
+            // hear matches the baked result, and .bk engine playback needs no
+            // runtime normalization. Always applied (independent of the global
+            // normalize setting); -12 dBFS input leaves headroom for PSOLA
+            // overlap-add gain so slices don't clip.
+            {
+                int16_t* buf = SdBakePreviewBuffer();
+                const float g = SampleEdit_ComputeNormGain(buf, 0u, s_sd.sample_frames);
+                if(g != 1.0f)
+                {
+                    for(uint32_t i = 0u; i < s_sd.sample_frames; ++i)
+                    {
+                        float v = static_cast<float>(buf[i]) * g;
+                        if(v > 32767.0f)
+                            v = 32767.0f;
+                        else if(v < -32768.0f)
+                            v = -32768.0f;
+                        buf[i] = static_cast<int16_t>(v >= 0.0f ? (v + 0.5f) : (v - 0.5f));
+                    }
+                }
+            }
+
             sd.load_in_progress = false;
             sd.load_progress    = 0;
             SdWavLoad_SetBusy(shared, sd, false);
@@ -353,6 +377,13 @@ bool LoadStepInternal(SdBrowserState& sd,
             engine.adsr.perform_adsr_loop_seam_baked[bake_layer] = baked;
             shared.sample.publish.sd_layer_seam_baked[s_sd.loading_slot].store(
                 baked ? 1u : 0u, std::memory_order_release);
+
+            // Peak-normalization gain for the loaded window (computed on the
+            // baked playback buffer). Ungated; the voice applies it per the
+            // global normalize setting.
+            edit.norm_gain
+                = SampleEdit_ComputeNormGain(samp.pcm, edit.start_frame, edit.end_frame);
+            shared.sample.edit.sd_edit_slots[s_sd.loading_slot] = edit;
 
             shared.sample.edit.sd_edit_pending = edit;
             shared.sample.edit.sd_edit_slot.store(s_sd.loading_slot, std::memory_order_release);

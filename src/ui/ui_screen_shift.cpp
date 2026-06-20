@@ -27,6 +27,7 @@ enum ShiftMenuItem : uint8_t
     ShiftSaveProject = 0,
     ShiftVolume,
     ShiftMicMonitor,
+    ShiftNormalize,
     ShiftFirmwareUpdate,
     ShiftMidiPanic,
     ShiftCount
@@ -260,6 +261,15 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.ui_dirty = true;
             return true;
         }
+        if(ui.shift_menu_cursor == ShiftNormalize)
+        {
+            ui.settings_normalize_enabled = !ui.settings_normalize_enabled;
+            if(ctx.shared)
+                ctx.shared->settings_normalize_enabled.store(
+                    ui.settings_normalize_enabled ? 1u : 0u, std::memory_order_release);
+            ui.ui_dirty = true;
+            return true;
+        }
         if(ui.shift_menu_cursor == ShiftFirmwareUpdate)
         {
             ui.shift_menu_firmware_update_active = true;
@@ -440,6 +450,16 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
             else DrawTinyString(d, label, label_x, label_y, true);
 
             const char* value = ui.settings_mic_monitor_enabled ? "ON" : "OFF";
+            const int val_w = TinyStringWidth(value);
+            DrawTinyString(d, value, screen_w - val_w - 1, label_y, true);
+        }
+        else if(i == ShiftNormalize)
+        {
+            const char* label = "NORMALIZE";
+            if(sel) DrawFillOnlyTinyString(d, label, label_x, label_y);
+            else DrawTinyString(d, label, label_x, label_y, true);
+
+            const char* value = ui.settings_normalize_enabled ? "ON" : "OFF";
             const int val_w = TinyStringWidth(value);
             DrawTinyString(d, value, screen_w - val_w - 1, label_y, true);
         }

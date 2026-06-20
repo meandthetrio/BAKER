@@ -556,11 +556,11 @@ int main(void)
         const bool record_render_preview_active
             = (g_app.ui.ui_active_screen == UiScreenId::RecordRenderMenu)
               && RecordRenderPreviewAvailable();
-        // Engine Trim (engine-slot) screen: LED2 green when idle, red while the
-        // one-shot window audition is playing.
-        const bool engine_trim_active
-            = (g_app.ui.ui_active_screen == UiScreenId::PerformWaveEdit)
-              && (g_app.ui.wave_edit_source == WaveEditSource::PerformSlot);
+        // Trim editor (all modes: engine-slot, render-review, sd-manage) and the
+        // record Review screen: LED2 green when idle, red while the one-shot
+        // window audition is playing.
+        const bool trim_active
+            = (g_app.ui.ui_active_screen == UiScreenId::PerformWaveEdit);
         const bool win_preview_playing
             = (g_app.shared.recording.win_preview_active.load(std::memory_order_acquire) != 0u);
         const bool firmware_pairing_hold_active
@@ -661,13 +661,12 @@ int main(void)
             hw.led1.Set(0.0f, 0.0f, g);
             hw.led2.Set(0.0f, 0.0f, g);
         }
-        else if(sd_browse_active || record_review_active || record_render_review_active
-                || record_render_preview_active)
+        else if(sd_browse_active || record_render_preview_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, 0.0f, 1.0f);
         }
-        else if(engine_trim_active)
+        else if(trim_active || record_review_active || record_render_review_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);
             if(win_preview_playing)

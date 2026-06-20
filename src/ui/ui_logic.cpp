@@ -1099,41 +1099,9 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
     if(active_screen != UiScreenId::PerformSeamEdit && ui.ui_seam_audition_active)
         ui.ui_seam_audition_active = false;
 
-    const bool trim_preview_active = (active_screen == UiScreenId::PerformWaveEdit);
-    if(trim_preview_active && ui.ui_trim_preview_hold && !ui.ui_trim_preview_gate)
-    {
-        if(ui.wave_edit_source == WaveEditSource::RenderReview)
-        {
-            const Sample& s = shared.recording.rec_sample;
-            if(s.pcm != nullptr && s.length > 0)
-            {
-                shared.recording.preview_start_req.store(1, std::memory_order_release);
-                ui.ui_trim_preview_gate = true;
-            }
-        }
-        else
-        {
-            const uint8_t slot = engine.perform_nav.perform_layer & 1u;
-            const Sample& s = shared.sample.publish.sd_slots[slot];
-            if(s.pcm != nullptr && s.length > 0)
-            {
-                if(PushPreviewNoteOn(evtq, diag, ui, 60, 120, slot))
-                    ui.ui_trim_preview_gate = true;
-            }
-        }
-    }
-    if((!trim_preview_active || !ui.ui_trim_preview_hold) && ui.ui_trim_preview_gate)
-    {
-        if(ui.wave_edit_source == WaveEditSource::RenderReview)
-        {
-            shared.recording.preview_stop_req.store(1, std::memory_order_release);
-            ui.ui_trim_preview_gate = false;
-        }
-        else if(PushPreviewNoteOff(evtq, diag, ui, 60))
-        {
-            ui.ui_trim_preview_gate = false;
-        }
-    }
+    // Trim-window auditioning is handled entirely by the self-contained
+    // win_preview bridge (Button2 press-toggle in PerformWaveEdit_OnEvent), which
+    // plays only [start,end) and auto-stops. No main-thread gating needed here.
 
     shift_held = ui.ui_lshift_held;
     UiOverlay_Update(diag.overlay, diag, now_ms);

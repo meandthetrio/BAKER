@@ -31,6 +31,24 @@ make the instrument click.
 
 ## Entries
 
+### 2026-06-20 — `bf356f0`
+
+- **Commit:** `bf356f0` ("perf: scale steal fade-out length to victim amplitude"),
+  on `207c097`.
+- **Working tree:** clean. Change vs `207c097`: steal fade-out length now scales
+  with the stolen voice's amplitude — quiet (attack-stage) victims get a short
+  fade down to a 0.25 ms floor; full-level victims keep the 1.25 ms fade.
+
+| Metric | Idle (no MIDI), `now` | Limit test, `peak` |
+|---|---|---|
+| callback total | — | **97** |
+| steal (fade-out render) | 0 | **11** |
+
+Notes:
+- vs `207c097`: `steal` 15 → 11, `callback` 100 → 97. Verified click-free by ear
+  (only low-amplitude victims get the shorter fade, so no anti-click loss).
+- Other buckets unchanged from `207c097` (not re-measured this entry).
+
 ### 2026-06-20 — `207c097`
 
 - **Commit:** `207c097` ("perf: note-on cap, smoothstep steal fade, mono process

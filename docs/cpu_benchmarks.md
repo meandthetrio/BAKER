@@ -6,6 +6,12 @@ produced them. Append a new entry per build of interest; never edit old entries
 
 ## ⭐ Most reliable way to reduce CPU — START HERE
 
+> **Single most beneficial CPU optimization found on this project.** Applying it to
+> just three stages (process filter, tilt EQ, reverb damping) moved the **limit-test
+> callback peak from 97 → 91 (~6%)** and `fx_total` peak **48 → 40** — with every
+> effect still fully engaged. Nothing else tried this session came close; most
+> delivered ~0. When asked to cut audio CPU, **start here, every time.**
+
 **Control-rate coefficient caching.** Effects derive DSP coefficients from control
 knobs using expensive math (`tanf`/`expf`/`powf`/`sin`/`cos`) and re-run it **every
 audio block even when the knob hasn't moved**. Coefficients are *control-rate* — they
@@ -21,8 +27,10 @@ Why this beats everything else:
   whether a user can ever make it click.
 - Audio-identical and safe (coeff-only writes; no filter state touched).
 
-Shipped: process filter (`be7d3ab`) + tilt EQ (`016cb4d`) → **fx_total 33→30 (~3%)**
-with both still engaged. The saturator (`TapeSaturator::PrepareBlock`) already does it.
+Shipped: process filter (`be7d3ab`, a `tanf`/block) + tilt EQ (`016cb4d`, an `exp` +
+4 biquads of trig/`pow`) + **reverb damping** (`3d0f258`, 2 `pow` + `exp` + 2 `sin` —
+the biggest single piece). Cumulative: **callback peak 97→91, fx_total peak 48→40**,
+all effects still engaged. The saturator (`TapeSaturator::PrepareBlock`) already does it.
 
 Audit checklist: grep FX/voice setup for per-block `tanf`/`expf`/`powf`/`sin`/`cos`/
 `SetFromParams`; cache each behind a dirty-check. Note the recompute usually lives in

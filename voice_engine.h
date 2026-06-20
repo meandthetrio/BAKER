@@ -130,7 +130,7 @@ struct Voice
 class VoiceEngine
 {
   public:
-    static constexpr size_t kMaxVoices = 10;
+    static constexpr size_t kMaxVoices = 8;
     static constexpr uint8_t kMaxSampleBank = 8;
 
     void Init(float sample_rate, size_t block_size);
@@ -291,6 +291,19 @@ class VoiceEngine
     float   block_release_coeff_ = 1.0f;
     uint32_t note_start_counter_ = 0;
     uint32_t active_last_block_ = 0;
+
+    // Note-on storm flattening. A keyboard/chord slam can drop many NoteOns into
+    // a single audio block; handling them all at once spikes the callback with
+    // allocation + voice-steal + StartVoice_ setup stacked in one block (this is
+    // the note-on-transient peak, not steady-state). Cap how many NoteOns are
+    // fully processed per block and defer the rest to following blocks. At a
+    // 48-sample block (~1 ms) the stagger is inaudible. Overflow of the stash
+    // falls back to handling immediately — a CPU spike is preferable to a
+    // dropped note.
+    static constexpr uint8_t kMaxNoteOnsPerBlock = 2;
+    static constexpr uint8_t kMaxDeferredNoteOns = 32;
+    Event    deferred_note_ons_[kMaxDeferredNoteOns]{};
+    uint8_t  deferred_note_on_count_ = 0;
     uint32_t steals_total_      = 0;
     uint32_t last_stolen_voice_index_ = 0;
     uint32_t last_stolen_start_id_    = 0;
@@ -311,7 +324,7 @@ class VoiceEngine
     float env_decay_ms_  = 120.0f;
     float env_amount_    = 0.5f;
     static constexpr uint8_t kEngineLayerCount = 1;
-    static constexpr uint8_t kMaxVoicesPerLayer = 10;
+    static constexpr uint8_t kMaxVoicesPerLayer = 8;
     float engine_tune_semitones_[kEngineLayerCount] = {0.0f};
     // Cache of pow(2, semitones/12) per layer; populated lazily from inside
     // PrepareRenderScalars_ (const) when the dirty flag is set.
@@ -464,6 +477,13 @@ class VoiceEngine
     void FinishStopFade_(Voice& v);
     void NoteOff_(uint8_t note);
     void AllNotesOff_();
+    // Full NoteOn handling (allocate/steal/start), factored out of ProcessEvents
+    // so the per-block note-on cap can dispatch it from both the replay and the
+    // live-drain paths.
+    void HandleNoteOnEvent_(const Event& e);
+    // Drop any still-deferred (un-sounded) note-ons for `note` so a note-off
+    // can't leave a deferred press to sound later with no matching release.
+    void CancelDeferredNoteOn_(uint8_t note);
     void ClearPolyPortoVoice_(Voice& v);
     void MarkPolyPortoHeldSource_(Voice& v);
     void MarkPolyPortoReleasedSource_(Voice& v);

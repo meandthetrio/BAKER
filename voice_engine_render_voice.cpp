@@ -14,6 +14,22 @@ static constexpr float kLoopBoundaryFadeMs = 1.0f;
 // per-sample StepEnvelope state machine to preserve sub-5-ms sharpness.
 static constexpr float kFastEnvelopeStepThreshold = 1.0f / 240.0f;
 
+// Steal fade-out shaping. steal_fade_level is a LINEAR 1->0 progress counter; a
+// linear gain ramp has a slope discontinuity (corner) where it leaves 1.0, which
+// ticks audibly on loud steal victims — worst when a chord slam steals several
+// at once. Map the linear progress through smoothstep (3x^2 - 2x^3): C1-
+// continuous with zero slope at both endpoints, so the gain departs 1.0 and
+// arrives at 0.0 without a corner. Polynomial (no per-sample cosf), same
+// endpoints as a raised cosine, negligible cost on the transient steal path.
+static inline float StealFadeShape_(float lin)
+{
+    if(lin <= 0.0f)
+        return 0.0f;
+    if(lin >= 1.0f)
+        return 1.0f;
+    return lin * lin * (3.0f - 2.0f * lin);
+}
+
 void VoiceRender_UpdatePlayheadMetric(float* playhead_metric,
                                       uint32_t* playhead_frame,
                                       uint32_t* playhead_active,
@@ -213,7 +229,7 @@ bool VoiceEngine::RenderStealFadeOut_ProcessOneSample_(Voice& v,
                                                 setup.start,
                                                 setup.end,
                                                 sample_rate_);
-    const float out = s * st.steal_fade_level;
+    const float out = s * StealFadeShape_(st.steal_fade_level);
     float*      bus = (setup.old_layer == 0u) ? ctx.outL : ctx.outR;
     if(st.stop_fade.active)
         bus[i] += out * st.stop_fade.level;
@@ -398,7 +414,7 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
         float* const bus = (setup.old_layer == 0u) ? ctx.outL : ctx.outR;
         for(size_t i = 0; i < N; ++i)
         {
-            const float out = buf[i] * st.steal_fade_level;
+            const float out = buf[i] * StealFadeShape_(st.steal_fade_level);
             bus[i] += st.stop_fade.active ? (out * st.stop_fade.level) : out;
 
             if(StopFade_AdvanceAndFinishIfDone_(v, st.stop_fade))

@@ -202,9 +202,9 @@ class AudioEngine
     TapeSaturator tape_sat_l_;
     TapeSaturator tape_sat_r_;
 
-    // Global process LPF (TPT SVF) on the summed mix, one per channel.
-    ProcessTptSvf process_svf_l_{};
-    ProcessTptSvf process_svf_r_{};
+    // Global process LPF (TPT SVF) on the summed mix. Mono: the dry voice sum is
+    // collapsed to mono and filtered once before the stereo FX chain.
+    ProcessTptSvf process_svf_{};
 
     TiltEqStereo tilt_eq_{};
     bool           eq_run_prev_ = false;

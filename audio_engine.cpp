@@ -410,8 +410,7 @@ void AudioEngine::Init(float sample_rate, size_t block_size)
     tape_sat_r_.Init(sample_rate_, block_size_);
 
     // Global process LPF state.
-    process_svf_l_.Reset();
-    process_svf_r_.Reset();
+    process_svf_.Reset();
 
     delay_active_  = false;
     delay_tailing_ = false;
@@ -571,7 +570,14 @@ void AudioEngine::ProcessBlock(const float* inL,
     if(!sd_wav_load_busy)
         ReverbUpdateParamsDattorro_(p);
 
-    const bool eq_run = true;
+    // FX floor trim: the tilt EQ is transparent at 0 dB tilt (and the user can
+    // disable it via eq_on), so skip the whole stage — param update here AND the
+    // per-sample ProcessEqBlock_ in the fx loop — when it would be a no-op rather
+    // than burning it every block. The on<->off edge re-inits the filter via the
+    // eq_run_prev_ Reset just below, and the crossover happens at ~0 tilt where
+    // the stage is already inaudible, so re-engaging is click-safe.
+    constexpr float kEqNeutralTiltDb = 0.05f; // below this, the tilt is inaudible
+    const bool eq_run = p.eq_on && (std::fabs(p.eq_tilt_db) >= kEqNeutralTiltDb);
     if(eq_run && !eq_run_prev_)
         tilt_eq_.Reset();
     eq_run_prev_ = eq_run;
@@ -687,8 +693,10 @@ void AudioEngine::ProcessBlock(const float* inL,
     }
 
     // ---- Global process filter: TPT SVF lowpass on the summed mix ----
-    // Runs every block (cheap, ~1%). Transparent near max cutoff; engages as the
-    // cutoff drops or resonance rises. Coeffs once per block -> click-free sweeps.
+    // Mono filter: the dry voice sum is collapsed to mono, filtered once, then
+    // written to both channels. Stereo width is (re)created downstream by the
+    // stereo sat/delay/reverb/EQ chain. Halves the per-sample cost vs. running
+    // an independent filter per channel. Coeffs once per block -> click-free.
     {
         float fc = p.process_cutoff_hz;
         if(fc < 20.0f)    fc = 20.0f;
@@ -703,8 +711,9 @@ void AudioEngine::ProcessBlock(const float* inL,
         const float a3 = g * a2;
         for(size_t i = 0; i < size; ++i)
         {
-            outL[i] = process_svf_l_.Lp(outL[i], a1, a2, a3);
-            outR[i] = process_svf_r_.Lp(outR[i], a1, a2, a3);
+            const float mono = process_svf_.Lp(0.5f * (outL[i] + outR[i]), a1, a2, a3);
+            outL[i] = mono;
+            outR[i] = mono;
         }
     }
 

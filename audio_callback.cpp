@@ -832,6 +832,10 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     g_voice.SetVelModSplit(voice_params.perform_keyzone_is_split);
     // Split divider = the keyzone screen's split point (top of zone A).
     g_voice.SetVelModSplitNote(voice_params.perform_keyzone_hi_note[0]);
+    // Keytrack volume (global): per-note gain across C1..C8, applied at note-on.
+    g_voice.SetKeytrack(voice_params.perform_keytrack_tilt,
+                        voice_params.perform_keytrack_amount_db,
+                        voice_params.perform_keytrack_mid_note);
     const uint32_t pre_push_cycles = DWT->CYCCNT - pre_push_start;
 
     const uint32_t pre_events_start = DWT->CYCCNT;

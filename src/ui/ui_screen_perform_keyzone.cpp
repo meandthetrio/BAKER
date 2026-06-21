@@ -48,7 +48,10 @@ static bool PerformKeyzone_TryPushSubscreen(UiScreenCtx& ctx)
         return false;
     AppUiState&     ui     = *ctx.ui;
     AppEngineState& engine = *ctx.engine;
+    // FULL: focus 1 = keytrack, focus 2 = keymod (velocity mod).
     if(!engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 1u)
+        return UiNav_Push(ui.ui_nav, UiScreenId::PerformKeytrack);
+    if(!engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 2u)
         return UiNav_Push(ui.ui_nav, UiScreenId::VelocityMod);
     if(engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 1u)
         return UiNav_Push(ui.ui_nav, UiScreenId::ModBlockA);
@@ -95,14 +98,14 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     AppEngineState& engine = *ctx.engine;
 
     // L encoder cycles focus: CW = forward, CCW = backward.
-    // FULL:  0=FULL/SPLIT  1=velocity Mod
+    // FULL:  0=FULL/SPLIT  1=keytrack  2=keymod
     // SPLIT: 0=FULL/SPLIT  1=mod block A  2=mod block B
     // (Split point is moved by the R encoder anytime in SPLIT mode; it has no
     //  L-encoder focus slot.)
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
         const bool    is_split  = engine.keyzone.perform_keyzone_is_split;
-        const uint8_t num_focus = is_split ? 3u : 2u;
+        const uint8_t num_focus = 3u;
         // SPLIT scroll direction is reversed: a CW turn from SPLIT (focus 0)
         // lands on mod block B (focus 2) first, then mod block A, then SPLIT.
         bool forward = (e.value > 0);
@@ -143,8 +146,8 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             engine.keyzone.perform_keyzone_hi_note[0] = 108u;
             engine.keyzone.perform_keyzone_lo_note[1] = 12u;
             engine.keyzone.perform_keyzone_hi_note[1] = 108u;
-            if(ui.perform_keyzone_focus > 1u)
-                ui.perform_keyzone_focus = 0u;
+            // FULL keeps three focus slots (0=mode, 1=keytrack, 2=keymod), so
+            // the current slot stays valid when leaving SPLIT — no reset needed.
         }
         PublishEngineLayerParams(ctx);
         ui.ui_dirty = true;
@@ -415,19 +418,28 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     }
     else
     {
-        // "modulation" button centered in the space below the keyboard.
-        static const char kVelModLabel[] = "modulation";
-        const int vel_w  = TinyStringWidth(kVelModLabel);
-        const int vel_tx = (128 - vel_w) / 2;
-        const int vel_ty = bottom_y0 + (64 - bottom_y0 - Font5x7::H) / 2;
-        if(ui.perform_keyzone_focus == 1)
+        // Two buttons side by side below the keyboard: "keytrack" (left, focus 1)
+        // and "keymod" (right, focus 2). Each is centered in its half.
+        const int btn_ty = bottom_y0 + (64 - bottom_y0 - Font5x7::H) / 2;
+
+        auto draw_button = [&](const char* label, int half_cx, bool focused)
         {
-            DrawFillOnlyTinyString(d, vel_tx, vel_ty, vel_w);
-            draw_mode_str(kVelModLabel, vel_tx, vel_ty, false);
-        }
-        else
-        {
-            draw_mode_str(kVelModLabel, vel_tx, vel_ty, true);
-        }
+            const int w  = TinyStringWidth(label);
+            int       tx = half_cx - w / 2;
+            if(tx < 1) tx = 1;
+            if(tx > 127 - w) tx = 127 - w;
+            if(focused)
+            {
+                DrawFillOnlyTinyString(d, tx, btn_ty, w);
+                draw_mode_str(label, tx, btn_ty, false);
+            }
+            else
+            {
+                draw_mode_str(label, tx, btn_ty, true);
+            }
+        };
+
+        draw_button("keytrack", 32, ui.perform_keyzone_focus == 1);
+        draw_button("keymod", 96, ui.perform_keyzone_focus == 2);
     }
 }

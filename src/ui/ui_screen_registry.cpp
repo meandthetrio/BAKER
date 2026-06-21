@@ -96,6 +96,11 @@ const UiScreen& GetScreen(UiScreenId id)
     static const UiScreen vel_mod2{UiScreenId::VelocityMod2, nullptr, nullptr, VelocityMod2_OnEvent, VelocityMod2_Render};
     static const UiScreen mod_block_a{UiScreenId::ModBlockA, nullptr, nullptr, ModBlockA_OnEvent, ModBlockA_Render};
     static const UiScreen mod_block_b{UiScreenId::ModBlockB, nullptr, nullptr, ModBlockB_OnEvent, ModBlockB_Render};
+    static const UiScreen perform_keytrack{UiScreenId::PerformKeytrack,
+                                           PerformKeytrack_OnScreenEnter,
+                                           nullptr,
+                                           PerformKeytrack_OnEvent,
+                                           PerformKeytrack_Render};
     static const UiScreen perform_adsr{UiScreenId::PerformAdsr,
                                        PerformAdsr_OnScreenEnter,
                                        nullptr,
@@ -206,6 +211,8 @@ const UiScreen& GetScreen(UiScreenId id)
             return mod_block_a;
         case UiScreenId::ModBlockB:
             return mod_block_b;
+        case UiScreenId::PerformKeytrack:
+            return perform_keytrack;
         case UiScreenId::PerformAdsr:
             return perform_adsr;
         case UiScreenId::PerformSeamEdit:

@@ -38,6 +38,7 @@ CPP_SOURCES += src/ui/ui_screen_perform_menu.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_engine.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_wave_edit.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_keyzone.cpp
+CPP_SOURCES += src/ui/ui_screen_perform_keytrack.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_velmod.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_adsr.cpp
 CPP_SOURCES += src/ui/ui_screen_perform_adsr_edit.cpp

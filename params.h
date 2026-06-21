@@ -109,6 +109,13 @@ struct PerformParamsTargets
     // Keyzone SPLIT: when true, velmod lane i applies only to layer i's voices
     // (mod block A/B). When false (FULL), both lanes apply to all voices.
     bool    perform_keyzone_is_split = false;
+    // Keytrack volume: tilt = -12..+12 angle (sign picks which side is cut,
+    // magnitude = steepness), amount_db = 0..12 +/- swing the extremes reach,
+    // mid_note = the 0 dB pivot the curve tents around. Applied per voice at
+    // note-on as a gain by MIDI note across C1..C8.
+    int8_t  perform_keytrack_tilt = 0;
+    int8_t  perform_keytrack_amount_db = 0;
+    uint8_t perform_keytrack_mid_note = 66; // F#4
 };
 
 struct PerformParamsCurrent
@@ -200,6 +207,9 @@ struct PerformParamsCurrent
     uint8_t velmod_shape[kVelModLaneCount]     = {1u, 1u}; // default gate
     uint8_t velmod_source[kVelModLaneCount]    = {0u, 0u}; // 0=>vel 1=<vel 2=>note 3=<note
     bool    perform_keyzone_is_split = false;
+    int8_t  perform_keytrack_tilt = 0;       // -12..+12 (see PerformParamsTargets)
+    int8_t  perform_keytrack_amount_db = 0;  // 0..12 dB +/- swing
+    uint8_t perform_keytrack_mid_note = 66;  // 0 dB pivot note (F#4)
 };
 
 class Params

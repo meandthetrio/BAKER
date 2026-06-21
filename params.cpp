@@ -184,4 +184,7 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
         current.velmod_source[lane]    = t.velmod_source[lane];
     }
     current.perform_keyzone_is_split = t.perform_keyzone_is_split;
+    current.perform_keytrack_tilt = t.perform_keytrack_tilt;
+    current.perform_keytrack_amount_db = t.perform_keytrack_amount_db;
+    current.perform_keytrack_mid_note = t.perform_keytrack_mid_note;
 }

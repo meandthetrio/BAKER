@@ -158,6 +158,9 @@ static void PublishProjectPerformParams(Params& params,
         t.velmod_source[lane]    = engine.velmod.source[lane];
     }
     t.perform_keyzone_is_split = engine.keyzone.perform_keyzone_is_split;
+    t.perform_keytrack_tilt = engine.keyzone.perform_keytrack_tilt;
+    t.perform_keytrack_amount_db = engine.keyzone.perform_keytrack_amount_db;
+    t.perform_keytrack_mid_note = engine.keyzone.perform_keytrack_mid_note;
     params.PublishTargets();
 }
 
@@ -258,6 +261,26 @@ static void ApplyProjectManifestVelMod(AppEngineState& engine, const ProjectMani
     }
     engine.velmod.threshold_linked = (manifest.velmod_threshold_linked != 0u);
     engine.keyzone.perform_keyzone_is_split = (manifest.perform_keyzone_is_split != 0u);
+    {
+        constexpr int kMax = AppEngineState::kPerformKeytrackTiltMax;
+        int t = static_cast<int>(manifest.perform_keytrack_tilt);
+        if(t < -kMax) t = -kMax;
+        if(t > kMax)  t = kMax;
+        engine.keyzone.perform_keytrack_tilt = static_cast<int8_t>(t);
+
+        constexpr int kAmtMax = AppEngineState::kPerformKeytrackAmountMaxDb;
+        int a = static_cast<int>(manifest.perform_keytrack_amount_db);
+        if(a < 0)       a = 0;
+        if(a > kAmtMax) a = kAmtMax;
+        engine.keyzone.perform_keytrack_amount_db = static_cast<int8_t>(a);
+
+        constexpr int kMidMin = AppEngineState::kPerformKeytrackMidNoteMin;
+        constexpr int kMidMax = AppEngineState::kPerformKeytrackMidNoteMax;
+        int mid = static_cast<int>(manifest.perform_keytrack_mid_note);
+        if(mid < kMidMin) mid = kMidMin;
+        if(mid > kMidMax) mid = kMidMax;
+        engine.keyzone.perform_keytrack_mid_note = static_cast<uint8_t>(mid);
+    }
 }
 
 static void ApplyProjectManifestLayerState(AppEngineState& engine, const ProjectManifestV11& manifest)

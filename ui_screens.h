@@ -47,6 +47,7 @@ enum class UiScreenId : uint8_t
     VelocityMod2,
     ModBlockA,
     ModBlockB,
+    PerformKeytrack,
     PerformAdsr,
     PerformSeamEdit,
     PerformExpress,

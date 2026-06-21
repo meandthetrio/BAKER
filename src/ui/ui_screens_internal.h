@@ -150,6 +150,10 @@ bool PerformKeyzone_OnEnter(UiScreenCtx& ctx);
 bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformKeyzone_Render(UiScreenCtx& ctx);
 
+void PerformKeytrack_OnScreenEnter(UiScreenCtx& ctx);
+bool PerformKeytrack_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
+void PerformKeytrack_Render(UiScreenCtx& ctx);
+
 bool VelocityMod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void VelocityMod_Render(UiScreenCtx& ctx);
 bool VelocityMod2_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);

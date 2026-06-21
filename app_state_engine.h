@@ -43,11 +43,35 @@ struct AppEngineState
         bool    perform_wave_edit_has_entry = false;
     } wave_edit{};
 
+    // Keytrack volume tilt range. The UI rectangle tilts from flat (0) to a
+    // diagonal where one side is fully lowered at +/- this magnitude.
+    static constexpr int8_t kPerformKeytrackTiltMax = 12;
+    // Keytrack amount range: 0..this magnitude in dB, in 1 dB steps. The curve
+    // pivots at the mid note (0 dB), reaching +amount at one keyboard extreme and
+    // -amount at the other, so amount represents a +/- swing.
+    static constexpr int8_t kPerformKeytrackAmountMaxDb = 12;
+    // Keytrack mid (pivot) note: the 0 dB point the curve bends around. Editable
+    // C3..C6; default F#4. The curve tents from here to +/-amount at C1 / C8.
+    static constexpr uint8_t kPerformKeytrackMidNoteMin     = 48; // C3
+    static constexpr uint8_t kPerformKeytrackMidNoteMax     = 84; // C6
+    static constexpr uint8_t kPerformKeytrackMidNoteDefault = 66; // F#4
+
     struct PerformKeyzoneState
     {
         uint8_t perform_keyzone_lo_note[2] = {12u, 12u};   // C0 — full range default
         uint8_t perform_keyzone_hi_note[2] = {108u, 108u}; // C8 — full range default
         bool    perform_keyzone_is_split = false;
+        // Keytrack volume tilt (UI-only for now; not yet applied to audio).
+        // Bipolar -kPerformKeytrackTiltMax..+max. 0 = flat (full volume across
+        // the keyboard). >0 lowers the high-note (right) side; <0 lowers the
+        // low-note (left) side. Edited on the PerformKeytrack subscreen.
+        int8_t  perform_keytrack_tilt = 0;
+        // Keytrack amount: the +/- dB swing each extreme of the tilt diagonal
+        // reaches at full tilt (0..12). The diagonal pivots at the mid note
+        // (0 dB): one side boosts +amount, the other cuts -amount.
+        int8_t  perform_keytrack_amount_db = 0;
+        // Keytrack mid (pivot) note where the curve crosses 0 dB. C3..C6.
+        uint8_t perform_keytrack_mid_note = kPerformKeytrackMidNoteDefault;
     } keyzone{};
 
     // Velocity-mod / mod-block UI (ported from oled_ui_sim). Audio routing TBD.

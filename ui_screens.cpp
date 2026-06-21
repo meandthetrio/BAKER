@@ -118,6 +118,9 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         t.velmod_source[lane]    = engine.velmod.source[lane];
     }
     t.perform_keyzone_is_split = engine.keyzone.perform_keyzone_is_split;
+    t.perform_keytrack_tilt = engine.keyzone.perform_keytrack_tilt;
+    t.perform_keytrack_amount_db = engine.keyzone.perform_keytrack_amount_db;
+    t.perform_keytrack_mid_note = engine.keyzone.perform_keytrack_mid_note;
     ctx.params->PublishTargets();
 }
 

@@ -170,6 +170,36 @@ void VoiceEngine::StartVoice_(Voice& v,
         v.send_level[2] = 0.0f;
         v.send_active   = false;
     }
+    // Keytrack volume: per-note gain across C1..C8, a tent pivoting at the mid
+    // note (0 dB). Each side ramps to +/-amount dB at C1 / C8, scaled by tilt
+    // magnitude; tilt>0 cuts the high side and boosts the low side. Note-on only.
+    if(keytrack_tilt_ != 0 && keytrack_amount_db_ != 0)
+    {
+        constexpr int   kKtLoNote  = 24;    // C1
+        constexpr int   kKtHiNote  = 108;   // C8
+        constexpr float kKtTiltMax = 12.0f; // matches kPerformKeytrackTiltMax
+        int n = static_cast<int>(v.note);
+        if(n < kKtLoNote) n = kKtLoNote;
+        if(n > kKtHiNote) n = kKtHiNote;
+        int pivot = static_cast<int>(keytrack_mid_note_);
+        if(pivot < kKtLoNote + 1) pivot = kKtLoNote + 1;
+        if(pivot > kKtHiNote - 1) pivot = kKtHiNote - 1;
+        const float mag = static_cast<float>(keytrack_tilt_ < 0 ? -keytrack_tilt_ : keytrack_tilt_)
+                          / kKtTiltMax;
+        float frac, side; // frac 0..1 from pivot toward the extreme; side = +boost/-cut
+        if(n <= pivot)
+        {
+            frac = static_cast<float>(pivot - n) / static_cast<float>(pivot - kKtLoNote);
+            side = (keytrack_tilt_ > 0) ? 1.0f : -1.0f; // low side: boosted when tilt>0
+        }
+        else
+        {
+            frac = static_cast<float>(n - pivot) / static_cast<float>(kKtHiNote - pivot);
+            side = (keytrack_tilt_ > 0) ? -1.0f : 1.0f; // high side: cut when tilt>0
+        }
+        const float gain_db = side * static_cast<float>(keytrack_amount_db_) * mag * frac; // +/-
+        v.gain *= std::pow(10.0f, gain_db / 20.0f);
+    }
     v.lpf_z = 0.0f;
     v.lpf_bp = 0.0f;
     v.gate = true;

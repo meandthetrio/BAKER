@@ -508,6 +508,11 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
     }
     // Velmod threshold-link flag (engine-only UI state, not in param targets).
     manifest.velmod_threshold_linked = engine.velmod.threshold_linked ? 1u : 0u;
+    // Keytrack volume tilt + amount (engine-only UI state; not routed through
+    // audio yet).
+    manifest.perform_keytrack_tilt = engine.keyzone.perform_keytrack_tilt;
+    manifest.perform_keytrack_amount_db = engine.keyzone.perform_keytrack_amount_db;
+    manifest.perform_keytrack_mid_note = engine.keyzone.perform_keytrack_mid_note;
 }
 
 static void CollectProjectGlobalState(ProjectManifestV11& manifest,

@@ -264,14 +264,11 @@ static bool VelocityMod_HandleEvent(AppUiState& ui, AppEngineState& engine, int 
         }
         if(focus == 3)
         {
-            // In FULL mode the two lanes (first/second) modulate the same
-            // keyzone, so targets are mutually exclusive — skip the index the
-            // other lane uses (except 0/----). In SPLIT mode the lanes belong
-            // to independent layers (mod block A/B), so both may target the
-            // same thing: pass an out-of-range "other" to disable the skip.
-            const uint8_t other = engine.keyzone.perform_keyzone_is_split
-                                      ? 0xFFu
-                                      : engine.velmod.target_idx[idx ^ 1];
+            // Both lanes (A/B) gate independently on their own source, and their
+            // contributions sum in the engine — so the two lanes may freely share
+            // a target (e.g. reverb on the low half and the high half). Pass an
+            // out-of-range "other" so the target scroll never skips an index.
+            const uint8_t other = 0xFFu;
             const uint8_t prev  = engine.velmod.target_idx[idx];
             const uint8_t next  = VelModNextTargetIdx(prev, other, delta);
             if(next != prev)
@@ -396,34 +393,15 @@ static void VelocityMod_RenderCommon(OledPager& d,
     }
 }
 
-// SPLIT mod blocks mirror the velocity-monitor screen exactly (same layout and
-// functions); only the top-right header label differs, and there is a single
-// screen per layer (A=lane 0, B=lane 1) — no first/second pair.
-void ModBlockA_Render(UiScreenCtx& ctx)
-{
-    if(!ctx.ui || !ctx.engine || !ctx.display)
-        return;
-    if(!ctx.diag)
-        return;
-    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 0, "vel mod", "mod a", ctx.rshift);
-}
-
-void ModBlockB_Render(UiScreenCtx& ctx)
-{
-    if(!ctx.ui || !ctx.engine || !ctx.display)
-        return;
-    if(!ctx.diag)
-        return;
-    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "vel mod", "mod b", ctx.rshift);
-}
-
+// The two keymod lanes (A=lane 0, B=lane 1) share one editor; only the top-right
+// header label differs. Pod2 toggles between the two lanes.
 void VelocityMod_Render(UiScreenCtx& ctx)
 {
     if(!ctx.ui || !ctx.engine || !ctx.display)
         return;
     if(!ctx.diag)
         return;
-    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 0, "mod", "first", ctx.rshift);
+    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 0, "keymod", "lane a", ctx.rshift);
 }
 
 void VelocityMod2_Render(UiScreenCtx& ctx)
@@ -432,56 +410,7 @@ void VelocityMod2_Render(UiScreenCtx& ctx)
         return;
     if(!ctx.diag)
         return;
-    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "mod", "second", ctx.rshift);
-}
-
-// SPLIT mod blocks share the velocity-monitor event logic verbatim (lane 0 / 1).
-// The only difference from VelocityMod*_OnEvent is the Pod2 destination, which
-// navigates between the two mod blocks instead of a first/second pair.
-bool ModBlockA_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
-{
-    if(!ctx.ui || !ctx.engine)
-        return false;
-    AppUiState&     ui     = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    if(VelocityMod_HandleEvent(ui, engine, 0, e)) { PublishEngineLayerParams(ctx); return true; }
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
-    {
-        ui.velmod_focus[0] = VelModStepFocusVisual(ui.velmod_focus[0], e.value);
-        ui.ui_dirty = true;
-        return true;
-    }
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
-    {
-        UiNav_Pop(ui.ui_nav);
-        UiNav_Push(ui.ui_nav, UiScreenId::ModBlockB);
-        ui.ui_dirty = true;
-        return true;
-    }
-    return false;
-}
-
-bool ModBlockB_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
-{
-    if(!ctx.ui || !ctx.engine)
-        return false;
-    AppUiState&     ui     = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    if(VelocityMod_HandleEvent(ui, engine, 1, e)) { PublishEngineLayerParams(ctx); return true; }
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
-    {
-        ui.velmod_focus[1] = VelModStepFocusVisual(ui.velmod_focus[1], e.value);
-        ui.ui_dirty = true;
-        return true;
-    }
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
-    {
-        UiNav_Pop(ui.ui_nav);
-        UiNav_Push(ui.ui_nav, UiScreenId::ModBlockA);
-        ui.ui_dirty = true;
-        return true;
-    }
-    return false;
+    VelocityMod_RenderCommon(*ctx.display, *ctx.ui, *ctx.engine, *ctx.diag, 1, "keymod", "lane b", ctx.rshift);
 }
 
 bool VelocityMod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)

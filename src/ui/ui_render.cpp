@@ -220,8 +220,7 @@ void UIRender::Tick(AppState& app, const Params& params)
 
     {
         const UiScreenId active = UiNav_Active(ui.ui_nav);
-        if(active == UiScreenId::VelocityMod || active == UiScreenId::VelocityMod2
-           || active == UiScreenId::ModBlockA || active == UiScreenId::ModBlockB)
+        if(active == UiScreenId::VelocityMod || active == UiScreenId::VelocityMod2)
         {
             const uint32_t v = diag.last_velocity.load(std::memory_order_relaxed);
             if(v != last_velocity_monitor_)
@@ -234,6 +233,32 @@ void UIRender::Tick(AppState& app, const Params& params)
             {
                 ui.ui_dirty = true;
                 last_note_monitor_ = n;
+            }
+        }
+        else if(active == UiScreenId::PerformKeyzone)
+        {
+            // Trigger a keybed play-flash on each note-on and keep redrawing at
+            // ~3 Hz while the flash window is open so the blink animates. Only a
+            // phase flip (or a new note) marks the screen dirty, so the window is
+            // a handful of redraws, not a continuous refresh.
+            const uint32_t n = diag.last_note.load(std::memory_order_relaxed);
+            const uint32_t v = diag.last_velocity.load(std::memory_order_relaxed);
+            if(n != last_note_monitor_ || v != last_velocity_monitor_)
+            {
+                last_note_monitor_     = n;
+                last_velocity_monitor_ = v;
+                ui.keyzone_flash_note     = static_cast<uint8_t>(n > 127u ? 127u : n);
+                ui.keyzone_flash_until_ms = now_ms + 900u; // ~3 flashes at 3 Hz
+                ui.ui_dirty = true;
+            }
+            if(static_cast<int32_t>(ui.keyzone_flash_until_ms - now_ms) > 0)
+            {
+                const uint32_t phase = now_ms / 167u;
+                if(phase != last_keyzone_flash_phase_)
+                {
+                    last_keyzone_flash_phase_ = phase;
+                    ui.ui_dirty = true;
+                }
             }
         }
     }

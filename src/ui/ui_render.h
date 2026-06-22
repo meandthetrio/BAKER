@@ -53,6 +53,7 @@ class UIRender
     uint32_t    last_clip_count_      = 0;
     uint32_t    last_velocity_monitor_   = 0;
     uint32_t    last_note_monitor_       = 0;
+    uint32_t    last_keyzone_flash_phase_ = 0;
     uint32_t    last_playhead_frame_[2]  = {0, 0};
     uint32_t    last_playhead_active_[2] = {0, 0};
     uint32_t    boot_logo_until_ms_ = 0;

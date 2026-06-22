@@ -197,23 +197,20 @@ float VoiceEngine::VelModFractionForTarget_(uint8_t target_code,
                                             uint8_t note,
                                             uint8_t layer) const
 {
-    // FULL mode: both lanes apply to every note. The UI keeps the two lanes'
-    // targets mutually exclusive there, so at most one lane matches a given
-    // param and the first match wins.
-    // SPLIT mode: the note's position relative to the split note selects the
-    // lane (mod block) — notes <= split use lane 0 (A), notes > split use lane 1
-    // (B). Each side's lane is independent and may share a target without
-    // colliding. (Single layer: routing no longer depends on source_layer.)
+    // Both lanes (A/B) apply to every note and gate purely on their own source +
+    // threshold + shape — there is no mode flag. Two lanes may target the same
+    // param, so contributions ACCUMULATE across lanes (a lane gated out by its
+    // own threshold simply contributes nothing). A clean keyboard split is just
+    // lane A = <note and lane B = >note at the same threshold; in the overlap
+    // (or for vel sources) both lanes add. (Single layer: no source_layer route.)
     (void)layer;
-    const uint8_t active_lane = (note > velmod_split_note_) ? 1u : 0u;
+    float acc = 0.0f;
     for(uint8_t lane = 0; lane < kVelModLaneCount; ++lane)
     {
-        if(velmod_split_ && lane != active_lane)
-            continue;
         if(velmod_target_[lane] != target_code)
             continue;
         if(velmod_amount_[lane] == 0)
-            return 0.0f;
+            continue;
 
         const uint8_t source = velmod_source_[lane];
         const bool note_domain = (source == kVelModSourceGtNote) || (source == kVelModSourceLtNote);
@@ -228,10 +225,10 @@ float VoiceEngine::VelModFractionForTarget_(uint8_t target_code,
         if(above)
         {
             if(src < thr)
-                return 0.0f; // gated out below threshold
+                continue; // this lane gated out below threshold
         }
         else if(src > thr)
-            return 0.0f; // gated out above threshold
+            continue; // this lane gated out above threshold
 
         float scale;
         if(velmod_shape_[lane] == 1u)
@@ -259,9 +256,22 @@ float VoiceEngine::VelModFractionForTarget_(uint8_t target_code,
                 scale = lin;
             }
         }
-        return (static_cast<float>(velmod_amount_[lane]) * 0.1f) * scale;
+        acc += (static_cast<float>(velmod_amount_[lane]) * 0.1f) * scale;
     }
-    return 0.0f;
+    // Clamp the summed contribution so two lanes sharing a target can't drive a
+    // param past its single-lane range: sends stay within kSendMaxGain (+6 dB),
+    // modifiers (volume/attack/sustain/release) within their documented ±range.
+    if(target_code >= 5u)
+    {
+        if(acc < 0.0f) acc = 0.0f;
+        if(acc > 1.0f) acc = 1.0f;
+    }
+    else
+    {
+        if(acc < -1.0f) acc = -1.0f;
+        if(acc > 1.0f) acc = 1.0f;
+    }
+    return acc;
 }
 
 void VoiceEngine::SetEngineLayerScale(uint8_t layer, float scale)

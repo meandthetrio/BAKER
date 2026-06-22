@@ -241,12 +241,6 @@ class VoiceEngine
                    uint8_t threshold,
                    uint8_t shape,
                    uint8_t source);
-    // When true (keyzone SPLIT), velmod lanes are routed by note relative to the
-    // split note: notes <= split → lane 0 (Mod Block A), notes > split → lane 1
-    // (Mod Block B). When false (FULL), both lanes apply to every note. Pushed
-    // once per block from the callback.
-    void SetVelModSplit(bool split) { velmod_split_ = split; }
-    void SetVelModSplitNote(uint8_t note) { velmod_split_note_ = note; }
     // Keytrack volume (global): per-note gain across C1..C8 computed at note-on.
     // tilt = -12..+12 (sign picks which side is cut, magnitude = steepness),
     // amount_db = 0..12 the extremes reach (+/-), mid_note = 0 dB pivot. Inactive
@@ -361,8 +355,6 @@ class VoiceEngine
     uint8_t velmod_shape_[kVelModLaneCount]     = {0u, 0u};
     uint8_t velmod_source_[kVelModLaneCount]    = {0u, 0u}; // 0=>vel 1=<vel 2=>note 3=<note
     bool    velmod_any_active_ = false;
-    bool    velmod_split_      = false;
-    uint8_t velmod_split_note_ = 60u; // keyzone SPLIT divider (notes <= → A, > → B)
     int8_t  keytrack_tilt_      = 0;  // -12..+12 keytrack volume angle (0 = off)
     int8_t  keytrack_amount_db_ = 0;  // 0..12 dB +/- swing at the extremes
     uint8_t keytrack_mid_note_  = 66; // F#4 pivot (0 dB) the tent bends around

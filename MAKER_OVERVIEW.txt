@@ -1,0 +1,59 @@
+MAKER — INSTRUMENT OVERVIEW
+=============================
+
+What it does
+------------
+MAKER is a polyphonic sampler/voice-engine instrument running on the Daisy Pod,
+turning recorded or loaded WAV samples into a playable, multisampled instrument with
+per-voice ADSR envelopes, velocity layers, and a built-in effects chain (saturation,
+EQ, delay, and reverb). You can record audio from line-in or a microphone, "make"
+a single sample into a pitch-mapped multisample across the keyboard using PSOLA
+pitch-shifting, and shape playback with looping, key zones, and expression mappings.
+Everything is driven from a small OLED UI and the Pod's two encoders/buttons, with
+projects saved to and loaded from the SD card.
+
+
+MAIN MENUS AND SUBMENUS
+=======================
+
+PRESETS
+  Project browser and manager. Lists saved project slots on the SD card; selecting a
+  slot opens an action popup, and a separate save flow writes the current state back.
+    - Load        Loads the selected saved project (engine, samples, FX, envelopes).
+    - Style       Tags the project with a style/category label for filtering.
+    - Rename      Renames the selected saved project.
+    - Delete      Removes the selected project from the SD card (with confirm).
+    - Save flow   Pick a slot, name it, and confirm to write the current project.
+
+SAMPLES
+  Everything for getting audio into the instrument and managing sample files.
+    - RECORD      Capture new audio into a sample (see Record submenu below).
+    - CRAFT       Sound-design lab: load a sample into one of three plugin slots
+                  (capture/alias/transient/body/feedback/multi) with per-slot
+                  parameters (rate, bits, input, filter, curve, age) to mangle it.
+    - MAKE        PSOLA-bake one source WAV into a full pitch-mapped multisample
+                  (.bk): choose the source sample, root note, and key range.
+    - SD MANAGER  Browse, sort, filter, rename, and delete WAV files on the SD card.
+
+    RECORD submenu (under SAMPLES > RECORD)
+      - LINE IN     Record from the line-in input.
+      - MICROPHONE  Record from the microphone input.
+      - PERFORM     Render a played note to a new sample (set note offset + hold
+                    time, then execute; review and save or re-record the result).
+
+PERFORM
+  The live instrument page set — where you shape and play the loaded sound.
+    - ENGINE    Core voice/sample engine: load a sample, set tuning/root, loop
+                mode and loop points, layer volume, and open the waveform editor.
+    - KEYZONE   Lay out modulation layers across the keyboard (full vs. split A/B zones) and
+                reach the modulation / mod-block assignments.
+    - ADSR      Per-voice amplitude envelope: Attack, Decay, Sustain, Release,
+                with per-stage exponential/logarithmic curve toggles.
+    - EXPRESS   Expression mappings: route a performance control to targets such as
+                cutoff, drive, resonance, attack, sustain, release, reverb, or
+                poly-portamento, each with its own min/max range.
+    - PROCESS   Per-layer volume plus the four-effect processing chain:
+                  - SATURATION  Drive/tape-style saturation and tone shaping.
+                  - EQ          Tilt EQ for overall tone balance.
+                  - DELAY       Echo/delay send and mix.
+                  - REVERB      Dattorro-style reverb send and mix.

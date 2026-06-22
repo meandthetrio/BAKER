@@ -44,19 +44,16 @@ static void DrawFillOnlyTinyString(OledPager& d, int x, int y, int w)
 
 static bool PerformKeyzone_TryPushSubscreen(UiScreenCtx& ctx)
 {
-    if(!ctx.ui || !ctx.engine)
+    if(!ctx.ui)
         return false;
-    AppUiState&     ui     = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
-    // FULL: focus 1 = keytrack, focus 2 = keymod (velocity mod).
-    if(!engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 1u)
+    AppUiState& ui = *ctx.ui;
+    // Single screen, three focusable slots: 0 = keytrack, 1 = lane A, 2 = lane B.
+    if(ui.perform_keyzone_focus == 0u)
         return UiNav_Push(ui.ui_nav, UiScreenId::PerformKeytrack);
-    if(!engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 2u)
+    if(ui.perform_keyzone_focus == 1u)
         return UiNav_Push(ui.ui_nav, UiScreenId::VelocityMod);
-    if(engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 1u)
-        return UiNav_Push(ui.ui_nav, UiScreenId::ModBlockA);
-    if(engine.keyzone.perform_keyzone_is_split && ui.perform_keyzone_focus == 2u)
-        return UiNav_Push(ui.ui_nav, UiScreenId::ModBlockB);
+    if(ui.perform_keyzone_focus == 2u)
+        return UiNav_Push(ui.ui_nav, UiScreenId::VelocityMod2);
     return false;
 }
 
@@ -89,29 +86,18 @@ bool PerformKeyzone_OnEnter(UiScreenCtx& ctx)
 
 bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
-    if(!ctx.ui || !ctx.engine)
+    if(!ctx.ui)
         return false;
     if(ctx.lshift)
         return false;
 
-    AppUiState&     ui     = *ctx.ui;
-    AppEngineState& engine = *ctx.engine;
+    AppUiState& ui = *ctx.ui;
 
-    // L encoder cycles focus: CW = forward, CCW = backward.
-    // FULL:  0=FULL/SPLIT  1=keytrack  2=keymod
-    // SPLIT: 0=FULL/SPLIT  1=mod block A  2=mod block B
-    // (Split point is moved by the R encoder anytime in SPLIT mode; it has no
-    //  L-encoder focus slot.)
+    // L encoder cycles focus: 0 = keytrack, 1 = lane A, 2 = lane B.
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
-        const bool    is_split  = engine.keyzone.perform_keyzone_is_split;
         const uint8_t num_focus = 3u;
-        // SPLIT scroll direction is reversed: a CW turn from SPLIT (focus 0)
-        // lands on mod block B (focus 2) first, then mod block A, then SPLIT.
-        bool forward = (e.value > 0);
-        if(is_split)
-            forward = !forward;
-        if(forward)
+        if(e.value > 0)
             ui.perform_keyzone_focus = (ui.perform_keyzone_focus + 1u) % num_focus;
         else
             ui.perform_keyzone_focus = (ui.perform_keyzone_focus + num_focus - 1u) % num_focus;
@@ -119,6 +105,7 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return true;
     }
 
+    // External-encoder click enters the focused slot's subscreen.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
         if(PerformKeyzone_TryPushSubscreen(ctx))
@@ -126,50 +113,6 @@ bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.ui_dirty = true;
             return true;
         }
-    }
-
-    // R encoder click on FULL/SPLIT button (focus==0): toggle split mode.
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc
-       && ui.perform_keyzone_focus == 0)
-    {
-        engine.keyzone.perform_keyzone_is_split = !engine.keyzone.perform_keyzone_is_split;
-        if(engine.keyzone.perform_keyzone_is_split)
-        {
-            engine.keyzone.perform_keyzone_lo_note[0] = 12u;  // C0
-            engine.keyzone.perform_keyzone_hi_note[0] = 59u;  // B3
-            engine.keyzone.perform_keyzone_lo_note[1] = 60u;  // C4
-            engine.keyzone.perform_keyzone_hi_note[1] = 108u; // C8
-        }
-        else
-        {
-            engine.keyzone.perform_keyzone_lo_note[0] = 12u;
-            engine.keyzone.perform_keyzone_hi_note[0] = 108u;
-            engine.keyzone.perform_keyzone_lo_note[1] = 12u;
-            engine.keyzone.perform_keyzone_hi_note[1] = 108u;
-            // FULL keeps three focus slots (0=mode, 1=keytrack, 2=keymod), so
-            // the current slot stays valid when leaving SPLIT — no reset needed.
-        }
-        PublishEngineLayerParams(ctx);
-        ui.ui_dirty = true;
-        return true;
-    }
-
-    // R encoder rotation in SPLIT mode: move the split point.
-    if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0
-       && engine.keyzone.perform_keyzone_is_split)
-    {
-        const int delta    = (e.value > 0) ? 1 : -1;
-        const int a_hi     = static_cast<int>(engine.keyzone.perform_keyzone_hi_note[0]);
-        const int new_a_hi = ClampInt(a_hi + delta,
-                                      static_cast<int>(engine.keyzone.perform_keyzone_lo_note[0]),
-                                      static_cast<int>(engine.keyzone.perform_keyzone_hi_note[1]) - 1);
-        if(new_a_hi == a_hi)
-            return false;
-        engine.keyzone.perform_keyzone_hi_note[0] = static_cast<uint8_t>(new_a_hi);
-        engine.keyzone.perform_keyzone_lo_note[1] = static_cast<uint8_t>(new_a_hi + 1);
-        PublishEngineLayerParams(ctx);
-        ui.ui_dirty = true;
-        return true;
     }
 
     return false;
@@ -187,7 +130,7 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     OledPager& d = *ctx.display;
     d.Fill(false);
 
-    static const char header_label[] = "kyzn a+b";
+    static const char header_label[] = "keyzone";
     const int header_w = MicroStringWidth(header_label);
     const int box_w    = header_w + 4;
     const int box_h    = kMicroH + 4;
@@ -209,9 +152,16 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
     }
 
     constexpr int kStatusH = 16;
-    constexpr int kBarH    = 9;
+    // Keyboard icon sits at the very bottom; the two taller mod blocks fill the
+    // space between the status bar and the keyboard.
+    constexpr int kKbdH     = 13;
+    constexpr int kKbdY0    = 64 - kKbdH;       // 51
+    constexpr int kBlockAY0 = kStatusH;         // 16
+    constexpr int kBlockAY1 = kBlockAY0 + 15;   // 31
+    constexpr int kBlockBY0 = kBlockAY1 + 3;    // 34
+    constexpr int kBlockBY1 = kBlockBY0 + 15;   // 49
 
-    // Mode button (FULL/SPLIT): left-anchored.
+    // Status-bar button label helper: left-anchored Font5x7 text.
     // Uses Font5x7 directly to avoid the 9px tall-H/L special case in DrawTinyString.
     auto draw_mode_str = [&](const char* str, int x, int y, bool on)
     {
@@ -238,40 +188,20 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
 
     const int status_y = (kStatusH - Font5x7::H) / 2;
 
-    const bool  is_split     = engine.keyzone.perform_keyzone_is_split;
-    const bool  mode_focused = (ui.perform_keyzone_focus == 0);
-    const char* mode_str     = is_split ? "SPLIT" : "FULL";
-    const int   mode_w       = TinyStringWidth(mode_str);
-    const int   mode_pad     = 2;
-    const int   mode_bx0     = 2;
-    const int   mode_tx      = mode_bx0 + mode_pad;
-    const int   mode_ty      = status_y;
-    if(!mode_focused)
+    // Status-bar button (focus 0): opens the keytrack volume-tilt subscreen.
+    const bool  kt_focused = (ui.perform_keyzone_focus == 0);
+    const char* kt_str     = "keytrk";
+    const int   kt_w       = TinyStringWidth(kt_str);
+    const int   kt_tx      = 4;
+    const int   kt_ty      = status_y;
+    if(!kt_focused)
     {
-        draw_mode_str(mode_str, mode_tx, mode_ty, true);
+        draw_mode_str(kt_str, kt_tx, kt_ty, true);
     }
     else
     {
-        if(is_split)
-            DrawRencFocusFrame(d, mode_tx, mode_ty, mode_w, Font5x7::H);
-        else
-            DrawFillOnlyTinyString(d, mode_tx, mode_ty, mode_w);
-        draw_mode_str(mode_str, mode_tx, mode_ty, false);
-    }
-
-    // Split-point label "X:X" centered in status bar, SPLIT mode only.
-    if(is_split)
-    {
-        char split_lo_note[8] = {};
-        char split_hi_note[8] = {};
-        char split_text[20]   = {};
-        FormatMidiNoteName(engine.keyzone.perform_keyzone_hi_note[0], split_lo_note, sizeof(split_lo_note));
-        FormatMidiNoteName(engine.keyzone.perform_keyzone_lo_note[1], split_hi_note, sizeof(split_hi_note));
-        std::snprintf(split_text, sizeof(split_text), "%s:%s", split_lo_note, split_hi_note);
-
-        const int split_w        = TinyStringWidthCaseSensitiveTightColons(split_text);
-        const int split_x        = (128 - split_w) / 2;
-        DrawTinyStringCaseSensitive(d, split_text, split_x, status_y, true);
+        DrawFillOnlyTinyString(d, kt_tx, kt_ty, kt_w);
+        draw_mode_str(kt_str, kt_tx, kt_ty, false);
     }
 
     auto keyzone_left_x = [&](uint8_t midi_note)
@@ -284,162 +214,90 @@ void PerformKeyzone_Render(UiScreenCtx& ctx)
         return (offset * 127 + (span / 2)) / span;
     };
 
-    auto draw_layer_box = [&](int rect_x0, int rect_x1, int section_index,
-                               const char* label, bool show_arrows = true)
+    // 3-char tag per velmod target index (0 = "----" → blank).
+    static const char* const kTargetTag[8]
+        = {"", "vol", "att", "sus", "rel", "rev", "dly", "sat"};
+
+    // Each lane (A/B) is a hollow rectangular mod block whose horizontal extent
+    // shows its note coverage: >note spans the threshold rightward, <note from
+    // the left up to the threshold, velocity sources span the whole width. A knee
+    // shape adds a ramp diagonal (rising toward the domain's far end); a gate is
+    // just the hollow box. Labelled on the left edge with the target (or just
+    // a / b, lower-case, when no target is set).
+    auto draw_lane_band = [&](int row_y0, int row_y1, int lane, bool focused)
     {
-        const int section_y0 = kStatusH + (section_index - 1) * kBarH;
-        const int rect_y0    = section_y0;
-        const int rect_y1    = section_y0 + kBarH - 1;
-        d.DrawRect(rect_x0, rect_y0, rect_x1, rect_y1, true, false);
+        const uint8_t target = engine.velmod.target_idx[lane];
+        const uint8_t source = engine.velmod.source[lane];
+        const uint8_t shape  = engine.velmod.shape[lane];
+        const uint8_t thr    = engine.velmod.threshold[lane];
 
-        const int label_y  = rect_y0 + ((kBarH - kMicroH) / 2);
-        const int center_y = rect_y0 + kBarH / 2;
-        const int lw       = MicroStringWidth(label);
-        const int bar_w    = rect_x1 - rect_x0 + 1;
-        const int text_x   = rect_x0 + (bar_w - lw) / 2;
-
-        DrawMicroString(d, label, text_x, label_y, true);
-
-        if(!show_arrows)
-            return;
-
-        // Stretch arrows: filled triangular arrowhead at each bar edge.
-        constexpr int kArrowW = 3;
-        constexpr int kGap    = 2;
-
-        // Left arrow (←)
+        if(target != 0u)
         {
-            const int x_tip    = rect_x0 + 1;
-            const int shaft_x0 = x_tip + kArrowW;
-            const int shaft_x1 = text_x - kGap - 1;
-            for(int dy = -2; dy <= 2; ++dy)
+            const bool note_src = (source == 2u) || (source == 3u); // >note / <note
+            const bool above    = (source == 2u);                   // >note
+            int        ax0      = 0;
+            int        ax1      = 127;
+            if(note_src)
             {
-                const int py     = center_y + dy;
-                const int abs_dy = dy < 0 ? -dy : dy;
-                const int ax0 = x_tip + abs_dy;
-                const int ax1 = x_tip + kArrowW - 1;
-                if(ax1 >= ax0 && py > rect_y0 && py < rect_y1)
-                    d.DrawLine(ax0, py, ax1, py, true);
+                const int thr_x = keyzone_left_x(thr);
+                ax0 = above ? thr_x : 0;
+                ax1 = above ? 127 : thr_x;
             }
-            if(shaft_x1 >= shaft_x0)
-                d.DrawLine(shaft_x0, center_y, shaft_x1, center_y, true);
+            d.DrawRect(ax0, row_y0, ax1, row_y1, true, false); // hollow rectangle
+            // Knee: a ramp diagonal from the 0 edge (at the threshold) up to the
+            // full edge (the domain's far end). >note rises to the right, <note to
+            // the left. Gate stays flat (just the hollow box).
+            if(note_src && shape == 0u && ax1 > ax0)
+            {
+                if(above)
+                    d.DrawLine(ax0, row_y1, ax1, row_y0, true); // ramp up to the right
+                else
+                    d.DrawLine(ax0, row_y0, ax1, row_y1, true); // ramp down to the right
+            }
+        }
+        else
+        {
+            d.DrawRect(0, row_y0, 127, row_y1, true, false);  // empty lane outline
         }
 
-        // Right arrow (→)
+        // Left-edge label: the target tag once a target is set, otherwise the
+        // lane letter. Cleared background keeps it legible over the block fill;
+        // the focused lane gets the inverted focus pill.
+        const char* tag   = kTargetTag[target & 7u];
+        const char* label = (target != 0u && tag[0] != '\0') ? tag
+                                                             : (lane == 0 ? "a" : "b");
+        const int lw = MicroStringWidth(label);
+        const int tx = 3;
+        const int ty = (row_y0 + row_y1) / 2 - (kMicroH / 2);
+        if(focused)
         {
-            const int x_tip    = rect_x1 - 1;
-            const int shaft_x0 = text_x + lw + kGap;
-            const int shaft_x1 = x_tip - kArrowW;
-            for(int dy = -2; dy <= 2; ++dy)
-            {
-                const int py     = center_y + dy;
-                const int abs_dy = dy < 0 ? -dy : dy;
-                const int ax0 = x_tip - (kArrowW - 1);
-                const int ax1 = x_tip - abs_dy;
-                if(ax1 >= ax0 && py > rect_y0 && py < rect_y1)
-                    d.DrawLine(ax0, py, ax1, py, true);
-            }
-            if(shaft_x1 >= shaft_x0)
-                d.DrawLine(shaft_x0, center_y, shaft_x1, center_y, true);
+            DrawRencFocusFrame(d, tx, ty, lw, kMicroH);
+            DrawMicroString(d, label, tx, ty, false);
+        }
+        else
+        {
+            d.DrawRect(tx - 1, ty - 1, tx + lw, ty + kMicroH, false, true);
+            DrawMicroString(d, label, tx, ty, true);
         }
     };
 
-    const int a_rect_x0 = keyzone_left_x(engine.keyzone.perform_keyzone_lo_note[0]);
-    const int a_rect_x1 = ClampInt(keyzone_left_x(engine.keyzone.perform_keyzone_hi_note[0]), a_rect_x0, 127);
-    const int b_rect_x0 = keyzone_left_x(engine.keyzone.perform_keyzone_lo_note[1]);
-    const int b_rect_x1 = ClampInt(keyzone_left_x(engine.keyzone.perform_keyzone_hi_note[1]), b_rect_x0, 127);
+    draw_lane_band(kBlockAY0, kBlockAY1, 0, ui.perform_keyzone_focus == 1);
+    draw_lane_band(kBlockBY0, kBlockBY1, 1, ui.perform_keyzone_focus == 2);
 
-    draw_layer_box(a_rect_x0, a_rect_x1, 1, is_split ? "a" : "layer a", !is_split);
-    draw_layer_box(b_rect_x0, b_rect_x1, 2, is_split ? "b" : "layer b", !is_split);
+    DrawBitmap1bpp(d, 0, kKbdY0, 128, kKbdH, 16, kPerformKeyzoneKeyboard128x16, true);
 
-    // Split-connection dots when A hi+1 == B lo (or vice versa).
-    const int a_dot_y = kStatusH + 0 * kBarH + kBarH / 2;
-    const int b_dot_y = kStatusH + 1 * kBarH + kBarH / 2;
-    if(static_cast<int>(engine.keyzone.perform_keyzone_hi_note[0]) + 1
-       == static_cast<int>(engine.keyzone.perform_keyzone_lo_note[1]))
+    // Played-note flash: a lit marker over the struck key, blinking ~3 Hz for a
+    // short window after each note-on (window + note set by the UI tick in
+    // ui_render.cpp). Only the on-phase draws, so an idle screen costs nothing.
+    if(static_cast<int32_t>(ui.keyzone_flash_until_ms - ctx.now_ms) > 0
+       && ((ctx.now_ms / 167u) & 1u) == 0u)
     {
-        if(a_rect_x1 + 3 < 128 && a_dot_y + 1 < 64)
-            d.DrawRect(a_rect_x1 + 2, a_dot_y, a_rect_x1 + 3, a_dot_y + 1, true, true);
-        if(b_rect_x0 - 3 >= 0 && b_dot_y + 1 < 64)
-            d.DrawRect(b_rect_x0 - 3, b_dot_y, b_rect_x0 - 2, b_dot_y + 1, true, true);
-    }
-    if(static_cast<int>(engine.keyzone.perform_keyzone_hi_note[1]) + 1
-       == static_cast<int>(engine.keyzone.perform_keyzone_lo_note[0]))
-    {
-        if(b_rect_x1 + 3 < 128 && b_dot_y + 1 < 64)
-            d.DrawRect(b_rect_x1 + 2, b_dot_y, b_rect_x1 + 3, b_dot_y + 1, true, true);
-        if(a_rect_x0 - 3 >= 0 && a_dot_y + 1 < 64)
-            d.DrawRect(a_rect_x0 - 3, a_dot_y, a_rect_x0 - 2, a_dot_y + 1, true, true);
+        const int nx  = keyzone_left_x(ui.keyzone_flash_note);
+        const int mx0 = ClampInt(nx - 1, 0, 127);
+        const int mx1 = ClampInt(nx + 1, 0, 127);
+        d.DrawRect(mx0, kKbdY0, mx1, kKbdY0 + kKbdH - 1, true, true);
     }
 
-    DrawBitmap1bpp(d, 0, kStatusH + 2 * kBarH, 128, 13, 16, kPerformKeyzoneKeyboard128x16, true);
-
-    const int bottom_y0 = kStatusH + 2 * kBarH + 13;
-
-    if(is_split)
-    {
-        // Two mod-block rectangles aligned to the layer A/B split positions.
-        static const char kModBlocksLabel[] = "mod blocks";
-        const int mod_rect_h  = 7;
-        const int mod_gap     = 2;
-        const int content_h   = mod_rect_h + mod_gap + kMicroH;
-        const int mod_margin  = (64 - bottom_y0 - content_h) / 2;
-        const int mod_rect_y0 = bottom_y0 + mod_margin;
-        const int mod_rect_y1 = mod_rect_y0 + mod_rect_h - 1;
-        const int mod_text_y  = mod_rect_y1 + 1 + mod_gap;
-
-        const bool a_focused = (ui.perform_keyzone_focus == 1);
-        const bool b_focused = (ui.perform_keyzone_focus == 2);
-
-        if(a_focused)
-        {
-            d.DrawRect(0, mod_rect_y0 - 2,
-                       ClampInt(a_rect_x1 + 2, 0, 127), mod_rect_y1 + 2, true, false);
-            d.DrawRect(0, mod_rect_y0, a_rect_x1, mod_rect_y1, true, true);
-        }
-        else
-        {
-            d.DrawRect(0, mod_rect_y0, a_rect_x1, mod_rect_y1, true, false);
-        }
-
-        if(b_focused)
-        {
-            d.DrawRect(ClampInt(b_rect_x0 - 2, 0, 127), mod_rect_y0 - 2,
-                       127, mod_rect_y1 + 2, true, false);
-            d.DrawRect(b_rect_x0, mod_rect_y0, 127, mod_rect_y1, true, true);
-        }
-        else
-        {
-            d.DrawRect(b_rect_x0, mod_rect_y0, 127, mod_rect_y1, true, false);
-        }
-
-        const int mod_lbl_w = MicroStringWidth(kModBlocksLabel);
-        DrawMicroString(d, kModBlocksLabel, (128 - mod_lbl_w) / 2, mod_text_y, true);
-    }
-    else
-    {
-        // Two buttons side by side below the keyboard: "keytrack" (left, focus 1)
-        // and "keymod" (right, focus 2). Each is centered in its half.
-        const int btn_ty = bottom_y0 + (64 - bottom_y0 - Font5x7::H) / 2;
-
-        auto draw_button = [&](const char* label, int half_cx, bool focused)
-        {
-            const int w  = TinyStringWidth(label);
-            int       tx = half_cx - w / 2;
-            if(tx < 1) tx = 1;
-            if(tx > 127 - w) tx = 127 - w;
-            if(focused)
-            {
-                DrawFillOnlyTinyString(d, tx, btn_ty, w);
-                draw_mode_str(label, tx, btn_ty, false);
-            }
-            else
-            {
-                draw_mode_str(label, tx, btn_ty, true);
-            }
-        };
-
-        draw_button("keytrack", 32, ui.perform_keyzone_focus == 1);
-        draw_button("keymod", 96, ui.perform_keyzone_focus == 2);
-    }
+    // Bottom strip below the keyboard: lane A/B are the two bands, keytrack is
+    // the status-bar slot, so nothing else is drawn here.
 }

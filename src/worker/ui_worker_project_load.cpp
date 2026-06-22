@@ -261,6 +261,27 @@ static void ApplyProjectManifestVelMod(AppEngineState& engine, const ProjectMani
     }
     engine.velmod.threshold_linked = (manifest.velmod_threshold_linked != 0u);
     engine.keyzone.perform_keyzone_is_split = (manifest.perform_keyzone_is_split != 0u);
+    // Migration: SPLIT mode was retired in favour of per-lane source routing.
+    // A project saved in SPLIT had its lanes note-routed globally by the split
+    // point; reproduce that audibly by seeding lane A = <note and lane B = >note
+    // at the old divider — but only when the lane still has a velocity source, so
+    // an intentional note source the user set is never clobbered. The split flag
+    // and divider byte remain in the manifest purely for this one-time read.
+    if(manifest.perform_keyzone_is_split != 0u)
+    {
+        const int divider = static_cast<int>(manifest.perform_keyzone_hi_note[0]);
+        if(engine.velmod.source[0] == 0u || engine.velmod.source[0] == 1u)
+        {
+            engine.velmod.source[0]    = 3u; // <note
+            engine.velmod.threshold[0] = static_cast<uint8_t>(divider < 0 ? 0 : (divider > 127 ? 127 : divider));
+        }
+        if(engine.velmod.source[1] == 0u || engine.velmod.source[1] == 1u)
+        {
+            const int hi = divider + 1;
+            engine.velmod.source[1]    = 2u; // >note
+            engine.velmod.threshold[1] = static_cast<uint8_t>(hi < 0 ? 0 : (hi > 127 ? 127 : hi));
+        }
+    }
     {
         constexpr int kMax = AppEngineState::kPerformKeytrackTiltMax;
         int t = static_cast<int>(manifest.perform_keytrack_tilt);

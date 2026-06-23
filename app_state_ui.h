@@ -123,12 +123,15 @@ struct AppUiState
     bool craft_browser_open = false;
     bool craft_browser_wait_for_load = false;
     uint8_t craft_slot_plugin[3] = {0, 0, 0};
-    uint8_t craft_capture_rate[3] = {0, 0, 0};
-    uint8_t craft_capture_bits[3] = {0, 0, 0};
-    uint8_t craft_capture_input[3] = {0, 0, 0};
-    uint8_t craft_capture_filter[3] = {0, 0, 0};
-    uint8_t craft_capture_curve[3] = {0, 0, 0};
-    uint8_t craft_capture_age[3] = {0, 0, 0};
+    // Per-slot, per-plugin param values: craft_param[slot][plugin][param].
+    // Each plugin remembers its own 6 raw uint8 params per slot. The meaning of
+    // each value is described by the CRAFT descriptor table (src/dsp/craft/
+    // craft_params.{h,cpp}); the effect processor decodes it. Switching the
+    // plugin on a slot leaves the other plugins' values untouched.
+    uint8_t craft_param[3][7][6] = {};
+    // Render action: false = save as new auto-incremented file, true = overwrite
+    // the loaded source .wav. Toggled on the Render focus item.
+    bool craft_render_overwrite = false;
     char craft_loaded_name[kSdNameMax] = {};
     char craft_loaded_path[kSdPathMax] = {};
     // Bake screen (Layer B baker entry point). bake_focus selects which of the

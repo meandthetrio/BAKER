@@ -307,6 +307,9 @@ bool LoadStepInternal(SdBrowserState& sd,
             }
             else
             {
+                // Auto-preview on load is always dry (no CRAFT chain). CRAFT
+                // auditions explicitly via Button2, which sets the chain.
+                shared.bake_preview.craft_chain_active.store(0, std::memory_order_release);
                 shared.bake_preview.start_req.store(1, std::memory_order_release);
             }
             s_sd.state = LoaderState::Idle;

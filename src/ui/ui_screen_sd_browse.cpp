@@ -1428,6 +1428,31 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             const uint8_t layer_count = static_cast<uint8_t>(
                 sizeof(ctx.engine->layer.engine_sample_path) / sizeof(ctx.engine->layer.engine_sample_path[0]));
 
+            // CRAFT: load the picked .wav into the isolated bake-preview SDRAM
+            // buffer (does NOT touch the perform engine slot). CRAFT auditions
+            // and renders from this buffer. .bk is not supported here.
+            if(ctx.ui->craft_browser_open)
+            {
+                if(!IsBkName(sd.paths[idx]) && ctx.worker)
+                {
+                    std::snprintf(ctx.ui->craft_loaded_path,
+                                  sizeof(ctx.ui->craft_loaded_path),
+                                  "%s",
+                                  sd.paths[idx]);
+                    ExtractBaseName(sd.paths[idx],
+                                    ctx.ui->craft_loaded_name,
+                                    sizeof(ctx.ui->craft_loaded_name));
+                    UiReq req{UiReqType::LoadWavToBakePreview, idx, 0};
+                    UiReq_Push(*ctx.ui, *ctx.worker, req);
+                    SdBrowser_SetStatus(sd, "LOADING");
+                }
+                ctx.ui->craft_browser_open = false;
+                ctx.ui->craft_browser_wait_for_load = false;
+                UiNav_Pop(ctx.ui->ui_nav);
+                ctx.ui->ui_dirty = true;
+                return true;
+            }
+
             // Single layer: a .bk loads onto the one layer (slot 0). SD browser
             // shows .bk because the engine-load scan runs with the WavAndBk filter.
             const bool is_bk = IsBkName(sd.paths[idx]);

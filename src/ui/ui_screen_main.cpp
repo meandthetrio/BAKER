@@ -9,6 +9,7 @@
 #include "app_state_shared.h"
 #include "app_state_worker.h"
 #include "bake_psola.h"
+#include "craft/craft_chain.h"
 #include "bk_file_format.h"
 #include "bk_file_reader.h"
 #include "bk_file_writer.h"
@@ -712,29 +713,29 @@ void RecordMenu_Render(UiScreenCtx& ctx)
 }
 
 static constexpr uint8_t kCraftSlotCount = 3u;
-static constexpr uint8_t kCraftPluginCapture = 1u;
 static constexpr uint8_t kCraftPluginCount = 7u;
-static constexpr uint8_t kCraftCaptureParamCount = 6u;
 static constexpr uint8_t kCraftFocusLoad = 0u;
 static constexpr uint8_t kCraftFocusSlot = 1u;
 static constexpr uint8_t kCraftFocusPlugin = 2u;
 static constexpr uint8_t kCraftFocusParamStart = 3u;
-static constexpr int32_t kCraftCaptureRateCount = 6;
-static constexpr int32_t kCraftCaptureBitsCount = 5;
-static constexpr int32_t kCraftCaptureFilterCount = 5;
-static constexpr int32_t kCraftCaptureCurveCount = 4;
 static constexpr int32_t kCraftSlotNameCount = 3;
 
+// CRAFT plugin labels — Home Frequency voice (V2). Names are plain world-words;
+// the mechanism each one drives is unchanged from the original spec:
+//   copy = generation-loss digital degrade (was "capture")
+//   dial = ring-mod / heterodyne "between stations" (was "alias" slot)
+//   snap = transient burn (was "trans")
+//   warm = body saturation (was "body")
+//   howl = feedback fold / comb resonance (was "fdbk")
+//   warp = tape wow & flutter (was "multi" slot)
 static const char* kCraftPluginLabels[kCraftPluginCount]
-    = {"----", "capture", "alias", "trans", "body", "fdbk", "multi"};
+    = {"----", "copy", "dial", "snap", "warm", "howl", "warp"};
 static const char* kCraftSlotNames[kCraftSlotNameCount] = {"one", "two", "three"};
-static const char* kCraftCaptureParamLabels[kCraftCaptureParamCount]
-    = {"rate", "bits", "input", "filter", "curve", "age"};
-static const char* kCraftCaptureRateLabels[6] = {"48k", "32k", "27k", "22k", "16k", "12k"};
-static const char* kCraftCaptureBitsLabels[5] = {"16", "12", "10", "8", "6"};
-static const char* kCraftCaptureFilterLabels[5] = {"clean", "soft", "ring", "leak", "bad"};
-static const char* kCraftCaptureCurveLabels[4] = {"lin", "comp", "warp", "noisy"};
-
+// CRAFT param labels + value sets now live in the descriptor table
+// (src/dsp/craft/craft_params.{h,cpp}), the single source of truth shared by
+// the UI and the DSP. Per-(plugin,param) mapping for "copy": rate=sample-rate
+// reduction, bits=bit-depth crush, drive=input coloration, tone=bandwidth
+// filter, curve=transfer curve, wear=age/wear instability.
 static int ClampCraftInt(int v, int lo, int hi)
 {
     if(v < lo)
@@ -749,15 +750,27 @@ static uint8_t CraftClampSlotIndex(uint8_t slot)
     return static_cast<uint8_t>(slot % kCraftSlotCount);
 }
 
-static bool CraftActiveSlotHasCapture(const AppUiState& ui)
+static uint8_t CraftActivePlugin(const AppUiState& ui)
 {
     const uint8_t slot = CraftClampSlotIndex(ui.craft_active_slot);
-    return ui.craft_slot_plugin[slot] == kCraftPluginCapture;
+    return static_cast<uint8_t>(ui.craft_slot_plugin[slot] % kCraftPluginCount);
+}
+
+static uint8_t CraftActiveParamCount(const AppUiState& ui)
+{
+    return craft::CraftPluginParamCount(CraftActivePlugin(ui));
+}
+
+// Focus layout: Load(0), Slot(1), Plugin(2), [params...], Render(last).
+// The Render action is always present (it needs a loaded sample, not a plugin).
+static uint8_t CraftRenderFocusIndex(const AppUiState& ui)
+{
+    return static_cast<uint8_t>(kCraftFocusParamStart + CraftActiveParamCount(ui));
 }
 
 static uint8_t CraftFocusCount(const AppUiState& ui)
 {
-    return static_cast<uint8_t>(kCraftFocusParamStart + (CraftActiveSlotHasCapture(ui) ? kCraftCaptureParamCount : 0u));
+    return static_cast<uint8_t>(kCraftFocusParamStart + CraftActiveParamCount(ui) + 1u);
 }
 
 static uint8_t CraftNormalizedFocusIndex(const AppUiState& ui)
@@ -773,11 +786,10 @@ static void CraftClampFocusForSelectedSlot(AppUiState& ui)
         ui.craft_focus = static_cast<uint8_t>(focus_count - 1u);
 }
 
-static const char* CraftCaptureParamLabel(uint8_t param)
+static const char* CraftParamLabel(uint8_t plugin, uint8_t param)
 {
-    if(param >= kCraftCaptureParamCount)
-        return "";
-    return kCraftCaptureParamLabels[param];
+    const craft::CraftParamDesc* d = craft::CraftGetParamDesc(plugin, param);
+    return (d && d->label) ? d->label : "";
 }
 
 static int CraftMicroTextWidth(const char* text)
@@ -868,51 +880,28 @@ static void DrawCraftTinyFocusedValueBox(OledPager& d, const char* value, int x,
     DrawTinyString(d, value, box_x + 3, y, true);
 }
 
-static void FormatCraftCaptureValue(const AppUiState& ui, uint8_t slot, uint8_t param, char* out, size_t out_n)
+static void FormatCraftParamValue(const AppUiState& ui, uint8_t slot, uint8_t param, char* out, size_t out_n)
 {
     if(!out || out_n == 0u)
         return;
+    out[0] = '\0';
 
-    const uint8_t slot_ix = CraftClampSlotIndex(slot);
-    switch(param)
+    const uint8_t                slot_ix = CraftClampSlotIndex(slot);
+    const uint8_t                plugin  = CraftActivePlugin(ui);
+    const craft::CraftParamDesc* d       = craft::CraftGetParamDesc(plugin, param);
+    if(!d)
+        return;
+
+    const uint8_t raw = ui.craft_param[slot_ix][plugin][param];
+    if(d->kind == craft::CraftParamKind::Enum)
     {
-        case 0:
-            std::snprintf(out,
-                          out_n,
-                          "%s",
-                          kCraftCaptureRateLabels[ui.craft_capture_rate[slot_ix]
-                                                  % static_cast<uint8_t>(kCraftCaptureRateCount)]);
-            break;
-        case 1:
-            std::snprintf(out,
-                          out_n,
-                          "%s",
-                          kCraftCaptureBitsLabels[ui.craft_capture_bits[slot_ix]
-                                                  % static_cast<uint8_t>(kCraftCaptureBitsCount)]);
-            break;
-        case 2:
-            std::snprintf(out, out_n, "%u", static_cast<unsigned>(ui.craft_capture_input[slot_ix]));
-            break;
-        case 3:
-            std::snprintf(out,
-                          out_n,
-                          "%s",
-                          kCraftCaptureFilterLabels[ui.craft_capture_filter[slot_ix]
-                                                    % static_cast<uint8_t>(kCraftCaptureFilterCount)]);
-            break;
-        case 4:
-            std::snprintf(out,
-                          out_n,
-                          "%s",
-                          kCraftCaptureCurveLabels[ui.craft_capture_curve[slot_ix]
-                                                   % static_cast<uint8_t>(kCraftCaptureCurveCount)]);
-            break;
-        case 5:
-            std::snprintf(out, out_n, "%u", static_cast<unsigned>(ui.craft_capture_age[slot_ix]));
-            break;
-        default:
-            out[0] = '\0';
-            break;
+        const uint8_t count = (d->count > 0u) ? d->count : 1u;
+        const uint8_t idx   = static_cast<uint8_t>(raw % count);
+        std::snprintf(out, out_n, "%s", (d->enum_labels && d->enum_labels[idx]) ? d->enum_labels[idx] : "");
+    }
+    else
+    {
+        std::snprintf(out, out_n, "%u", static_cast<unsigned>(raw));
     }
     LowercaseAsciiInPlace(out);
 }
@@ -936,6 +925,34 @@ static void FormatCraftLoadText(const AppUiState& ui, char* out, size_t out_n)
     }
 }
 
+// Snapshot the live CRAFT slot/plugin/param state into a chain config for the
+// audio audition (and matching the worker render builder).
+static craft::CraftChainConfig CraftBuildChainConfig(const AppUiState& ui)
+{
+    craft::CraftChainConfig cfg{};
+    for(uint8_t s = 0; s < kCraftSlotCount; ++s)
+    {
+        const uint8_t plugin = static_cast<uint8_t>(ui.craft_slot_plugin[s] % kCraftPluginCount);
+        cfg.slots[s].plugin  = plugin;
+        for(uint8_t p = 0; p < craft::kCraftMaxParams; ++p)
+            cfg.slots[s].param[p] = ui.craft_param[s][plugin][p];
+    }
+    return cfg;
+}
+
+// Publish the current chain config to the audio bridge via the seqlock so an
+// in-progress audition picks up live edits. Safe to call when not auditioning.
+static void CraftPublishChainConfig(UiScreenCtx& ctx, const AppUiState& ui)
+{
+    if(!ctx.shared)
+        return;
+    auto&          bake = ctx.shared->bake_preview;
+    const uint32_t g    = bake.craft_cfg_seq.load(std::memory_order_relaxed);
+    bake.craft_cfg_seq.store(g + 1u, std::memory_order_release); // odd: writing
+    bake.craft_cfg = CraftBuildChainConfig(ui);
+    bake.craft_cfg_seq.store(g + 2u, std::memory_order_release); // even: stable
+}
+
 bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
     if(!ctx.ui)
@@ -944,6 +961,21 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppUiState& ui = *ctx.ui;
+
+    // Button2: one-shot audition of the loaded sample through the live chain
+    // (WYSIWYG with render). Snapshot config, publish, then trigger the
+    // bake-preview path (which overwrites output with the processed mono signal).
+    if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
+    {
+        if(!ctx.shared || ui.craft_loaded_path[0] == '\0')
+            return true;
+        auto& bake = ctx.shared->bake_preview;
+        CraftPublishChainConfig(ctx, ui);
+        bake.craft_chain_active.store(1, std::memory_order_release);
+        bake.start_req.store(1, std::memory_order_release);
+        ui.ui_dirty = true;
+        return true;
+    }
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncPod && e.value != 0)
     {
@@ -991,100 +1023,91 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             }
             default:
             {
-                const uint8_t param = static_cast<uint8_t>(focus - kCraftFocusParamStart);
-                switch(param)
+                // Render focus: Ext rotate toggles new (left) / overwrite (right).
+                if(focus == CraftRenderFocusIndex(ui))
                 {
-                    case 0:
+                    const bool next_over = (e.value > 0);
+                    if(next_over != ui.craft_render_overwrite)
                     {
-                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
-                            static_cast<int32_t>(ui.craft_capture_rate[slot]), e.value, kCraftCaptureRateCount));
-                        if(next != ui.craft_capture_rate[slot])
+                        ui.craft_render_overwrite = next_over;
+                        changed = true;
+                    }
+                    break;
+                }
+
+                // Param focus: descriptor-driven edit (enum wrap / scalar clamp).
+                const uint8_t                param  = static_cast<uint8_t>(focus - kCraftFocusParamStart);
+                const uint8_t                plugin = CraftActivePlugin(ui);
+                const craft::CraftParamDesc* d      = craft::CraftGetParamDesc(plugin, param);
+                if(d)
+                {
+                    uint8_t& v = ui.craft_param[slot][plugin][param];
+                    if(d->kind == craft::CraftParamKind::Enum)
+                    {
+                        const int32_t count = (d->count > 0u) ? static_cast<int32_t>(d->count) : 1;
+                        const uint8_t next  = static_cast<uint8_t>(
+                            WrapMenuIndex(static_cast<int32_t>(v % count), e.value, count));
+                        if(next != v)
                         {
-                            ui.craft_capture_rate[slot] = next;
+                            v       = next;
                             changed = true;
                         }
-                        break;
                     }
-                    case 1:
+                    else
                     {
-                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
-                            static_cast<int32_t>(ui.craft_capture_bits[slot]), e.value, kCraftCaptureBitsCount));
-                        if(next != ui.craft_capture_bits[slot])
+                        const int next = ClampCraftInt(static_cast<int>(v) + e.value, 0, static_cast<int>(d->count));
+                        if(next != static_cast<int>(v))
                         {
-                            ui.craft_capture_bits[slot] = next;
+                            v       = static_cast<uint8_t>(next);
                             changed = true;
                         }
-                        break;
                     }
-                    case 2:
-                    {
-                        const int next = ClampCraftInt(static_cast<int>(ui.craft_capture_input[slot]) + e.value, 0, 100);
-                        if(next != static_cast<int>(ui.craft_capture_input[slot]))
-                        {
-                            ui.craft_capture_input[slot] = static_cast<uint8_t>(next);
-                            changed = true;
-                        }
-                        break;
-                    }
-                    case 3:
-                    {
-                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
-                            static_cast<int32_t>(ui.craft_capture_filter[slot]), e.value, kCraftCaptureFilterCount));
-                        if(next != ui.craft_capture_filter[slot])
-                        {
-                            ui.craft_capture_filter[slot] = next;
-                            changed = true;
-                        }
-                        break;
-                    }
-                    case 4:
-                    {
-                        const uint8_t next = static_cast<uint8_t>(WrapMenuIndex(
-                            static_cast<int32_t>(ui.craft_capture_curve[slot]), e.value, kCraftCaptureCurveCount));
-                        if(next != ui.craft_capture_curve[slot])
-                        {
-                            ui.craft_capture_curve[slot] = next;
-                            changed = true;
-                        }
-                        break;
-                    }
-                    case 5:
-                    {
-                        const int next = ClampCraftInt(static_cast<int>(ui.craft_capture_age[slot]) + e.value, 0, 100);
-                        if(next != static_cast<int>(ui.craft_capture_age[slot]))
-                        {
-                            ui.craft_capture_age[slot] = static_cast<uint8_t>(next);
-                            changed = true;
-                        }
-                        break;
-                    }
-                    default:
-                        break;
                 }
                 break;
             }
         }
 
         if(changed)
+        {
             ui.ui_dirty = true;
+            // Live-update any in-progress audition with the edited chain.
+            CraftPublishChainConfig(ctx, ui);
+        }
         return true;
     }
 
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
     {
-        if(CraftNormalizedFocusIndex(ui) != kCraftFocusLoad)
-            return false;
-
-        ui.sd_delete_mode = false;
-        ui.sample_rename_active = false;
-        ui.craft_browser_open = false;
-        ui.craft_browser_wait_for_load = false;
-        if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))
+        const uint8_t focus = CraftNormalizedFocusIndex(ui);
+        if(focus == kCraftFocusLoad)
         {
-            ui.craft_browser_open = true;
-            ui.ui_dirty = true;
+            ui.sd_delete_mode = false;
+            ui.sample_rename_active = false;
+            ui.craft_browser_open = false;
+            ui.craft_browser_wait_for_load = false;
+            if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))
+            {
+                ui.craft_browser_open = true;
+                ui.ui_dirty = true;
+                return true;
+            }
+            return false;
+        }
+
+        if(focus == CraftRenderFocusIndex(ui))
+        {
+            // Render the chain to a sample (new file or overwrite source).
+            // Requires a loaded source.
+            if(ui.craft_loaded_path[0] == '\0')
+                return true;
+            const UiReq req{UiReqType::CraftRenderToWav,
+                            static_cast<uint16_t>(ui.craft_render_overwrite ? 1u : 0u),
+                            0u};
+            if(ctx.worker && UiReq_Push(*ctx.ui, *ctx.worker, req))
+                ui.ui_dirty = true;
             return true;
         }
+
         return false;
     }
 
@@ -1135,27 +1158,40 @@ void CraftMenu_Render(UiScreenCtx& ctx)
     else
         DrawCraftMicroValue(d, active_plugin_label, kPluginValueX + 3, kPluginY);
 
-    if(ui.craft_slot_plugin[active_slot] != kCraftPluginCapture)
-        return;
+    // Render action — always present (Ext-click triggers it). Sits on the free
+    // right side of the plugin row; shows the save mode (new / overwrite).
+    const char* render_text = ui.craft_render_overwrite ? "r:ovr" : "r:new";
+    constexpr int kRenderX  = 92;
+    constexpr int kRenderY  = kPluginY;
+    if(focus == CraftRenderFocusIndex(ui))
+        DrawCraftMicroFocusedValueBox(d, render_text, kRenderX, kRenderY);
+    else
+        DrawCraftMicroValue(d, render_text, kRenderX + 3, kRenderY);
 
-    constexpr int kGridX[2] = {2, 66};
-    constexpr int kGridY[3] = {34, 43, 52};
-    for(uint8_t param = 0; param < kCraftCaptureParamCount; ++param)
+    // Param grid (descriptor-driven) for the active plugin. Plugins with no
+    // params (not yet implemented) simply draw nothing here.
+    const uint8_t plugin      = CraftActivePlugin(ui);
+    const uint8_t param_count = CraftActiveParamCount(ui);
+    constexpr int kGridX[2]   = {2, 66};
+    constexpr int kGridY[3]   = {34, 43, 52};
+    for(uint8_t param = 0; param < param_count; ++param)
     {
         const int col = param % 2;
         const int row = param / 2;
         if(focus == static_cast<uint8_t>(kCraftFocusParamStart + param))
         {
             char value[16];
-            FormatCraftCaptureValue(ui, active_slot, param, value, sizeof(value));
-            if(param == 0u || param == 1u || param == 2u || param == 5u)
-                DrawCraftTinyFocusedValueBox(d, value, kGridX[col], kGridY[row]);
-            else
+            FormatCraftParamValue(ui, active_slot, param, value, sizeof(value));
+            const craft::CraftParamDesc* pd = craft::CraftGetParamDesc(plugin, param);
+            const bool use_micro = (pd && pd->kind == craft::CraftParamKind::Enum && std::strlen(value) > 3u);
+            if(use_micro)
                 DrawCraftMicroFocusedValueBox(d, value, kGridX[col], kGridY[row]);
+            else
+                DrawCraftTinyFocusedValueBox(d, value, kGridX[col], kGridY[row]);
         }
         else
         {
-            DrawCraftMicroLabel(d, CraftCaptureParamLabel(param), kGridX[col], kGridY[row]);
+            DrawCraftMicroLabel(d, CraftParamLabel(plugin, param), kGridX[col], kGridY[row]);
         }
     }
 }

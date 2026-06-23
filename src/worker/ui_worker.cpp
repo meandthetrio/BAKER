@@ -1,5 +1,6 @@
 #include "ui_worker.h"
 #include "ui_worker_internal.h"
+#include "ui_worker_craft.h"
 #include "ui_worker_sample_load.h"
 #include "ui_worker_sample_ops.h"
 
@@ -80,6 +81,7 @@ static bool PendingLoadBlockedByActiveRequest(const AppWorkerState& worker)
                || worker.ui_req_active == UiReqType::SaveRenderedWavNamed
                || worker.ui_req_active == UiReqType::SaveSdManageTrimNamed
                || worker.ui_req_active == UiReqType::ReplaceSdManageTrimCurrent
+               || worker.ui_req_active == UiReqType::CraftRenderToWav
                || worker.ui_req_active == UiReqType::LoadProject);
 }
 
@@ -251,6 +253,10 @@ static void StartQueuedUiRequest(AppUiState& ui,
                              ui.sd.paths[ui.sd_manage_edit_index]))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
+        case UiReqType::CraftRenderToWav:
+            if(!StartCraftRender(ui, shared, req.a != 0u))
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            break;
         case UiReqType::RebuildCache:
         case UiReqType::LoadSample:
         case UiReqType::SavePreset:
@@ -354,6 +360,7 @@ static void StepActiveUiRequest(AppUiState& ui,
         case UiReqType::SaveRenderedWavNamed:
         case UiReqType::SaveSdManageTrimNamed:
         case UiReqType::ReplaceSdManageTrimCurrent:
+        case UiReqType::CraftRenderToWav:
             done = SaveStep(ui.sd, shared, worker, budget_us);
             worker.ui_req_progress = ui.sd.save_progress;
             if(done)

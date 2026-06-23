@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "bk_file_format.h"
+#include "craft/craft_params.h"
 #include "macros.h"
 #include "mod_matrix.h"
 #include "plocks.h"
@@ -130,6 +131,17 @@ struct AppSharedState
         std::atomic<uint8_t>  active{0};
         std::atomic<uint32_t> pos{0};
         Sample                sample{};
+        // CRAFT live audition: when craft_chain_active != 0 at start_req time,
+        // the audio path runs craft_cfg over the preview block (WYSIWYG with the
+        // render). 0 = dry preview (bake-pick / auto-preview-on-load). craft_cfg
+        // is written by the UI before start_req (release) and read by the audio
+        // thread on start_req (acquire) — same handoff as `sample`.
+        std::atomic<uint8_t>     craft_chain_active{0};
+        craft::CraftChainConfig  craft_cfg{};
+        // Seqlock guarding live edits to craft_cfg while an audition is playing,
+        // so knob moves are heard mid-playthrough. UI bumps +1 (odd=writing),
+        // writes craft_cfg, bumps +1 (even=stable); audio re-applies on change.
+        std::atomic<uint32_t>    craft_cfg_seq{0};
     } bake_preview{};
 
     // Layer B .bk multisample slot. Filled synchronously by the .bk loader

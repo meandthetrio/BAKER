@@ -13,6 +13,7 @@
 #include "build_config.h"
 #include "express_state.h"
 #include "sd_sample_pool.h"
+#include "craft/craft_chain.h"
 
 #include <cmath>
 
@@ -165,6 +166,12 @@ static bool     s_bake_preview_active   = false;
 static uint32_t s_bake_preview_pos      = 0;
 static float    s_bake_preview_gain     = 0.0f;
 static bool     s_bake_preview_stopping = false;
+// CRAFT live audition: when the preview is triggered with the chain active, the
+// loaded sample is processed through this chain block-by-block (WYSIWYG with the
+// offline render, which uses the same CraftChain code). Dry preview otherwise.
+static craft::CraftChain s_bake_preview_craft_chain;
+static bool              s_bake_preview_use_chain = false;
+static uint32_t          s_bake_preview_craft_seq = 0; // last-applied craft_cfg seqlock value
 static bool     s_render_active = false;
 static uint32_t s_render_pos = 0;
 static constexpr uint32_t kRecLiveWaveStride = 128u;
@@ -565,6 +572,13 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
             s_bake_preview_stopping = false;
             s_bake_preview_gain     = 0.0f;
             s_bake_preview_pos      = 0;
+            // Snapshot the CRAFT chain (config published before start_req).
+            s_bake_preview_use_chain = (bake.craft_chain_active.load(std::memory_order_acquire) != 0u);
+            if(s_bake_preview_use_chain)
+            {
+                s_bake_preview_craft_chain.ApplyConfig(bake.craft_cfg, g_sample_rate_hz);
+                s_bake_preview_craft_seq = bake.craft_cfg_seq.load(std::memory_order_acquire);
+            }
             bake.active.store(1, std::memory_order_release);
             bake.pos.store(0, std::memory_order_release);
         }
@@ -589,6 +603,39 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
         s_bake_preview_pos      = 0;
         bake.active.store(0, std::memory_order_release);
         return;
+    }
+
+    // Pick up live param edits made during this playthrough (seqlock read): if
+    // the config changed, re-apply coeffs without resetting state (smooth).
+    if(s_bake_preview_use_chain)
+    {
+        const uint32_t s1 = bake.craft_cfg_seq.load(std::memory_order_acquire);
+        if((s1 & 1u) == 0u && s1 != s_bake_preview_craft_seq)
+        {
+            const craft::CraftChainConfig local = bake.craft_cfg;
+            const uint32_t s2 = bake.craft_cfg_seq.load(std::memory_order_acquire);
+            if(s2 == s1)
+            {
+                s_bake_preview_craft_chain.UpdateParams(local);
+                s_bake_preview_craft_seq = s1;
+            }
+        }
+    }
+
+    // When auditioning through the CRAFT chain, process the playable portion of
+    // this block up front so the per-sample fade loop reads the degraded signal.
+    // Block size is 48; cap defensively. craftbuf[k] maps to sample.pcm[pos0+k].
+    float          craftbuf[64];
+    const uint32_t pos0 = s_bake_preview_pos;
+    if(s_bake_preview_use_chain)
+    {
+        const uint32_t remain  = end - pos0;
+        uint32_t       craft_n = (size < remain) ? static_cast<uint32_t>(size) : remain;
+        if(craft_n > 64u)
+            craft_n = 64u;
+        for(uint32_t k = 0; k < craft_n; ++k)
+            craftbuf[k] = static_cast<float>(sample.pcm[pos0 + k]) * (1.0f / 32768.0f);
+        s_bake_preview_craft_chain.Process(craftbuf, craft_n);
     }
 
     for(size_t i = 0; i < size; ++i)
@@ -622,9 +669,11 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
         const float pos_gain
             = (remaining < kFadeFrames) ? (static_cast<float>(remaining) * kFadeStep) : 1.0f;
 
-        const float dry = (static_cast<float>(sample.pcm[s_bake_preview_pos]) / 32768.0f)
-                          * s_bake_preview_gain * pos_gain;
-        // Overwrite (not mix): voice + FX output is replaced by the dry preview.
+        const float src = s_bake_preview_use_chain
+                              ? craftbuf[s_bake_preview_pos - pos0]
+                              : (static_cast<float>(sample.pcm[s_bake_preview_pos]) / 32768.0f);
+        const float dry = src * s_bake_preview_gain * pos_gain;
+        // Overwrite (not mix): voice + FX output is replaced by the preview.
         outL[i] = dry;
         outR[i] = dry;
         ++s_bake_preview_pos;

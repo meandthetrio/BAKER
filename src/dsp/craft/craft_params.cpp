@@ -21,12 +21,36 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
       {"tone", CraftParamKind::Enum, 5u, kCopyToneLabels},
       {"curve", CraftParamKind::Enum, 4u, kCopyCurveLabels},
       {"wear", CraftParamKind::Scalar, 100u, nullptr}}},
-    // 2: dial   — not yet implemented
-    {0u, {}},
-    // 3: snap   — not yet implemented
-    {0u, {}},
-    // 4: warm   — not yet implemented
-    {0u, {}},
+    // 2: dial — ring-mod / between stations. All scalars (0..100).
+    //   tune=carrier freq, beat=2nd-carrier detune (between-stations warble),
+    //   shape=sine->square, depth=ring amount, tone=post LPF, mix=dry/wet.
+    {6u,
+     {{"tune", CraftParamKind::Scalar, 100u, nullptr},
+      {"beat", CraftParamKind::Scalar, 100u, nullptr},
+      {"shape", CraftParamKind::Scalar, 100u, nullptr},
+      {"depth", CraftParamKind::Scalar, 100u, nullptr},
+      {"tone", CraftParamKind::Scalar, 100u, nullptr},
+      {"mix", CraftParamKind::Scalar, 100u, nullptr}}},
+    // 3: snap — transient burn. All scalars (0..100). sense=transient detect,
+    //   burn=attack drive, edge=high-freq bite, decay=burn length (short=click,
+    //   long=punch), clip=soft->hard overload, mix=dry/wet.
+    {6u,
+     {{"sense", CraftParamKind::Scalar, 100u, nullptr},
+      {"burn", CraftParamKind::Scalar, 100u, nullptr},
+      {"edge", CraftParamKind::Scalar, 100u, nullptr},
+      {"decay", CraftParamKind::Scalar, 100u, nullptr},
+      {"clip", CraftParamKind::Scalar, 100u, nullptr},
+      {"mix", CraftParamKind::Scalar, 100u, nullptr}}},
+    // 4: warm — body saturation. All scalars (0..100). drive=sat amount,
+    //   tone=dark<->bright tilt, body=low-mid mass, glue=compression,
+    //   grit=asymmetry (even-harmonic warmth), mix=dry/wet.
+    {6u,
+     {{"drive", CraftParamKind::Scalar, 100u, nullptr},
+      {"tone", CraftParamKind::Scalar, 100u, nullptr},
+      {"body", CraftParamKind::Scalar, 100u, nullptr},
+      {"glue", CraftParamKind::Scalar, 100u, nullptr},
+      {"grit", CraftParamKind::Scalar, 100u, nullptr},
+      {"mix", CraftParamKind::Scalar, 100u, nullptr}}},
     // 5: howl   — not yet implemented
     {0u, {}},
     // 6: warp   — not yet implemented

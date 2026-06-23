@@ -3,7 +3,10 @@
 #include <cstdint>
 
 #include "craft/craft_copy.h"
+#include "craft/craft_dial.h"
 #include "craft/craft_params.h"
+#include "craft/craft_snap.h"
+#include "craft/craft_warm.h"
 
 namespace craft {
 
@@ -34,7 +37,10 @@ class CraftChain
     struct CraftSlot
     {
         CraftCopy copy;
-        // future: CraftDial dial; CraftSnap snap; CraftWarm warm; ...
+        CraftDial dial;
+        CraftSnap snap;
+        CraftWarm warm;
+        // future: CraftHowl howl; CraftWarp warp;
     };
 
     void ProcessSlot_(uint8_t slot, float* buf, uint32_t n);

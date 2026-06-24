@@ -51,10 +51,26 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
       {"glue", CraftParamKind::Scalar, 100u, nullptr},
       {"grit", CraftParamKind::Scalar, 100u, nullptr},
       {"mix", CraftParamKind::Scalar, 100u, nullptr}}},
-    // 5: howl   — not yet implemented
-    {0u, {}},
-    // 6: warp   — not yet implemented
-    {0u, {}},
+    // 5: howl — feedback fold. All scalars (0..100). gain=input drive,
+    //   feed=feedback amount (bounded), time=comb time/pitch, fold=wavefold,
+    //   damp=feedback-path darkening (stability), mix=dry/wet.
+    {6u,
+     {{"gain", CraftParamKind::Scalar, 100u, nullptr},
+      {"feed", CraftParamKind::Scalar, 100u, nullptr},
+      {"time", CraftParamKind::Scalar, 100u, nullptr},
+      {"fold", CraftParamKind::Scalar, 100u, nullptr},
+      {"damp", CraftParamKind::Scalar, 100u, nullptr},
+      {"mix", CraftParamKind::Scalar, 100u, nullptr}}},
+    // 6: warp — tape wow & flutter. All scalars (0..100). wow=slow drift depth,
+    //   flut=fast flutter depth, rate=modulation speed, drop=dropout amount,
+    //   tone=head-bump/darkening, mix=dry/wet.
+    {6u,
+     {{"wow", CraftParamKind::Scalar, 100u, nullptr},
+      {"flut", CraftParamKind::Scalar, 100u, nullptr},
+      {"rate", CraftParamKind::Scalar, 100u, nullptr},
+      {"drop", CraftParamKind::Scalar, 100u, nullptr},
+      {"tone", CraftParamKind::Scalar, 100u, nullptr},
+      {"mix", CraftParamKind::Scalar, 100u, nullptr}}},
 };
 
 const CraftPluginDesc& CraftGetPluginDesc(uint8_t plugin)

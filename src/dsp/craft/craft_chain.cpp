@@ -28,6 +28,14 @@ void CraftChain::ApplyConfig(const CraftChainConfig& cfg, float sample_rate)
                 slots_[s].warm.Reset(sample_rate_);
                 slots_[s].warm.SetParams(sc.param, sample_rate_);
                 break;
+            case kCraftPluginWarp:
+                slots_[s].warp.Reset(sample_rate_);
+                slots_[s].warp.SetParams(sc.param, sample_rate_);
+                break;
+            case kCraftPluginHowl:
+                slots_[s].howl.Reset(sample_rate_);
+                slots_[s].howl.SetParams(sc.param, sample_rate_);
+                break;
             default: break; // None / not-yet-implemented: nothing to init
         }
     }
@@ -61,6 +69,16 @@ void CraftChain::UpdateParams(const CraftChainConfig& cfg)
                     slots_[s].warm.Reset(sample_rate_);
                 slots_[s].warm.SetParams(cfg_.slots[s].param, sample_rate_);
                 break;
+            case kCraftPluginWarp:
+                if(plugin_changed)
+                    slots_[s].warp.Reset(sample_rate_);
+                slots_[s].warp.SetParams(cfg_.slots[s].param, sample_rate_);
+                break;
+            case kCraftPluginHowl:
+                if(plugin_changed)
+                    slots_[s].howl.Reset(sample_rate_);
+                slots_[s].howl.SetParams(cfg_.slots[s].param, sample_rate_);
+                break;
             default: break;
         }
     }
@@ -74,6 +92,8 @@ void CraftChain::ProcessSlot_(uint8_t slot, float* buf, uint32_t n)
         case kCraftPluginDial: slots_[slot].dial.Process(buf, n); break;
         case kCraftPluginSnap: slots_[slot].snap.Process(buf, n); break;
         case kCraftPluginWarm: slots_[slot].warm.Process(buf, n); break;
+        case kCraftPluginWarp: slots_[slot].warp.Process(buf, n); break;
+        case kCraftPluginHowl: slots_[slot].howl.Process(buf, n); break;
         default: break; // None / not-yet-implemented: pass through
     }
 }

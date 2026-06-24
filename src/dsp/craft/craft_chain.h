@@ -4,9 +4,11 @@
 
 #include "craft/craft_copy.h"
 #include "craft/craft_dial.h"
+#include "craft/craft_howl.h"
 #include "craft/craft_params.h"
 #include "craft/craft_snap.h"
 #include "craft/craft_warm.h"
+#include "craft/craft_warp.h"
 
 namespace craft {
 
@@ -40,7 +42,8 @@ class CraftChain
         CraftDial dial;
         CraftSnap snap;
         CraftWarm warm;
-        // future: CraftHowl howl; CraftWarp warp;
+        CraftWarp warp;
+        CraftHowl howl;
     };
 
     void ProcessSlot_(uint8_t slot, float* buf, uint32_t n);

@@ -8,6 +8,7 @@
 
 // --- NEW: layered headers ---
 #include "app_state.h"
+#include "craft/craft_params.h"
 #include "params.h"
 #include "audio_engine.h"
 #include "ui_logic.h"
@@ -512,6 +513,17 @@ int main(void)
     const uint32_t budget_cycles = static_cast<uint32_t>(cpu_hz * block_seconds);
     g_app.diag.audio_budget_cycles.store(budget_cycles, std::memory_order_relaxed);
 
+    // Seed CRAFT params to their descriptor defaults (craft_param is zero-init
+    // and not persisted; most defaults are 0, but e.g. "fresh" intensity floors
+    // at 70 / defaults 120). Done once at boot.
+    for(uint8_t s = 0; s < craft::kCraftSlotCount; ++s)
+        for(uint8_t pl = 0; pl < craft::kCraftPluginCount; ++pl)
+            for(uint8_t pr = 0; pr < craft::kCraftMaxParams; ++pr)
+            {
+                const craft::CraftParamDesc* d = craft::CraftGetParamDesc(pl, pr);
+                g_app.ui.craft_param[s][pl][pr] = d ? d->vdef : 0u;
+            }
+
     hw.StartAudio(AudioCallback);
 
     last_ms = System::GetNow();
@@ -703,23 +715,34 @@ int main(void)
             // (1.0:0.35 read as pure red; 1:2 green:red reads orange). Both
             // states run at half intensity (kCraftLedBright).
             static constexpr float kCraftLedBright = 0.5f;
-            hw.led1.Set(0.0f, 0.0f, 0.0f);
             const bool craft_rendering
                 = (g_app.shared.bake_preview.craft_render_active.load(std::memory_order_acquire) != 0u);
             if(craft_rendering)
             {
-                // 1 Hz green breathe while the offline render runs.
-                const uint32_t phase_ms = now_ms % 1000u;
-                const float    t   = static_cast<float>(phase_ms) / 1000.0f; // 0..1
-                float          tri = (t < 0.5f) ? (t * 2.0f) : ((1.0f - t) * 2.0f); // 0..1..0
-                tri *= tri; // ease
-                const float g = kCraftLedBright * (0.08f + 0.92f * tri);
-                hw.led2.Set(0.0f, 0.0f, g); // breathe green
+                // Fast ping-pong yellow while the offline render runs — same
+                // indicator as a file load (yellow = red + green, alternating
+                // LED1/LED2 every 70 ms). The render is paced to ~1.1 s so this
+                // animates visibly before playback.
+                const bool left_on = ((now_ms / 70u) & 1u) == 0u;
+                if(left_on)
+                {
+                    hw.led1.Set(1.0f, 0.0f, 1.0f); // yellow
+                    hw.led2.Set(0.0f, 0.0f, 0.0f);
+                }
+                else
+                {
+                    hw.led1.Set(0.0f, 0.0f, 0.0f);
+                    hw.led2.Set(1.0f, 0.0f, 1.0f); // yellow
+                }
             }
-            else if(g_app.ui.craft_preview_dirty)
-                hw.led2.Set(kCraftLedBright, 0.0f, kCraftLedBright * 0.5f); // orange: needs re-render
             else
-                hw.led2.Set(0.0f, 0.0f, kCraftLedBright); // green: preview matches config
+            {
+                hw.led1.Set(0.0f, 0.0f, 0.0f);
+                if(g_app.ui.craft_preview_dirty)
+                    hw.led2.Set(kCraftLedBright, 0.0f, kCraftLedBright * 0.5f); // orange: needs re-render
+                else
+                    hw.led2.Set(0.0f, 0.0f, kCraftLedBright); // green: preview matches config
+            }
         }
         else
         {

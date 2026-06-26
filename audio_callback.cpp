@@ -551,8 +551,10 @@ void AudioCallback_ProcessWindowPreview(float* outL, float* outR, size_t size)
 // 1 ms ramp-in on activation, position-based fade in the last ~1 ms before
 // end, ramp-out on stop_req. Auto-clears bake_preview.active at end of sample
 // so the LED/UI revert without polling.
-void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
+void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size, float master_level)
 {
+    if(master_level < 0.0f) master_level = 0.0f;
+    else if(master_level > 2.0f) master_level = 2.0f;
     constexpr uint32_t kFadeFrames = 48u;
     constexpr float    kFadeStep   = 1.0f / static_cast<float>(kFadeFrames);
 
@@ -682,8 +684,10 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
         const float src = s_bake_preview_use_chain
                               ? craftbuf[s_bake_preview_pos - pos0]
                               : (static_cast<float>(sample.pcm[s_bake_preview_pos]) / 32768.0f);
-        const float dry = src * s_bake_preview_gain * pos_gain;
+        const float dry = src * s_bake_preview_gain * pos_gain * master_level;
         // Overwrite (not mix): voice + FX output is replaced by the preview.
+        // master_level applies the Settings output volume (the preview overwrites
+        // the output after the engine's master stage, so it bypasses it here).
         outL[i] = dry;
         outR[i] = dry;
         ++s_bake_preview_pos;
@@ -943,7 +947,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     // overwrites voice + FX output cleanly. Sits before the monitor-input mix
     // intentionally — monitor (mic/line passthrough) is a separate concern
     // from the dry audition.
-    AudioCallback_ProcessBakePreview(out[0], out[1], size);
+    AudioCallback_ProcessBakePreview(out[0], out[1], size, fx_params.master_level);
     DiagnosticsStoreCycleBucket(
         g_app.diag, kDiagAudioBucketRecordPreview, DWT->CYCCNT - bucket_start);
 

@@ -1,6 +1,22 @@
 #include "craft/craft_chain.h"
 
+#include "mem_regions.h"
+
 namespace craft {
+
+// Per-slot STFT working sets for Audio Refresh. ~64 KB each — placed in SDRAM
+// (.sdram_bss is NOLOAD, but CraftRefresh::Reset memsets everything it reads, so
+// no zero-init is required). One per slot so two Refresh instances in a chain do
+// not alias. Both CraftChain instances (worker render, audio audition) bind to
+// these, but only the worker render actually runs Refresh, so the shared backing
+// is safe in practice.
+ADSR2_SECTION(".sdram_bss") static RefreshState g_refresh_state[kCraftSlotCount];
+
+CraftChain::CraftChain()
+{
+    for(uint8_t s = 0; s < kCraftSlotCount; ++s)
+        slots_[s].refresh.BindState(&g_refresh_state[s]);
+}
 
 void CraftChain::ApplyConfig(const CraftChainConfig& cfg, float sample_rate)
 {
@@ -35,6 +51,10 @@ void CraftChain::ApplyConfig(const CraftChainConfig& cfg, float sample_rate)
             case kCraftPluginHowl:
                 slots_[s].howl.Reset(sample_rate_);
                 slots_[s].howl.SetParams(sc.param, sample_rate_);
+                break;
+            case kCraftPluginFresh:
+                slots_[s].refresh.Reset(sample_rate_);
+                slots_[s].refresh.SetParams(sc.param, sample_rate_);
                 break;
             default: break; // None / not-yet-implemented: nothing to init
         }
@@ -79,6 +99,11 @@ void CraftChain::UpdateParams(const CraftChainConfig& cfg)
                     slots_[s].howl.Reset(sample_rate_);
                 slots_[s].howl.SetParams(cfg_.slots[s].param, sample_rate_);
                 break;
+            case kCraftPluginFresh:
+                if(plugin_changed)
+                    slots_[s].refresh.Reset(sample_rate_);
+                slots_[s].refresh.SetParams(cfg_.slots[s].param, sample_rate_);
+                break;
             default: break;
         }
     }
@@ -94,6 +119,7 @@ void CraftChain::ProcessSlot_(uint8_t slot, float* buf, uint32_t n)
         case kCraftPluginWarm: slots_[slot].warm.Process(buf, n); break;
         case kCraftPluginWarp: slots_[slot].warp.Process(buf, n); break;
         case kCraftPluginHowl: slots_[slot].howl.Process(buf, n); break;
+        case kCraftPluginFresh: slots_[slot].refresh.Process(buf, n); break;
         default: break; // None / not-yet-implemented: pass through
     }
 }
@@ -110,6 +136,15 @@ bool CraftChain::HasActiveEffect() const
         if(CraftPluginParamCount(cfg_.slots[s].plugin) > 0u)
             return true;
     return false;
+}
+
+uint32_t CraftChain::Latency() const
+{
+    uint32_t total = 0u;
+    for(uint8_t s = 0; s < kCraftSlotCount; ++s)
+        if(cfg_.slots[s].plugin == kCraftPluginFresh)
+            total += slots_[s].refresh.Latency();
+    return total;
 }
 
 } // namespace craft

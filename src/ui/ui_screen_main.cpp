@@ -713,7 +713,7 @@ void RecordMenu_Render(UiScreenCtx& ctx)
 }
 
 static constexpr uint8_t kCraftSlotCount = 3u;
-static constexpr uint8_t kCraftPluginCount = 7u;
+static constexpr uint8_t kCraftPluginCount = 8u;
 static constexpr uint8_t kCraftFocusLoad = 0u;
 static constexpr uint8_t kCraftFocusSlot = 1u;
 static constexpr uint8_t kCraftFocusPlugin = 2u;
@@ -728,8 +728,9 @@ static constexpr int32_t kCraftSlotNameCount = 3;
 //   warm = body saturation (was "body")
 //   howl = feedback fold / comb resonance (was "fdbk")
 //   warp = tape wow & flutter (was "multi" slot)
+//   fresh = Audio Refresh — STFT spectral-whitening exciter (sonicWORX decode)
 static const char* kCraftPluginLabels[kCraftPluginCount]
-    = {"----", "copy", "dial", "snap", "warm", "howl", "warp"};
+    = {"----", "copy", "dial", "snap", "warm", "howl", "warp", "fresh"};
 static const char* kCraftSlotNames[kCraftSlotNameCount] = {"one", "two", "three"};
 // CRAFT param labels + value sets now live in the descriptor table
 // (src/dsp/craft/craft_params.{h,cpp}), the single source of truth shared by
@@ -899,6 +900,15 @@ static void FormatCraftParamValue(const AppUiState& ui, uint8_t slot, uint8_t pa
         const uint8_t idx   = static_cast<uint8_t>(raw % count);
         std::snprintf(out, out_n, "%s", (d->enum_labels && d->enum_labels[idx]) ? d->enum_labels[idx] : "");
     }
+    else if(d->vcenter != 0u)
+    {
+        // Bipolar display: raw stored 0..N, shown signed as (raw - vcenter).
+        const int v = static_cast<int>(raw) - static_cast<int>(d->vcenter);
+        if(v == 0)
+            std::snprintf(out, out_n, "0");
+        else
+            std::snprintf(out, out_n, "%+d", v);
+    }
     else
     {
         std::snprintf(out, out_n, "%u", static_cast<unsigned>(raw));
@@ -1035,7 +1045,8 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                     }
                     else
                     {
-                        const int next = ClampCraftInt(static_cast<int>(v) + e.value, 0, static_cast<int>(d->count));
+                        const int next = ClampCraftInt(
+                            static_cast<int>(v) + e.value, static_cast<int>(d->vmin), static_cast<int>(d->count));
                         if(next != static_cast<int>(v))
                         {
                             v             = static_cast<uint8_t>(next);

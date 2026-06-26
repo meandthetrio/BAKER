@@ -6,6 +6,7 @@
 #include "craft/craft_dial.h"
 #include "craft/craft_howl.h"
 #include "craft/craft_params.h"
+#include "craft/craft_refresh.h"
 #include "craft/craft_snap.h"
 #include "craft/craft_warm.h"
 #include "craft/craft_warp.h"
@@ -24,6 +25,9 @@ namespace craft {
 class CraftChain
 {
   public:
+    // Binds each slot's CraftRefresh to its per-slot SDRAM working set.
+    CraftChain();
+
     // Apply config + (re)initialise each active slot's effect at sample_rate.
     void ApplyConfig(const CraftChainConfig& cfg, float sample_rate);
     // Live param update: recompute coeffs WITHOUT resetting running state, so a
@@ -35,6 +39,12 @@ class CraftChain
     // True if at least one slot has a real (implemented) effect selected.
     bool HasActiveEffect() const;
 
+    // Total algorithmic latency in samples introduced by the active slots (they
+    // add in series). Only STFT effects (Refresh) are non-zero. The offline
+    // render flushes this many extra samples and trims the leading delay so the
+    // rendered sample is time-aligned with the source.
+    uint32_t Latency() const;
+
   private:
     struct CraftSlot
     {
@@ -44,6 +54,10 @@ class CraftChain
         CraftWarm warm;
         CraftWarp warp;
         CraftHowl howl;
+        // Audio Refresh (STFT). Holds only pointers/scalars here; its large
+        // working set lives in a per-slot SDRAM RefreshState bound in
+        // ApplyConfig (CraftRefresh::BindState).
+        CraftRefresh refresh;
     };
 
     void ProcessSlot_(uint8_t slot, float* buf, uint32_t n);

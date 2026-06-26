@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "sys/system.h"
+
 #include "app_state_shared.h"
 #include "app_state_ui.h"
 #include "craft/craft_chain.h"
@@ -18,12 +20,24 @@ craft::CraftChain s_render_chain;
 // Stepped render-to-preview context. The DSP is chunked across worker ticks so
 // the main loop keeps animating the LED2 breathe during a long render (e.g. the
 // STFT effects). Source -> chain -> SdManageBuffer; played back dry afterwards.
+// The DSP for a short sample finishes in a few ms — far too fast to see the
+// 1 Hz breathe. So we PACE the render across a target window: the work is spread
+// evenly over ~kRenderTargetMs (with small per-tick chunks so the main loop
+// keeps redrawing the LED smoothly), and the breathe runs continuously DURING
+// the render. A render whose real work exceeds the window simply runs flat out
+// (still chunked, still breathing). No pre-lead, no post-hold.
+constexpr uint32_t kRenderTargetMs = 1100u; // ~one breath cycle of visible render
+constexpr uint32_t kRenderStepCap  = 4096u; // max frames per tick (loop stays responsive)
+
 struct PreviewRenderCtx
 {
     bool           active     = false;
     bool           has_effect = false;
-    uint32_t       pos        = 0;
-    uint32_t       length     = 0;
+    uint32_t       start_ms   = 0;       // indicator-on time (for the lead-in)
+    uint32_t       pos        = 0;       // stream position 0..total
+    uint32_t       length     = 0;       // real output frames
+    uint32_t       latency    = 0;       // chain latency (leading samples to trim)
+    uint32_t       total      = 0;       // length + latency (stream frames to feed)
     const int16_t* src        = nullptr;
     int16_t*       dst        = nullptr;
     uint32_t       sample_rate = 48000u;
@@ -31,9 +45,44 @@ struct PreviewRenderCtx
 };
 PreviewRenderCtx s_preview;
 
-// Samples processed per worker tick. Keeps each step short enough that the main
-// loop (UI + LED breathe) stays responsive; render spans multiple ticks.
-constexpr uint32_t kPreviewStepFrames = 8192u;
+// Process one stream block [base, base+n), n <= 256, through s_render_chain with
+// the STFT latency trim: input is source[k] while k < length else 0 (tail flush
+// for the chain latency), output is written to dst[k - latency], discarding the
+// leading `latency` pre-roll. Shared by the synchronous save render and the
+// paced preview render so both trim identically. latency == 0 (non-STFT effects)
+// degenerates to the plain 1:1 source->dst pass.
+void RenderStreamBlock_(const int16_t* src,
+                        uint32_t       length,
+                        uint32_t       latency,
+                        uint32_t       base,
+                        uint32_t       n,
+                        int16_t*       dst)
+{
+    float fbuf[256];
+    for(uint32_t i = 0; i < n; ++i)
+    {
+        const uint32_t k = base + i;
+        fbuf[i] = (k < length) ? (static_cast<float>(src[k]) * (1.0f / 32768.0f)) : 0.0f;
+    }
+    s_render_chain.Process(fbuf, n);
+    for(uint32_t i = 0; i < n; ++i)
+    {
+        const uint32_t k = base + i;
+        if(k < latency)
+            continue; // pre-roll: discard
+        const uint32_t di = k - latency;
+        if(di >= length)
+            continue;
+        float v = fbuf[i];
+        if(v > 1.0f) v = 1.0f;
+        else if(v < -1.0f) v = -1.0f;
+        int32_t s = static_cast<int32_t>(v * 32767.0f);
+        if(s > 32767) s = 32767;
+        else if(s < -32768) s = -32768;
+        dst[di] = static_cast<int16_t>(s);
+    }
+}
+
 
 // Publish the result and hand off to the audio thread for dry auto-play. When
 // use_source is true (no active effect) we play the unprocessed source.
@@ -94,7 +143,10 @@ bool StartCraftRender(AppUiState& ui, AppSharedState& shared, bool overwrite)
     if(!s_render_chain.HasActiveEffect())
         return false; // nothing to print
 
-    // Offline DSP pass: source int16 -> float block -> chain -> int16 dest.
+    // Offline DSP pass: source int16 -> float block -> chain -> int16 dest. Feed
+    // length + chain latency stream samples (source then zero flush) and trim the
+    // leading latency so the saved file is time-aligned with the source (matches
+    // the preview render; required for STFT effects like "fresh").
     int16_t* dst = SdManageBuffer();
     if(dst == nullptr)
         return false;
@@ -102,28 +154,13 @@ bool StartCraftRender(AppUiState& ui, AppSharedState& shared, bool overwrite)
     if(length > kSdManageMaxFrames)
         length = kSdManageMaxFrames;
 
-    constexpr uint32_t kBlock = 256u;
-    float              fbuf[kBlock];
-    for(uint32_t pos = 0; pos < length; pos += kBlock)
+    const uint32_t     latency = s_render_chain.Latency();
+    const uint32_t     total   = length + latency;
+    constexpr uint32_t kBlock  = 256u;
+    for(uint32_t base = 0; base < total; base += kBlock)
     {
-        const uint32_t n = (length - pos < kBlock) ? (length - pos) : kBlock;
-        for(uint32_t i = 0; i < n; ++i)
-            fbuf[i] = static_cast<float>(src.pcm[pos + i]) * (1.0f / 32768.0f);
-        s_render_chain.Process(fbuf, n);
-        for(uint32_t i = 0; i < n; ++i)
-        {
-            float v = fbuf[i];
-            if(v > 1.0f)
-                v = 1.0f;
-            else if(v < -1.0f)
-                v = -1.0f;
-            int32_t s = static_cast<int32_t>(v * 32767.0f);
-            if(s > 32767)
-                s = 32767;
-            else if(s < -32768)
-                s = -32768;
-            dst[pos + i] = static_cast<int16_t>(s);
-        }
+        const uint32_t n = (total - base < kBlock) ? (total - base) : kBlock;
+        RenderStreamBlock_(src.pcm, length, latency, base, n, dst);
     }
 
     // Publish the rendered buffer as the SD-manage sample so the existing save
@@ -160,12 +197,15 @@ bool BeginCraftRenderPreview(AppUiState& ui, AppSharedState& shared)
     uint32_t length       = src.length;
     if(length > kSdManageMaxFrames)
         length = kSdManageMaxFrames;
-    s_preview.length = length;
-    s_preview.dst    = SdManageBuffer();
+    s_preview.length  = length;
+    s_preview.latency = s_render_chain.Latency();
+    s_preview.total   = length + s_preview.latency;
+    s_preview.dst     = SdManageBuffer();
     if(s_preview.has_effect && s_preview.dst == nullptr)
         return false;
 
-    s_preview.active = true;
+    s_preview.start_ms = daisy::System::GetNow();
+    s_preview.active   = true;
     shared.bake_preview.craft_render_active.store(1, std::memory_order_release);
     return true;
 }
@@ -175,44 +215,42 @@ bool StepCraftRenderPreview(AppUiState& ui, AppSharedState& shared)
     if(!s_preview.active)
         return true;
 
-    // No active effect: nothing to render — auto-play the raw source dry.
+    const uint32_t elapsed = daisy::System::GetNow() - s_preview.start_ms;
+
+    // No active effect: nothing to render — breathe for the window, then play
+    // the raw source dry.
     if(!s_preview.has_effect)
     {
-        FinalizePreview(ui, shared, /*use_source=*/true);
-        return true;
+        if(elapsed >= kRenderTargetMs)
+        {
+            FinalizePreview(ui, shared, /*use_source=*/true);
+            return true;
+        }
+        return false;
     }
 
-    constexpr uint32_t kBlock = 256u;
-    float              fbuf[kBlock];
-    const uint32_t     step_end
-        = (s_preview.pos + kPreviewStepFrames < s_preview.length)
-              ? (s_preview.pos + kPreviewStepFrames)
-              : s_preview.length;
+    // Pace: process only up to where the schedule has reached (work spread over
+    // kRenderTargetMs), capped per tick so the loop keeps redrawing the LED. A
+    // render heavier than the window falls behind the schedule and just runs at
+    // the cap (flat out) — still chunked, still breathing.
+    uint32_t sched = (elapsed >= kRenderTargetMs)
+                         ? s_preview.total
+                         : static_cast<uint32_t>(
+                               static_cast<uint64_t>(s_preview.total) * elapsed / kRenderTargetMs);
+    uint32_t step_end = (s_preview.pos + kRenderStepCap < sched) ? (s_preview.pos + kRenderStepCap) : sched;
+    if(step_end < s_preview.pos)
+        step_end = s_preview.pos; // schedule behind pos (clock skew): do nothing this tick
 
-    for(uint32_t pos = s_preview.pos; pos < step_end; pos += kBlock)
+    constexpr uint32_t kBlock = 256u;
+    for(uint32_t base = s_preview.pos; base < step_end; base += kBlock)
     {
-        const uint32_t n = (step_end - pos < kBlock) ? (step_end - pos) : kBlock;
-        for(uint32_t i = 0; i < n; ++i)
-            fbuf[i] = static_cast<float>(s_preview.src[pos + i]) * (1.0f / 32768.0f);
-        s_render_chain.Process(fbuf, n);
-        for(uint32_t i = 0; i < n; ++i)
-        {
-            float v = fbuf[i];
-            if(v > 1.0f)
-                v = 1.0f;
-            else if(v < -1.0f)
-                v = -1.0f;
-            int32_t s = static_cast<int32_t>(v * 32767.0f);
-            if(s > 32767)
-                s = 32767;
-            else if(s < -32768)
-                s = -32768;
-            s_preview.dst[pos + i] = static_cast<int16_t>(s);
-        }
+        const uint32_t n = (step_end - base < kBlock) ? (step_end - base) : kBlock;
+        RenderStreamBlock_(s_preview.src, s_preview.length, s_preview.latency, base, n, s_preview.dst);
     }
     s_preview.pos = step_end;
 
-    if(s_preview.pos >= s_preview.length)
+    // DSP finished -> finalize and auto-play immediately (no trailing hold).
+    if(s_preview.pos >= s_preview.total)
     {
         FinalizePreview(ui, shared, /*use_source=*/false);
         return true;

@@ -18,7 +18,7 @@
 namespace craft {
 
 static constexpr uint8_t kCraftSlotCount   = 3u;
-static constexpr uint8_t kCraftPluginCount = 7u; // ----, copy, dial, snap, warm, howl, warp
+static constexpr uint8_t kCraftPluginCount = 8u; // ----, copy, dial, snap, warm, howl, warp, fresh
 static constexpr uint8_t kCraftMaxParams   = 6u;
 
 // Plugin ids — index into kCraftPluginLabels (UI) and the CraftChain dispatch.
@@ -31,6 +31,7 @@ enum CraftPlugin : uint8_t
     kCraftPluginWarm = 4u, // body saturation
     kCraftPluginHowl = 5u, // feedback fold
     kCraftPluginWarp = 6u, // tape wow & flutter
+    kCraftPluginFresh = 7u, // Audio Refresh — STFT spectral-whitening exciter
 };
 
 enum class CraftParamKind : uint8_t
@@ -45,6 +46,13 @@ struct CraftParamDesc
     CraftParamKind     kind;
     uint8_t            count;       // Enum: #options; Scalar: max value (e.g. 100)
     const char* const* enum_labels; // Enum: count entries; nullptr for Scalar
+    // Scalar only: minimum value (display + edit floor), power-on default, and a
+    // display center. All default to 0 for existing params (raw value == shown).
+    // vcenter != 0 renders the value SIGNED as (raw - vcenter), e.g. "fresh"
+    // intensity stores 0..40 but shows -20..+20 (default raw 20 -> "0").
+    uint8_t            vmin;
+    uint8_t            vdef;
+    uint8_t            vcenter;
 };
 
 struct CraftPluginDesc

@@ -8,6 +8,10 @@ static const char* const kCopyBitsLabels[5]  = {"16", "12", "10", "8", "6"};
 static const char* const kCopyToneLabels[5]  = {"clean", "soft", "ring", "leak", "bad"};
 static const char* const kCopyCurveLabels[4] = {"lin", "comp", "warp", "noisy"};
 
+// ---- fresh (Audio Refresh) value-label arrays ----
+// Frequency Linearization ladder: No / Quarter / Half / Full.
+static const char* const kFreshLinLabels[4] = {"no", "qtr", "half", "full"};
+
 // Plugin descriptor table, indexed by CraftPlugin id. Plugins with param_count
 // == 0 are name-only (not yet implemented) and the UI shows no param grid.
 static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
@@ -71,6 +75,15 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
       {"drop", CraftParamKind::Scalar, 100u, nullptr},
       {"tone", CraftParamKind::Scalar, 100u, nullptr},
       {"mix", CraftParamKind::Scalar, 100u, nullptr}}},
+    // 7: fresh — Audio Refresh, STFT spectral-whitening exciter. Two real
+    //   controls (the decode): intn = Refresh Intensity (raw 0..100 maps to
+    //   Intensity 70..130%), linr = Frequency Linearization ladder. Remaining
+    //   slots reserved for Phase 2 tuning knobs (envelope width / whitening).
+    {4u,
+     {{"tilt", CraftParamKind::Scalar, 40u, nullptr, 0u, 20u, 20u},  // -20..+20: dark<->bright whitening
+      {"linr", CraftParamKind::Enum, 4u, kFreshLinLabels},
+      {"skirt", CraftParamKind::Scalar, 40u, nullptr, 0u, 20u, 20u}, // -20..+20: de-skirt<->add-skirt
+      {"roll", CraftParamKind::Scalar, 40u, nullptr, 0u, 20u, 20u}}}, // -20..+20: skirt HF<->LF rolloff
 };
 
 const CraftPluginDesc& CraftGetPluginDesc(uint8_t plugin)

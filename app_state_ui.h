@@ -134,6 +134,12 @@ struct AppUiState
     bool craft_render_overwrite = false;
     char craft_loaded_name[kSdNameMax] = {};
     char craft_loaded_path[kSdPathMax] = {};
+    // CRAFT preview model: the in-RAM preview is render-then-play, not live.
+    // craft_preview_dirty = an audio-affecting edit (param/plugin/slot-plugin)
+    // has happened since the last render, so the preview no longer matches the
+    // current config. Drives LED2 (green = matches, orange = needs re-render).
+    // Cleared on load (to match the just-loaded raw source) and after a render.
+    bool craft_preview_dirty = false;
     // Bake screen (Layer B baker entry point). bake_focus selects which of the
     // three rows is focused (0=sample, 1=root, 2=bake). bake_root_note is the
     // MIDI note assigned to the source sample's native pitch (default C4=60).

@@ -317,6 +317,13 @@ void MaybeReturnToCraftAfterLoad(AppUiState& ui)
                     sizeof(ui.craft_loaded_name));
     ui.craft_browser_open = false;
     ui.craft_browser_wait_for_load = false;
+    // Render-then-play preview: a freshly loaded sample matches its own raw
+    // audio, so the preview is clean (LED2 green) when no effect is selected.
+    // If effects are already configured, the raw load doesn't reflect them yet
+    // -> dirty (LED2 orange, needs a render). Plugin 0 == "----" (no effect).
+    ui.craft_preview_dirty = (ui.craft_slot_plugin[0] != 0u)
+                             || (ui.craft_slot_plugin[1] != 0u)
+                             || (ui.craft_slot_plugin[2] != 0u);
     UiNav_Pop(ui.ui_nav);
     ui.ui_dirty = true;
 }

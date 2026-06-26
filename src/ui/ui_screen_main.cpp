@@ -925,33 +925,6 @@ static void FormatCraftLoadText(const AppUiState& ui, char* out, size_t out_n)
     }
 }
 
-// Snapshot the live CRAFT slot/plugin/param state into a chain config for the
-// audio audition (and matching the worker render builder).
-static craft::CraftChainConfig CraftBuildChainConfig(const AppUiState& ui)
-{
-    craft::CraftChainConfig cfg{};
-    for(uint8_t s = 0; s < kCraftSlotCount; ++s)
-    {
-        const uint8_t plugin = static_cast<uint8_t>(ui.craft_slot_plugin[s] % kCraftPluginCount);
-        cfg.slots[s].plugin  = plugin;
-        for(uint8_t p = 0; p < craft::kCraftMaxParams; ++p)
-            cfg.slots[s].param[p] = ui.craft_param[s][plugin][p];
-    }
-    return cfg;
-}
-
-// Publish the current chain config to the audio bridge via the seqlock so an
-// in-progress audition picks up live edits. Safe to call when not auditioning.
-static void CraftPublishChainConfig(UiScreenCtx& ctx, const AppUiState& ui)
-{
-    if(!ctx.shared)
-        return;
-    auto&          bake = ctx.shared->bake_preview;
-    const uint32_t g    = bake.craft_cfg_seq.load(std::memory_order_relaxed);
-    bake.craft_cfg_seq.store(g + 1u, std::memory_order_release); // odd: writing
-    bake.craft_cfg = CraftBuildChainConfig(ui);
-    bake.craft_cfg_seq.store(g + 2u, std::memory_order_release); // even: stable
-}
 
 bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 {
@@ -962,18 +935,19 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
 
-    // Button2: one-shot audition of the loaded sample through the live chain
-    // (WYSIWYG with render). Snapshot config, publish, then trigger the
-    // bake-preview path (which overwrites output with the processed mono signal).
+    // Button2: render-then-play. Hand the loaded source to the worker, which
+    // renders it through the chain offline (LED2 breathes) and then has the
+    // audio thread auto-play the rendered buffer dry. Ignored while a render is
+    // already in flight.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(!ctx.shared || ui.craft_loaded_path[0] == '\0')
+        if(!ctx.shared || !ctx.worker || ui.craft_loaded_path[0] == '\0')
             return true;
-        auto& bake = ctx.shared->bake_preview;
-        CraftPublishChainConfig(ctx, ui);
-        bake.craft_chain_active.store(1, std::memory_order_release);
-        bake.start_req.store(1, std::memory_order_release);
-        ui.ui_dirty = true;
+        if(ctx.shared->bake_preview.craft_render_active.load(std::memory_order_acquire) != 0u)
+            return true;
+        const UiReq req{UiReqType::CraftRenderToPreview, 0u, 0u};
+        if(UiReq_Push(*ctx.ui, *ctx.worker, req))
+            ui.ui_dirty = true;
         return true;
     }
 
@@ -995,6 +969,10 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         const uint8_t focus = CraftNormalizedFocusIndex(ui);
         const uint8_t slot = CraftClampSlotIndex(ui.craft_active_slot);
         bool changed = false;
+        // audio_changed: only edits that alter the rendered result (plugin swap,
+        // param value). Slot-view navigation and the save-target toggle do not
+        // dirty the preview. Drives craft_preview_dirty -> orange LED.
+        bool audio_changed = false;
         switch(focus)
         {
             case kCraftFocusSlot:
@@ -1017,7 +995,8 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 {
                     ui.craft_slot_plugin[slot] = next;
                     CraftClampFocusForSelectedSlot(ui);
-                    changed = true;
+                    changed       = true;
+                    audio_changed = true;
                 }
                 break;
             }
@@ -1049,8 +1028,9 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                             WrapMenuIndex(static_cast<int32_t>(v % count), e.value, count));
                         if(next != v)
                         {
-                            v       = next;
-                            changed = true;
+                            v             = next;
+                            changed       = true;
+                            audio_changed = true;
                         }
                     }
                     else
@@ -1058,8 +1038,9 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                         const int next = ClampCraftInt(static_cast<int>(v) + e.value, 0, static_cast<int>(d->count));
                         if(next != static_cast<int>(v))
                         {
-                            v       = static_cast<uint8_t>(next);
-                            changed = true;
+                            v             = static_cast<uint8_t>(next);
+                            changed       = true;
+                            audio_changed = true;
                         }
                     }
                 }
@@ -1070,8 +1051,11 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(changed)
         {
             ui.ui_dirty = true;
-            // Live-update any in-progress audition with the edited chain.
-            CraftPublishChainConfig(ctx, ui);
+            // Render-then-play model: an audio-affecting edit invalidates the
+            // in-RAM preview, so flag it for re-render (LED2 -> orange). The
+            // preview is no longer live-updated mid-playback.
+            if(audio_changed)
+                ui.craft_preview_dirty = true;
         }
         return true;
     }

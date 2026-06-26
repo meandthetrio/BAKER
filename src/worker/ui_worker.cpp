@@ -257,6 +257,10 @@ static void StartQueuedUiRequest(AppUiState& ui,
             if(!StartCraftRender(ui, shared, req.a != 0u))
                 FailAndFinishUiRequest(worker, worker.project_restore);
             break;
+        case UiReqType::CraftRenderToPreview:
+            if(!BeginCraftRenderPreview(ui, shared))
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            break;
         case UiReqType::RebuildCache:
         case UiReqType::LoadSample:
         case UiReqType::SavePreset:
@@ -363,6 +367,11 @@ static void StepActiveUiRequest(AppUiState& ui,
         case UiReqType::CraftRenderToWav:
             done = SaveStep(ui.sd, shared, worker, budget_us);
             worker.ui_req_progress = ui.sd.save_progress;
+            if(done)
+                FinishRequest(worker, worker.project_restore);
+            break;
+        case UiReqType::CraftRenderToPreview:
+            done = StepCraftRenderPreview(ui, shared);
             if(done)
                 FinishRequest(worker, worker.project_restore);
             break;

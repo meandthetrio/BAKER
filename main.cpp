@@ -589,6 +589,13 @@ int main(void)
         prev_sd_manage_trim_save_busy = sd_manage_trim_save_busy;
         const bool load_success_flash_active = (now_ms < load_success_flash_until_ms);
 
+        // CRAFT page render-then-play indicator: green = preview matches the
+        // current config (ready to audition), orange = an audio-affecting edit
+        // needs a re-render. Only when a sample is loaded.
+        const bool craft_page_active
+            = (g_app.ui.ui_active_screen == UiScreenId::CraftMenu)
+              && (g_app.ui.craft_loaded_path[0] != '\0');
+
         // Smooth 1Hz red pulse on both LEDs while user holds R encoder in firmware pairing.
         float pairing_red = 0.0f;
         if(firmware_pairing_hold_active)
@@ -689,6 +696,30 @@ int main(void)
                 hw.led2.Set(1.0f, 0.0f, 0.0f); // red while preview playing
             else
                 hw.led2.Set(0.0f, 0.0f, 1.0f); // green idle
+        }
+        else if(craft_page_active)
+        {
+            // Pod LED2 channel order: (red, _, green). Orange = red + half-green
+            // (1.0:0.35 read as pure red; 1:2 green:red reads orange). Both
+            // states run at half intensity (kCraftLedBright).
+            static constexpr float kCraftLedBright = 0.5f;
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
+            const bool craft_rendering
+                = (g_app.shared.bake_preview.craft_render_active.load(std::memory_order_acquire) != 0u);
+            if(craft_rendering)
+            {
+                // 1 Hz green breathe while the offline render runs.
+                const uint32_t phase_ms = now_ms % 1000u;
+                const float    t   = static_cast<float>(phase_ms) / 1000.0f; // 0..1
+                float          tri = (t < 0.5f) ? (t * 2.0f) : ((1.0f - t) * 2.0f); // 0..1..0
+                tri *= tri; // ease
+                const float g = kCraftLedBright * (0.08f + 0.92f * tri);
+                hw.led2.Set(0.0f, 0.0f, g); // breathe green
+            }
+            else if(g_app.ui.craft_preview_dirty)
+                hw.led2.Set(kCraftLedBright, 0.0f, kCraftLedBright * 0.5f); // orange: needs re-render
+            else
+                hw.led2.Set(0.0f, 0.0f, kCraftLedBright); // green: preview matches config
         }
         else
         {

@@ -166,6 +166,9 @@ static bool     s_bake_preview_active   = false;
 static uint32_t s_bake_preview_pos      = 0;
 static float    s_bake_preview_gain     = 0.0f;
 static bool     s_bake_preview_stopping = false;
+// Snapshot of the Sample being auditioned (source or pre-rendered CRAFT
+// buffer), captured at start_req so the playback block is stable.
+static Sample   s_bake_play_sample{};
 // CRAFT live audition: when the preview is triggered with the chain active, the
 // loaded sample is processed through this chain block-by-block (WYSIWYG with the
 // offline render, which uses the same CraftChain code). Dry preview otherwise.
@@ -565,15 +568,22 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
 
     if(bake.start_req.exchange(0, std::memory_order_acq_rel) != 0)
     {
-        const Sample& sample = bake.sample;
+        // play_render=1 => play the pre-rendered CRAFT buffer (render_sample)
+        // DRY; 0 => play the raw source `sample`. Snapshot the chosen Sample so
+        // the rest of the block is stable even if the worker repoints later.
+        const bool play_render = (bake.play_render.load(std::memory_order_acquire) != 0u);
+        s_bake_play_sample      = play_render ? bake.render_sample : bake.sample;
+        const Sample& sample    = s_bake_play_sample;
         if(sample.pcm != nullptr && sample.length > 0u)
         {
             s_bake_preview_active   = true;
             s_bake_preview_stopping = false;
             s_bake_preview_gain     = 0.0f;
             s_bake_preview_pos      = 0;
+            // A pre-rendered preview already baked the chain in: play it dry.
             // Snapshot the CRAFT chain (config published before start_req).
-            s_bake_preview_use_chain = (bake.craft_chain_active.load(std::memory_order_acquire) != 0u);
+            s_bake_preview_use_chain
+                = (!play_render) && (bake.craft_chain_active.load(std::memory_order_acquire) != 0u);
             if(s_bake_preview_use_chain)
             {
                 s_bake_preview_craft_chain.ApplyConfig(bake.craft_cfg, g_sample_rate_hz);
@@ -594,7 +604,7 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size)
     if(!s_bake_preview_active)
         return;
 
-    const Sample&  sample = bake.sample;
+    const Sample&  sample = s_bake_play_sample;
     const uint32_t end    = sample.length;
     if(sample.pcm == nullptr || end == 0u)
     {

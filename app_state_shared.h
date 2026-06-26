@@ -142,6 +142,17 @@ struct AppSharedState
         // so knob moves are heard mid-playthrough. UI bumps +1 (odd=writing),
         // writes craft_cfg, bumps +1 (even=stable); audio re-applies on change.
         std::atomic<uint32_t>    craft_cfg_seq{0};
+        // CRAFT render-then-play preview. The worker renders the source through
+        // the chain into render_sample (its own SDRAM buffer), then posts
+        // start_req with play_render=1 so the audio thread plays the rendered
+        // buffer DRY (no live chain). play_render=0 = play `sample` (bake-pick /
+        // auto-preview-on-load). render_sample is published (pcm+length) before
+        // start_req (release); audio reads it on start_req (acquire).
+        // craft_render_active drives the LED2 1 Hz breathe while the offline
+        // render runs (set by worker at begin, cleared at finalize).
+        Sample                   render_sample{};
+        std::atomic<uint8_t>     play_render{0};
+        std::atomic<uint8_t>     craft_render_active{0};
     } bake_preview{};
 
     // Layer B .bk multisample slot. Filled synchronously by the .bk loader

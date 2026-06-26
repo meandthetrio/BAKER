@@ -32,6 +32,7 @@ enum class UiReqType : uint8_t
     UpdateWavStyleIndex,
     UpdateProjectStyle,
     CraftRenderToWav,
+    CraftRenderToPreview,
     COUNT
 };
 

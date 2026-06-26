@@ -17,3 +17,11 @@ struct AppSharedState;
 // write is then stepped by SaveStep via the normal request loop. Returns false
 // if there is no loaded sample, the chain is empty, or save setup fails.
 bool StartCraftRender(AppUiState& ui, AppSharedState& shared, bool overwrite);
+
+// CRAFT render-then-play preview (non-destructive, no SD write). Begin sets up
+// a stepped render of the loaded source through the chain into an SDRAM buffer;
+// Step processes one chunk per worker tick and, when finished, hands the result
+// to the audio thread for dry auto-play and clears craft_preview_dirty. Step
+// returns true when the render (and hand-off) is complete.
+bool BeginCraftRenderPreview(AppUiState& ui, AppSharedState& shared);
+bool StepCraftRenderPreview(AppUiState& ui, AppSharedState& shared);

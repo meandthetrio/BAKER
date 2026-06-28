@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 enum class UiInputType : uint8_t
@@ -39,15 +40,20 @@ struct UiInputEvent
 
 static constexpr uint32_t kUiInputQueueSize = 64;
 
+// Single-producer / single-consumer ring. The producer is the 1 kHz input timer
+// ISR (UILogic::ScanInputsIsr -> Controls_Tick -> UiInput_Push); the consumer is
+// the main loop (UiTick -> UiInput_Pop). head/tail are atomics with release/acquire
+// so the consumer never observes a published head before the matching buffer slot
+// is written, and vice-versa. overflows/high_water are producer-only debug counters.
 struct UiInputQueue
 {
     static constexpr uint32_t kCapacity = kUiInputQueueSize;
 
-    UiInputEvent buffer[kCapacity];
-    uint32_t     head = 0;
-    uint32_t     tail = 0;
-    uint32_t     overflows = 0;
-    uint32_t     high_water = 0;
+    UiInputEvent          buffer[kCapacity];
+    std::atomic<uint32_t> head{0};
+    std::atomic<uint32_t> tail{0};
+    uint32_t              overflows  = 0;
+    uint32_t              high_water = 0;
 };
 
 bool UiInput_Push(UiInputQueue& q, const UiInputEvent& e);

@@ -153,6 +153,12 @@ struct AppSharedState
         Sample                   render_sample{};
         std::atomic<uint8_t>     play_render{0};
         std::atomic<uint8_t>     craft_render_active{0};
+        // CRAFT preview session intent. Set when a render begins (Begin); cleared
+        // when the user leaves the CRAFT screen / stops. If a render finishes after
+        // the session was stopped, FinalizePreview discards it instead of (re)starting
+        // playback — prevents a re-render that completes post-exit from sounding on
+        // another screen.
+        std::atomic<uint8_t>     craft_preview_wanted{0};
     } bake_preview{};
 
     // Layer B .bk multisample slot. Filled synchronously by the .bk loader

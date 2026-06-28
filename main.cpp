@@ -714,35 +714,18 @@ int main(void)
             // Pod LED2 channel order: (red, _, green). Orange = red + half-green
             // (1.0:0.35 read as pure red; 1:2 green:red reads orange). Both
             // states run at half intensity (kCraftLedBright).
+            //
+            // Step 3: re-renders happen continuously, ahead of the playhead, with no
+            // mute — so there's no discrete "render" event to animate. The old yellow
+            // ping-pong (which blinked for the full render duration) is gone; LED2 is
+            // simply orange while a param edit is pending a re-render, green once the
+            // looping preview matches the current config.
             static constexpr float kCraftLedBright = 0.5f;
-            const bool craft_rendering
-                = (g_app.shared.bake_preview.craft_render_active.load(std::memory_order_acquire) != 0u);
-            if(craft_rendering)
-            {
-                // Fast ping-pong yellow while the offline render runs — same
-                // indicator as a file load (yellow = red + green, alternating
-                // LED1/LED2 every 70 ms). The render is paced to ~1.1 s so this
-                // animates visibly before playback.
-                const bool left_on = ((now_ms / 70u) & 1u) == 0u;
-                if(left_on)
-                {
-                    hw.led1.Set(1.0f, 0.0f, 1.0f); // yellow
-                    hw.led2.Set(0.0f, 0.0f, 0.0f);
-                }
-                else
-                {
-                    hw.led1.Set(0.0f, 0.0f, 0.0f);
-                    hw.led2.Set(1.0f, 0.0f, 1.0f); // yellow
-                }
-            }
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
+            if(g_app.ui.craft_preview_dirty)
+                hw.led2.Set(kCraftLedBright, 0.0f, kCraftLedBright * 0.5f); // orange: pending re-render
             else
-            {
-                hw.led1.Set(0.0f, 0.0f, 0.0f);
-                if(g_app.ui.craft_preview_dirty)
-                    hw.led2.Set(kCraftLedBright, 0.0f, kCraftLedBright * 0.5f); // orange: needs re-render
-                else
-                    hw.led2.Set(0.0f, 0.0f, kCraftLedBright); // green: preview matches config
-            }
+                hw.led2.Set(0.0f, 0.0f, kCraftLedBright); // green: preview matches config
         }
         else
         {

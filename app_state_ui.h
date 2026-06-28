@@ -140,6 +140,12 @@ struct AppUiState
     // current config. Drives LED2 (green = matches, orange = needs re-render).
     // Cleared on load (to match the just-loaded raw source) and after a render.
     bool craft_preview_dirty = false;
+    // Timestamp (ms) of the most recent audio-affecting CRAFT edit. The worker
+    // debounces the auto re-render off this: it only re-renders once the encoder
+    // has been still for a short window, so sweeping a param doesn't fire a render
+    // per detent (which would stall the encoder). Set on each edit; see
+    // MaybeAutoReRenderCraftPreview.
+    uint32_t craft_preview_dirty_ms = 0;
     // Bake screen (Layer B baker entry point). bake_focus selects which of the
     // three rows is focused (0=sample, 1=root, 2=bake). bake_root_note is the
     // MIDI note assigned to the source sample's native pitch (default C4=60).

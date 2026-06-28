@@ -108,6 +108,19 @@ CPP_SOURCES += plocks.cpp
 CPP_SOURCES += macros.cpp
 CPP_SOURCES += Effects/Reverb/DattorroReverb.cpp
 
+# CMSIS-DSP optimized FFT for CRAFT 'fresh'. The STFT input is real, so we use the
+# REAL FFT (arm_rfft_fast_f32) — about half the work of the full complex transform and
+# no manual re/im interleave. It wraps an internal len-1024 complex FFT (arm_cfft_f32,
+# radix-8) plus a real-merge stage. We build the rfft instance manually (DTCM tables),
+# so no init source is needed. --gc-sections drops the FFT lengths we don't reference.
+# (C sources; libDaisy already adds the CMSIS-DSP include path.)
+C_SOURCES += ../../libDaisy/Drivers/CMSIS-DSP/Source/TransformFunctions/arm_rfft_fast_f32.c
+C_SOURCES += ../../libDaisy/Drivers/CMSIS-DSP/Source/TransformFunctions/arm_cfft_f32.c
+C_SOURCES += ../../libDaisy/Drivers/CMSIS-DSP/Source/TransformFunctions/arm_cfft_radix8_f32.c
+C_SOURCES += ../../libDaisy/Drivers/CMSIS-DSP/Source/TransformFunctions/arm_bitreversal2.c
+C_SOURCES += ../../libDaisy/Drivers/CMSIS-DSP/Source/CommonTables/arm_common_tables.c
+C_SOURCES += ../../libDaisy/Drivers/CMSIS-DSP/Source/CommonTables/arm_const_structs.c
+
 # Library Locations
 LIBDAISY_DIR = ../../libDaisy
 DAISYSP_DIR = ../../DaisySP

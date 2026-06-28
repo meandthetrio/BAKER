@@ -17,27 +17,55 @@ namespace {
 // One CraftChain owned by the worker (independent of the audio thread's chain).
 craft::CraftChain s_render_chain;
 
-// Stepped render-to-preview context. The DSP is chunked across worker ticks so
-// the main loop keeps animating the LED2 breathe during a long render (e.g. the
-// STFT effects). Source -> chain -> SdManageBuffer; played back dry afterwards.
-// The DSP for a short sample finishes in a few ms — far too fast to see the
-// 1 Hz breathe. So we PACE the render across a target window: the work is spread
-// evenly over ~kRenderTargetMs (with small per-tick chunks so the main loop
-// keeps redrawing the LED smoothly), and the breathe runs continuously DURING
-// the render. A render whose real work exceeds the window simply runs flat out
-// (still chunked, still breathing). No pre-lead, no post-hold.
-constexpr uint32_t kRenderTargetMs = 1100u; // ~one breath cycle of visible render
-constexpr uint32_t kRenderStepCap  = 4096u; // max frames per tick (loop stays responsive)
+// Stepped render-to-preview context. The DSP is chunked across worker ticks (one
+// kRenderStepCap chunk per ~16 ms UI tick) so the main loop stays responsive during
+// a long render (e.g. the STFT effects). Source -> chain -> SdManageBuffer; played
+// back dry afterwards. The render runs FLAT OUT (no artificial pacing): the audition
+// is muted while the shared buffer is rewritten, so we want it to finish as fast as
+// the cap allows, not stretched to a fixed window. (An earlier model paced the work
+// over a ~1.1 s "breath" window for a visible LED animation; that 1.1 s of muted
+// dead-space per re-render was removed when knob edits began auto-re-rendering.)
+
+// Per-tick render budget (frames rendered per worker tick). Tradeoff: a BIGGER cap
+// finishes the whole-buffer render sooner but does more STFT work in one main-loop
+// pass, so a single chunk can exceed the ~16 ms UI-tick interval and monopolize the
+// loop — freezing the encoder and flickering the LED while a render runs.
+//
+// With Step 3 (wrapped, playhead-anchored render) the user HEARS a param change at
+// ~kPreviewReRenderMargin (~150 ms) regardless of how long the full buffer takes to
+// finish — only the inaudible background catch-up is slower. So we deliberately keep
+// the cap SMALL: each chunk stays well under a UI tick (loop stays free for input),
+// while throughput stays comfortably above 1x real-time so the render frontier keeps
+// outrunning the playhead. Floor is ~768 frames/tick (= 1x @ 48k/16ms); below that
+// the frontier can't stay ahead and Step 3 breaks. 1024 ≈ 1.3x real-time.
+// kRenderStepCapMax is a HARD ceiling so any future tuning can never reintroduce a
+// loop-stalling chunk — always clamp dynamic step sizes to it.
+constexpr uint32_t kRenderStepCapMax = 8192u; // hard ceiling — do not exceed
+constexpr uint32_t kRenderStepCap    = 1024u; // tunable: max frames per tick (~1.3x RT)
+static_assert(kRenderStepCap <= kRenderStepCapMax,
+              "kRenderStepCap must stay within the kRenderStepCapMax loop-stall ceiling");
+static_assert(kRenderStepCap >= 768u,
+              "kRenderStepCap must stay above ~1x real-time or the Step 3 frontier falls behind");
+
+// Step 3: a re-render of an already-looping audition renders the buffer in WRAPPED
+// order, anchored this many frames AHEAD of the live playhead, so the audio (which
+// keeps looping, no mute) reaches the freshly-rendered region after ~this delay.
+// ~150 ms @ 48 kHz. Must exceed the chain latency (the wrapped render's first write
+// lands `latency` frames before this point). Tunable.
+constexpr uint32_t kPreviewReRenderMargin = 7200u;
 
 struct PreviewRenderCtx
 {
     bool           active     = false;
     bool           has_effect = false;
+    bool           wrapped    = false;   // true = playhead-anchored re-render (Step 3)
     uint32_t       start_ms   = 0;       // indicator-on time (for the lead-in)
-    uint32_t       pos        = 0;       // stream position 0..total
+    uint32_t       pos        = 0;       // feed cursor 0..total
     uint32_t       length     = 0;       // real output frames
     uint32_t       latency    = 0;       // chain latency (leading samples to trim)
-    uint32_t       total      = 0;       // length + latency (stream frames to feed)
+    uint32_t       total      = 0;       // linear: length+latency; wrapped: warmup+length
+    uint32_t       start      = 0;       // wrapped: loop anchor (playhead + margin)
+    uint32_t       warmup     = 0;       // wrapped: discarded left-context priming feeds
     const int16_t* src        = nullptr;
     int16_t*       dst        = nullptr;
     uint32_t       sample_rate = 48000u;
@@ -83,13 +111,77 @@ void RenderStreamBlock_(const int16_t* src,
     }
 }
 
+// Step 3 wrapped re-render block. The buffer is rendered in cyclic order anchored at
+// `start` (just ahead of the playhead) so the looping audio reaches fresh content
+// quickly without a mute. Feed steps [base,base+n) of a `warmup + length` schedule:
+//   - F < warmup: prime the (freshly Reset) chain with left-context from
+//     source[start-warmup .. start); outputs discarded.
+//   - F >= warmup: feed source[start + (F-warmup)] cyclically and write the
+//     latency-compensated output to dst[(start + (F-warmup) - latency) % length],
+//     mirroring RenderStreamBlock_'s dst = source-read - latency invariant. The
+//     warmup (>= latency) means these outputs are already valid and clean.
+// Indices are modular over `length` (the loop); src and dst are the same buffer's
+// worth of frames. Caller guarantees length > latency.
+void RenderWrappedBlock_(const int16_t* src,
+                         uint32_t       length,
+                         uint32_t       latency,
+                         uint32_t       start,
+                         uint32_t       warmup,
+                         uint32_t       base,
+                         uint32_t       n,
+                         int16_t*       dst)
+{
+    float fbuf[256];
+    for(uint32_t i = 0; i < n; ++i)
+    {
+        const uint32_t F = base + i;
+        const uint32_t src_step = (F < warmup) ? (length - warmup + F)  // start-warmup+F
+                                               : (F - warmup);          // start + main step
+        const uint32_t srcIdx = (start + src_step) % length;
+        fbuf[i] = static_cast<float>(src[srcIdx]) * (1.0f / 32768.0f);
+    }
+    s_render_chain.Process(fbuf, n);
+    for(uint32_t i = 0; i < n; ++i)
+    {
+        const uint32_t F = base + i;
+        if(F < warmup)
+            continue; // priming: discard
+        const uint32_t f      = F - warmup;                       // main feed step 0..length
+        const uint32_t dstIdx = (start + f + length - latency) % length; // (start+f-latency) mod length
+        float v = fbuf[i];
+        if(v > 1.0f) v = 1.0f;
+        else if(v < -1.0f) v = -1.0f;
+        int32_t s = static_cast<int32_t>(v * 32767.0f);
+        if(s > 32767) s = 32767;
+        else if(s < -32768) s = -32768;
+        dst[dstIdx] = static_cast<int16_t>(s);
+    }
+}
 
 // Publish the result and hand off to the audio thread for dry auto-play. When
 // use_source is true (no active effect) we play the unprocessed source.
 void FinalizePreview(AppUiState& ui, AppSharedState& shared, bool use_source)
 {
+    (void)ui;
     auto&   bake = shared.bake_preview;
     Sample& rs   = bake.render_sample;
+    // Session was stopped (user left CRAFT) while this render was in flight: discard
+    // it — don't start/continue playback on another screen. The audio is already
+    // stopping/stopped via stop_req.
+    if(bake.craft_preview_wanted.load(std::memory_order_acquire) == 0u)
+    {
+        bake.craft_render_active.store(0, std::memory_order_release);
+        s_preview.active = false;
+        return;
+    }
+    // A re-render of an already-looping CRAFT audition (Step 2): the rendered
+    // buffer pointer is unchanged (always SdManageBuffer), we just rewrote its
+    // contents in place. Don't re-issue start_req — that would reset the playhead
+    // to 0 and chop the loop. Let the audio keep looping; it was muted during the
+    // render (craft_render_active gate) and unmutes here onto the fresh content.
+    // use_source repoints to a DIFFERENT buffer (raw source), so it must restart.
+    const bool already_looping = (bake.active.load(std::memory_order_acquire) != 0u)
+                                 && (bake.play_render.load(std::memory_order_acquire) != 0u);
     if(use_source)
     {
         rs = bake.sample; // raw source, played dry
@@ -107,11 +199,11 @@ void FinalizePreview(AppUiState& ui, AppSharedState& shared, bool use_source)
     // Order: render_sample + play_render visible before start_req (release).
     bake.play_render.store(1, std::memory_order_release);
     bake.craft_chain_active.store(0, std::memory_order_release);
-    bake.start_req.store(1, std::memory_order_release);   // auto-play
-    // Preview now matches the current config: clear dirty (LED -> green) and
-    // drop the breathe. Safe to write ui here: the worker step runs on the main
-    // loop, serialized with UI event handling (no concurrent edit mid-render).
-    ui.craft_preview_dirty = false;
+    if(!already_looping || use_source)
+        bake.start_req.store(1, std::memory_order_release);   // initial auto-play / buffer switch
+    // Drop the breathe + unmute (craft_render_active gates the audio mute). dirty
+    // was already cleared at render START (BeginCraftRenderPreview) so a mid-render
+    // edit re-dirties and the worker fires a follow-up re-render.
     bake.craft_render_active.store(0, std::memory_order_release);
     s_preview.active = false;
 }
@@ -131,6 +223,46 @@ craft::CraftChainConfig BuildConfigFromUi(const AppUiState& ui)
 }
 
 } // namespace
+
+bool CraftConfigHasLatency(const AppUiState& ui)
+{
+    // Only `fresh` (STFT) adds latency. A config without it is zero-latency and can
+    // audition LIVE on the audio thread (A1); a config with it still uses the worker
+    // render path until engine gating lands (A2).
+    for(uint8_t s = 0; s < craft::kCraftSlotCount; ++s)
+        if((ui.craft_slot_plugin[s] % craft::kCraftPluginCount) == craft::kCraftPluginFresh)
+            return true;
+    return false;
+}
+
+void PublishCraftCfgLive(const AppUiState& ui, AppSharedState& shared)
+{
+    // Seqlock publish (odd = writing, even = stable) so the audio thread re-applies
+    // coeffs without resetting chain state — smooth live param edits.
+    const craft::CraftChainConfig cfg = BuildConfigFromUi(ui);
+    auto&          bake = shared.bake_preview;
+    const uint32_t s    = bake.craft_cfg_seq.load(std::memory_order_relaxed);
+    bake.craft_cfg_seq.store(s + 1u, std::memory_order_release); // odd: writing
+    bake.craft_cfg = cfg;
+    bake.craft_cfg_seq.store(s + 2u, std::memory_order_release); // even: stable
+}
+
+bool CraftPreviewStartLive(AppUiState& ui, AppSharedState& shared)
+{
+    const Sample& src = shared.bake_preview.sample;
+    if(src.pcm == nullptr || src.length == 0u)
+        return false;
+    auto& bake = shared.bake_preview;
+    PublishCraftCfgLive(ui, shared);
+    // play_render=0 => audio plays `sample` (the source) through the live chain;
+    // craft_chain_active=1 => audio runs the chain block-by-block, looping.
+    bake.play_render.store(0, std::memory_order_release);
+    bake.craft_chain_active.store(1, std::memory_order_release);
+    bake.craft_preview_wanted.store(1, std::memory_order_release);
+    bake.start_req.store(1, std::memory_order_release);
+    ui.craft_preview_dirty = false; // live = always matches config
+    return true;
+}
 
 bool StartCraftRender(AppUiState& ui, AppSharedState& shared, bool overwrite)
 {
@@ -188,6 +320,11 @@ bool BeginCraftRenderPreview(AppUiState& ui, AppSharedState& shared)
     const float sr = static_cast<float>(src.sample_rate ? src.sample_rate : 48000u);
     const craft::CraftChainConfig cfg = BuildConfigFromUi(ui);
     s_render_chain.ApplyConfig(cfg, sr);
+    // Snapshot taken: clear dirty HERE (not at finalize) so a param edit DURING
+    // this render re-sets craft_preview_dirty and the worker auto-fires a fresh
+    // re-render with the latest values when this one finishes. Coalesces fast
+    // knob spins into one-in-flight without ever dropping the final value.
+    ui.craft_preview_dirty = false;
 
     s_preview.has_effect  = s_render_chain.HasActiveEffect();
     s_preview.src         = src.pcm;
@@ -199,13 +336,41 @@ bool BeginCraftRenderPreview(AppUiState& ui, AppSharedState& shared)
         length = kSdManageMaxFrames;
     s_preview.length  = length;
     s_preview.latency = s_render_chain.Latency();
-    s_preview.total   = length + s_preview.latency;
     s_preview.dst     = SdManageBuffer();
     if(s_preview.has_effect && s_preview.dst == nullptr)
         return false;
 
+    // Step 3: if a rendered audition is ALREADY looping, this is a re-render — do it
+    // in WRAPPED order anchored ahead of the live playhead, so the change is heard in
+    // ~margin with no mute. The initial render (nothing looping yet) stays on the
+    // simple linear-from-0 path. STFT-less or tiny (length<=latency) renders also use
+    // linear (wrapped needs real latency + headroom).
+    auto&          bake           = shared.bake_preview;
+    const bool     already_looping = (bake.active.load(std::memory_order_acquire) != 0u)
+                                     && (bake.play_render.load(std::memory_order_acquire) != 0u);
+    if(already_looping && s_preview.has_effect && length > s_preview.latency)
+    {
+        uint32_t margin = kPreviewReRenderMargin;
+        if(margin >= length)
+            margin = length / 2u;
+        uint32_t warm = 2u * s_preview.latency;
+        if(warm > length)
+            warm = length;
+        const uint32_t playhead = bake.pos.load(std::memory_order_acquire) % length;
+        s_preview.wrapped = true;
+        s_preview.start   = (playhead + margin) % length;
+        s_preview.warmup  = warm;
+        s_preview.total   = warm + length;
+    }
+    else
+    {
+        s_preview.wrapped = false;
+        s_preview.total   = length + s_preview.latency;
+    }
+
     s_preview.start_ms = daisy::System::GetNow();
     s_preview.active   = true;
+    shared.bake_preview.craft_preview_wanted.store(1, std::memory_order_release);
     shared.bake_preview.craft_render_active.store(1, std::memory_order_release);
     return true;
 }
@@ -215,37 +380,30 @@ bool StepCraftRenderPreview(AppUiState& ui, AppSharedState& shared)
     if(!s_preview.active)
         return true;
 
-    const uint32_t elapsed = daisy::System::GetNow() - s_preview.start_ms;
-
-    // No active effect: nothing to render — breathe for the window, then play
-    // the raw source dry.
+    // No active effect: nothing to render — switch straight to the dry source
+    // (no breathe/dead-space).
     if(!s_preview.has_effect)
     {
-        if(elapsed >= kRenderTargetMs)
-        {
-            FinalizePreview(ui, shared, /*use_source=*/true);
-            return true;
-        }
-        return false;
+        FinalizePreview(ui, shared, /*use_source=*/true);
+        return true;
     }
 
-    // Pace: process only up to where the schedule has reached (work spread over
-    // kRenderTargetMs), capped per tick so the loop keeps redrawing the LED. A
-    // render heavier than the window falls behind the schedule and just runs at
-    // the cap (flat out) — still chunked, still breathing.
-    uint32_t sched = (elapsed >= kRenderTargetMs)
-                         ? s_preview.total
-                         : static_cast<uint32_t>(
-                               static_cast<uint64_t>(s_preview.total) * elapsed / kRenderTargetMs);
-    uint32_t step_end = (s_preview.pos + kRenderStepCap < sched) ? (s_preview.pos + kRenderStepCap) : sched;
-    if(step_end < s_preview.pos)
-        step_end = s_preview.pos; // schedule behind pos (clock skew): do nothing this tick
+    // Render flat out: one kRenderStepCap chunk per worker tick. The cap keeps each
+    // tick short so the UI stays responsive. The wrapped (Step 3) path renders ahead
+    // of the live playhead so there's no mute; the linear path is the initial render.
+    const uint32_t step_end = (s_preview.pos + kRenderStepCap < s_preview.total)
+                                  ? (s_preview.pos + kRenderStepCap)
+                                  : s_preview.total;
 
     constexpr uint32_t kBlock = 256u;
     for(uint32_t base = s_preview.pos; base < step_end; base += kBlock)
     {
         const uint32_t n = (step_end - base < kBlock) ? (step_end - base) : kBlock;
-        RenderStreamBlock_(s_preview.src, s_preview.length, s_preview.latency, base, n, s_preview.dst);
+        if(s_preview.wrapped)
+            RenderWrappedBlock_(s_preview.src, s_preview.length, s_preview.latency,
+                                s_preview.start, s_preview.warmup, base, n, s_preview.dst);
+        else
+            RenderStreamBlock_(s_preview.src, s_preview.length, s_preview.latency, base, n, s_preview.dst);
     }
     s_preview.pos = step_end;
 

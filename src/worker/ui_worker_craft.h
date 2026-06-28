@@ -25,3 +25,14 @@ bool StartCraftRender(AppUiState& ui, AppSharedState& shared, bool overwrite);
 // returns true when the render (and hand-off) is complete.
 bool BeginCraftRenderPreview(AppUiState& ui, AppSharedState& shared);
 bool StepCraftRenderPreview(AppUiState& ui, AppSharedState& shared);
+
+// --- Live audition (A1) -------------------------------------------------------
+// True if the CRAFT config includes a latency (STFT) effect (currently only
+// `fresh`). Zero-latency configs can audition LIVE on the audio thread.
+bool CraftConfigHasLatency(const AppUiState& ui);
+// Publish the current UI config to the audio-thread live chain (seqlock). Call on
+// each audio-affecting edit while a live audition is running.
+void PublishCraftCfgLive(const AppUiState& ui, AppSharedState& shared);
+// Start a LIVE craft audition: the audio thread runs the chain on the looping
+// source in real time, params via the seqlock. No worker render. For cheap configs.
+bool CraftPreviewStartLive(AppUiState& ui, AppSharedState& shared);

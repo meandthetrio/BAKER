@@ -375,7 +375,17 @@ void SyncActiveScreenEnter(UiScreenCtx& ctx, AppUiState& ui)
     if(active_screen == ui.ui_active_screen)
         return;
 
+    const UiScreenId prev_screen = ui.ui_active_screen;
     ui.ui_active_screen = active_screen;
+    // Leaving CRAFT: stop the looping preview audition (1c made it loop until
+    // stop_req) so it doesn't keep sounding on other screens.
+    if(prev_screen == UiScreenId::CraftMenu && active_screen != UiScreenId::CraftMenu
+       && ctx.shared)
+    {
+        ctx.shared->bake_preview.craft_preview_wanted.store(0, std::memory_order_release);
+        ctx.shared->bake_preview.craft_chain_active.store(0, std::memory_order_release); // end live session
+        ctx.shared->bake_preview.stop_req.store(1, std::memory_order_release);
+    }
     const UiScreen& s = GetScreen(active_screen);
     if(s.OnEnter)
     {
@@ -427,6 +437,14 @@ void UILogic::Init(DaisyPod& hw)
     Controls_Init(controls_);
 }
 
+void UILogic::ScanInputsIsr(AppState& app)
+{
+    // Called from the 1 kHz input timer ISR. Debounces the encoders/buttons and
+    // enqueues UiInputEvents into app.ui's SPSC ring (drained by the main loop in
+    // UiTick). Short and allocation-free — safe for interrupt context.
+    Controls_Tick(controls_, app.ui, System::GetNow());
+}
+
 void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueueSPSC& evtq)
 {
     (void)hw;
@@ -435,6 +453,12 @@ void UILogic::ControlTick(DaisyPod& hw, AppState& app, Params& params, EventQueu
     AppUiState& ui = app.ui;
     AppDiagnosticsState& diag = app.diag;
     const uint32_t now_ms = System::GetNow();
+    // Hardware input scanning runs HERE in the main loop. (An experiment to move it
+    // into a 1 kHz TIM5 ISR — UILogic::ScanInputsIsr — caused an intermittent boot
+    // freeze: driving libDaisy's debouncers/ProcessDigitalControls from interrupt
+    // context races with the boot-time OLED I2C-DMA bring-up. Reverted; the ISR
+    // method is kept but unused. Input responsiveness now relies on the bounded
+    // per-tick render cap keeping each main-loop iteration short.)
     Controls_Tick(controls_, ui, now_ms);
 
     if(shared.performance.sequencer.seq_last_ms == 0)

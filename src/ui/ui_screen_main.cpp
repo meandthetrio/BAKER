@@ -10,6 +10,7 @@
 #include "app_state_worker.h"
 #include "bake_psola.h"
 #include "craft/craft_chain.h"
+#include "ui_worker_craft.h"
 #include "bk_file_format.h"
 #include "bk_file_reader.h"
 #include "bk_file_writer.h"
@@ -945,19 +946,21 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
 
-    // Button2: render-then-play. Hand the loaded source to the worker, which
-    // renders it through the chain offline (LED2 breathes) and then has the
-    // audio thread auto-play the rendered buffer dry. Ignored while a render is
-    // already in flight.
+    // Button2: start the preview audition. Zero-latency (cheap) configs run LIVE on
+    // the audio thread (A1) — instant, params heard in real time, UI fully free.
+    // Latency (STFT/fresh) configs still use the worker render-then-play path until
+    // engine gating lands (A2). Ignored while a render is already in flight.
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
-        if(!ctx.shared || !ctx.worker || ui.craft_loaded_path[0] == '\0')
+        if(!ctx.shared || ui.craft_loaded_path[0] == '\0')
             return true;
         if(ctx.shared->bake_preview.craft_render_active.load(std::memory_order_acquire) != 0u)
             return true;
-        const UiReq req{UiReqType::CraftRenderToPreview, 0u, 0u};
-        if(UiReq_Push(*ctx.ui, *ctx.worker, req))
-            ui.ui_dirty = true;
+        // A2b: ALL effects — cheap AND STFT (fresh) — audition LIVE on the audio
+        // thread. Engine gating frees the CPU for the live STFT. The worker render
+        // path is now unused (removed in A3).
+        CraftPreviewStartLive(ui, *ctx.shared);
+        ui.ui_dirty = true;
         return true;
     }
 
@@ -1066,7 +1069,22 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             // in-RAM preview, so flag it for re-render (LED2 -> orange). The
             // preview is no longer live-updated mid-playback.
             if(audio_changed)
-                ui.craft_preview_dirty = true;
+            {
+                // Live audition running: push the new config straight to the audio
+                // thread (heard instantly) and stay "clean" (LED green). Otherwise
+                // flag the worker re-render and restart its debounce.
+                if(ctx.shared
+                   && ctx.shared->bake_preview.craft_chain_active.load(std::memory_order_acquire) != 0u)
+                {
+                    PublishCraftCfgLive(ui, *ctx.shared);
+                    ui.craft_preview_dirty = false;
+                }
+                else
+                {
+                    ui.craft_preview_dirty    = true;
+                    ui.craft_preview_dirty_ms = e.t_ms;
+                }
+            }
         }
         return true;
     }

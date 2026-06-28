@@ -10,6 +10,10 @@ class UILogic
   public:
     void Init(daisy::DaisyPod& hw);
     void ControlTick(daisy::DaisyPod& hw, AppState& app, Params& params, EventQueueSPSC& evtq);
+    // Hardware input scan (encoders/buttons debounce + event enqueue). Runs in the
+    // 1 kHz input timer ISR (main.cpp) so input sampling is immune to main-loop
+    // load — heavy CRAFT preview/render no longer stalls the encoders.
+    void ScanInputsIsr(AppState& app);
     void UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32_t now_ms);
 
   private:

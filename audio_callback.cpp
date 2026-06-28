@@ -166,6 +166,10 @@ static bool     s_bake_preview_active   = false;
 static uint32_t s_bake_preview_pos      = 0;
 static float    s_bake_preview_gain     = 0.0f;
 static bool     s_bake_preview_stopping = false;
+// CRAFT preview audition loops (play_render path) so the user can keep turning
+// knobs and hearing the effect; the bake-browser one-shot (play_render=0) plays
+// once. Captured from play_render at start_req. See AudioCallback_ProcessBakePreview.
+static bool     s_bake_preview_loop     = false;
 // Snapshot of the Sample being auditioned (source or pre-rendered CRAFT
 // buffer), captured at start_req so the playback block is stable.
 static Sample   s_bake_play_sample{};
@@ -175,6 +179,15 @@ static Sample   s_bake_play_sample{};
 static craft::CraftChain s_bake_preview_craft_chain;
 static bool              s_bake_preview_use_chain = false;
 static uint32_t          s_bake_preview_craft_seq = 0; // last-applied craft_cfg seqlock value
+// Engage re-trigger: swapping a PLUGIN mid-audition is a dry->wet content step that
+// clicks. We can't pre-empt a change we only learn of as it lands, so defer it: fade
+// the output out, apply the swap at silence, fade back in. Param-only edits stay
+// immediate (smooth). State machine + the plugin set last applied.
+static craft::CraftChainConfig s_bake_pending_cfg{};
+static bool     s_bake_pending_valid           = false;
+static uint8_t  s_bake_engage_plugins[craft::kCraftSlotCount] = {0};
+static int      s_bake_engage_state            = 0;    // 0 idle, 1 fade-out, 2 fade-in
+static float    s_bake_engage_gain             = 1.0f; // output multiplier during the swap
 static bool     s_render_active = false;
 static uint32_t s_render_pos = 0;
 static constexpr uint32_t kRecLiveWaveStride = 128u;
@@ -557,6 +570,7 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size, flo
     else if(master_level > 2.0f) master_level = 2.0f;
     constexpr uint32_t kFadeFrames = 48u;
     constexpr float    kFadeStep   = 1.0f / static_cast<float>(kFadeFrames);
+    constexpr float    kEngageStep = 1.0f / 256.0f; // ~5 ms engage fade-out/in per side
 
     auto& bake = g_app.shared.bake_preview;
 
@@ -586,10 +600,20 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size, flo
             // Snapshot the CRAFT chain (config published before start_req).
             s_bake_preview_use_chain
                 = (!play_render) && (bake.craft_chain_active.load(std::memory_order_acquire) != 0u);
+            // Both CRAFT audition modes loop so the user keeps hearing the effect
+            // while turning knobs: render-then-play (play_render) and live-chain
+            // (use_chain). The bake-browser one-shot (neither) plays once.
+            s_bake_preview_loop     = play_render || s_bake_preview_use_chain;
             if(s_bake_preview_use_chain)
             {
                 s_bake_preview_craft_chain.ApplyConfig(bake.craft_cfg, g_sample_rate_hz);
                 s_bake_preview_craft_seq = bake.craft_cfg_seq.load(std::memory_order_acquire);
+                // Seed the engage tracker with the starting plugin set; no swap pending.
+                for(uint8_t s = 0; s < craft::kCraftSlotCount; ++s)
+                    s_bake_engage_plugins[s] = bake.craft_cfg.slots[s].plugin;
+                s_bake_pending_valid = false;
+                s_bake_engage_state  = 0;
+                s_bake_engage_gain   = 1.0f;
             }
             bake.active.store(1, std::memory_order_release);
             bake.pos.store(0, std::memory_order_release);
@@ -628,35 +652,108 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size, flo
             const uint32_t s2 = bake.craft_cfg_seq.load(std::memory_order_acquire);
             if(s2 == s1)
             {
-                s_bake_preview_craft_chain.UpdateParams(local);
+                bool plugin_changed = false;
+                for(uint8_t s = 0; s < craft::kCraftSlotCount; ++s)
+                    if(local.slots[s].plugin != s_bake_engage_plugins[s])
+                        plugin_changed = true;
+                if(plugin_changed)
+                {
+                    // Defer the swap until the output has faded out (anti-click).
+                    for(uint8_t s = 0; s < craft::kCraftSlotCount; ++s)
+                        s_bake_engage_plugins[s] = local.slots[s].plugin;
+                    s_bake_pending_cfg   = local;
+                    s_bake_pending_valid = true;
+                    s_bake_engage_state  = 1; // start fade-out
+                }
+                else if(s_bake_engage_state == 0)
+                {
+                    s_bake_preview_craft_chain.UpdateParams(local); // param-only: smooth
+                }
+                else
+                {
+                    // Param-only edit mid-transition: fold into the pending apply so it
+                    // isn't applied at a non-zero gain (which would re-introduce a step).
+                    s_bake_pending_cfg   = local;
+                    s_bake_pending_valid = true;
+                }
                 s_bake_preview_craft_seq = s1;
             }
         }
     }
 
+    // Apply a deferred plugin swap once the output has faded to silence (or, if a swap
+    // is queued while already fading back in, fold it in). Then fade in the new chain.
+    if(s_bake_pending_valid
+       && (s_bake_engage_state != 1 || s_bake_engage_gain <= 0.0f))
+    {
+        s_bake_preview_craft_chain.UpdateParams(s_bake_pending_cfg);
+        s_bake_pending_valid = false;
+        if(s_bake_engage_state == 1)
+            s_bake_engage_state = 2; // fade back in
+    }
+
+    // Loop-seam fade. A looping audition wraps the source at the loop point; a raw
+    // wrap (source[end-1] -> source[0]) is a content STEP that ticks every loop. An
+    // equal-power tail/head crossfade removes the step but combs phase-misaligned
+    // material (an artifact of its own). Simpler and click-free: a raised-cosine fade
+    // of the SOURCE to zero at both loop boundaries, so the wrap is silence->silence
+    // (no step, nothing overlapped). Done in the source domain so it also covers the
+    // latent STFT (its faded boundary just emerges a frame later). Cost: a soft ~5 ms
+    // dip each loop. One-shot (non-loop) audition keeps its output end-fade instead.
+    constexpr uint32_t kSeamFade = 256u; // ~5 ms; skip if the loop is too short
+    const uint32_t     xf
+        = (s_bake_preview_loop && end > 2u * kSeamFade) ? kSeamFade : 0u;
+    const uint32_t     period = end;
+    auto seam_sample = [&](uint32_t pos) -> float {
+        float v = static_cast<float>(sample.pcm[pos]) * (1.0f / 32768.0f);
+        if(xf != 0u)
+        {
+            const float fx = static_cast<float>(xf);
+            float       w  = 1.0f;
+            if(pos < xf) // fade in from the loop start
+                w = 0.5f * (1.0f - std::cos(3.14159265f * (static_cast<float>(pos) + 0.5f) / fx));
+            else if(pos >= end - xf) // fade out into the loop end
+                w = 0.5f * (1.0f - std::cos(3.14159265f * (static_cast<float>(end - pos) - 0.5f) / fx));
+            v *= w;
+        }
+        return v;
+    };
+
     // When auditioning through the CRAFT chain, process the playable portion of
     // this block up front so the per-sample fade loop reads the degraded signal.
-    // Block size is 48; cap defensively. craftbuf[k] maps to sample.pcm[pos0+k].
+    // Block size is 48; cap defensively. craftbuf[k] maps to source position pos0+k.
     float          craftbuf[64];
     const uint32_t pos0 = s_bake_preview_pos;
     if(s_bake_preview_use_chain)
     {
-        const uint32_t remain  = end - pos0;
-        uint32_t       craft_n = (size < remain) ? static_cast<uint32_t>(size) : remain;
+        // Live audition: feed the chain a full block of the LOOPING source (wrapping
+        // at `period`, seam-crossfaded) so the effect runs continuously across the
+        // loop seam. craftbuf[i] is the processed sample for output position i.
+        uint32_t craft_n = static_cast<uint32_t>(size);
         if(craft_n > 64u)
             craft_n = 64u;
         for(uint32_t k = 0; k < craft_n; ++k)
-            craftbuf[k] = static_cast<float>(sample.pcm[pos0 + k]) * (1.0f / 32768.0f);
+            craftbuf[k] = seam_sample((pos0 + k) % period);
         s_bake_preview_craft_chain.Process(craftbuf, craft_n);
     }
 
     for(size_t i = 0; i < size; ++i)
     {
-        if(s_bake_preview_pos >= end)
+        if(s_bake_preview_pos >= period)
         {
-            s_bake_preview_active = false;
-            bake.active.store(0, std::memory_order_release);
-            break;
+            // CRAFT audition loops so the user keeps hearing the effect while
+            // turning knobs; the bake-browser one-shot stops. The loop seam is
+            // handled by the source-domain crossfade above (period = end - xf).
+            if(s_bake_preview_loop && !s_bake_preview_stopping)
+            {
+                s_bake_preview_pos = 0;
+            }
+            else
+            {
+                s_bake_preview_active = false;
+                bake.active.store(0, std::memory_order_release);
+                break;
+            }
         }
 
         const float target = s_bake_preview_stopping ? 0.0f : 1.0f;
@@ -677,14 +774,40 @@ void AudioCallback_ProcessBakePreview(float* outL, float* outR, size_t size, flo
             break;
         }
 
-        const uint32_t remaining = end - s_bake_preview_pos;
-        const float pos_gain
-            = (remaining < kFadeFrames) ? (static_cast<float>(remaining) * kFadeStep) : 1.0f;
+        // Engage re-trigger fade (plugin swap anti-click): fade out (state 1), then in
+        // (state 2). The deferred UpdateParams above lands while this is at ~0.
+        if(s_bake_engage_state == 1)
+        {
+            s_bake_engage_gain -= kEngageStep;
+            if(s_bake_engage_gain < 0.0f) s_bake_engage_gain = 0.0f;
+        }
+        else if(s_bake_engage_state == 2)
+        {
+            s_bake_engage_gain += kEngageStep;
+            if(s_bake_engage_gain >= 1.0f) { s_bake_engage_gain = 1.0f; s_bake_engage_state = 0; }
+        }
+
+        // pos_gain handles the END fade for the one-shot (and any loop too short to
+        // seam-crossfade, xf==0). When the source-domain seam crossfade is active
+        // (xf!=0) the loop needs no output dip — leave pos_gain at unity.
+        float pos_gain = 1.0f;
+        if(xf == 0u)
+        {
+            const uint32_t remaining = period - s_bake_preview_pos;
+            if(remaining < kFadeFrames)
+                pos_gain = static_cast<float>(remaining) * kFadeStep;
+            if(s_bake_preview_loop && s_bake_preview_pos < kFadeFrames)
+            {
+                const float head = static_cast<float>(s_bake_preview_pos) * kFadeStep;
+                if(head < pos_gain)
+                    pos_gain = head;
+            }
+        }
 
         const float src = s_bake_preview_use_chain
-                              ? craftbuf[s_bake_preview_pos - pos0]
-                              : (static_cast<float>(sample.pcm[s_bake_preview_pos]) / 32768.0f);
-        const float dry = src * s_bake_preview_gain * pos_gain * master_level;
+                              ? craftbuf[i] // processed live-chain sample for this block position
+                              : seam_sample(s_bake_preview_pos);
+        const float dry = src * s_bake_preview_gain * pos_gain * s_bake_engage_gain * master_level;
         // Overwrite (not mix): voice + FX output is replaced by the preview.
         // master_level applies the Settings output volume (the preview overwrites
         // the output after the engine's master stage, so it bypasses it here).
@@ -909,8 +1032,26 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketPreParamPush, pre_push_cycles);
     DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketPreEvents, pre_events_cycles);
 
+    // Engine gating (A2): when a craft/bake audition owns the output (ProcessBakePreview
+    // OVERWRITES out below), skip the wasted voice render + FX to free CPU for the live
+    // chain — an STFT FFT burst on top of the full engine would blow the audio budget.
+    // s_bake_preview_active reflects the previous block (set in ProcessBakePreview); the
+    // one-block lag is harmless (start/stop just (un)gate one block late). out is cleared
+    // so the mixing preview paths (record/window) have a clean base if ever co-active.
+    const bool preview_owns_output = s_bake_preview_active;
     bucket_start = DWT->CYCCNT;
-    g_voice.RenderBlock(out[0], out[1], size);
+    if(preview_owns_output)
+    {
+        for(size_t i = 0; i < size; ++i)
+        {
+            out[0][i] = 0.0f;
+            out[1][i] = 0.0f;
+        }
+    }
+    else
+    {
+        g_voice.RenderBlock(out[0], out[1], size);
+    }
     DiagnosticsStoreCycleBucket(
         g_app.diag, kDiagAudioBucketVoiceRender, DWT->CYCCNT - bucket_start);
 
@@ -931,8 +1072,9 @@ void AudioCallback(AudioHandle::InputBuffer  in,
            g_voice.SendBusActive(2) ? g_voice.SendBus(2) : nullptr};
     const bool sends_active = g_voice.SendsActiveLastBlock();
     bucket_start = DWT->CYCCNT;
-    g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy,
-                         send_buses, sends_active);
+    if(!preview_owns_output) // gated with the voice render above (A2)
+        g_audio.ProcessBlock(out[0], out[1], out[0], out[1], size, fx_params, sd_wav_load_busy,
+                             send_buses, sends_active);
     DiagnosticsStoreCycleBucket(g_app.diag, kDiagAudioBucketFxTotal, DWT->CYCCNT - bucket_start);
 
     bucket_start = DWT->CYCCNT;

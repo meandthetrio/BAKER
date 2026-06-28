@@ -402,6 +402,40 @@ static void MarkUiWorkerStateDirtyIfNeeded(AppUiState& ui,
 }
 
 // Top-level worker tick
+// While a CRAFT preview audition is looping, auto re-render it whenever an
+// audio-affecting edit dirties it. One render in flight at a time (guarded by
+// ui_req_busy, and MaybeStartNextUiRequest pops it the same tick); dirty is cleared
+// at render START (BeginCraftRenderPreview) so edits during the render coalesce
+// into exactly one follow-up render with the latest params.
+//
+// DEBOUNCE: don't re-render while the encoder is actively moving. Each edit pushes
+// craft_preview_dirty_ms forward; we only fire once it's been still for
+// kReRenderDebounceMs. So sweeping a param fires ZERO renders (the value + screen
+// update freely); one render runs when the user settles. Without this, every detent
+// kicked a full STFT render and the heavy worker step stalled the encoder.
+static constexpr uint32_t kReRenderDebounceMs = 150;
+static void MaybeAutoReRenderCraftPreview(AppUiState& ui,
+                                          AppSharedState& shared,
+                                          AppWorkerState& worker,
+                                          uint32_t now_ms)
+{
+    if(!ui.craft_preview_dirty || worker.ui_req_busy)
+        return;
+    if((now_ms - ui.craft_preview_dirty_ms) < kReRenderDebounceMs)
+        return; // encoder still moving — wait for it to settle
+    const auto& bake = shared.bake_preview;
+    // Session must be wanted (not left/stopped) AND currently looping a rendered
+    // audition before we auto re-render.
+    if(bake.craft_preview_wanted.load(std::memory_order_acquire) == 0u)
+        return;
+    const bool looping = (bake.active.load(std::memory_order_acquire) != 0u)
+                         && (bake.play_render.load(std::memory_order_acquire) != 0u);
+    if(!looping)
+        return;
+    const UiReq req{UiReqType::CraftRenderToPreview, 0u, 0u};
+    UiReq_Push(ui, worker, req);
+}
+
 void UiWorker_Tick(AppUiState& ui,
                    AppProjectState& project,
                    AppEngineState& engine,
@@ -411,12 +445,12 @@ void UiWorker_Tick(AppUiState& ui,
                    uint32_t now_ms,
                    uint16_t budget_us)
 {
-    (void)now_ms;
     const uint8_t prev_progress = worker.ui_req_progress;
     const bool prev_busy = worker.ui_req_busy;
     const UiReqType prev_active = worker.ui_req_active;
 
     MaybeHandlePendingLoad(ui, worker, shared);
+    MaybeAutoReRenderCraftPreview(ui, shared, worker, now_ms);
     MaybeStartNextUiRequest(ui, project, engine, shared, worker, params);
 
     if(!worker.ui_req_busy)

@@ -4,6 +4,7 @@
 //   c++ -std=gnu++14 -O2 -Isrc/dsp tests/craft_refresh_probe.cpp \
 //       src/dsp/craft/craft_refresh.cpp -o /tmp/crp && /tmp/crp
 #include "craft/craft_refresh.h"
+#include "arm_const_structs.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +14,17 @@
 
 using craft::CraftRefresh;
 using craft::RefreshState;
+
+// Stock CMSIS real-FFT instance (QSPI tables on device; plain here). The firmware binds
+// a DTCM-table copy instead, but the transform math is identical, so the host verifies
+// the DSP with the stock instance.
+static const arm_rfft_fast_instance_f32* HostRfft()
+{
+    static arm_rfft_fast_instance_f32 s;
+    static bool                       init = false;
+    if(!init) { arm_rfft_fast_init_f32(&s, 2048); init = true; }
+    return &s;
+}
 
 static const int N  = 48000; // 1 s
 static const int BS = 256;   // render block size (matches the worker)
@@ -64,6 +76,9 @@ static void run(const char* name, const std::vector<float>& in)
     static RefreshState st; // 64 KB — keep off the stack
     CraftRefresh        r;
     r.BindState(&st);
+    static float re_[2048], im_[2048], cbuf_[4096]; // FFT scratch (DTCM on device); host-side here
+    r.BindFftScratch(re_, im_, cbuf_);
+    r.BindRfftInstance(HostRfft());
     r.Reset(48000.0f);
     uint8_t p[6] = {50, 0, 0, 0, 0, 0}; // Phase 1 ignores params
     r.SetParams(p, 48000.0f);
@@ -86,6 +101,9 @@ static void renderTrim()
     static RefreshState st;
     CraftRefresh        r;
     r.BindState(&st);
+    static float re_[2048], im_[2048], cbuf_[4096]; // FFT scratch (DTCM on device); host-side here
+    r.BindFftScratch(re_, im_, cbuf_);
+    r.BindRfftInstance(HostRfft());
     r.Reset(48000.0f);
     uint8_t p[6] = {50, 0, 0, 0, 0, 0};
     r.SetParams(p, 48000.0f);
@@ -138,6 +156,9 @@ static int fileMode(const char* inPath, const char* outPath, float intensity, in
     static RefreshState st;
     CraftRefresh        r;
     r.BindState(&st);
+    static float re_[2048], im_[2048], cbuf_[4096];
+    r.BindFftScratch(re_, im_, cbuf_);
+    r.BindRfftInstance(HostRfft());
     r.Reset(44100.0f);
     int     dv = (int)std::lround(intensity); // tilt, bipolar -20..+20
     if(dv < -20) dv = -20; if(dv > 20) dv = 20;

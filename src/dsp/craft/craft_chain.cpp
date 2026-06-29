@@ -108,6 +108,11 @@ CraftChain::CraftChain()
         slots_[s].rnd.BindFftScratch(g_fft_re, g_fft_im, g_fft_cbuf);
         slots_[s].rnd.BindRfftInstance(&g_rfft_dtcm);
         slots_[s].rnd.BindWin(g_craft_win);
+        // freeze shares the per-slot SpectralState + PolarScratch (no extra mem).
+        slots_[s].freeze.BindState(&g_spectral_state[s], &g_polar_scratch[s]);
+        slots_[s].freeze.BindFftScratch(g_fft_re, g_fft_im, g_fft_cbuf);
+        slots_[s].freeze.BindRfftInstance(&g_rfft_dtcm);
+        slots_[s].freeze.BindWin(g_craft_win);
     }
 }
 
@@ -160,6 +165,10 @@ void CraftChain::ApplyConfig(const CraftChainConfig& cfg, float sample_rate)
             case kCraftPluginRand:
                 slots_[s].rnd.Reset(sample_rate_);
                 slots_[s].rnd.SetParams(sc.param, sample_rate_);
+                break;
+            case kCraftPluginFreeze:
+                slots_[s].freeze.Reset(sample_rate_);
+                slots_[s].freeze.SetParams(sc.param, sample_rate_);
                 break;
             default: break; // None / not-yet-implemented: nothing to init
         }
@@ -224,6 +233,11 @@ void CraftChain::UpdateParams(const CraftChainConfig& cfg)
                     slots_[s].rnd.Reset(sample_rate_);
                 slots_[s].rnd.SetParams(cfg_.slots[s].param, sample_rate_);
                 break;
+            case kCraftPluginFreeze:
+                if(plugin_changed)
+                    slots_[s].freeze.Reset(sample_rate_);
+                slots_[s].freeze.SetParams(cfg_.slots[s].param, sample_rate_);
+                break;
             default: break;
         }
     }
@@ -243,6 +257,7 @@ void CraftChain::ProcessSlot_(uint8_t slot, float* buf, uint32_t n)
         case kCraftPluginThru: slots_[slot].thru.Process(buf, n); break;
         case kCraftPluginZero: slots_[slot].zero.Process(buf, n); break;
         case kCraftPluginRand: slots_[slot].rnd.Process(buf, n); break;
+        case kCraftPluginFreeze: slots_[slot].freeze.Process(buf, n); break;
         default: break; // None / not-yet-implemented: pass through
     }
 }
@@ -274,6 +289,8 @@ uint32_t CraftChain::Latency() const
             total += slots_[s].zero.Latency();
         else if(cfg_.slots[s].plugin == kCraftPluginRand)
             total += slots_[s].rnd.Latency();
+        else if(cfg_.slots[s].plugin == kCraftPluginFreeze)
+            total += slots_[s].freeze.Latency();
     }
     return total;
 }

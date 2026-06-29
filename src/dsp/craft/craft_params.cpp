@@ -12,6 +12,9 @@ static const char* const kCopyCurveLabels[4] = {"lin", "comp", "warp", "noisy"};
 // Frequency Linearization ladder: No / Quarter / Half / Full.
 static const char* const kFreshLinLabels[4] = {"no", "qtr", "half", "full"};
 
+// ---- still (Spectral Freeze) value-label arrays ----
+static const char* const kFreezeHoldLabels[2] = {"live", "hold"};
+
 // Plugin descriptor table, indexed by CraftPlugin id. Plugins with param_count
 // == 0 are name-only (not yet implemented) and the UI shows no param grid.
 static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
@@ -98,6 +101,10 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
     //   for now (always full-wet); reserved for a future dry/wet or scatter depth.
     {1u,
      {{"mix", CraftParamKind::Scalar, 100u, nullptr, 0u, 100u, 0u}}},
+    // 11: still — Spectral Freeze. hold = live (pass through) vs hold (capture + replay
+    //   one frame, sustained). On the live->hold edge the next frame is captured.
+    {1u,
+     {{"hold", CraftParamKind::Enum, 2u, kFreezeHoldLabels}}},
 };
 
 const CraftPluginDesc& CraftGetPluginDesc(uint8_t plugin)

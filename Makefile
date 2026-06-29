@@ -87,6 +87,7 @@ CPP_SOURCES += src/dsp/craft/craft_warm.cpp
 CPP_SOURCES += src/dsp/craft/craft_warp.cpp
 CPP_SOURCES += src/dsp/craft/craft_howl.cpp
 CPP_SOURCES += src/dsp/craft/craft_refresh.cpp
+CPP_SOURCES += src/dsp/craft/craft_spectral.cpp
 CPP_SOURCES += src/dsp/craft/craft_chain.cpp
 CPP_SOURCES += src/ui/oled_pager.cpp
 CPP_SOURCES += voice_engine.cpp

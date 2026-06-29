@@ -84,6 +84,16 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
       {"linr", CraftParamKind::Enum, 4u, kFreshLinLabels},
       {"skirt", CraftParamKind::Scalar, 40u, nullptr, 0u, 20u, 20u}, // -20..+20: de-skirt<->add-skirt
       {"roll", CraftParamKind::Scalar, 40u, nullptr, 0u, 20u, 20u}}}, // -20..+20: skirt HF<->LF rolloff
+    // 8: thru — identity STFT passthrough (Spectral Toolkit CPU baseline). One inert
+    //   param so the effect registers as active (param_count > 0) and the chain
+    //   engages it; the engine is always full-wet for now. Reserved for a future
+    //   dry/wet without another wiring pass.
+    {1u,
+     {{"mix", CraftParamKind::Scalar, 100u, nullptr, 0u, 100u, 0u}}},
+    // 9: zero — Phase Zeroing (keep magnitude, align all phases). One inert param for
+    //   now (always full-wet), same rationale as thru. Reserved for a future dry/wet.
+    {1u,
+     {{"mix", CraftParamKind::Scalar, 100u, nullptr, 0u, 100u, 0u}}},
 };
 
 const CraftPluginDesc& CraftGetPluginDesc(uint8_t plugin)

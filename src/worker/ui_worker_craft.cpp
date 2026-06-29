@@ -226,12 +226,16 @@ craft::CraftChainConfig BuildConfigFromUi(const AppUiState& ui)
 
 bool CraftConfigHasLatency(const AppUiState& ui)
 {
-    // Only `fresh` (STFT) adds latency. A config without it is zero-latency and can
-    // audition LIVE on the audio thread (A1); a config with it still uses the worker
-    // render path until engine gating lands (A2).
+    // Only STFT effects (`fresh`, `thru`) add latency. A config without one is
+    // zero-latency and can audition LIVE on the audio thread (A1); a config with one
+    // still uses the worker render path until engine gating lands (A2).
     for(uint8_t s = 0; s < craft::kCraftSlotCount; ++s)
-        if((ui.craft_slot_plugin[s] % craft::kCraftPluginCount) == craft::kCraftPluginFresh)
+    {
+        const uint8_t plugin = ui.craft_slot_plugin[s] % craft::kCraftPluginCount;
+        if(plugin == craft::kCraftPluginFresh || plugin == craft::kCraftPluginThru
+           || plugin == craft::kCraftPluginZero)
             return true;
+    }
     return false;
 }
 

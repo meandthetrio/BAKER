@@ -1,8 +1,10 @@
-// Host-side probe for CRAFT "refresh" (Audio Refresh) Phase 1: verifies the
-// STFT skeleton reconstructs the input near-bit-transparently (identity pass).
-// Built/run natively, not flashed.
+// Host-side probe for CRAFT "refresh" (Audio Refresh): verifies the STFT pipeline
+// reconstructs the input near-bit-transparently (identity pass at neutral params)
+// and serves as the A/B faithfulness check for the SpectralEngine extraction (Tool
+// 0) — fresh's whitening op is now driven by the shared engine, and these residuals
+// must stay PASS. Built/run natively, not flashed.
 //   c++ -std=gnu++14 -O2 -Isrc/dsp tests/craft_refresh_probe.cpp \
-//       src/dsp/craft/craft_refresh.cpp -o /tmp/crp && /tmp/crp
+//       src/dsp/craft/craft_refresh.cpp src/dsp/craft/craft_spectral.cpp -o /tmp/crp && /tmp/crp
 #include "craft/craft_refresh.h"
 #include "arm_const_structs.h"
 
@@ -13,7 +15,8 @@
 #include <vector>
 
 using craft::CraftRefresh;
-using craft::RefreshState;
+using craft::FreshScratch;
+using craft::SpectralState;
 
 // Stock CMSIS real-FFT instance (QSPI tables on device; plain here). The firmware binds
 // a DTCM-table copy instead, but the transform math is identical, so the host verifies
@@ -24,6 +27,23 @@ static const arm_rfft_fast_instance_f32* HostRfft()
     static bool                       init = false;
     if(!init) { arm_rfft_fast_init_f32(&s, 2048); init = true; }
     return &s;
+}
+
+// Shared sqrt-Hann analysis/synthesis window. The engine now requires a bound window
+// (the old in-Reset fallback is gone), so the host builds one once. Matches the
+// firmware's g_craft_win.
+static const float* HostWin()
+{
+    static float win[2048];
+    static bool   init = false;
+    if(!init)
+    {
+        const float twopi = 6.28318530717958647692f;
+        for(int i = 0; i < 2048; ++i)
+            win[i] = std::sqrt(0.5f * (1.0f - std::cos(twopi * i / 2048.0f)));
+        init = true;
+    }
+    return win;
 }
 
 static const int N  = 48000; // 1 s
@@ -73,14 +93,16 @@ static void report(const char* name, const std::vector<float>& in, const std::ve
 
 static void run(const char* name, const std::vector<float>& in)
 {
-    static RefreshState st; // 64 KB — keep off the stack
-    CraftRefresh        r;
-    r.BindState(&st);
+    static SpectralState st; // ~40 KB — keep off the stack
+    static FreshScratch  fs;
+    CraftRefresh         r;
+    r.BindState(&st, &fs);
     static float re_[2048], im_[2048], cbuf_[4096]; // FFT scratch (DTCM on device); host-side here
     r.BindFftScratch(re_, im_, cbuf_);
     r.BindRfftInstance(HostRfft());
+    r.BindWin(HostWin());
     r.Reset(48000.0f);
-    uint8_t p[6] = {50, 0, 0, 0, 0, 0}; // Phase 1 ignores params
+    uint8_t p[6] = {50, 0, 0, 0, 0, 0}; // neutral params (identity reconstruction)
     r.SetParams(p, 48000.0f);
 
     std::vector<float> out = in;
@@ -98,12 +120,14 @@ static void run(const char* name, const std::vector<float>& in)
 // tail is preserved.
 static void renderTrim()
 {
-    static RefreshState st;
-    CraftRefresh        r;
-    r.BindState(&st);
+    static SpectralState st;
+    static FreshScratch  fs;
+    CraftRefresh         r;
+    r.BindState(&st, &fs);
     static float re_[2048], im_[2048], cbuf_[4096]; // FFT scratch (DTCM on device); host-side here
     r.BindFftScratch(re_, im_, cbuf_);
     r.BindRfftInstance(HostRfft());
+    r.BindWin(HostWin());
     r.Reset(48000.0f);
     uint8_t p[6] = {50, 0, 0, 0, 0, 0};
     r.SetParams(p, 48000.0f);
@@ -153,12 +177,14 @@ static int fileMode(const char* inPath, const char* outPath, float intensity, in
     if(std::fread(buf.data(), sizeof(float), buf.size(), fi) != buf.size()) { std::fclose(fi); return 1; }
     std::fclose(fi);
 
-    static RefreshState st;
-    CraftRefresh        r;
-    r.BindState(&st);
+    static SpectralState st;
+    static FreshScratch  fs;
+    CraftRefresh         r;
+    r.BindState(&st, &fs);
     static float re_[2048], im_[2048], cbuf_[4096];
     r.BindFftScratch(re_, im_, cbuf_);
     r.BindRfftInstance(HostRfft());
+    r.BindWin(HostWin());
     r.Reset(44100.0f);
     int     dv = (int)std::lround(intensity); // tilt, bipolar -20..+20
     if(dv < -20) dv = -20; if(dv > 20) dv = 20;

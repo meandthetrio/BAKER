@@ -9,17 +9,24 @@
 
 namespace craft {
 
-// Per-slot STFT working sets for Audio Refresh. ~64 KB each. Placed in fast on-chip
-// RAM_D2 (NOT external SDRAM): the live audition runs the whole STFT on the audio
-// thread, and the per-hop phases (window, OLA accumulate, the 12 KB outAccum memmove,
-// the fifos) hammer this struct sequentially every block. On SDRAM those accesses
-// spiked the callback ~122%/hop (glitch); RAM_D2 is on-chip and cacheable, so it
-// removes that stall. 3 slots * 64 KB = 192 KB — RAM_D2 (256 KB) has the room, and
-// .ram_d2_bss is NOLOAD just like .sdram_bss was (CraftRefresh::Reset memsets
-// everything it reads, so no zero-init is required). One per slot so two Refresh
-// instances in a chain do not alias; the two CraftChain instances (worker render,
-// audio audition) are mutually exclusive so sharing the backing is safe.
-ADSR2_SECTION(".ram_d2_bss") static RefreshState g_refresh_state[kCraftSlotCount];
+// Per-slot STFT working sets, split into the GENERIC framing (SpectralState, ~40 KB)
+// shared by every spectral effect and the fresh-only whitening scratch (FreshScratch,
+// ~20 KB). Placed in fast on-chip RAM_D2 (NOT external SDRAM): the live audition runs
+// the whole STFT on the audio thread, and the per-hop phases (window, OLA accumulate,
+// the 12 KB outAccum memmove, the fifos) hammer these sequentially every block. On
+// SDRAM those accesses spiked the callback ~122%/hop (glitch); RAM_D2 is on-chip and
+// cacheable, so it removes that stall. .ram_d2_bss is NOLOAD just like .sdram_bss was
+// (Reset memsets everything it reads, so no zero-init is required).
+//
+// One SpectralState per slot, shared by whichever spectral plugin (refresh / thru) is
+// in that slot — a slot runs one plugin at a time, so the backing is reused, never
+// aliased. The two CraftChain instances (worker render, audio audition) are mutually
+// exclusive, so sharing the static backing across them is safe.
+ADSR2_SECTION(".ram_d2_bss") static SpectralState g_spectral_state[kCraftSlotCount];
+ADSR2_SECTION(".ram_d2_bss") static FreshScratch  g_fresh_scratch[kCraftSlotCount];
+// Polar (mag/phase) scratch for the phase-domain effects (Spectral Toolkit Tool 1).
+// One per slot; bound to the slot's phase-domain plugin (zero, ...).
+ADSR2_SECTION(".ram_d2_bss") static PolarScratch  g_polar_scratch[kCraftSlotCount];
 
 // FFT in-place buffers in fast zero-wait DTCM (the strided radix-2 access spiked the
 // callback to ~5 ms/frame on external SDRAM). A SINGLE shared 16 KB pair, not per-slot:
@@ -82,10 +89,20 @@ CraftChain::CraftChain()
     }
     for(uint8_t s = 0; s < kCraftSlotCount; ++s)
     {
-        slots_[s].refresh.BindState(&g_refresh_state[s]);
+        slots_[s].refresh.BindState(&g_spectral_state[s], &g_fresh_scratch[s]);
         slots_[s].refresh.BindFftScratch(g_fft_re, g_fft_im, g_fft_cbuf);
         slots_[s].refresh.BindRfftInstance(&g_rfft_dtcm);
-        slots_[s].refresh.BindWinSource(g_craft_win);
+        slots_[s].refresh.BindWin(g_craft_win);
+        // thru shares the same per-slot SpectralState (one plugin runs per slot).
+        slots_[s].thru.BindState(&g_spectral_state[s]);
+        slots_[s].thru.BindFftScratch(g_fft_re, g_fft_im, g_fft_cbuf);
+        slots_[s].thru.BindRfftInstance(&g_rfft_dtcm);
+        slots_[s].thru.BindWin(g_craft_win);
+        // zero shares the per-slot SpectralState + adds the per-slot PolarScratch.
+        slots_[s].zero.BindState(&g_spectral_state[s], &g_polar_scratch[s]);
+        slots_[s].zero.BindFftScratch(g_fft_re, g_fft_im, g_fft_cbuf);
+        slots_[s].zero.BindRfftInstance(&g_rfft_dtcm);
+        slots_[s].zero.BindWin(g_craft_win);
     }
 }
 
@@ -126,6 +143,14 @@ void CraftChain::ApplyConfig(const CraftChainConfig& cfg, float sample_rate)
             case kCraftPluginFresh:
                 slots_[s].refresh.Reset(sample_rate_);
                 slots_[s].refresh.SetParams(sc.param, sample_rate_);
+                break;
+            case kCraftPluginThru:
+                slots_[s].thru.Reset(sample_rate_);
+                slots_[s].thru.SetParams(sc.param, sample_rate_);
+                break;
+            case kCraftPluginZero:
+                slots_[s].zero.Reset(sample_rate_);
+                slots_[s].zero.SetParams(sc.param, sample_rate_);
                 break;
             default: break; // None / not-yet-implemented: nothing to init
         }
@@ -175,6 +200,16 @@ void CraftChain::UpdateParams(const CraftChainConfig& cfg)
                     slots_[s].refresh.Reset(sample_rate_);
                 slots_[s].refresh.SetParams(cfg_.slots[s].param, sample_rate_);
                 break;
+            case kCraftPluginThru:
+                if(plugin_changed)
+                    slots_[s].thru.Reset(sample_rate_);
+                slots_[s].thru.SetParams(cfg_.slots[s].param, sample_rate_);
+                break;
+            case kCraftPluginZero:
+                if(plugin_changed)
+                    slots_[s].zero.Reset(sample_rate_);
+                slots_[s].zero.SetParams(cfg_.slots[s].param, sample_rate_);
+                break;
             default: break;
         }
     }
@@ -191,6 +226,8 @@ void CraftChain::ProcessSlot_(uint8_t slot, float* buf, uint32_t n)
         case kCraftPluginWarp: slots_[slot].warp.Process(buf, n); break;
         case kCraftPluginHowl: slots_[slot].howl.Process(buf, n); break;
         case kCraftPluginFresh: slots_[slot].refresh.Process(buf, n); break;
+        case kCraftPluginThru: slots_[slot].thru.Process(buf, n); break;
+        case kCraftPluginZero: slots_[slot].zero.Process(buf, n); break;
         default: break; // None / not-yet-implemented: pass through
     }
 }
@@ -213,8 +250,14 @@ uint32_t CraftChain::Latency() const
 {
     uint32_t total = 0u;
     for(uint8_t s = 0; s < kCraftSlotCount; ++s)
+    {
         if(cfg_.slots[s].plugin == kCraftPluginFresh)
             total += slots_[s].refresh.Latency();
+        else if(cfg_.slots[s].plugin == kCraftPluginThru)
+            total += slots_[s].thru.Latency();
+        else if(cfg_.slots[s].plugin == kCraftPluginZero)
+            total += slots_[s].zero.Latency();
+    }
     return total;
 }
 

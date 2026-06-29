@@ -8,8 +8,10 @@
 #include "craft/craft_params.h"
 #include "craft/craft_refresh.h"
 #include "craft/craft_snap.h"
+#include "craft/craft_thru.h"
 #include "craft/craft_warm.h"
 #include "craft/craft_warp.h"
+#include "craft/craft_zero.h"
 
 namespace craft {
 
@@ -55,9 +57,15 @@ class CraftChain
         CraftWarp warp;
         CraftHowl howl;
         // Audio Refresh (STFT). Holds only pointers/scalars here; its large
-        // working set lives in a per-slot SDRAM RefreshState bound in
-        // ApplyConfig (CraftRefresh::BindState).
+        // working set lives in a per-slot RAM_D2 SpectralState + FreshScratch bound
+        // in the CraftChain ctor (CraftRefresh::BindState).
         CraftRefresh refresh;
+        // Identity STFT passthrough (Spectral Toolkit CPU baseline). Shares the
+        // per-slot SpectralState with refresh — only one plugin runs per slot.
+        CraftThru thru;
+        // Phase Zeroing (Spectral Toolkit). Shares the per-slot SpectralState; adds a
+        // per-slot PolarScratch (mag/phase) bound in the CraftChain ctor.
+        CraftZero zero;
     };
 
     void ProcessSlot_(uint8_t slot, float* buf, uint32_t n);

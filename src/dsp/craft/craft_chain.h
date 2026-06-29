@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "craft/craft_copy.h"
+#include "craft/craft_delay.h"
 #include "craft/craft_dial.h"
 #include "craft/craft_freeze.h"
 #include "craft/craft_howl.h"
@@ -78,6 +79,9 @@ class CraftChain
         // Spectral Thickening (Spectral Toolkit). Shares the SpectralState +
         // PolarScratch; adds only a small per-instance peak list (no extra pool).
         CraftThicken thicken;
+        // Spectral Delay (Spectral Toolkit). Shares the SpectralState; its big per-bin
+        // history ring lives in a per-slot SDRAM DelayRing bound in the CraftChain ctor.
+        CraftDelay delay;
     };
 
     void ProcessSlot_(uint8_t slot, float* buf, uint32_t n);

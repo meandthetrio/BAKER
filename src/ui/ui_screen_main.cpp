@@ -714,7 +714,7 @@ void RecordMenu_Render(UiScreenCtx& ctx)
 }
 
 static constexpr uint8_t kCraftSlotCount = 3u;
-static constexpr uint8_t kCraftPluginCount = 13u;
+static constexpr uint8_t kCraftPluginCount = 14u;
 static constexpr uint8_t kCraftFocusLoad = 0u;
 static constexpr uint8_t kCraftFocusSlot = 1u;
 static constexpr uint8_t kCraftFocusPlugin = 2u;
@@ -735,8 +735,9 @@ static constexpr int32_t kCraftSlotNameCount = 3;
 //   rand = Phase Randomization — keep magnitude, scatter phase (tone -> pad/noise)
 //   still = Spectral Freeze — capture one frame and hold it (sustained spectral pad)
 //   thick = Spectral Thickening — peak-detect + harmonic sidebands (octave/fifth/third)
+//   smear = Spectral Delay — per-bin delay (lows lag, highs lead); smears across freq
 static const char* kCraftPluginLabels[kCraftPluginCount]
-    = {"----", "copy", "dial", "snap", "warm", "howl", "warp", "fresh", "thru", "zero", "rand", "still", "thick"};
+    = {"----", "copy", "dial", "snap", "warm", "howl", "warp", "fresh", "thru", "zero", "rand", "still", "thick", "smear"};
 static const char* kCraftSlotNames[kCraftSlotNameCount] = {"one", "two", "three"};
 // CRAFT param labels + value sets now live in the descriptor table
 // (src/dsp/craft/craft_params.{h,cpp}), the single source of truth shared by

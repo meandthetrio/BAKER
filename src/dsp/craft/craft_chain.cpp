@@ -28,6 +28,11 @@ ADSR2_SECTION(".ram_d2_bss") static FreshScratch  g_fresh_scratch[kCraftSlotCoun
 // One per slot; bound to the slot's phase-domain plugin (zero, ...).
 ADSR2_SECTION(".ram_d2_bss") static PolarScratch  g_polar_scratch[kCraftSlotCount];
 
+// Spectral Delay per-bin history ring (Spectral Toolkit Tool 5). Big (~384 KB/slot),
+// so it lives in SDRAM (.sdram_bss is NOLOAD; CraftDelay treats the ring as empty via
+// its frame counter until refilled, so no startup zeroing is required).
+ADSR2_SECTION(".sdram_bss") static DelayRing g_delay_ring[kCraftSlotCount];
+
 // FFT in-place buffers in fast zero-wait DTCM (the strided radix-2 access spiked the
 // callback to ~5 ms/frame on external SDRAM). A SINGLE shared 16 KB pair, not per-slot:
 // only ONE fresh frame is ever computing at a time (the live preview uses one slot;
@@ -118,6 +123,12 @@ CraftChain::CraftChain()
         slots_[s].thicken.BindFftScratch(g_fft_re, g_fft_im, g_fft_cbuf);
         slots_[s].thicken.BindRfftInstance(&g_rfft_dtcm);
         slots_[s].thicken.BindWin(g_craft_win);
+        // delay shares the per-slot SpectralState; its history ring is per-slot SDRAM.
+        slots_[s].delay.BindState(&g_spectral_state[s]);
+        slots_[s].delay.BindRing(&g_delay_ring[s]);
+        slots_[s].delay.BindFftScratch(g_fft_re, g_fft_im, g_fft_cbuf);
+        slots_[s].delay.BindRfftInstance(&g_rfft_dtcm);
+        slots_[s].delay.BindWin(g_craft_win);
     }
 }
 
@@ -178,6 +189,10 @@ void CraftChain::ApplyConfig(const CraftChainConfig& cfg, float sample_rate)
             case kCraftPluginThicken:
                 slots_[s].thicken.Reset(sample_rate_);
                 slots_[s].thicken.SetParams(sc.param, sample_rate_);
+                break;
+            case kCraftPluginDelay:
+                slots_[s].delay.Reset(sample_rate_);
+                slots_[s].delay.SetParams(sc.param, sample_rate_);
                 break;
             default: break; // None / not-yet-implemented: nothing to init
         }
@@ -252,6 +267,11 @@ void CraftChain::UpdateParams(const CraftChainConfig& cfg)
                     slots_[s].thicken.Reset(sample_rate_);
                 slots_[s].thicken.SetParams(cfg_.slots[s].param, sample_rate_);
                 break;
+            case kCraftPluginDelay:
+                if(plugin_changed)
+                    slots_[s].delay.Reset(sample_rate_);
+                slots_[s].delay.SetParams(cfg_.slots[s].param, sample_rate_);
+                break;
             default: break;
         }
     }
@@ -273,6 +293,7 @@ void CraftChain::ProcessSlot_(uint8_t slot, float* buf, uint32_t n)
         case kCraftPluginRand: slots_[slot].rnd.Process(buf, n); break;
         case kCraftPluginFreeze: slots_[slot].freeze.Process(buf, n); break;
         case kCraftPluginThicken: slots_[slot].thicken.Process(buf, n); break;
+        case kCraftPluginDelay: slots_[slot].delay.Process(buf, n); break;
         default: break; // None / not-yet-implemented: pass through
     }
 }
@@ -308,6 +329,8 @@ uint32_t CraftChain::Latency() const
             total += slots_[s].freeze.Latency();
         else if(cfg_.slots[s].plugin == kCraftPluginThicken)
             total += slots_[s].thicken.Latency();
+        else if(cfg_.slots[s].plugin == kCraftPluginDelay)
+            total += slots_[s].delay.Latency();
     }
     return total;
 }

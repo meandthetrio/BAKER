@@ -18,7 +18,7 @@
 namespace craft {
 
 static constexpr uint8_t kCraftSlotCount   = 3u;
-static constexpr uint8_t kCraftPluginCount = 13u; // ..., fresh, thru, zero, rand, still, thick
+static constexpr uint8_t kCraftPluginCount = 14u; // ..., fresh, thru, zero, rand, still, thick, smear
 static constexpr uint8_t kCraftMaxParams   = 6u;
 
 // Plugin ids — index into kCraftPluginLabels (UI) and the CraftChain dispatch.
@@ -37,6 +37,7 @@ enum CraftPlugin : uint8_t
     kCraftPluginRand  = 10u, // Phase Randomization — keep magnitude, scatter phase (tone -> pad/noise)
     kCraftPluginFreeze = 11u, // Spectral Freeze — capture one frame, hold it (sustained spectral pad)
     kCraftPluginThicken = 12u, // Spectral Thickening — peak-detect + harmonic sidebands (oct/fifth/third)
+    kCraftPluginDelay  = 13u, // Spectral Delay — per-bin delay (lows lag, highs lead); smear across freq
 };
 
 enum class CraftParamKind : uint8_t

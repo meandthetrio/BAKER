@@ -112,6 +112,13 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
       {"fifth", CraftParamKind::Scalar, 100u, nullptr, 0u, 35u, 0u},
       {"third", CraftParamKind::Scalar, 100u, nullptr, 0u, 0u, 0u},
       {"thresh", CraftParamKind::Scalar, 100u, nullptr, 0u, 25u, 0u}}},
+    // 13: smear — Spectral Delay. low/high = per-bin delay at the DC/Nyquist ends
+    //   (low>high = lows lag / highs lead); mix = spectral dry/wet; feed = feedback.
+    {4u,
+     {{"low", CraftParamKind::Scalar, 100u, nullptr, 0u, 30u, 0u},
+      {"high", CraftParamKind::Scalar, 100u, nullptr, 0u, 5u, 0u},
+      {"mix", CraftParamKind::Scalar, 100u, nullptr, 0u, 70u, 0u},
+      {"feed", CraftParamKind::Scalar, 100u, nullptr, 0u, 0u, 0u}}},
 };
 
 const CraftPluginDesc& CraftGetPluginDesc(uint8_t plugin)

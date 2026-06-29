@@ -1,0 +1,49 @@
+<svg width="680" viewBox="0 0 680 612" role="img" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<title>CRAFT fresh STFT signal-flow pipeline</title>
+<desc>Vertical flow: audio stream enters, is sliced into overlapping windows, transformed by a forward FFT into 1025 frequency bins, processed by three magnitude operations (whiten, linearize, skirt), transformed back by an inverse FFT, then overlap-added into a continuous output stream.</desc>
+<defs>
+<marker id="ah" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#888780"/></marker>
+<style>
+text{fill:#2c2c2a}
+.t{font-size:14px;font-weight:400}
+.th{font-size:14px;font-weight:500}
+.ts{font-size:12px;font-weight:400;fill:#5f5e5a}
+.gray{fill:#f1efe8;stroke:#888780}
+.gray .th{fill:#2c2c2a}
+.blue rect,rect.blue{fill:#e6f1fb;stroke:#185fa5}
+.blue .th{fill:#0c447c}
+.purple rect,rect.purple{fill:#eeedfe;stroke:#534ab7}
+.purple .th{fill:#3c3489}
+.purple .ts{fill:#534ab7}
+.region{fill:#ffffff;stroke:#b4b2a9}
+</style>
+</defs>
+
+<g class="gray"><rect x="220" y="40" width="240" height="48" rx="6"/></g><text class="th" x="340" y="60" text-anchor="middle">audio in</text><text class="ts" x="340" y="77" text-anchor="middle">continuous mono stream</text>
+<line x1="340" y1="88" x2="340" y2="102" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<g class="gray"><rect x="220" y="104" width="240" height="48" rx="6"/></g><text class="th" x="340" y="124" text-anchor="middle">overlap window</text><text class="ts" x="340" y="141" text-anchor="middle">2048 frame · 1024 hop · √Hann</text>
+<line x1="340" y1="152" x2="340" y2="166" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="blue" x="220" y="168" width="240" height="48" rx="6"/><text class="th" x="340" y="188" text-anchor="middle">forward real FFT</text><text class="ts" x="340" y="205" text-anchor="middle">arm_rfft → 1025 bins</text>
+<line x1="340" y1="216" x2="340" y2="230" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="region" x="110" y="232" width="460" height="138" rx="8"/>
+<text class="th" x="340" y="254" text-anchor="middle">spectral processing — magnitude only</text>
+<rect class="purple" x="125" y="280" width="134" height="72" rx="6"/><text class="th" x="192" y="312" text-anchor="middle">whiten</text><text class="ts" x="192" y="330" text-anchor="middle">bins → flat</text>
+<rect class="purple" x="273" y="280" width="134" height="72" rx="6"/><text class="th" x="340" y="312" text-anchor="middle">linearize</text><text class="ts" x="340" y="330" text-anchor="middle">flat ↔ local env</text>
+<rect class="purple" x="421" y="280" width="134" height="72" rx="6"/><text class="th" x="488" y="312" text-anchor="middle">skirt</text><text class="ts" x="488" y="330" text-anchor="middle">spray sidebands</text>
+<line x1="340" y1="370" x2="340" y2="384" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="blue" x="220" y="386" width="240" height="48" rx="6"/><text class="th" x="340" y="406" text-anchor="middle">inverse real FFT</text><text class="ts" x="340" y="423" text-anchor="middle">bins → 2048 frame</text>
+<line x1="340" y1="434" x2="340" y2="448" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<g class="gray"><rect x="220" y="450" width="240" height="48" rx="6"/></g><text class="th" x="340" y="470" text-anchor="middle">synthesis window + overlap-add</text><text class="ts" x="340" y="487" text-anchor="middle">√Hann · 50% COLA</text>
+<line x1="340" y1="498" x2="340" y2="512" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<g class="gray"><rect x="220" y="514" width="240" height="48" rx="6"/></g><text class="th" x="340" y="534" text-anchor="middle">audio out</text><text class="ts" x="340" y="551" text-anchor="middle">latency-trimmed on render</text>
+
+<rect class="gray" x="120" y="582" width="12" height="12" rx="3"/><text class="ts" x="138" y="592" text-anchor="start">time domain</text>
+<rect class="blue" x="258" y="582" width="12" height="12" rx="3"/><text class="ts" x="276" y="592" text-anchor="start">FFT transform</text>
+<rect class="purple" x="408" y="582" width="12" height="12" rx="3"/><text class="ts" x="426" y="592" text-anchor="start">spectral (bins)</text>
+</svg>

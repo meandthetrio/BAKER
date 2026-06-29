@@ -234,7 +234,7 @@ bool CraftConfigHasLatency(const AppUiState& ui)
         const uint8_t plugin = ui.craft_slot_plugin[s] % craft::kCraftPluginCount;
         if(plugin == craft::kCraftPluginFresh || plugin == craft::kCraftPluginThru
            || plugin == craft::kCraftPluginZero || plugin == craft::kCraftPluginRand
-           || plugin == craft::kCraftPluginFreeze)
+           || plugin == craft::kCraftPluginFreeze || plugin == craft::kCraftPluginThicken)
             return true;
     }
     return false;

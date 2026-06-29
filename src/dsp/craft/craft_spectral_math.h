@@ -68,6 +68,22 @@ inline void FastSinCos_(float a, float& s, float& c)
     c = FastSinReduced_(ca);
 }
 
+// Wrap an angle into [-pi, pi].
+inline float WrapPhase_(float a)
+{
+    const float kPi      = 3.14159265358979f;
+    const float kTwoPi   = 6.28318530717959f;
+    const float kInvTwoPi = 0.159154943091895f;
+    return a - kTwoPi * std::floor((a + kPi) * kInvTwoPi);
+}
+
+// Magnitude only (no atan2) — for effects that drive their own synthesis phase.
+inline void MagOnly(const float* re, const float* im, float* mag, int nb)
+{
+    for(int k = 0; k <= nb; ++k)
+        mag[k] = std::sqrt(re[k] * re[k] + im[k] * im[k]);
+}
+
 // Polar decompose: one-sided spectrum re/im[0..nb] -> magnitude/phase[0..nb].
 inline void PolarFwd(const float* re, const float* im, float* mag, float* phase, int nb)
 {
@@ -87,6 +103,76 @@ inline void PolarInv(const float* mag, const float* phase, float* re, float* im,
         FastSinCos_(phase[k], s, c);
         re[k] = mag[k] * c;
         im[k] = mag[k] * s;
+    }
+}
+
+// --- Tools 3 & 4: spectral peak detection + fractional-bin splatter ---
+
+// A detected spectral peak: sub-bin frequency (fractional bin index), magnitude, and
+// the source bin's phase (so a frequency-shifted copy can be made phase-coherent).
+struct SpectralPeak
+{
+    float bin;   // parabola-interpolated peak position (fractional bin)
+    float mag;   // peak magnitude
+    float phase; // source-bin phase
+};
+
+// Tool 3 — peak detector. Find local maxima of mag[0..nb] above a floor (the larger
+// of floorFrac*globalMax and a tiny absolute), with 3-point parabolic interpolation
+// for sub-bin frequency precision (needed to place sidebands at literal just-interval
+// frequencies). Fills out[0..count-1]; returns count (<= maxPeaks). phase[] (optional,
+// may be nullptr) supplies each peak's source phase; pass nullptr if unused.
+inline int DetectPeaks(const float* mag, const float* phase, int nb,
+                       SpectralPeak* out, int maxPeaks, float floorFrac)
+{
+    float gmax = 0.0f;
+    for(int k = 0; k <= nb; ++k)
+        if(mag[k] > gmax) gmax = mag[k];
+    if(gmax < 1.0e-6f)
+        return 0;
+    float floor = floorFrac * gmax;
+    if(floor < 1.0e-6f) floor = 1.0e-6f;
+
+    int n = 0;
+    for(int k = 1; k < nb && n < maxPeaks; ++k)
+    {
+        const float m = mag[k];
+        if(m > floor && m >= mag[k - 1] && m > mag[k + 1])
+        {
+            const float a = mag[k - 1], c = mag[k + 1];
+            const float denom = a - 2.0f * m + c;
+            float       d     = (denom != 0.0f) ? 0.5f * (a - c) / denom : 0.0f;
+            if(d > 0.5f) d = 0.5f;
+            else if(d < -0.5f) d = -0.5f;
+            out[n].bin   = static_cast<float>(k) + d;
+            out[n].mag   = m;
+            out[n].phase = phase ? phase[k] : 0.0f;
+            ++n;
+        }
+    }
+    return n;
+}
+
+// Tool 4 — fractional-bin splatter. ADD a complex partial (mag * e^{j*phase}) into the
+// one-sided spectrum re/im[0..nb] at fractional position `bin`, linearly distributed
+// across the two straddling bins. Used to place harmonic sidebands at non-integer
+// (e.g. just-interval) target frequencies. No-op if out of range.
+inline void SplatterAdd(float* re, float* im, float bin, float mag, float phase, int nb)
+{
+    if(bin < 0.0f || bin > static_cast<float>(nb))
+        return;
+    const int   t0   = static_cast<int>(bin);
+    const float frac = bin - static_cast<float>(t0);
+    float       s, c;
+    FastSinCos_(phase, s, c);
+    const float vr = mag * c, vi = mag * s;
+    re[t0] += (1.0f - frac) * vr;
+    im[t0] += (1.0f - frac) * vi;
+    const int t1 = t0 + 1;
+    if(t1 <= nb)
+    {
+        re[t1] += frac * vr;
+        im[t1] += frac * vi;
     }
 }
 

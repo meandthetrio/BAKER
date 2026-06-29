@@ -10,6 +10,7 @@
 #include "craft/craft_rand.h"
 #include "craft/craft_refresh.h"
 #include "craft/craft_snap.h"
+#include "craft/craft_thicken.h"
 #include "craft/craft_thru.h"
 #include "craft/craft_warm.h"
 #include "craft/craft_warp.h"
@@ -74,6 +75,9 @@ class CraftChain
         // Spectral Freeze (Spectral Toolkit). Shares the per-slot SpectralState +
         // PolarScratch with zero/rand (mutually exclusive per slot) — no extra memory.
         CraftFreeze freeze;
+        // Spectral Thickening (Spectral Toolkit). Shares the SpectralState +
+        // PolarScratch; adds only a small per-instance peak list (no extra pool).
+        CraftThicken thicken;
     };
 
     void ProcessSlot_(uint8_t slot, float* buf, uint32_t n);

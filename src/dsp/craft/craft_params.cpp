@@ -105,6 +105,13 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
     //   one frame, sustained). On the live->hold edge the next frame is captured.
     {1u,
      {{"hold", CraftParamKind::Enum, 2u, kFreezeHoldLabels}}},
+    // 12: thick — Spectral Thickening. oct/fifth/third = added sideband level per
+    //   interval (third defaults off — commits to major); thresh = peak-detect floor.
+    {4u,
+     {{"oct", CraftParamKind::Scalar, 100u, nullptr, 0u, 50u, 0u},
+      {"fifth", CraftParamKind::Scalar, 100u, nullptr, 0u, 35u, 0u},
+      {"third", CraftParamKind::Scalar, 100u, nullptr, 0u, 0u, 0u},
+      {"thresh", CraftParamKind::Scalar, 100u, nullptr, 0u, 25u, 0u}}},
 };
 
 const CraftPluginDesc& CraftGetPluginDesc(uint8_t plugin)

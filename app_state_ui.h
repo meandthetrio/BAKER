@@ -128,7 +128,7 @@ struct AppUiState
     // each value is described by the CRAFT descriptor table (src/dsp/craft/
     // craft_params.{h,cpp}); the effect processor decodes it. Switching the
     // plugin on a slot leaves the other plugins' values untouched.
-    uint8_t craft_param[3][10][6] = {}; // [slot][plugin][param]; plugin dim == craft::kCraftPluginCount
+    uint8_t craft_param[3][11][6] = {}; // [slot][plugin][param]; plugin dim == craft::kCraftPluginCount
     // Render action: false = save as new auto-incremented file, true = overwrite
     // the loaded source .wav. Toggled on the Render focus item.
     bool craft_render_overwrite = false;

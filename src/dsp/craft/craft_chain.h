@@ -6,6 +6,7 @@
 #include "craft/craft_dial.h"
 #include "craft/craft_howl.h"
 #include "craft/craft_params.h"
+#include "craft/craft_rand.h"
 #include "craft/craft_refresh.h"
 #include "craft/craft_snap.h"
 #include "craft/craft_thru.h"
@@ -66,6 +67,9 @@ class CraftChain
         // Phase Zeroing (Spectral Toolkit). Shares the per-slot SpectralState; adds a
         // per-slot PolarScratch (mag/phase) bound in the CraftChain ctor.
         CraftZero zero;
+        // Phase Randomization (Spectral Toolkit). Shares the per-slot SpectralState AND
+        // the PolarScratch with zero (one plugin runs per slot) — no extra memory.
+        CraftRand rnd;
     };
 
     void ProcessSlot_(uint8_t slot, float* buf, uint32_t n);

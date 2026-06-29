@@ -94,6 +94,10 @@ static const CraftPluginDesc kPluginDescs[kCraftPluginCount] = {
     //   now (always full-wet), same rationale as thru. Reserved for a future dry/wet.
     {1u,
      {{"mix", CraftParamKind::Scalar, 100u, nullptr, 0u, 100u, 0u}}},
+    // 10: rand — Phase Randomization (keep magnitude, scatter phase). One inert param
+    //   for now (always full-wet); reserved for a future dry/wet or scatter depth.
+    {1u,
+     {{"mix", CraftParamKind::Scalar, 100u, nullptr, 0u, 100u, 0u}}},
 };
 
 const CraftPluginDesc& CraftGetPluginDesc(uint8_t plugin)

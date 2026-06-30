@@ -885,8 +885,15 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
 
     MaybeReturnToCraftAfterLoad(ui);
 
+    // Keep the craft-load flag alive while the picker (and its style-filter
+    // sub-overlay) is on top — craft load now uses the sortable SD Manager, not
+    // the legacy SdBrowse screen. Clearing it here would drop the craft branch
+    // in SdManageMenu_OnEvent, so selecting a sample would fall through to the
+    // load/rename/delete action overlay instead of loading straight into Craft.
     const UiScreenId active_screen = UiNav_Active(ui.ui_nav);
-    if(active_screen != UiScreenId::SdBrowse)
+    if(active_screen != UiScreenId::SdBrowse
+       && active_screen != UiScreenId::SdManageMenu
+       && active_screen != UiScreenId::SdManageStyleFilter)
     {
         ui.craft_browser_open = false;
         ui.craft_browser_wait_for_load = false;
@@ -1210,6 +1217,28 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
             std::snprintf(ui.saved_overlay_text, sizeof(ui.saved_overlay_text), "PRESET SAVED");
             ui.preset_saved_overlay_until_ms = now_ms + 1000u;
             ui.preset_saved_flash_pending    = true;
+        }
+        ui.ui_dirty = true;
+    }
+
+    if(ui.craft_render_wait_for_worker
+       && worker.ui_req_done_count != ui.craft_render_done_count)
+    {
+        ui.craft_render_wait_for_worker = false;
+        if(worker.ui_req_result >= 0)
+        {
+            // Success: "SAVED <name>" banner + green LED flash. For a new file the
+            // typed stem becomes the loaded craft sample's display name.
+            const char* nm = (ui.craft_render_save_stem[0] != '\0')
+                                 ? ui.craft_render_save_stem
+                                 : ui.craft_loaded_name;
+            std::snprintf(ui.saved_overlay_text, sizeof(ui.saved_overlay_text),
+                          "SAVED %s", nm);
+            ui.preset_saved_overlay_until_ms = now_ms + 1000u;
+            ui.preset_saved_flash_pending    = true;
+            if(ui.craft_render_save_stem[0] != '\0')
+                std::snprintf(ui.craft_loaded_name, sizeof(ui.craft_loaded_name),
+                              "%s", ui.craft_render_save_stem);
         }
         ui.ui_dirty = true;
     }

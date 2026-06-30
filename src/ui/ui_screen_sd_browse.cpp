@@ -566,7 +566,9 @@ void DrawProjectHeaderButton(OledPager& d,
                              bool arrow_descending,
                              bool filter_active)
 {
-    const bool active = focused || filter_active;
+    // Header cells invert + show a border only when FOCUSED. An active style
+    // filter no longer keeps the box inverted (the filtered list is the cue).
+    (void)filter_active;
     const int arrow_w = draw_arrow ? ProjectHeaderGlyphWidth("v") + 1 : 0;
     const int label_w = ProjectHeaderGlyphWidth(label);
     const int content_w = arrow_w + label_w;
@@ -584,20 +586,24 @@ void DrawProjectHeaderButton(OledPager& d,
         box_x0 = x1 - box_w;
     }
 
-    d.DrawRect(box_x0,
-               kSdManageHeaderButtonY,
-               box_x1,
-               kSdManageHeaderButtonY + kSdManageHeaderButtonH,
-               active,
-               true);
-    d.DrawRect(box_x0,
-               kSdManageHeaderButtonY,
-               box_x1,
-               kSdManageHeaderButtonY + kSdManageHeaderButtonH,
-               true,
-               false);
+    if(focused)
+    {
+        // Inverted (filled) box + border, only when focused.
+        d.DrawRect(box_x0,
+                   kSdManageHeaderButtonY,
+                   box_x1,
+                   kSdManageHeaderButtonY + kSdManageHeaderButtonH,
+                   true,
+                   true);
+        d.DrawRect(box_x0,
+                   kSdManageHeaderButtonY,
+                   box_x1,
+                   kSdManageHeaderButtonY + kSdManageHeaderButtonH,
+                   true,
+                   false);
+    }
 
-    const bool text_on = !active;
+    const bool text_on = !focused;
     int text_x = box_x0 + 3;
     if(draw_arrow)
     {
@@ -642,8 +648,8 @@ void DrawSdManageHeaderRow(OledPager& d, const AppUiState& ui)
                             kSdManageHeaderStyleX1,
                             style_label,
                             ui.sd_manage_focus_index == 2u,
-                            false,
-                            false,
+                            ui.sd_manage_style_filter != kSampleStyleFilterAll, // down arrow when filtered
+                            false,                                              // descending=false -> "v"
                             ui.sd_manage_style_filter != kSampleStyleFilterAll);
 }
 
@@ -967,6 +973,28 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(ui.sd_manage_visible_count == 0u)
             return true;
+
+        // Craft-load mode: SD Manager opened from CRAFT->load to pick a source
+        // .wav (scan is WAV-only so .bk never appears). Load the focused sample
+        // into the isolated bake-preview buffer and pop back to Craft.
+        if(ui.craft_browser_open)
+        {
+            SdBrowserState& sd = ui.sd;
+            const uint16_t idx = ui.sd_manage_current_index;
+            if(!IsBkName(sd.paths[idx]) && ctx.worker)
+            {
+                std::snprintf(ui.craft_loaded_path, sizeof(ui.craft_loaded_path), "%s", sd.paths[idx]);
+                ExtractBaseName(sd.paths[idx], ui.craft_loaded_name, sizeof(ui.craft_loaded_name));
+                UiReq req{UiReqType::LoadWavToBakePreview, idx, 0};
+                UiReq_Push(ui, *ctx.worker, req);
+                SdBrowser_SetStatus(sd, "LOADING");
+            }
+            ui.craft_browser_open = false;
+            ui.craft_browser_wait_for_load = false;
+            UiNav_Pop(ui.ui_nav);
+            ui.ui_dirty = true;
+            return true;
+        }
 
         // Engine-load mode: the SD Manager was opened from the perform engine
         // screen as the layer A/B sample picker. REnc Click loads the focused

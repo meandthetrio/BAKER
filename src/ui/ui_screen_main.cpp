@@ -631,6 +631,9 @@ bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
         case 0:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::RecordMenu);
         case 1:
+            // Clear any stale render-choice/rename modal state on fresh entry.
+            ctx.ui->craft_render_choice_active = false;
+            ctx.ui->craft_render_rename_active = false;
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::CraftMenu);
         case 2:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::BakeMenu);
@@ -943,6 +946,62 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
     AppUiState& ui = *ctx.ui;
 
+    // Render new/overwrite choice overlay (modal). REnc rotate picks
+    // new(0)/overwrite(1); REnc-click confirms; Button1 cancels. The overlay
+    // shows no name (the rendered sample isn't named yet — naming happens on the
+    // "new" branch via the rename screen).
+    if(ui.craft_render_choice_active)
+    {
+        if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
+        {
+            ui.craft_render_choice_sel = (e.value > 0) ? 1u : 0u;
+            ui.ui_dirty                = true;
+            return true;
+        }
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod1)
+        {
+            ui.craft_render_choice_active = false; // cancel
+            ui.ui_dirty                   = true;
+            return true;
+        }
+        if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc)
+        {
+            ui.craft_render_choice_active = false;
+            if(ui.craft_render_choice_sel == 1u)
+            {
+                // Overwrite: render the chain over the loaded source file.
+                ui.craft_render_overwrite      = true;
+                ui.craft_render_save_stem[0]   = '\0';
+                const UiReq req{UiReqType::CraftRenderToWav, 1u, 0u};
+                if(ctx.worker && UiReq_Push(ui, *ctx.worker, req))
+                {
+                    ui.craft_render_wait_for_worker = true;
+                    ui.craft_render_done_count      = ctx.worker->ui_req_done_count;
+                }
+            }
+            else
+            {
+                // New: name it first via the rename screen, then render+save on
+                // the rename Save action (see QueueCraftRenderSave).
+                ui.craft_render_overwrite    = false;
+                ui.craft_render_rename_active = true;
+                ui.craft_render_save_stem[0]  = '\0';
+                std::snprintf(ui.project_rename_draft, sizeof(ui.project_rename_draft),
+                              "%s", ui.craft_loaded_name);
+                char* dot = std::strrchr(ui.project_rename_draft, '.');
+                if(dot)
+                    *dot = '\0';
+                ui.project_rename_length =
+                    static_cast<uint8_t>(std::strlen(ui.project_rename_draft));
+                ui.project_rename_focus = ProjectRenameFocus::Grid;
+                UiNav_Push(ui.ui_nav, UiScreenId::RenameProject);
+            }
+            ui.ui_dirty = true;
+            return true;
+        }
+        return true; // modal: swallow other input
+    }
+
     // Button2: start the preview audition. Zero-latency (cheap) configs run LIVE on
     // the audio thread (A1) — instant, params heard in real time, UI fully free.
     // Latency (STFT/fresh) configs still use the worker render-then-play path until
@@ -1012,17 +1071,10 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             }
             default:
             {
-                // Render focus: Ext rotate toggles new (left) / overwrite (right).
+                // Render focus has no rotate action now (REnc-click opens the
+                // new/overwrite overlay); fall through to param editing otherwise.
                 if(focus == CraftRenderFocusIndex(ui))
-                {
-                    const bool next_over = (e.value > 0);
-                    if(next_over != ui.craft_render_overwrite)
-                    {
-                        ui.craft_render_overwrite = next_over;
-                        changed = true;
-                    }
                     break;
-                }
 
                 // Param focus: descriptor-driven edit (enum wrap / scalar clamp).
                 const uint8_t                param  = static_cast<uint8_t>(focus - kCraftFocusParamStart);
@@ -1095,7 +1147,15 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.sample_rename_active = false;
             ui.craft_browser_open = false;
             ui.craft_browser_wait_for_load = false;
-            if(UiNav_Push(ui.ui_nav, UiScreenId::SdBrowse))
+            // Craft loads from the sortable SD Manager with a WAV-only scan so
+            // .bk multisamples don't appear (Craft renders single .wav sources).
+            // Invalidate any prior scan so the new filter actually re-scans.
+            if(ui.sd_scan_filter != AppUiState::SdScanFilter::WavOnly)
+                ui.sd.scan_done = false;
+            ui.sd_scan_filter = AppUiState::SdScanFilter::WavOnly;
+            ui.sd_manage_focus_index = kProjectPresetsHeaderCount;
+            ui.sd_manage_style_filter = kSampleStyleFilterAll;
+            if(UiNav_Push(ui.ui_nav, UiScreenId::SdManageMenu))
             {
                 ui.craft_browser_open = true;
                 ui.ui_dirty = true;
@@ -1106,15 +1166,13 @@ bool CraftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(focus == CraftRenderFocusIndex(ui))
         {
-            // Render the chain to a sample (new file or overwrite source).
-            // Requires a loaded source.
+            // Render the chain to a sample. Open the new/overwrite choice
+            // overlay; requires a loaded source.
             if(ui.craft_loaded_path[0] == '\0')
                 return true;
-            const UiReq req{UiReqType::CraftRenderToWav,
-                            static_cast<uint16_t>(ui.craft_render_overwrite ? 1u : 0u),
-                            0u};
-            if(ctx.worker && UiReq_Push(*ctx.ui, *ctx.worker, req))
-                ui.ui_dirty = true;
+            ui.craft_render_choice_active = true;
+            ui.craft_render_choice_sel   = 0u; // default: new
+            ui.ui_dirty                  = true;
             return true;
         }
 
@@ -1168,15 +1226,14 @@ void CraftMenu_Render(UiScreenCtx& ctx)
     else
         DrawCraftMicroValue(d, active_plugin_label, kPluginValueX + 3, kPluginY);
 
-    // Render action — always present (Ext-click triggers it). Sits on the free
-    // right side of the plugin row; shows the save mode (new / overwrite).
-    const char* render_text = ui.craft_render_overwrite ? "r:ovr" : "r:new";
+    // Render action — always present (Ext-click opens the new/overwrite overlay).
+    // Plain text unfocused, inverted box when focused (no new/ovr toggle here).
     constexpr int kRenderX  = 92;
     constexpr int kRenderY  = kPluginY;
     if(focus == CraftRenderFocusIndex(ui))
-        DrawCraftMicroFocusedValueBox(d, render_text, kRenderX, kRenderY);
+        DrawCraftMicroInvertedValueBox(d, "render", kRenderX, kRenderY);
     else
-        DrawCraftMicroValue(d, render_text, kRenderX + 3, kRenderY);
+        DrawCraftMicroValue(d, "render", kRenderX + 3, kRenderY);
 
     // Param grid (descriptor-driven) for the active plugin. Plugins with no
     // params (not yet implemented) simply draw nothing here.
@@ -1202,6 +1259,48 @@ void CraftMenu_Render(UiScreenCtx& ctx)
         else
         {
             DrawCraftMicroLabel(d, CraftParamLabel(plugin, param), kGridX[col], kGridY[row]);
+        }
+    }
+
+    // New/overwrite choice overlay (modal). Centered box, two stacked options;
+    // the selected one is inverted. No name shown (naming happens after "new").
+    if(ui.craft_render_choice_active)
+    {
+        const char* opt0 = "new";
+        const char* opt1 = "overwrite";
+        const int   w0   = TinyStringWidth(opt0);
+        const int   w1   = TinyStringWidth(opt1);
+        const int   tw   = (w0 > w1) ? w0 : w1;
+        const int   box_w = tw + 14;
+        const int   row_h = Font5x7::H + 4;
+        const int   box_h = row_h * 2 + 8;
+        const int   x0    = (128 - box_w) / 2;
+        const int   y0    = (64 - box_h) / 2;
+        d.DrawRect(x0, y0, x0 + box_w - 1, y0 + box_h - 1, false, true); // clear
+        d.DrawRect(x0, y0, x0 + box_w - 1, y0 + box_h - 1, true, false); // border
+
+        const int ry0 = y0 + 4;
+        const int ry1 = ry0 + row_h;
+        const int tx  = x0 + 7;
+        // Row 0: new
+        if(ui.craft_render_choice_sel == 0u)
+        {
+            d.DrawRect(x0 + 2, ry0 - 1, x0 + box_w - 3, ry0 + Font5x7::H, true, true);
+            DrawTinyString(d, opt0, tx, ry0, false);
+        }
+        else
+        {
+            DrawTinyString(d, opt0, tx, ry0, true);
+        }
+        // Row 1: overwrite
+        if(ui.craft_render_choice_sel == 1u)
+        {
+            d.DrawRect(x0 + 2, ry1 - 1, x0 + box_w - 3, ry1 + Font5x7::H, true, true);
+            DrawTinyString(d, opt1, tx, ry1, false);
+        }
+        else
+        {
+            DrawTinyString(d, opt1, tx, ry1, true);
         }
     }
 }

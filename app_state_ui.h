@@ -134,6 +134,16 @@ struct AppUiState
     bool craft_render_overwrite = false;
     char craft_loaded_name[kSdNameMax] = {};
     char craft_loaded_path[kSdPathMax] = {};
+    // Render workflow: REnc-click on "render" opens a new/overwrite choice overlay
+    // (REnc rotate moves the highlight, click confirms). "new" routes through the
+    // rename screen; both end with a worker render+save, then a "SAVED <name>"
+    // banner + green flash, returning to Craft with the result loaded.
+    bool     craft_render_choice_active = false; // overlay shown
+    uint8_t  craft_render_choice_sel    = 0;     // 0 = new, 1 = overwrite
+    bool     craft_render_rename_active = false; // "new" is in the rename screen
+    bool     craft_render_wait_for_worker = false;
+    uint32_t craft_render_done_count    = 0;     // worker done-count snapshot
+    char     craft_render_save_stem[kSdRenameStemMax + 1u] = {};
     // CRAFT preview model: the in-RAM preview is render-then-play, not live.
     // craft_preview_dirty = an audio-affecting edit (param/plugin/slot-plugin)
     // has happened since the last render, so the preview no longer matches the

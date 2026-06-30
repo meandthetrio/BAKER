@@ -314,7 +314,10 @@ bool StartCraftRender(AppUiState& ui, AppSharedState& shared, bool overwrite)
     shared.sd_manage.edit = SampleEdit_Default(length);
 
     const char* replace_path = (overwrite && ui.craft_loaded_path[0] != '\0') ? ui.craft_loaded_path : nullptr;
-    return StartSave(ui, shared, SampleSaveSource::SdManage, nullptr, replace_path);
+    // "new" saves under the name chosen on the rename screen (craft_render_save_stem);
+    // "overwrite" replaces the source file. (A null stem falls back to an auto name.)
+    const char* stem = (!overwrite && ui.craft_render_save_stem[0] != '\0') ? ui.craft_render_save_stem : nullptr;
+    return StartSave(ui, shared, SampleSaveSource::SdManage, stem, replace_path);
 }
 
 bool BeginCraftRenderPreview(AppUiState& ui, AppSharedState& shared)

@@ -614,7 +614,9 @@ void DrawProjectHeaderButton(OledPager& d,
                              bool arrow_descending,
                              bool filter_active)
 {
-    const bool active = focused || filter_active;
+    // Header cells invert + show a border only when FOCUSED. An active style
+    // filter no longer keeps the box inverted (the filtered list is the cue).
+    (void)filter_active;
     const int arrow_w = draw_arrow ? ProjectHeaderGlyphWidth("v") + 1 : 0;
     const int label_w = ProjectHeaderGlyphWidth(label);
     const int content_w = arrow_w + label_w;
@@ -632,20 +634,24 @@ void DrawProjectHeaderButton(OledPager& d,
         box_x0 = x1 - box_w;
     }
 
-    d.DrawRect(box_x0,
-               kProjectHeaderButtonY,
-               box_x1,
-               kProjectHeaderButtonY + kProjectHeaderButtonH,
-               active,
-               true);
-    d.DrawRect(box_x0,
-               kProjectHeaderButtonY,
-               box_x1,
-               kProjectHeaderButtonY + kProjectHeaderButtonH,
-               true,
-               false);
+    if(focused)
+    {
+        // Inverted (filled) box + border, only when focused.
+        d.DrawRect(box_x0,
+                   kProjectHeaderButtonY,
+                   box_x1,
+                   kProjectHeaderButtonY + kProjectHeaderButtonH,
+                   true,
+                   true);
+        d.DrawRect(box_x0,
+                   kProjectHeaderButtonY,
+                   box_x1,
+                   kProjectHeaderButtonY + kProjectHeaderButtonH,
+                   true,
+                   false);
+    }
 
-    const bool text_on = !active;
+    const bool text_on = !focused;
     int text_x = box_x0 + 3;
     if(draw_arrow)
     {
@@ -682,8 +688,8 @@ void DrawProjectHeaderRow(OledPager& d, const AppUiState& ui)
                             kProjectHeaderStyleX1,
                             "style",
                             ui.presets_focus_index == 2u,
-                            false,
-                            false,
+                            ui.presets_style_filter != kProjectStyleFilterAll, // down arrow when filtered
+                            false,                                             // descending=false -> "v"
                             ui.presets_style_filter != kProjectStyleFilterAll);
 }
 
@@ -1102,6 +1108,31 @@ bool QueueSdManageTrimSaveRequest(AppUiState& ui, AppWorkerState& worker)
     return true;
 }
 
+bool QueueCraftRenderSave(AppUiState& ui, AppWorkerState& worker)
+{
+    if(!ui.craft_render_rename_active || ui.project_rename_length == 0u)
+        return false;
+
+    std::snprintf(ui.craft_render_save_stem,
+                  sizeof(ui.craft_render_save_stem),
+                  "%.*s",
+                  static_cast<int>(kRenameUiMaxLength),
+                  ui.project_rename_draft);
+
+    // New file: render the chain and save under the typed stem (a=0, stem set).
+    const UiReq req{UiReqType::CraftRenderToWav, 0u, 0u};
+    if(!UiReq_Push(ui, worker, req))
+        return false;
+
+    ui.craft_render_overwrite       = false;
+    ui.craft_render_wait_for_worker = true;
+    ui.craft_render_done_count      = worker.ui_req_done_count;
+    ui.craft_render_rename_active   = false;
+    UiNav_Pop(ui.ui_nav); // leave the rename screen, back to craft
+    ui.ui_dirty = true;
+    return true;
+}
+
 void BuildRenameDisplayText(const AppProjectState& project,
                             const AppUiState& ui,
                             char* out,
@@ -1495,7 +1526,8 @@ void RenameProject_OnEnter(UiScreenCtx& ctx)
     ui.ui_parent_preview_origin_fx_cursor = 0;
     ui.ui_parent_preview_origin_process_detail = false;
     ui.ui_parent_preview_origin_process_eq_graph = false;
-    if(ui.sample_rename_active || ui.render_sample_rename_active || ui.sd_manage_trim_rename_active)
+    if(ui.sample_rename_active || ui.render_sample_rename_active || ui.sd_manage_trim_rename_active
+       || ui.craft_render_rename_active)
     {
         ClampRenameDraft(ui);
         ui.project_rename_grid_col = 0;
@@ -1607,6 +1639,11 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             }
             if(ui.bake_rename_active)
                 CancelBakeRename(ui);
+            if(ui.craft_render_rename_active)
+            {
+                ui.craft_render_rename_active = false;
+                ui.craft_render_wait_for_worker = false;
+            }
             ui.project_rename_for_new_save = false;
             UiNav_Pop(ui.ui_nav);
             ui.ui_dirty = true;
@@ -1638,6 +1675,12 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 if(ui.project_rename_length == 0u)
                     return true;
                 return QueueBakeRenameSave(ui);
+            }
+            if(ui.craft_render_rename_active)
+            {
+                if(ui.project_rename_length == 0u)
+                    return true;
+                return QueueCraftRenderSave(ui, *ctx.worker);
             }
             if(ui.project_rename_for_new_save)
             {
@@ -1699,6 +1742,11 @@ bool RenameProject_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         }
         if(ui.bake_rename_active)
             CancelBakeRename(ui);
+        if(ui.craft_render_rename_active)
+        {
+            ui.craft_render_rename_active = false;
+            ui.craft_render_wait_for_worker = false;
+        }
         ui.project_rename_for_new_save = false;
         UiNav_Pop(ui.ui_nav);
         ui.ui_dirty = true;

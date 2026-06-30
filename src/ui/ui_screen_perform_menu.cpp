@@ -10,8 +10,9 @@
 #include "oled_pager.h"
 #include "ui_input.h"
 
-static constexpr int32_t kPerformMenuCount = 5;
-static const char* kPerformMenuLabels[kPerformMenuCount] = {"ENGINE", "KEYZONE", "ADSR", "EXPRESS", "PROCESS"};
+static constexpr int32_t kPerformMenuCount = 6;
+static const char* kPerformMenuLabels[kPerformMenuCount]
+    = {"PRESETS", "ENGINE", "KEYZONE", "ADSR", "EXPRESS", "PROCESS"};
 
 static void DrawFillOnlyTinyString(OledPager& d, const char* s, int x, int y)
 {
@@ -23,7 +24,7 @@ static void DrawFillOnlyTinyString(OledPager& d, const char* s, int x, int y)
 
 static int32_t NextPerformMenuIndex(int32_t current, int32_t delta)
 {
-    static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3, 4};
+    static const int32_t order[kPerformMenuCount] = {0, 1, 2, 3, 4, 5};
     int32_t pos = 0;
     for(int32_t i = 0; i < kPerformMenuCount; ++i)
     {
@@ -44,6 +45,38 @@ static int32_t NextPerformMenuIndex(int32_t current, int32_t delta)
 constexpr int kIconW = 61;
 constexpr int kIconH = 29;
 constexpr int kIconStride = 8;
+
+static const uint8_t kIconPresetsDisk61x29[kIconH * kIconStride] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf0,
+    0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x3f, 0xff, 0xf8, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x44, 0x01, 0x24, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x84, 0x71, 0x24, 0x00, 0x00, 0x30,
+    0x60, 0x21, 0x04, 0x89, 0x3c, 0x04, 0x00, 0x30,
+    0x60, 0x61, 0x04, 0xa9, 0x04, 0x0c, 0x00, 0x30,
+    0x60, 0xe1, 0x04, 0x89, 0x04, 0x1c, 0x00, 0x30,
+    0x61, 0xe1, 0x04, 0x71, 0x04, 0x3c, 0x00, 0x30,
+    0x63, 0xe1, 0x03, 0xfe, 0x04, 0x7c, 0x00, 0x30,
+    0x67, 0xe1, 0x00, 0x00, 0x04, 0xfc, 0x00, 0x30,
+    0x6f, 0xff, 0x3f, 0xff, 0xe5, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x40, 0x00, 0x17, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x4f, 0xff, 0x97, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x40, 0x00, 0x17, 0xff, 0xff, 0xf0,
+    0x7f, 0xff, 0x43, 0xfe, 0x17, 0xff, 0xff, 0xf0,
+    0x6f, 0xff, 0x40, 0x00, 0x15, 0xff, 0xff, 0xf0,
+    0x67, 0xe1, 0x40, 0x00, 0x14, 0xfc, 0x00, 0x30,
+    0x63, 0xe1, 0x41, 0xfc, 0x14, 0x7c, 0x00, 0x30,
+    0x61, 0xe1, 0x40, 0x00, 0x14, 0x3c, 0x00, 0x30,
+    0x60, 0xe1, 0x40, 0x70, 0x14, 0x1c, 0x00, 0x30,
+    0x60, 0x61, 0x40, 0x00, 0x14, 0x0c, 0x00, 0x30,
+    0x60, 0x21, 0x40, 0x00, 0x14, 0x04, 0x00, 0x30,
+    0x60, 0x00, 0xff, 0xff, 0xf8, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+    0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf0,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
 
 static const uint8_t kIconPerformEngine61x29[kIconH * kIconStride] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -207,88 +240,45 @@ static const uint8_t kIconPerformProcess61x29[kIconH * kIconStride] = {
 
 static void DrawPerformMenuFriendStyle(OledPager& d, int selected)
 {
-    constexpr int kDisplayW = 128;
     constexpr int kDisplayH = 64;
-    constexpr int kListLeftX = 2;
     constexpr int kListGapY = 4;
 
     d.Fill(false);
 
     const int text_h = Font5x7::H;
-    int max_label_w = 0;
-    for(int32_t i = 0; i < kPerformMenuCount; ++i)
-    {
-        const int w = TinyStringWidth(kPerformMenuLabels[i]);
-        if(w > max_label_w)
-            max_label_w = w;
-    }
     const int total_h = (kPerformMenuCount * text_h) + ((kPerformMenuCount - 1) * kListGapY);
     const int start_y = (kDisplayH - total_h) / 2;
-    const int list_w = max_label_w;
-    const int icon_area_x = list_w + 4;
-    const int icon_area_w = kDisplayW - icon_area_x;
+
+    // Icons on the LEFT, the text list on the RIGHT (swapped from the main menu).
+    const int icon_area_x = 2;
+    const int icon_area_w = kIconW;
+    const int list_x = icon_area_x + icon_area_w + 4;
 
     for(int32_t i = 0; i < kPerformMenuCount; ++i)
     {
         const bool is_selected = (i == selected);
         const char* label = kPerformMenuLabels[i];
-        const int text_x = kListLeftX;
+        const int text_x = list_x;
         const int text_y = start_y + i * (text_h + kListGapY);
         if(is_selected)
-        {
             DrawFillOnlyTinyString(d, label, text_x, text_y);
-        }
         else
-        {
             DrawTinyString(d, label, text_x, text_y, true);
-        }
 
         if(is_selected)
         {
             const uint8_t* icon = nullptr;
-            int icon_w = 0;
-            int icon_h = 0;
-            int icon_stride = 0;
-            if(i == 0)
+            if(i == 0)      icon = kIconPresetsDisk61x29;
+            else if(i == 1) icon = kIconPerformEngine61x29;
+            else if(i == 2) icon = kIconPerformKeyzone61x29;
+            else if(i == 3) icon = kIconPerformAdsr61x29;
+            else if(i == 4) icon = kIconPerformExpress61x29;
+            else if(i == 5) icon = kIconPerformProcess61x29;
+            if(icon != nullptr && icon_area_w >= kIconW)
             {
-                icon = kIconPerformEngine61x29;
-                icon_w = kIconW;
-                icon_h = kIconH;
-                icon_stride = kIconStride;
-            }
-            else if(i == 1)
-            {
-                icon = kIconPerformKeyzone61x29;
-                icon_w = kIconW;
-                icon_h = kIconH;
-                icon_stride = kIconStride;
-            }
-            else if(i == 2)
-            {
-                icon = kIconPerformAdsr61x29;
-                icon_w = kIconW;
-                icon_h = kIconH;
-                icon_stride = kIconStride;
-            }
-            else if(i == 3)
-            {
-                icon = kIconPerformExpress61x29;
-                icon_w = kIconW;
-                icon_h = kIconH;
-                icon_stride = kIconStride;
-            }
-            else if(i == 4)
-            {
-                icon = kIconPerformProcess61x29;
-                icon_w = kIconW;
-                icon_h = kIconH;
-                icon_stride = kIconStride;
-            }
-            if(icon != nullptr && icon_area_w > icon_w)
-            {
-                const int icon_x = icon_area_x + (icon_area_w - icon_w) / 2;
-                const int icon_y = (kDisplayH - icon_h) / 2;
-                DrawBitmap1bpp(d, icon_x, icon_y, icon_w, icon_h, icon_stride, icon, true);
+                const int icon_x = icon_area_x + (icon_area_w - kIconW) / 2;
+                const int icon_y = (kDisplayH - kIconH) / 2;
+                DrawBitmap1bpp(d, icon_x, icon_y, kIconW, kIconH, kIconStride, icon, true);
             }
         }
     }
@@ -321,14 +311,16 @@ bool PerformMenu_OnEnter(UiScreenCtx& ctx)
     switch(selected)
     {
         case 0:
-            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformEngine);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Presets);
         case 1:
-            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformKeyzone);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformEngine);
         case 2:
-            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformAdsr);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformKeyzone);
         case 3:
-            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformExpress);
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformAdsr);
         case 4:
+            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformExpress);
+        case 5:
         default:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformProcess);
     }

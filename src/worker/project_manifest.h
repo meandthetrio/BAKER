@@ -7,7 +7,7 @@
 #include "macros.h"
 #include "mod_matrix.h"
 
-static constexpr uint16_t kProjectManifestVersion = 23;
+static constexpr uint16_t kProjectManifestVersion = 25;
 static constexpr uint8_t kProjectPathMax = 64;
 static constexpr uint8_t kProjectSampleLayerCount = 2;
 
@@ -620,7 +620,8 @@ struct ProjectManifestV11
     uint8_t  perform_adsr_row[kProjectSampleLayerCount] = {1u, 1u};
     uint8_t  engine_play_mode[kProjectSampleLayerCount] = {1u, 1u};
     uint16_t perform_adsr_loop_attack[kProjectSampleLayerCount] = {5u, 5u};
-    uint8_t  perform_adsr_loop_decay[kProjectSampleLayerCount] = {20u, 20u};
+    // Widened uint8->uint16 at v24 so loop-mode decay can reach 1000 ms.
+    uint16_t perform_adsr_loop_decay[kProjectSampleLayerCount] = {20u, 20u};
     uint8_t  perform_adsr_loop_sustain[kProjectSampleLayerCount] = {100u, 100u};
     uint16_t perform_adsr_loop_release[kProjectSampleLayerCount] = {50u, 50u};
     float    perform_adsr_loop_crossfade[kProjectSampleLayerCount] = {0.0625f, 0.0625f};
@@ -685,7 +686,165 @@ struct ProjectManifestV11
     int8_t   perform_keytrack_tilt = 0;
     int8_t   perform_keytrack_amount_db = 0;
     uint8_t  perform_keytrack_mid_note = 66; // F#4 (0 dB pivot, C3..C6)
+    // Added at v24 as padding to make the struct a distinct sizeof from
+    // ProjectManifestV23Legacy (widening decay alone was absorbed by alignment
+    // padding). Now also carries the EQ tilt-vs-bell flag in **bit 0** (packed
+    // here to avoid another version bump); other bits remain reserved/0.
+    uint16_t reserved_v24 = 0;
+    // Independent low/high EQ shelf bands (appended top-level at v25, NOT into
+    // ProjectEqState which is embedded in frozen legacy snapshots). Each is a
+    // shelf at its gain, or a filter (lo->HP, hi->LP) when *_is_filter, where the
+    // gain becomes resonance (*_q). Pre-v25 projects default to flat shelves.
+    float    eq_lo_gain_db   = 0.0f;
+    float    eq_lo_cutoff_hz = 120.0f;
+    uint8_t  eq_lo_is_filter = 0u;
+    float    eq_lo_q         = 0.707f;
+    float    eq_hi_gain_db   = 0.0f;
+    float    eq_hi_cutoff_hz = 6000.0f;
+    uint8_t  eq_hi_is_filter = 0u;
+    float    eq_hi_q         = 0.707f;
 };
+
+// Snapshot of the current V11 in-memory layout as it existed at manifest version
+// 24 — i.e. before the top-level low/high EQ shelf fields were appended at v25.
+// Distinct sizeof, so the size-based loader can identify it.
+struct ProjectManifestV24Legacy
+{
+    char     magic[4] = {'A', 'K', 'P', 'J'};
+    uint16_t version = 24u;
+    uint8_t  sample_present_mask = 0;
+    uint8_t  adsr_curve_flags = 0;
+    char     wav_path[kProjectSampleLayerCount][kProjectPathMax] = {};
+    SampleEdit edit[kProjectSampleLayerCount]{};
+    int8_t   engine_tune_semitones[kProjectSampleLayerCount] = {};
+    uint8_t  perform_keyzone_lo_note[kProjectSampleLayerCount] = {48u, 48u};
+    uint8_t  perform_keyzone_hi_note[kProjectSampleLayerCount] = {60u, 60u};
+    uint8_t  perform_adsr_row[kProjectSampleLayerCount] = {1u, 1u};
+    uint8_t  engine_play_mode[kProjectSampleLayerCount] = {1u, 1u};
+    uint16_t perform_adsr_loop_attack[kProjectSampleLayerCount] = {5u, 5u};
+    uint16_t perform_adsr_loop_decay[kProjectSampleLayerCount] = {20u, 20u};
+    uint8_t  perform_adsr_loop_sustain[kProjectSampleLayerCount] = {100u, 100u};
+    uint16_t perform_adsr_loop_release[kProjectSampleLayerCount] = {50u, 50u};
+    float    perform_adsr_loop_crossfade[kProjectSampleLayerCount] = {0.0625f, 0.0625f};
+    float    perform_adsr_loop_crossfade_shape[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    uint8_t  perform_adsr_env_a_x[kProjectSampleLayerCount] = {13u, 13u};
+    uint8_t  perform_adsr_env_d_x[kProjectSampleLayerCount] = {38u, 38u};
+    uint8_t  perform_adsr_env_r_x[kProjectSampleLayerCount] = {89u, 89u};
+    uint8_t  perform_adsr_env_s_level[kProjectSampleLayerCount] = {50u, 50u};
+    int16_t  engine_gain_db[kProjectSampleLayerCount] = {0, 0};
+    uint8_t  engine_drive_mode[kProjectSampleLayerCount] = {0u, 0u};
+    float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
+    float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
+    ProjectSatState   sat{};
+    ProjectEqState    eq{};
+    ProjectDelayState delay{};
+    ProjectReverbState reverb{};
+    ProjectExpressState express{};
+    uint8_t  seq_running = 1;
+    uint8_t  plock_apply_enabled = 1;
+    uint8_t  lfo_wave = 0;
+    uint8_t  macro_sel = 0;
+    uint32_t seq_bpm = 120;
+    MacroState macro_ui{};
+    ModRoute mod_routes[kMaxModRoutes]{};
+    uint8_t  mod_route_selected = 0;
+    uint8_t  express_enabled = 0;
+    int8_t   engine_tune_cents[kProjectSampleLayerCount] = {};
+    char     project_name[13] = {};
+    uint8_t  project_style = 0;
+    uint8_t  project_style_pad[2] = {};
+    float    master_level = 1.0f;
+    uint8_t  velmod_target[2] = {0u, 0u};
+    int8_t   velmod_amount[2] = {0, 0};
+    uint8_t  velmod_threshold[2] = {0u, 0u};
+    uint8_t  velmod_shape[2] = {1u, 1u};
+    uint8_t  velmod_threshold_linked = 0u;
+    uint8_t  perform_keyzone_is_split = 0u;
+    uint8_t  engine_filter_mode[kProjectSampleLayerCount] = {0u, 0u};
+    uint8_t  velmod_source[2] = {0u, 0u};
+    float    sat_tone = 0.5f;
+    float    sat_bias = 0.0f;
+    int8_t   perform_keytrack_tilt = 0;
+    int8_t   perform_keytrack_amount_db = 0;
+    uint8_t  perform_keytrack_mid_note = 66;
+    uint16_t reserved_v24 = 0;
+};
+
+static_assert(sizeof(ProjectManifestV11) != sizeof(ProjectManifestV24Legacy),
+              "v25 appended EQ fields must change the manifest sizeof");
+
+// Snapshot of the current V11 in-memory layout as it existed at manifest version
+// 23 — i.e. with perform_adsr_loop_decay still uint8_t (before it was widened to
+// uint16_t at v24 to allow a 1000 ms decay). Distinct sizeof from the current
+// struct (decay grew by 2 bytes), so the size-based loader can identify it.
+struct ProjectManifestV23Legacy
+{
+    char     magic[4] = {'A', 'K', 'P', 'J'};
+    uint16_t version = 23u;
+    uint8_t  sample_present_mask = 0;
+    uint8_t  adsr_curve_flags = 0;
+    char     wav_path[kProjectSampleLayerCount][kProjectPathMax] = {};
+    SampleEdit edit[kProjectSampleLayerCount]{};
+    int8_t   engine_tune_semitones[kProjectSampleLayerCount] = {};
+    uint8_t  perform_keyzone_lo_note[kProjectSampleLayerCount] = {48u, 48u};
+    uint8_t  perform_keyzone_hi_note[kProjectSampleLayerCount] = {60u, 60u};
+    uint8_t  perform_adsr_row[kProjectSampleLayerCount] = {1u, 1u};
+    uint8_t  engine_play_mode[kProjectSampleLayerCount] = {1u, 1u};
+    uint16_t perform_adsr_loop_attack[kProjectSampleLayerCount] = {5u, 5u};
+    uint8_t  perform_adsr_loop_decay[kProjectSampleLayerCount] = {20u, 20u};
+    uint8_t  perform_adsr_loop_sustain[kProjectSampleLayerCount] = {100u, 100u};
+    uint16_t perform_adsr_loop_release[kProjectSampleLayerCount] = {50u, 50u};
+    float    perform_adsr_loop_crossfade[kProjectSampleLayerCount] = {0.0625f, 0.0625f};
+    float    perform_adsr_loop_crossfade_shape[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    uint8_t  perform_adsr_env_a_x[kProjectSampleLayerCount] = {13u, 13u};
+    uint8_t  perform_adsr_env_d_x[kProjectSampleLayerCount] = {38u, 38u};
+    uint8_t  perform_adsr_env_r_x[kProjectSampleLayerCount] = {89u, 89u};
+    uint8_t  perform_adsr_env_s_level[kProjectSampleLayerCount] = {50u, 50u};
+    int16_t  engine_gain_db[kProjectSampleLayerCount] = {0, 0};
+    uint8_t  engine_drive_mode[kProjectSampleLayerCount] = {0u, 0u};
+    float    engine_filter_cutoff_hz[kProjectSampleLayerCount] = {20000.0f, 20000.0f};
+    float    engine_filter_resonance[kProjectSampleLayerCount] = {0.0f, 0.0f};
+    float    engine_layer_master_level[kProjectSampleLayerCount] = {1.0f, 1.0f};
+    uint8_t  fx_order[4] = {0, 2, 3, 1};
+    ProjectSatState   sat{};
+    ProjectEqState    eq{};
+    ProjectDelayState delay{};
+    ProjectReverbState reverb{};
+    ProjectExpressState express{};
+    uint8_t  seq_running = 1;
+    uint8_t  plock_apply_enabled = 1;
+    uint8_t  lfo_wave = 0;
+    uint8_t  macro_sel = 0;
+    uint32_t seq_bpm = 120;
+    MacroState macro_ui{};
+    ModRoute mod_routes[kMaxModRoutes]{};
+    uint8_t  mod_route_selected = 0;
+    uint8_t  express_enabled = 0;
+    int8_t   engine_tune_cents[kProjectSampleLayerCount] = {};
+    char     project_name[13] = {};
+    uint8_t  project_style = 0;
+    uint8_t  project_style_pad[2] = {};
+    float    master_level = 1.0f;
+    uint8_t  velmod_target[2] = {0u, 0u};
+    int8_t   velmod_amount[2] = {0, 0};
+    uint8_t  velmod_threshold[2] = {0u, 0u};
+    uint8_t  velmod_shape[2] = {1u, 1u};
+    uint8_t  velmod_threshold_linked = 0u;
+    uint8_t  perform_keyzone_is_split = 0u;
+    uint8_t  engine_filter_mode[kProjectSampleLayerCount] = {0u, 0u};
+    uint8_t  velmod_source[2] = {0u, 0u};
+    float    sat_tone = 0.5f;
+    float    sat_bias = 0.0f;
+    int8_t   perform_keytrack_tilt = 0;
+    int8_t   perform_keytrack_amount_db = 0;
+    uint8_t  perform_keytrack_mid_note = 66;
+};
+
+static_assert(sizeof(ProjectManifestV11) != sizeof(ProjectManifestV23Legacy),
+              "v24 widened decay must change the manifest sizeof so the loader can "
+              "distinguish v23 files by size");
 
 // Snapshot of the current V11 in-memory layout as it existed at manifest
 // version 22 — i.e. with sat_tone/sat_bias but before perform_keytrack_tilt was

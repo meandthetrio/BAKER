@@ -3,8 +3,25 @@
 #include "ui_layout.h"
 #include "ui_overlay.h"
 #include "ui_boot_logo.h"
+#include "ui_draw_text.h"
 
 using namespace daisy;
+
+// Transient centered "saved" confirmation banner, drawn on top of the active
+// screen for ~1 s after a successful save (preset or bake).
+static void DrawSavedBanner(OledPager& d, const char* msg)
+{
+    if(!msg || msg[0] == '\0')
+        msg = "SAVED";
+    const int tw = TinyStringWidth(msg);
+    const int box_w = tw + 10;
+    const int box_h = Font5x7::H + 10;
+    const int x0 = (128 - box_w) / 2;
+    const int y0 = (64 - box_h) / 2;
+    d.DrawRect(x0, y0, x0 + box_w - 1, y0 + box_h - 1, false, true);  // clear box
+    d.DrawRect(x0, y0, x0 + box_w - 1, y0 + box_h - 1, true, false);  // border
+    DrawTinyString(d, msg, x0 + 5, y0 + 5, true);
+}
 
 static constexpr uint16_t kRenderBudgetMs = 4;
 static constexpr uint16_t kCooldownMs = 50;
@@ -68,6 +85,10 @@ void UIRender::Render(const AppState& app, const Params& params)
         const UiLayout layout = UiLayout_Default();
         UiOverlay_Render(app.ui, app.diag, app.worker, params, layout, oled_pager_);
     }
+
+    // "saved" confirmation banner (auto-expires; no nav state needed).
+    if(static_cast<int32_t>(ui.preset_saved_overlay_until_ms - ctx.now_ms) > 0)
+        DrawSavedBanner(oled_pager_, ui.saved_overlay_text);
 }
 
 void UIRender::RenderNowAndFlushFullFrame(AppState& app, const Params& params)
@@ -262,6 +283,22 @@ void UIRender::Tick(AppState& app, const Params& params)
             }
         }
     }
+
+    // Saved-banner pending flag set by callers without a timestamp (bake save):
+    // open the 1 s banner window using now_ms.
+    if(ui.saved_overlay_pending)
+    {
+        ui.saved_overlay_pending = false;
+        ui.preset_saved_overlay_until_ms = now_ms + 1000u;
+        ui.ui_dirty = true;
+    }
+
+    // Keep redrawing through the saved-banner window, plus a short tail (~50 ms)
+    // past expiry so one frame renders without the banner to clear it (rendering
+    // is otherwise dirty-gated).
+    if(ui.preset_saved_overlay_until_ms != 0
+       && static_cast<int32_t>((ui.preset_saved_overlay_until_ms + 50u) - now_ms) > 0)
+        ui.ui_dirty = true;
 
     // Only the diag fields that are actually rendered (HUD screen + diag
     // overlay) participate in dirty tracking here. Other diag fields are

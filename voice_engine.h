@@ -218,6 +218,20 @@ class VoiceEngine
     // Per-layer attack/release curve: false = exponential (default), true =
     // logarithmic. Read at note-on (InitEnvelope) and note-off (SetEnvelopeRelease).
     void SetLoopEnvelopeCurves(uint8_t layer, bool attack_log, bool release_log);
+    // ADSR playback mode (per layer; pushed once per block). When `mode` is true
+    // the voice amplitude follows a positional envelope across the trimmed region
+    // instead of the gate-driven ADSR: a_x/d_x/r_x/s_level are 0..100 fractions of
+    // the region; `sustain_loop` parks playback in the d_x..r_x section while the
+    // key is held (note-off plays out the r_x..end release tail), otherwise the
+    // region plays once (note-off ignored). The A/R ramp curves reuse the
+    // exp/log flags set via SetLoopEnvelopeCurves.
+    void SetAdsrPlaybackParams(uint8_t layer,
+                               bool    mode,
+                               uint8_t a_x,
+                               uint8_t d_x,
+                               uint8_t r_x,
+                               uint8_t s_level,
+                               bool    sustain_loop);
     void SetLoopCrossfadeAmount(uint8_t layer, float amount);
     void SetLoopCrossfadeShape(uint8_t layer, float shape);
     // When true, the layer's sample already has the loop crossfade baked into its
@@ -343,6 +357,14 @@ class VoiceEngine
     float loop_env_release_ms_[kEngineLayerCount] = {50.0f};
     bool  loop_env_attack_log_[kEngineLayerCount] = {false};
     bool  loop_env_release_log_[kEngineLayerCount] = {false};
+    // ADSR playback mode params (sized [2] and indexed by source_layer & 1u so a
+    // layer-1 voice can never read out of bounds; audio_callback pushes layer 0).
+    bool    adsr_mode_[2]         = {false, false};
+    uint8_t adsr_a_x_[2]          = {13u, 13u};
+    uint8_t adsr_d_x_[2]          = {38u, 38u};
+    uint8_t adsr_r_x_[2]          = {89u, 89u};
+    uint8_t adsr_s_level_[2]      = {50u, 50u};
+    bool    adsr_sustain_loop_[2] = {false, false};
 
     // Velocity-mod lane config (mirrors PerformParamsCurrent.velmod_*). Read at
     // note-on by StartVoice_. velmod_any_active_ is the fast-skip: true only if

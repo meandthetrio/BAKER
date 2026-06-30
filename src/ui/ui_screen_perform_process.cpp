@@ -2,6 +2,8 @@
 #include "ui_screen_perform_process_internal.h"
 
 #include <cstdio>
+#include <cmath>
+#include "tilt_eq.h"
 
 #include "app_state_ui.h"
 #include "app_state_engine.h"
@@ -27,8 +29,8 @@ static bool ProcessMainCursorLocked(const AppSharedState& shared,
     (void)engine;
     (void)layer;
     (void)main_cursor;
-    // 7-slot model: 0=vol, 1=cut, 2=res, 3-6 = the four FX. Nothing is locked
-    // (layer B's volume slot was removed when the engine went single-layer).
+    // 6-slot model: 0=vol, 1=cut/res (combined), 2-5 = the four FX. Nothing is
+    // locked (layer B's volume slot was removed when the engine went single-layer).
     return false;
 }
 
@@ -36,18 +38,18 @@ static void ProcessEnsureValidMainCursor(const AppSharedState& shared,
                                          AppEngineState& engine,
                                          uint8_t layer)
 {
-    engine.process.perform_process_main_cursor %= 7u;
+    engine.process.perform_process_main_cursor %= 6u;
     if(!ProcessMainCursorLocked(shared, engine, layer, engine.process.perform_process_main_cursor))
         return;
 
-    for(uint8_t step = 1; step < 7u; ++step)
+    for(uint8_t step = 1; step < 6u; ++step)
     {
-        const uint8_t next = static_cast<uint8_t>((engine.process.perform_process_main_cursor + step) % 7u);
+        const uint8_t next = static_cast<uint8_t>((engine.process.perform_process_main_cursor + step) % 6u);
         if(!ProcessMainCursorLocked(shared, engine, layer, next))
         {
             engine.process.perform_process_main_cursor = next;
-            if(next >= 3u)
-                engine.process.perform_process_fx_cursor = static_cast<uint8_t>((next - 3u) & 0x03u);
+            if(next >= 2u)
+                engine.process.perform_process_fx_cursor = static_cast<uint8_t>((next - 2u) & 0x03u);
             return;
         }
     }
@@ -87,30 +89,28 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     ProcessEnsureValidMainCursor(shared, engine, layer);
     ProcessEnsureValidDetailParam(shared, engine, layer, engine.process.perform_process_fx_cursor,
                                   ctx.params->EditTargets().sat_mode);
-    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 7u);
-    const bool main_selects_fx = (main_cursor >= 3u);
-    const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 3u) & 0x03u)
+    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 6u);
+    const bool main_selects_fx = (main_cursor >= 2u);
+    const uint8_t cursor = main_selects_fx ? static_cast<uint8_t>((main_cursor - 2u) & 0x03u)
                                            : static_cast<uint8_t>(engine.process.perform_process_fx_cursor & 0x03u);
     const uint8_t fx_id = engine.process.perform_process_fx_order[cursor];
     auto apply_fx_reorder = [&](int encoder_delta) -> bool
     {
         if(!ctx.rshift || !main_selects_fx || encoder_delta == 0)
             return false;
-        const int from = static_cast<int>(main_cursor - 3u);
+        const int from = static_cast<int>(main_cursor - 2u);
         if(from < 0 || from > 3)
-            return true;
-        if(engine.process.perform_process_fx_order[from] == 1u)
             return true;
         const int dir = (encoder_delta > 0) ? 1 : -1;
         const int to = from + dir;
-        if(to < 0 || to > 2)
+        if(to < 0 || to > 3) // all 4 slots reorderable (EQ included)
             return true;
 
         const uint8_t tmp = engine.process.perform_process_fx_order[from];
         engine.process.perform_process_fx_order[from] = engine.process.perform_process_fx_order[to];
         engine.process.perform_process_fx_order[to] = tmp;
         engine.process.perform_process_fx_cursor = static_cast<uint8_t>(to);
-        engine.process.perform_process_main_cursor = static_cast<uint8_t>(to + 3);
+        engine.process.perform_process_main_cursor = static_cast<uint8_t>(to + 2);
 
         PerformParamsTargets& t = ctx.params->EditTargets();
         for(int i = 0; i < 4; ++i)
@@ -122,6 +122,15 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     // POD2 toggles layer (same behavior as other PERFORM pages).
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
+        // On the EQ graph screen, Button2 cycles the focused band tilt->hi->lo.
+        if(engine.process.perform_process_eq_graph_active)
+        {
+            uint8_t b = engine.process.perform_process_eq_band;
+            engine.process.perform_process_eq_band = (b >= 2u) ? 0u : static_cast<uint8_t>(b + 1u);
+            engine.process.perform_process_eq_blink_ms = e.t_ms; // LED2 blink-off cue
+            ui.ui_dirty = true;
+            return true;
+        }
         ProcessHandleLayerToggle(ctx);
         return true;
     }
@@ -140,6 +149,14 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     {
         if(engine.process.perform_process_eq_graph_active)
         {
+            // REnc-click on the tilt band toggles it between tilt see-saw and a
+            // single bell (same gain/center/Q controls).
+            if(engine.process.perform_process_eq_band == 0u)
+            {
+                PerformParamsTargets& t = ctx.params->EditTargets();
+                t.eq_tilt_is_bell = !t.eq_tilt_is_bell;
+                ctx.params->PublishTargets();
+            }
             ui.ui_dirty = true;
             return true;
         }
@@ -148,12 +165,18 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(!main_selects_fx)
             {
-                if(main_cursor == 0u) // vol: R-click toggles mute. cut/res: no-op.
+                if(main_cursor == 0u) // vol: R-click toggles mute.
                     ProcessHandleLayerMuteToggle(ctx, 0u);
+                else if(main_cursor == 1u) // cut/res: R-click toggles cut<->res.
+                {
+                    engine.process.perform_process_cutres_sel
+                        = engine.process.perform_process_cutres_sel ? 0u : 1u;
+                    ui.ui_dirty = true;
+                }
                 return true;
             }
             {
-                const uint8_t c = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 3u) & 0x03u);
+                const uint8_t c = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 2u) & 0x03u);
                 const uint8_t fid = engine.process.perform_process_fx_order[c];
                 if(fid == 1u)
                 {
@@ -189,8 +212,29 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         if(engine.process.perform_process_eq_graph_active && fx_id == 1u)
         {
             PerformParamsTargets& t = ctx.params->EditTargets();
-            const float step = 0.018f * static_cast<float>(e.value);
-            t.eq_center_norm = Clamp01(t.eq_center_norm + step);
+            const uint8_t band = engine.process.perform_process_eq_band;
+            // LEnc sets the focused band's frequency. Geometric step (~half a
+            // semitone/detent). lo: CW raises cutoff toward 500; hi: CW lowers
+            // cutoff toward 2000 (both squeeze toward the midrange); tilt: center.
+            if(band == 2u) // lo shelf/HP cutoff 20..500
+            {
+                float c = t.eq_lo_cutoff_hz * std::pow(2.0f, static_cast<float>(e.value) / 24.0f);
+                if(c < kEqLoCutMinHz) c = kEqLoCutMinHz;
+                if(c > kEqLoCutMaxHz) c = kEqLoCutMaxHz;
+                t.eq_lo_cutoff_hz = c;
+            }
+            else if(band == 1u) // hi shelf/LP cutoff 2000..20000 (CW -> down)
+            {
+                float c = t.eq_hi_cutoff_hz * std::pow(2.0f, static_cast<float>(-e.value) / 24.0f);
+                if(c < kEqHiCutMinHz) c = kEqHiCutMinHz;
+                if(c > kEqHiCutMaxHz) c = kEqHiCutMaxHz;
+                t.eq_hi_cutoff_hz = c;
+            }
+            else
+            {
+                const float step = 0.018f * static_cast<float>(e.value);
+                t.eq_center_norm = Clamp01(t.eq_center_norm + step);
+            }
             ctx.params->PublishTargets();
             ui.ui_dirty = true;
             return true;
@@ -212,14 +256,14 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         do
         {
             while(idx < 0)
-                idx += 7;
-            while(idx >= 7)
-                idx -= 7;
+                idx += 6;
+            while(idx >= 6)
+                idx -= 6;
             engine.process.perform_process_main_cursor = static_cast<uint8_t>(idx);
             idx += (e.value < 0) ? -1 : 1;
         } while(ProcessMainCursorLocked(shared, engine, layer, engine.process.perform_process_main_cursor));
-        if(engine.process.perform_process_main_cursor >= 3u)
-            engine.process.perform_process_fx_cursor = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 3u) & 0x03u);
+        if(engine.process.perform_process_main_cursor >= 2u)
+            engine.process.perform_process_fx_cursor = static_cast<uint8_t>((engine.process.perform_process_main_cursor - 2u) & 0x03u);
         ui.ui_dirty = true;
         return true;
     }
@@ -261,10 +305,13 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(main_cursor == 0u)
                 ProcessHandleLayerVolumeEdit(ctx, e, 0u);
-            else if(main_cursor == 1u)
-                ProcessHandleProcessResonanceEdit(ctx, e);
-            else // main_cursor == 2u
-                ProcessHandleProcessCutoffEdit(ctx, e);
+            else // main_cursor == 1u: combined cut/res knob (selection picks which)
+            {
+                if(engine.process.perform_process_cutres_sel != 0u)
+                    ProcessHandleProcessResonanceEdit(ctx, e);
+                else
+                    ProcessHandleProcessCutoffEdit(ctx, e);
+            }
             return true;
         }
 
@@ -330,7 +377,7 @@ void PerformProcess_Render(UiScreenCtx& ctx)
         if(g_fx == 1u)
         {
             const PerformParamsTargets& tg = ctx.params->TargetsForUI();
-            DrawEqGraphScreen(d, tg, ctx.now_ms);
+            DrawEqGraphScreen(d, tg, ctx.now_ms, engine.process.perform_process_eq_band, ctx.rshift);
             return;
         }
         engine.process.perform_process_eq_graph_active = false;
@@ -368,8 +415,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
         DrawMicroString(d, header_label, box_x + 2, 2, false);
     }
 
-    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 7u);
-    const int32_t selected_index = (main_cursor >= 3u) ? static_cast<int32_t>(main_cursor - 3u) : -1;
+    const uint8_t main_cursor = static_cast<uint8_t>(engine.process.perform_process_main_cursor % 6u);
+    const int32_t selected_index = (main_cursor >= 2u) ? static_cast<int32_t>(main_cursor - 2u) : -1;
     const int box_y = layout.y_body;
     const int box_h = layout.y_footer - layout.y_body + layout.line_h;
     const PerformParamsTargets& t = ctx.params->TargetsForUI();
@@ -377,7 +424,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     if(box_h > 24)
     {
         const ProcessLayerVolumeUiState layer_volume_ui = ProcessSyncLayerVolumeUiState(engine, t);
-        DrawProcessLayerVolumePane(d, layer_volume_ui, main_cursor, box_y, box_h);
+        DrawProcessLayerVolumePane(d, layer_volume_ui, main_cursor,
+                                   engine.process.perform_process_cutres_sel, box_y, box_h);
     }
 
     // Keep right half for FX faders.
@@ -433,8 +481,11 @@ void PerformProcess_Render(UiScreenCtx& ctx)
     const int fader_h = box_h - 2;
     if(fader_w > 4 && fader_h > 4)
     {
+        // Normal (non-RShift) fader highlight for SAT/DELAY/REVERB only. Under
+        // RShift the shared solid reorder border replaces it, and EQ uses its own
+        // inverted box, so both are excluded here.
         const int32_t shared_selected_index
-            = (selected_index >= 0 && selected_index < 4
+            = (!ctx.rshift && selected_index >= 0 && selected_index < 4
                && engine.process.perform_process_fx_order[selected_index] != 1u)
                   ? selected_index
                   : -1;
@@ -485,14 +536,21 @@ void PerformProcess_Render(UiScreenCtx& ctx)
             if(lane_right < lane_left || lane_bottom < lane_top)
                 break;
 
-            if(focused)
+            // EQ lane focus (non-RShift): inverted box pulled in 2px on each axis
+            // + a dotted border 1px outside it. Under RShift the shared solid
+            // reorder border (drawn after this loop) is used instead.
+            const bool inverted = focused && !ctx.rshift;
+            if(inverted)
             {
-                const int focus_left = lane_left + 1;
-                const int focus_top = lane_top + 1;
-                const int focus_right = lane_right - 1;
-                const int focus_bottom = lane_bottom - 1;
+                const int focus_left = lane_left + 2;
+                const int focus_top = lane_top + 2;
+                const int focus_right = lane_right - 2;
+                const int focus_bottom = lane_bottom - 2;
                 if(focus_right >= focus_left && focus_bottom >= focus_top)
+                {
                     d.DrawRect(focus_left, focus_top, focus_right, focus_bottom, true, true);
+                    DrawDottedRect(d, lane_left, lane_top, lane_right, lane_bottom, true);
+                }
             }
 
             const char* top_label = "E";
@@ -504,9 +562,23 @@ void PerformProcess_Render(UiScreenCtx& ctx)
             const int total_h = (Font5x7::H * 2) + gap;
             const int top_y = lane_top + ((lane_bottom - lane_top - total_h) / 2);
             const int bottom_y = top_y + Font5x7::H + gap;
-            DrawTinyStringCaseSensitive(d, top_label, lane_cx - (top_w / 2), top_y, !focused);
-            DrawTinyStringCaseSensitive(d, bottom_label, lane_cx - (bottom_w / 2), bottom_y, !focused);
+            DrawTinyStringCaseSensitive(d, top_label, lane_cx - (top_w / 2), top_y, !inverted);
+            DrawTinyStringCaseSensitive(d, bottom_label, lane_cx - (bottom_w / 2), bottom_y, !inverted);
             break;
+        }
+
+        // RShift held: the focused plugin (any of the 4) shows a plain solid
+        // border — the reorder affordance, drawn alongside the arrows.
+        if(ctx.rshift && selected_index >= 0 && selected_index < 4)
+        {
+            const int i = selected_index;
+            const int lane_left = (i == 0) ? fader_x + 1 : ((lane_x[i - 1] + lane_x[i]) / 2) + 1;
+            const int lane_right = (i == 3) ? (fader_x + fader_w - 2)
+                                            : ((lane_x[i] + lane_x[i + 1]) / 2) - 1;
+            const int lane_top = fader_y + 1;
+            const int lane_bottom = fader_y + fader_h - 2;
+            if(lane_right >= lane_left && lane_bottom >= lane_top)
+                d.DrawRect(lane_left, lane_top, lane_right, lane_bottom, true, false);
         }
     }
 }

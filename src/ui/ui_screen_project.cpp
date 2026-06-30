@@ -1171,7 +1171,16 @@ bool QueueBakeRenameSave(AppUiState& ui)
 
     ui.bake_rename_active = false;
     ui.bake_save_status[0] = '\0';
-    UiNav_Pop(ui.ui_nav);
+    // Bake finished: show a transient "BAKE FILE SAVED" banner (1 s, auto-dismiss
+    // via the UI tick) + a green LED flash, and exit to the Samples screen rather
+    // than back to the bake screen. Nav stack here is Samples -> Bake -> Rename, so
+    // pop twice (Rename then Bake) to land on Samples.
+    ui.bake_created_show = false;
+    ui.bake_created_flash_pending = true;
+    std::snprintf(ui.saved_overlay_text, sizeof(ui.saved_overlay_text), "BAKE FILE SAVED");
+    ui.saved_overlay_pending = true;
+    UiNav_Pop(ui.ui_nav); // pop RenameProject
+    UiNav_Pop(ui.ui_nav); // pop BakeMenu -> Samples
     ui.ui_dirty = true;
     return true;
 }

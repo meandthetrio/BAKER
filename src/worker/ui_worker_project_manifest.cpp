@@ -67,6 +67,16 @@ static bool ProjectManifestValid(const ProjectManifestV11& m)
     return ManifestMagicVersionOk(m.magic, m.version, kProjectManifestVersion);
 }
 
+static bool ProjectManifestValid(const ProjectManifestV23Legacy& m)
+{
+    return ManifestMagicVersionOk(m.magic, m.version, 23u);
+}
+
+static bool ProjectManifestValid(const ProjectManifestV24Legacy& m)
+{
+    return ManifestMagicVersionOk(m.magic, m.version, 24u);
+}
+
 static bool ProjectManifestValid(const ProjectManifestV22Legacy& m)
 {
     return ManifestMagicVersionOk(m.magic, m.version, 22u);
@@ -625,6 +635,136 @@ static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifes
 // v22 → v23: layout is byte-identical except the appended perform_keytrack_tilt.
 // Copy every v22 field (including sat_tone/sat_bias); perform_keytrack_tilt keeps
 // its default (0 = flat).
+static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifestV24Legacy& src)
+{
+    // v24 -> v25: identical layout except the top-level low/high EQ shelf fields
+    // appended at v25 (left at their defaults below). Everything else copies 1:1.
+    dst = ProjectManifestV11{};
+    dst.version = src.version;
+    dst.sample_present_mask = src.sample_present_mask;
+    dst.adsr_curve_flags = src.adsr_curve_flags;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
+        dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
+        dst.perform_adsr_row[slot] = src.perform_adsr_row[slot];
+        dst.engine_play_mode[slot] = src.engine_play_mode[slot];
+        dst.perform_adsr_loop_attack[slot] = src.perform_adsr_loop_attack[slot];
+        dst.perform_adsr_loop_decay[slot] = src.perform_adsr_loop_decay[slot];
+        dst.perform_adsr_loop_sustain[slot] = src.perform_adsr_loop_sustain[slot];
+        dst.perform_adsr_loop_release[slot] = src.perform_adsr_loop_release[slot];
+        dst.perform_adsr_loop_crossfade[slot] = src.perform_adsr_loop_crossfade[slot];
+        dst.perform_adsr_loop_crossfade_shape[slot] = src.perform_adsr_loop_crossfade_shape[slot];
+        dst.perform_adsr_env_a_x[slot] = src.perform_adsr_env_a_x[slot];
+        dst.perform_adsr_env_d_x[slot] = src.perform_adsr_env_d_x[slot];
+        dst.perform_adsr_env_r_x[slot] = src.perform_adsr_env_r_x[slot];
+        dst.perform_adsr_env_s_level[slot] = src.perform_adsr_env_s_level[slot];
+        dst.engine_gain_db[slot] = src.engine_gain_db[slot];
+        dst.engine_drive_mode[slot] = src.engine_drive_mode[slot];
+        dst.engine_filter_cutoff_hz[slot] = src.engine_filter_cutoff_hz[slot];
+        dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
+        dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
+        dst.engine_tune_cents[slot] = src.engine_tune_cents[slot];
+        dst.engine_filter_mode[slot] = src.engine_filter_mode[slot];
+    }
+    for(size_t i = 0; i < 4; ++i)
+        dst.fx_order[i] = src.fx_order[i];
+    dst.sat = src.sat;
+    dst.eq = src.eq;
+    dst.delay = src.delay;
+    dst.reverb = src.reverb;
+    dst.express = src.express;
+    dst.express_enabled = src.express_enabled ? 1u : 0u;
+    std::snprintf(dst.project_name, sizeof(dst.project_name), "%s", src.project_name);
+    dst.project_style = src.project_style;
+    CopySharedSeqModTail(dst, src);
+    dst.master_level = src.master_level;
+    for(uint8_t lane = 0; lane < 2u; ++lane)
+    {
+        dst.velmod_target[lane] = src.velmod_target[lane];
+        dst.velmod_amount[lane] = src.velmod_amount[lane];
+        dst.velmod_threshold[lane] = src.velmod_threshold[lane];
+        dst.velmod_shape[lane] = src.velmod_shape[lane];
+        dst.velmod_source[lane] = src.velmod_source[lane];
+    }
+    dst.velmod_threshold_linked = src.velmod_threshold_linked;
+    dst.perform_keyzone_is_split = src.perform_keyzone_is_split;
+    dst.sat_tone = src.sat_tone;
+    dst.sat_bias = src.sat_bias;
+    dst.perform_keytrack_tilt = src.perform_keytrack_tilt;
+    dst.perform_keytrack_amount_db = src.perform_keytrack_amount_db;
+    dst.perform_keytrack_mid_note = src.perform_keytrack_mid_note;
+    // eq lo/hi fields keep their (flat) defaults.
+}
+
+static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifestV23Legacy& src)
+{
+    // v23 -> v24: identical layout except perform_adsr_loop_decay widened
+    // uint8_t -> uint16_t (assignment below promotes it). All other fields copy
+    // straight across, including the v23 keytrack additions.
+    dst = ProjectManifestV11{};
+    dst.version = src.version;
+    dst.sample_present_mask = src.sample_present_mask;
+    dst.adsr_curve_flags = src.adsr_curve_flags;
+    for(uint8_t slot = 0; slot < kProjectSampleLayerCount; ++slot)
+    {
+        std::snprintf(dst.wav_path[slot], sizeof(dst.wav_path[slot]), "%s", src.wav_path[slot]);
+        dst.edit[slot] = src.edit[slot];
+        dst.engine_tune_semitones[slot] = src.engine_tune_semitones[slot];
+        dst.perform_keyzone_lo_note[slot] = src.perform_keyzone_lo_note[slot];
+        dst.perform_keyzone_hi_note[slot] = src.perform_keyzone_hi_note[slot];
+        dst.perform_adsr_row[slot] = src.perform_adsr_row[slot];
+        dst.engine_play_mode[slot] = src.engine_play_mode[slot];
+        dst.perform_adsr_loop_attack[slot] = src.perform_adsr_loop_attack[slot];
+        dst.perform_adsr_loop_decay[slot] = src.perform_adsr_loop_decay[slot];
+        dst.perform_adsr_loop_sustain[slot] = src.perform_adsr_loop_sustain[slot];
+        dst.perform_adsr_loop_release[slot] = src.perform_adsr_loop_release[slot];
+        dst.perform_adsr_loop_crossfade[slot] = src.perform_adsr_loop_crossfade[slot];
+        dst.perform_adsr_loop_crossfade_shape[slot] = src.perform_adsr_loop_crossfade_shape[slot];
+        dst.perform_adsr_env_a_x[slot] = src.perform_adsr_env_a_x[slot];
+        dst.perform_adsr_env_d_x[slot] = src.perform_adsr_env_d_x[slot];
+        dst.perform_adsr_env_r_x[slot] = src.perform_adsr_env_r_x[slot];
+        dst.perform_adsr_env_s_level[slot] = src.perform_adsr_env_s_level[slot];
+        dst.engine_gain_db[slot] = src.engine_gain_db[slot];
+        dst.engine_drive_mode[slot] = src.engine_drive_mode[slot];
+        dst.engine_filter_cutoff_hz[slot] = src.engine_filter_cutoff_hz[slot];
+        dst.engine_filter_resonance[slot] = src.engine_filter_resonance[slot];
+        dst.engine_layer_master_level[slot] = src.engine_layer_master_level[slot];
+        dst.engine_tune_cents[slot] = src.engine_tune_cents[slot];
+        dst.engine_filter_mode[slot] = src.engine_filter_mode[slot];
+    }
+    for(size_t i = 0; i < 4; ++i)
+        dst.fx_order[i] = src.fx_order[i];
+    dst.sat = src.sat;
+    dst.eq = src.eq;
+    dst.delay = src.delay;
+    dst.reverb = src.reverb;
+    dst.express = src.express;
+    dst.express_enabled = src.express_enabled ? 1u : 0u;
+    std::snprintf(dst.project_name, sizeof(dst.project_name), "%s", src.project_name);
+    dst.project_style = src.project_style;
+    CopySharedSeqModTail(dst, src);
+    dst.master_level = src.master_level;
+    for(uint8_t lane = 0; lane < 2u; ++lane)
+    {
+        dst.velmod_target[lane] = src.velmod_target[lane];
+        dst.velmod_amount[lane] = src.velmod_amount[lane];
+        dst.velmod_threshold[lane] = src.velmod_threshold[lane];
+        dst.velmod_shape[lane] = src.velmod_shape[lane];
+        dst.velmod_source[lane] = src.velmod_source[lane];
+    }
+    dst.velmod_threshold_linked = src.velmod_threshold_linked;
+    dst.perform_keyzone_is_split = src.perform_keyzone_is_split;
+    dst.sat_tone = src.sat_tone;
+    dst.sat_bias = src.sat_bias;
+    dst.perform_keytrack_tilt = src.perform_keytrack_tilt;
+    dst.perform_keytrack_amount_db = src.perform_keytrack_amount_db;
+    dst.perform_keytrack_mid_note = src.perform_keytrack_mid_note;
+}
+
 static void ProjectManifestUpgrade(ProjectManifestV11& dst, const ProjectManifestV22Legacy& src)
 {
     dst = ProjectManifestV11{};
@@ -956,6 +1096,24 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
     {
         rd = ReadSdDmaSafe(&s_sd.file, &manifest, sizeof(manifest), &br);
     }
+    else if(manifest_size == sizeof(ProjectManifestV24Legacy))
+    {
+        ProjectManifestV24Legacy legacy_v24{};
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v24, sizeof(legacy_v24), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v24) && ProjectManifestValid(legacy_v24))
+            ProjectManifestUpgrade(manifest, legacy_v24);
+        else
+            rd = FR_INVALID_OBJECT;
+    }
+    else if(manifest_size == sizeof(ProjectManifestV23Legacy))
+    {
+        ProjectManifestV23Legacy legacy_v23{};
+        rd = ReadSdDmaSafe(&s_sd.file, &legacy_v23, sizeof(legacy_v23), &br);
+        if(rd == FR_OK && br == sizeof(legacy_v23) && ProjectManifestValid(legacy_v23))
+            ProjectManifestUpgrade(manifest, legacy_v23);
+        else
+            rd = FR_INVALID_OBJECT;
+    }
     else if(manifest_size == sizeof(ProjectManifestV22Legacy))
     {
         ProjectManifestV22Legacy legacy_v22{};
@@ -1252,6 +1410,10 @@ bool ReadProjectManifestFromFile(ProjectManifestV11& manifest)
 
     return (manifest_size == sizeof(ProjectManifestV11) && rd == FR_OK && br == sizeof(manifest)
             && ProjectManifestValid(manifest))
+           || (manifest_size == sizeof(ProjectManifestV24Legacy) && rd == FR_OK
+               && br == sizeof(ProjectManifestV24Legacy))
+           || (manifest_size == sizeof(ProjectManifestV23Legacy) && rd == FR_OK
+               && br == sizeof(ProjectManifestV23Legacy))
            || (manifest_size == sizeof(ProjectManifestV22Legacy) && rd == FR_OK
                && br == sizeof(ProjectManifestV22Legacy))
            || (manifest_size == sizeof(ProjectManifestV21Legacy) && rd == FR_OK

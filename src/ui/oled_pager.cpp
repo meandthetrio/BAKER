@@ -120,6 +120,15 @@ void OledPager::DrawPixel(uint_fast8_t x, uint_fast8_t y, bool on)
         back_[index] &= ~mask;
 }
 
+bool OledPager::GetPixel(uint_fast8_t x, uint_fast8_t y) const
+{
+    if(x >= kWidth || y >= kHeight)
+        return false;
+    const size_t index = x + (y / 8) * kWidth;
+    const uint8_t mask = 1 << (y % 8);
+    return (back_[index] & mask) != 0;
+}
+
 void OledPager::SendCommand(uint8_t cmd)
 {
     uint8_t buf[2] = {0x00, cmd};

@@ -36,9 +36,8 @@ uint8_t ProcessDetailParamCount(uint8_t fx_id, uint8_t sat_mode)
 {
     switch(fx_id)
     {
-        // SAT is mode-dependent: TAPE = SAT BUMP TONE BIAS + mode toggle (5);
-        // BIT = RESO SMPL + mode toggle (3).
-        case 0: return (sat_mode == 0) ? 5 : 3;
+        // SAT is tape-only now (bit removed): SAT BUMP TONE BIAS (4), no toggle.
+        case 0: (void)sat_mode; return 4;
         case 1: return 1; // EQ: graph only (no classic detail)
         case 2: return 4; // DELAY: LTM RTM FBK + mode slot
         case 3: return 5; // REVERB: Pre Dmp Dcy Mod + mode slot
@@ -180,14 +179,47 @@ void ProcessHandleProcessResonanceEdit(UiScreenCtx& ctx, const UiInputEvent& e)
 void ProcessEditEqGraph(UiScreenCtx& ctx, float delta)
 {
     PerformParamsTargets& t = ctx.params->EditTargets();
+    const uint8_t band = ctx.engine->process.perform_process_eq_band;
+    if(band == 1u || band == 2u) // hi or lo shelf band
+    {
+        float& gain = (band == 2u) ? t.eq_lo_gain_db : t.eq_hi_gain_db;
+        float& q    = (band == 2u) ? t.eq_lo_q : t.eq_hi_q;
+        bool&  filt = (band == 2u) ? t.eq_lo_is_filter : t.eq_hi_is_filter;
+        if(ctx.rshift)
+        {
+            // RShift+REnc toggles the band shelf <-> filter (lo->HP, hi->LP). One
+            // toggle per encoder event (magnitude ignored) so a spin doesn't
+            // flip-flop.
+            filt = !filt;
+            return;
+        }
+        if(filt)
+            q = ClampEqFilterQ(q + delta * (kEqFilterQMax - kEqFilterQMin) * 1.25f);
+        else
+            gain = ClampEqShelfGain(gain + delta * (kEqShelfGainMaxDb * 2.0f));
+        return;
+    }
+
+    // band 0: tilt
     if(ctx.rshift)
     {
-        // RShift + Ext: Q for both bells (0.5 .. 1.7)
-        t.eq_q = ClampEqQ(t.eq_q + delta * (kTiltEqQMax - kTiltEqQMin) * 1.25f);
+        // RShift + Ext: Q. Bell mode gets the wider range (up to kEqBellQMax) so
+        // it can tighten to a narrow surgical bell; tilt see-saw stays gentle.
+        if(t.eq_tilt_is_bell)
+        {
+            float q = t.eq_q + delta * (kEqBellQMax - kTiltEqQMin) * 1.25f;
+            if(q < kTiltEqQMin) q = kTiltEqQMin;
+            if(q > kEqBellQMax) q = kEqBellQMax;
+            t.eq_q = q;
+        }
+        else
+        {
+            t.eq_q = ClampEqQ(t.eq_q + delta * (kTiltEqQMax - kTiltEqQMin) * 1.25f);
+        }
     }
     else
     {
-        t.eq_tilt_db = ClampEqTiltDb(t.eq_tilt_db + delta * 18.0f);
+        t.eq_tilt_db = ClampEqTiltDb(t.eq_tilt_db + delta * (kTiltEqTiltMaxDb * 2.0f));
     }
 }
 
@@ -196,62 +228,26 @@ static bool ProcessEditSatDetail(PerformParamsTargets& t,
                                  uint8_t pidx,
                                  float delta)
 {
-    const bool    tape      = (t.sat_mode == 0);
-    const uint8_t mode_pidx = tape ? 4u : 2u; // mode toggle is the last param slot
-
-    if(pidx == mode_pidx)
-    {
-        const int dir   = (e.value > 0) ? 1 : -1;
-        int       steps = (e.value > 0) ? e.value : -e.value;
-        while(steps-- > 0)
-            t.sat_mode = (dir > 0) ? ((t.sat_mode + 1u) & 1u) : ((t.sat_mode == 0) ? 1u : 0u);
-        return true;
-    }
-
-    if(tape)
-    {
-        // TAPE: SAT(drive) BUMP TONE BIAS. BIAS is bipolar (-1..1); the fader
-        // shows it as 0..1, so traverse 2x per detent to span the full range.
-        if(pidx == 0)
-            t.sat_drive = Clamp01(t.sat_drive + delta);
-        else if(pidx == 1)
-            t.sat_bump = Clamp01(t.sat_bump + delta);
-        else if(pidx == 2)
-            t.sat_tone = Clamp01(t.sat_tone + delta);
-        else if(pidx == 3)
-        {
-            float b = t.sat_bias + delta * 2.0f;
-            if(b < -1.0f) b = -1.0f;
-            if(b > 1.0f) b = 1.0f;
-            t.sat_bias = b;
-        }
-        return true;
-    }
-
-    // BIT mode: RESO (discrete 3-state) + SMPL.
+    (void)e;
+    // Tape saturation only (bit mode removed): SAT(drive) BUMP TONE BIAS. BIAS is
+    // bipolar (-1..1); the fader shows it as 0..1, so traverse 2x per detent.
+    t.sat_mode = 0u; // keep the vestigial field pinned to tape
     if(pidx == 0)
+        t.sat_drive = Clamp01(t.sat_drive + delta);
+    else if(pidx == 1)
+        t.sat_bump = Clamp01(t.sat_bump + delta);
+    else if(pidx == 2)
+        t.sat_tone = Clamp01(t.sat_tone + delta);
+    else if(pidx == 3)
     {
-        const int dir = (e.value > 0) ? 1 : -1;
-        int idx = 0;
-        if(t.sat_bit_reso >= 0.75f)
-            idx = 2;
-        else if(t.sat_bit_reso >= 0.25f)
-            idx = 1;
-        idx += dir;
-        if(idx < 0) idx = 0;
-        if(idx > 2) idx = 2;
-        if(idx == 0) t.sat_bit_reso = 0.0f;      // CRUSH
-        if(idx == 1) t.sat_bit_reso = 0.5f;      // STATIC
-        if(idx == 2) t.sat_bit_reso = 1.0f;      // HISS
-        return true;
+        float b = t.sat_bias + delta * 2.0f;
+        if(b < -1.0f) b = -1.0f;
+        if(b > 1.0f) b = 1.0f;
+        t.sat_bias = b;
     }
-    if(pidx == 1)
-    {
-        t.sat_bit_smpl = Clamp01(t.sat_bit_smpl + delta);
-        return true;
-    }
-
-    return false;
+    else
+        return false;
+    return true;
 }
 
 static bool ProcessEditDelayDetail(UiScreenCtx& ctx,

@@ -36,8 +36,8 @@ extern "C" void Pod_ForceDisplayRefresh();
 #include <cstdio>
 #include <cstring>
 
-static constexpr int32_t kMainMenuCount = 3;
-static const char* kMenuLabels[kMainMenuCount] = {"PRESETS", "SAMPLES", "PERFORM"};
+static constexpr int32_t kMainMenuCount = 2;
+static const char* kMenuLabels[kMainMenuCount] = {"SAMPLES", "PERFORM"};
 static constexpr int32_t kSamplesMenuCount = 4;
 static const char* kSamplesMenuLabels[kSamplesMenuCount] = {"RECORD", "CRAFT", "BAKE", "SD MANAGER"};
 static constexpr int32_t kRecordMenuCount = 3;
@@ -224,19 +224,12 @@ static void DrawMainMenuFriendStyle(OledPager& d, int selected)
             int icon_stride = 0;
             if(i == 0)
             {
-                icon = kIconLoadDisk61x29;
-                icon_w = kIconW;
-                icon_h = kIconH;
-                icon_stride = kIconStride;
-            }
-            else if(i == 1)
-            {
                 icon = kIconRecordTape61x29;
                 icon_w = kIconW;
                 icon_h = kIconH;
                 icon_stride = kIconStride;
             }
-            else if(i == 2)
+            else if(i == 1)
             {
                 icon = kIconPerformMpc61x29;
                 icon_w = kIconW;
@@ -575,10 +568,8 @@ bool MainMenu_OnEnter(UiScreenCtx& ctx)
     switch(selected)
     {
         case 0:
-            return UiNav_Push(ctx.ui->ui_nav, UiScreenId::Presets);
-        case 1:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SamplesMenu);
-        case 2:
+        case 1:
         default:
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::PerformMenu);
     }
@@ -1560,6 +1551,8 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
     if(!ctx.ui)
         return false;
     AppUiState& ui = *ctx.ui;
+    // Starting any bake-screen action dismisses the post-save confirmation.
+    ui.bake_created_show = false;
     switch(ui.bake_focus)
     {
         case 0:
@@ -1646,6 +1639,13 @@ bool BakeMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         return false;
 
     AppUiState& ui = *ctx.ui;
+
+    // Any interaction dismisses the post-save "created bake file" confirmation.
+    if(ui.bake_created_show)
+    {
+        ui.bake_created_show = false;
+        ui.ui_dirty = true;
+    }
 
     // RShift + REnc scroll on the range row shifts the range position by
     // ±1 octave (no-op at the C1/C8 boundary). Handled before the
@@ -1743,7 +1743,7 @@ void BakeMenu_Render(UiScreenCtx& ctx)
     {
         const int y = row_y(0);
         const char* val
-            = (ui.bake_sample_path[0] != '\0') ? ui.bake_sample_name : "sample";
+            = (ui.bake_sample_path[0] != '\0') ? ui.bake_sample_name : "load sample";
         if(ui.bake_focus == 0u)
             DrawFillOnlyTinyString(d, val, kListLeftX, y);
         else
@@ -1867,6 +1867,27 @@ void BakeMenu_Render(UiScreenCtx& ctx)
             = (bar_inner_w * static_cast<int>(ui.bake_progress_percent)) / 100;
         if(fill_w > 0)
             d.DrawRect(bar_x0 + 1, bar_y0 + 1, bar_x0 + 1 + fill_w, bar_y1 - 1, true, true);
+    }
+    else if(ui.bake_created_show && ui.bake_save_stem[0] != '\0')
+    {
+        // Post-save confirmation modal: "created bake file:" + "<stem>.bk".
+        // Cleared on the next bake-screen interaction (see OnEvent/OnEnter).
+        constexpr int kBoxX0 = 4;
+        constexpr int kBoxY0 = 16;
+        constexpr int kBoxX1 = 123;
+        constexpr int kBoxY1 = 47;
+        d.DrawRect(kBoxX0, kBoxY0, kBoxX1, kBoxY1, false, true);
+        d.DrawRect(kBoxX0, kBoxY0, kBoxX1, kBoxY1, true, false);
+
+        const char* l1   = "created bake file:";
+        const int   l1_w = TinyStringWidth(l1);
+        DrawTinyString(d, l1, (kBoxX0 + kBoxX1 - l1_w) / 2, kBoxY0 + 5, true);
+
+        char name_buf[16];
+        std::snprintf(name_buf, sizeof(name_buf), "%s.bk", ui.bake_save_stem);
+        const int name_w = TinyStringWidth(name_buf);
+        DrawTinyStringCaseSensitive(
+            d, name_buf, (kBoxX0 + kBoxX1 - name_w) / 2, kBoxY0 + 5 + Font5x7::H + 6, true);
     }
 }
 

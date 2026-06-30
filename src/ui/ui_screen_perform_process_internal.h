@@ -22,6 +22,8 @@ struct ProcessLayerVolumeUiState
 float Clamp01(float x);
 float ClampEqTiltDb(float x);
 float ClampEqQ(float x);
+float ClampEqShelfGain(float x);
+float ClampEqFilterQ(float x);
 
 void FormatProcessLevelDb(float level, char* out, size_t out_n);
 float ProcessLevelToKnobNorm(float level);
@@ -32,10 +34,11 @@ ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(AppEngineState& engine,
 void DrawProcessLayerVolumePane(OledPager& d,
                                 const ProcessLayerVolumeUiState& ui,
                                 uint8_t main_cursor,
+                                uint8_t cutres_sel,
                                 int left_y,
                                 int left_h);
 
-void DrawEqGraphScreen(OledPager& d, const PerformParamsTargets& t, uint32_t now_ms);
+void DrawEqGraphScreen(OledPager& d, const PerformParamsTargets& t, uint32_t now_ms, uint8_t eq_band, bool rshift);
 
 // Draw helpers (ui_screen_perform_process_draw.cpp).
 void DrawProcessFxReorderOverlay(OledPager& d,

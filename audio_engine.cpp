@@ -98,25 +98,19 @@ void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
                                    float target_pre, float target_makeup,
                                    const float* send, float send_scale)
 {
-    const bool tape = (p.sat_mode == 0);
-
-    // TAPE mode: push the (already 5 ms params-smoothed) controls into the L/R
-    // tape saturators once per block. PrepareBlock smooths them and caches every
-    // derived coefficient so the per-sample Process is just the DSP. The
-    // saturator is full-wet; the bypass dry/wet blend below (sat_wet_gain_)
-    // handles on/off so the stage tails cleanly.
-    if(tape)
-    {
-        tape_sat_l_.PrepareBlock(p.sat_drive, p.sat_bump, p.sat_tone, p.sat_bias);
-        tape_sat_r_.PrepareBlock(p.sat_drive, p.sat_bump, p.sat_tone, p.sat_bias);
-    }
+    // Tape saturation only (bit mode removed). Push the (already 5 ms
+    // params-smoothed) controls into the L/R tape saturators once per block.
+    // PrepareBlock smooths them and caches every derived coefficient so the
+    // per-sample Process is just the DSP. The saturator is full-wet; the bypass
+    // dry/wet blend below (sat_wet_gain_) handles on/off so the stage tails cleanly.
+    tape_sat_l_.PrepareBlock(p.sat_drive, p.sat_bump, p.sat_tone, p.sat_bias);
+    tape_sat_r_.PrepareBlock(p.sat_drive, p.sat_bump, p.sat_tone, p.sat_bias);
 
     // Drive-proportional makeup applied to the tape wet (see header). Linear in
     // drive on a dB scale: 0 dB at drive 0 -> kSatTapeMakeupDbAtFull at drive 1.
     const float target_tape_makeup
-        = tape ? std::pow(10.0f, (kSatTapeMakeupDbAtFull * p.sat_drive) / 20.0f) : 1.0f;
+        = std::pow(10.0f, (kSatTapeMakeupDbAtFull * p.sat_drive) / 20.0f);
 
-    uint32_t hit_count = 0u;
     float    pre       = sat_pre_smoothed_;
     float    wet       = sat_wet_gain_;
     float    makeup    = sat_makeup_smoothed_;
@@ -133,24 +127,8 @@ void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
         makeup += (target_makeup - makeup) * kDelayFxSmoothCoeff;
         const float dry_l = L[i];
         const float dry_r = R[i];
-        float       wet_l;
-        float       wet_r;
-        if(tape)
-        {
-            wet_l = tape_sat_l_.Process(dry_l) * tape_mk;
-            wet_r = tape_sat_r_.Process(dry_r) * tape_mk;
-        }
-        else
-        {
-            const float pre_l = dry_l * pre;
-            const float pre_r = dry_r * pre;
-            if(std::fabs(pre_l) > 1.0f)
-                ++hit_count;
-            if(std::fabs(pre_r) > 1.0f)
-                ++hit_count;
-            wet_l = SoftClip(pre_l) * makeup;
-            wet_r = SoftClip(pre_r) * makeup;
-        }
+        const float wet_l = tape_sat_l_.Process(dry_l) * tape_mk;
+        const float wet_r = tape_sat_r_.Process(dry_r) * tape_mk;
         float out_l = dry_l * (1.0f - wet) + wet_l * wet;
         float out_r = dry_r * (1.0f - wet) + wet_r * wet;
         if(send != nullptr)
@@ -172,8 +150,6 @@ void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
     sat_wet_gain_             = wet;
     sat_makeup_smoothed_      = makeup;
     sat_tape_makeup_smoothed_ = tape_mk;
-    if(diagnostics_ && hit_count > 0u)
-        diagnostics_->sat_softclip_hits.fetch_add(hit_count, std::memory_order_relaxed);
 }
 
 void AudioEngine::ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix)
@@ -467,6 +443,21 @@ void AudioEngine::ProcessBlock(const float* inL,
 
     const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
 
+    // OUTPUT VOL taper: the stored master_level is linear 0..2 (UNITY=1), but a
+    // linear amplitude knob bunches all the audible change near the top. Map the
+    // 0..unity region through a logarithmic (constant-dB-per-step) curve so the
+    // control feels even to the ear. With kVolTaperDb=60 the 100 settings detents
+    // span 0..-60 dB at 0.6 dB each; level==1 -> 0 dB (unity), continuous with the
+    // BOOST region which stays linear above unity (1..2 = poly-headroom bypass).
+    static constexpr float kVolTaperDb = 60.0f;
+    float                  level_gain;
+    if(level <= 0.0f)
+        level_gain = 0.0f; // true silence (the curve never reaches 0)
+    else if(level >= 1.0f)
+        level_gain = level; // BOOST region: linear above unity
+    else
+        level_gain = std::pow(10.0f, (level - 1.0f) * (kVolTaperDb / 20.0f));
+
     // Velmod 2b: a per-effect send keeps the effect "wanted on" so its tank/line
     // tail rings out after the sending voice ends (otherwise a send-only reverb
     // cuts the moment the note's release finishes). Sat is memoryless — no tail.
@@ -577,7 +568,10 @@ void AudioEngine::ProcessBlock(const float* inL,
     // eq_run_prev_ Reset just below, and the crossover happens at ~0 tilt where
     // the stage is already inaudible, so re-engaging is click-safe.
     constexpr float kEqNeutralTiltDb = 0.05f; // below this, the tilt is inaudible
-    const bool eq_run = p.eq_on && (std::fabs(p.eq_tilt_db) >= kEqNeutralTiltDb);
+    const bool tilt_active = std::fabs(p.eq_tilt_db) >= kEqNeutralTiltDb;
+    const bool lo_active   = p.eq_lo_is_filter || std::fabs(p.eq_lo_gain_db) >= kEqShelfNeutralDb;
+    const bool hi_active   = p.eq_hi_is_filter || std::fabs(p.eq_hi_gain_db) >= kEqShelfNeutralDb;
+    const bool eq_run = p.eq_on && (tilt_active || lo_active || hi_active);
     const bool eq_edge = (eq_run && !eq_run_prev_);
     if(eq_edge)
         tilt_eq_.Reset();
@@ -589,20 +583,42 @@ void AudioEngine::ProcessBlock(const float* inL,
             tilt = -kTiltEqTiltMaxDb;
         else if(tilt > kTiltEqTiltMaxDb)
             tilt = kTiltEqTiltMaxDb;
-        // Control-rate coeff recompute: TiltEq_CenterNormToHz (an exp) +
-        // SetFromParams (4 biquads, each sin/cos/pow) are pure functions of the
-        // EQ controls, so only redo them when a control moves. Forced on the
-        // re-engage edge since SetFromParams was skipped while the stage was off
-        // (and Reset just cleared state). SetFromParams sets coeffs only — no
-        // filter state — so reusing cached coeffs is safe.
+        // Control-rate coeff recompute (per band): the coeff math is a pure
+        // function of the controls, so only redo a band when one of its controls
+        // moves. Forced on the re-engage edge. Peaking/shelf at 0 dB is an exact
+        // identity, so neutral bands cost only a transparent biquad in the loop.
         if(eq_edge || tilt != eq_tilt_cached_
-           || p.eq_center_norm != eq_center_norm_cached_ || p.eq_q != eq_q_cached_)
+           || p.eq_center_norm != eq_center_norm_cached_ || p.eq_q != eq_q_cached_
+           || p.eq_tilt_is_bell != eq_tilt_bell_cached_)
         {
             const float center_hz = TiltEq_CenterNormToHz(p.eq_center_norm);
-            tilt_eq_.SetFromParams(center_hz, tilt, sample_rate_, p.eq_q);
+            tilt_eq_.SetFromParams(center_hz, tilt, sample_rate_, p.eq_q, p.eq_tilt_is_bell);
             eq_tilt_cached_        = tilt;
             eq_center_norm_cached_ = p.eq_center_norm;
             eq_q_cached_           = p.eq_q;
+            eq_tilt_bell_cached_   = p.eq_tilt_is_bell;
+        }
+        if(eq_edge || p.eq_lo_gain_db != eq_lo_gain_cached_
+           || p.eq_lo_cutoff_hz != eq_lo_cut_cached_ || p.eq_lo_q != eq_lo_q_cached_
+           || p.eq_lo_is_filter != eq_lo_filt_cached_)
+        {
+            tilt_eq_.SetLoBand(p.eq_lo_cutoff_hz, p.eq_lo_gain_db, p.eq_lo_is_filter,
+                               p.eq_lo_q, sample_rate_);
+            eq_lo_gain_cached_ = p.eq_lo_gain_db;
+            eq_lo_cut_cached_  = p.eq_lo_cutoff_hz;
+            eq_lo_q_cached_    = p.eq_lo_q;
+            eq_lo_filt_cached_ = p.eq_lo_is_filter;
+        }
+        if(eq_edge || p.eq_hi_gain_db != eq_hi_gain_cached_
+           || p.eq_hi_cutoff_hz != eq_hi_cut_cached_ || p.eq_hi_q != eq_hi_q_cached_
+           || p.eq_hi_is_filter != eq_hi_filt_cached_)
+        {
+            tilt_eq_.SetHiBand(p.eq_hi_cutoff_hz, p.eq_hi_gain_db, p.eq_hi_is_filter,
+                               p.eq_hi_q, sample_rate_);
+            eq_hi_gain_cached_ = p.eq_hi_gain_db;
+            eq_hi_cut_cached_  = p.eq_hi_cutoff_hz;
+            eq_hi_q_cached_    = p.eq_hi_q;
+            eq_hi_filt_cached_ = p.eq_hi_is_filter;
         }
     }
 
@@ -810,7 +826,7 @@ void AudioEngine::ProcessBlock(const float* inL,
 
     // Final gain stage (and soft-clip safety when BOOST is engaged).
     const uint32_t master_start = DWT->CYCCNT;
-    ApplyMasterBlock_(outL, outR, size, level, bypass_comp);
+    ApplyMasterBlock_(outL, outR, size, level_gain, bypass_comp);
     master_cycles = DWT->CYCCNT - master_start;
 
     // During SDRAM WAV load, delay/reverb stages are skipped; freeze tail bookkeeping too

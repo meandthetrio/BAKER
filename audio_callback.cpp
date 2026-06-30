@@ -959,6 +959,13 @@ void AudioCallback(AudioHandle::InputBuffer  in,
             g_voice.SetLoopEnvelopeCurves(layer,
                                           voice_params.engine_loop_attack_curve[layer] != 0u,
                                           voice_params.engine_loop_release_curve[layer] != 0u);
+            g_voice.SetAdsrPlaybackParams(layer,
+                                          voice_params.engine_adsr_mode[layer],
+                                          voice_params.engine_adsr_env_a_x[layer],
+                                          voice_params.engine_adsr_env_d_x[layer],
+                                          voice_params.engine_adsr_env_r_x[layer],
+                                          voice_params.engine_adsr_env_s_level[layer],
+                                          voice_params.engine_adsr_sustain_loop[layer]);
         }
         if(static_push)
         {

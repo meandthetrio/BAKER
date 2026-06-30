@@ -32,6 +32,9 @@ class OledPager
     uint16_t Height() const override { return kHeight; }
     void Fill(bool on) override;
     void DrawPixel(uint_fast8_t x, uint_fast8_t y, bool on) override;
+    // Read a pixel back from the working (back) buffer — the same buffer DrawPixel
+    // writes to. Enables XOR/invert drawing against already-composed content.
+    bool GetPixel(uint_fast8_t x, uint_fast8_t y) const;
     void Update() override {}
     bool UpdateFinished() override { return !transferring_; }
 

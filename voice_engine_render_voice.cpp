@@ -1,8 +1,48 @@
 #include "voice_engine_render_internal.h"
 #include "storage_limits.h"
 
+#include <cmath>
+
 namespace
 {
+// Positional ADSR-playback envelope. Returns amplitude (0..1) for playback
+// fraction f (0 = region start, 1 = region end), given handle positions
+// A<=D<=R (0..1) and sustain level S (0..1). Attack/release ramps bend per the
+// exp/log curve flags (exp = concave, the analog default; log = convex/holds
+// longer); the decay segment is linear to match the on-screen envelope. Only
+// evaluated at block boundaries (block-rate), so the powf cost is negligible.
+static inline float PositionalAdsrEnv(float f,
+                                      float A,
+                                      float D,
+                                      float R,
+                                      float S,
+                                      bool  attack_log,
+                                      bool  release_log)
+{
+    if(f <= 0.0f)
+        return 0.0f;
+    if(f < A)
+    {
+        const float x = (A > 1e-6f) ? (f / A) : 1.0f; // 0..1 within attack
+        return attack_log ? std::pow(x, 0.5f) : (x * x); // rise 0 -> 1
+    }
+    if(f < D)
+    {
+        const float span = D - A;
+        const float x = (span > 1e-6f) ? ((f - A) / span) : 1.0f;
+        return 1.0f + (S - 1.0f) * x; // linear decay 1 -> S
+    }
+    if(f < R)
+        return S; // sustain hold
+    const float span = 1.0f - R;
+    const float x = (span > 1e-6f) ? ((f - R) / span) : 1.0f; // 0..1 within release
+    const float fall = release_log ? std::pow(x, 0.5f) : (x * x); // 0 -> 1
+    float out = S * (1.0f - fall); // S -> 0
+    if(out < 0.0f)
+        out = 0.0f;
+    return out;
+}
+
 // Matches the authoritative constant in voice_engine_playback.cpp. Used by
 // the P6 per-block threshold precompute below.
 static constexpr float kLoopBoundaryFadeMs = 1.0f;
@@ -1125,6 +1165,55 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     st.stop_fade = stop_fade;
     if(st.stop_fade.active)
         st.gate = false;
+
+    // ----- ADSR playback mode -----
+    // Read live (not cached / not baked at note-on) so handle edits update a
+    // sounding note. When active, the voice amplitude is driven by a positional
+    // envelope (computed at block boundaries below) and, if sustain-loop is on,
+    // playback parks in the d_x..r_x section while gated.
+    const uint8_t adsr_layer = source_layer & 1u;
+    const bool    adsr_active = adsr_mode_[adsr_layer] && (setup.end > setup.start);
+    float adsr_A = 0.0f, adsr_D = 0.0f, adsr_R = 0.0f, adsr_S = 0.0f;
+    bool  adsr_attack_log = false, adsr_release_log = false;
+    if(adsr_active)
+    {
+        adsr_A = static_cast<float>(adsr_a_x_[adsr_layer]) * 0.01f;
+        adsr_D = static_cast<float>(adsr_d_x_[adsr_layer]) * 0.01f;
+        adsr_R = static_cast<float>(adsr_r_x_[adsr_layer]) * 0.01f;
+        adsr_S = static_cast<float>(adsr_s_level_[adsr_layer]) * 0.01f;
+        if(adsr_A < 0.0f) adsr_A = 0.0f;
+        if(adsr_A > 1.0f) adsr_A = 1.0f;
+        if(adsr_D < adsr_A) adsr_D = adsr_A;
+        if(adsr_D > 1.0f) adsr_D = 1.0f;
+        if(adsr_R < adsr_D) adsr_R = adsr_D;
+        if(adsr_R > 1.0f) adsr_R = 1.0f;
+        if(adsr_S < 0.0f) adsr_S = 0.0f;
+        if(adsr_S > 1.0f) adsr_S = 1.0f;
+        // Curve flags are global (pushed for layer 0), like the other loop-env
+        // params; reuse the same exp/log toggles for the A/R ramp shapes.
+        adsr_attack_log  = loop_env_attack_log_[0];
+        adsr_release_log = loop_env_release_log_[0];
+
+        const float region = static_cast<float>(setup.end - setup.start);
+        uint32_t d_pos = setup.start + static_cast<uint32_t>(adsr_D * region);
+        uint32_t r_pos = setup.start + static_cast<uint32_t>(adsr_R * region);
+        if(r_pos > setup.end) r_pos = setup.end;
+        if(d_pos > r_pos)     d_pos = r_pos;
+        // AdvancePos loops [ls,le) only while gate is true; when gate goes false
+        // (note-off) it falls through to forward play-out, which naturally produces
+        // the r_x..end release tail under the positional envelope. So gating
+        // loop_enabled on st.gate is all that note-off has to do.
+        const bool sustain_loop = (adsr_sustain_loop_[adsr_layer] != false) && (r_pos > d_pos);
+        setup.loop_enabled          = sustain_loop && st.gate;
+        setup.ls_i                  = d_pos;
+        setup.le_i                  = r_pos;
+        setup.ls                    = static_cast<float>(d_pos);
+        setup.le                    = static_cast<float>(r_pos);
+        setup.voice_loop_mode       = LoopMode::Forward;
+        setup.seam_frames           = 0u;
+        setup.crossfade_seam_frames = 0u;
+    }
+
     VoicePlayback_NormalizeVoiceBlockStart(setup.end,
                                            setup.ls_i,
                                            setup.start,
@@ -1142,9 +1231,37 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     // is still batched there, so the extra cost is just the cheap per-sample
     // one-pole. RenderNormalVoice_Batched_ / the pre-sim below are retained but
     // dormant. kFastEnvelopeStepThreshold is likewise unused now.
-    setup.block_rate_env       = false;
+    // Non-ADSR voices keep the per-sample exp env (block-rate stays disabled, see
+    // note above). ADSR-playback voices re-enable the block-rate ramp to carry the
+    // position-driven amplitude, evaluated at the block boundaries here.
+    setup.block_rate_env       = adsr_active;
     setup.env_per_sample_delta = 0.0f;
     (void)kFastEnvelopeStepThreshold;
+
+    float adsr_env_end = 0.0f;
+    if(adsr_active)
+    {
+        const float region     = static_cast<float>(setup.end - setup.start);
+        const float inv_region = (region > 0.0f) ? (1.0f / region) : 0.0f;
+        const float pos0       = (static_cast<float>(st.pos_frame) + st.pos_frac)
+                           - static_cast<float>(setup.start);
+        const float f_start = pos0 * inv_region;
+        const float ratio   = st.ratio * setup.pitch_ratio_scale;
+        float       f_end   = (pos0 + ratio * static_cast<float>(ctx.size)) * inv_region;
+        // While the sustain loop is active (gate held) playback never crosses r_x,
+        // so clamp the projected fraction to the sustain plateau — otherwise the
+        // linear projection would dip the block ramp into the release.
+        if(setup.loop_enabled && f_end > adsr_R)
+            f_end = adsr_R;
+        const float env_start = PositionalAdsrEnv(
+            f_start, adsr_A, adsr_D, adsr_R, adsr_S, adsr_attack_log, adsr_release_log);
+        adsr_env_end = PositionalAdsrEnv(
+            f_end, adsr_A, adsr_D, adsr_R, adsr_S, adsr_attack_log, adsr_release_log);
+        st.env_level = env_start;
+        if(ctx.size > 0)
+            setup.env_per_sample_delta
+                = (adsr_env_end - env_start) / static_cast<float>(ctx.size);
+    }
 
     if(ctx.setup_cycles)
         *ctx.setup_cycles += DWT->CYCCNT - setup_start;
@@ -1156,7 +1273,7 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
     EnvStage env_end_stage      = st.env_stage;
     float    env_end_level      = st.env_level;
     bool     env_ended_in_block = false;
-    if(setup.block_rate_env)
+    if(setup.block_rate_env && !adsr_active)
     {
         if(st.env_stage == EnvStage::Sustain)
         {
@@ -1197,6 +1314,14 @@ void VoiceEngine::RenderNormalVoice_(Voice& v,
         if(ctx.size > 0)
             setup.env_per_sample_delta
                 = (env_end_level - st.env_level) / static_cast<float>(ctx.size);
+    }
+    if(adsr_active)
+    {
+        // Positional env owns the level; it never "ends" via an env stage — the
+        // voice finishes when playback reaches the region end (stop-fade on EOS).
+        env_end_level      = adsr_env_end;
+        env_end_stage      = st.env_stage;
+        env_ended_in_block = false;
     }
 
     if(ctx.presim_cycles)

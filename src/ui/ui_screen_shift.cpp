@@ -415,8 +415,8 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
         const int label_x = 1;
         if(i == ShiftSaveProject)
         {
-            if(sel) DrawFillOnlyTinyString(d, "SAVE PROJECT", label_x, label_y);
-            else DrawTinyString(d, "SAVE PROJECT", label_x, label_y, true);
+            if(sel) DrawFillOnlyTinyString(d, "SAVE PRESET", label_x, label_y);
+            else DrawTinyString(d, "SAVE PRESET", label_x, label_y, true);
         }
         else if(i == ShiftVolume)
         {

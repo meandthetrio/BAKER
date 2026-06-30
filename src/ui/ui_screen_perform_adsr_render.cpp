@@ -306,8 +306,32 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
 
         d.DrawLine(preview_x0, preview_y1, a_x, preview_y0, true);
         d.DrawLine(a_x, preview_y0, d_x, sustain_y, true);
-        d.DrawLine(d_x, sustain_y, r_x, sustain_y, true);
+        // When sustain-loop is on, the 8px XOR band below represents the sustain
+        // segment (the line is part of the band), so skip the plain 1px line —
+        // drawing it would XOR back to a dark cutout through the band.
+        if(!engine.adsr.perform_adsr_sustain_loop[layer])
+            d.DrawLine(d_x, sustain_y, r_x, sustain_y, true);
         d.DrawLine(r_x, sustain_y, preview_x1, preview_y1, true);
+
+        // Sustain-loop affordance: when the d_x..r_x section loops while held,
+        // draw a filled bar over the sustain segment. It is XOR-drawn so it
+        // inverts wherever it overlaps already-drawn pixels (the waveform and the
+        // envelope lines), keeping it legible on any background. One-shot stays a
+        // single line.
+        if(engine.adsr.perform_adsr_sustain_loop[layer])
+        {
+            // 8-pixel-thick band centered on the sustain line, clamped to the
+            // preview box.
+            int bar_y0 = sustain_y - 4;
+            int bar_y1 = sustain_y + 3;
+            if(bar_y0 < preview_y0)
+                bar_y0 = preview_y0;
+            if(bar_y1 > preview_y1)
+                bar_y1 = preview_y1;
+            for(int yy = bar_y0; yy <= bar_y1; ++yy)
+                for(int xx = d_x; xx <= r_x; ++xx)
+                    d.DrawPixel(xx, yy, !d.GetPixel(xx, yy));
+        }
     }
 
     for(int i = 0; i < 4; ++i)
@@ -336,16 +360,26 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
             }
 
             const int value_x = box_x0 + ((box_w - w) / 2);
-            const int value_y = bottom_y;
+            const int value_y = bottom_y - 1;
             if(!type_focused && stage_focus == static_cast<uint8_t>(i))
             {
-                d.DrawRect(value_x - 2,
-                           bottom_y - 2,
-                           value_x + w + 1,
-                           bottom_y + Font5x7::H - 1,
-                           true,
-                           false);
-                DrawTinyString(d, kBottomLetters[i], value_x, value_y, true);
+                // Focus box: 1 px larger on every side than the standard box and
+                // nudged down 2 px. The S (stage 2) draws inverted (filled box,
+                // dark glyph) to flag that REnc-click toggles sustain-loop there.
+                const int fx0 = value_x - 3;
+                const int fy0 = bottom_y - 2;
+                const int fx1 = value_x + w + 2;
+                const int fy1 = bottom_y + Font5x7::H + 1;
+                if(i == 2)
+                {
+                    d.DrawRect(fx0, fy0, fx1, fy1, true, true);
+                    DrawTinyString(d, kBottomLetters[i], value_x, value_y, false);
+                }
+                else
+                {
+                    d.DrawRect(fx0, fy0, fx1, fy1, true, false);
+                    DrawTinyString(d, kBottomLetters[i], value_x, value_y, true);
+                }
                 continue;
             }
             DrawTinyString(d, kBottomLetters[i], value_x, value_y, true);

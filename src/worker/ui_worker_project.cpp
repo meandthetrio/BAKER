@@ -205,11 +205,13 @@ void ClampProjectKeyzoneRange(uint8_t& lo, uint8_t& hi)
 
 uint8_t ClampProjectAdsrRow(int value)
 {
-    if(value < 0)
-        value = 0;
-    if(value > 2)
-        value = 2;
-    return static_cast<uint8_t>(value);
+    // One-shot (0) was removed as a playback type; map it to ADSR (2), which
+    // reproduces one-shot via its sustain-loop-off positional envelope. This also
+    // migrates pre-existing projects that stored a one-shot type on load. The only
+    // live types now are loop (1) and adsr (2).
+    if(value == 1)
+        return 1u;
+    return 2u;
 }
 
 uint8_t ClampProjectPlayMode(int value)
@@ -429,10 +431,13 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
         manifest.perform_adsr_loop_release[slot] = engine.adsr.perform_adsr_loop_release[slot];
         // Per-layer Attack/Release curve bits (0=exp, 1=log) packed into the
         // repurposed reserved byte. bits 0/1 = attack L0/L1, bits 2/3 = release.
+        // bits 4/5 = ADSR-playback sustain-loop L0/L1 (0=one-shot, 1=loop).
         if(engine.adsr.perform_adsr_attack_curve[slot] & 1u)
             manifest.adsr_curve_flags |= static_cast<uint8_t>(1u << slot);
         if(engine.adsr.perform_adsr_release_curve[slot] & 1u)
             manifest.adsr_curve_flags |= static_cast<uint8_t>(1u << (2u + slot));
+        if(engine.adsr.perform_adsr_sustain_loop[slot] & 1u)
+            manifest.adsr_curve_flags |= static_cast<uint8_t>(1u << (4u + slot));
         manifest.perform_adsr_loop_crossfade[slot] = engine.adsr.perform_adsr_loop_crossfade[slot];
         manifest.perform_adsr_loop_crossfade_shape[slot] = engine.adsr.perform_adsr_loop_crossfade_shape[slot];
         manifest.perform_adsr_env_a_x[slot] = engine.adsr.perform_adsr_env_a_x[slot];
@@ -465,8 +470,8 @@ static void CollectProjectLayerState(ProjectManifestV11& manifest,
             manifest.perform_adsr_loop_attack[slot] = 4000u;
         if(manifest.perform_adsr_loop_decay[slot] < 1u)
             manifest.perform_adsr_loop_decay[slot] = 1u;
-        if(manifest.perform_adsr_loop_decay[slot] > 100u)
-            manifest.perform_adsr_loop_decay[slot] = 100u;
+        if(manifest.perform_adsr_loop_decay[slot] > 1000u)
+            manifest.perform_adsr_loop_decay[slot] = 1000u;
         if(manifest.perform_adsr_loop_sustain[slot] > 100u)
             manifest.perform_adsr_loop_sustain[slot] = 100u;
         if(manifest.perform_adsr_loop_release[slot] < 1u)
@@ -540,6 +545,18 @@ static void CollectProjectGlobalState(ProjectManifestV11& manifest,
     manifest.eq.eq_tilt_db = targets.eq_tilt_db;
     manifest.eq.eq_q = targets.eq_q;
     ClampProjectEqState(manifest.eq);
+    // Top-level low/high EQ shelf bands (v25).
+    manifest.eq_lo_gain_db   = targets.eq_lo_gain_db;
+    manifest.eq_lo_cutoff_hz = targets.eq_lo_cutoff_hz;
+    manifest.eq_lo_is_filter = targets.eq_lo_is_filter ? 1u : 0u;
+    manifest.eq_lo_q         = targets.eq_lo_q;
+    manifest.eq_hi_gain_db   = targets.eq_hi_gain_db;
+    manifest.eq_hi_cutoff_hz = targets.eq_hi_cutoff_hz;
+    manifest.eq_hi_is_filter = targets.eq_hi_is_filter ? 1u : 0u;
+    manifest.eq_hi_q         = targets.eq_hi_q;
+    // Tilt see-saw vs single-bell flag packed into the spare reserved_v24 word
+    // (bit 0) so it persists without another manifest version bump.
+    manifest.reserved_v24    = targets.eq_tilt_is_bell ? 1u : 0u;
 
     manifest.delay.delay_on = targets.delay_on ? 1u : 0u;
     manifest.delay.delay_fader_mode = targets.delay_fader_mode;

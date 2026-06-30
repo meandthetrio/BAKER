@@ -13,7 +13,7 @@ static constexpr uint8_t kPerformLayerCount = 2;
 static constexpr uint16_t kPerformAdsrAttackMinMs   = 2u;
 static constexpr uint16_t kPerformAdsrReleaseMinMs  = 1u;
 static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 4000u;
-static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
+static constexpr uint16_t kPerformAdsrDecayMaxMs = 1000u;
 static constexpr uint16_t kPerformAdsrSustainMax = 100u;
 
 static int ClampInt(int v, int lo, int hi)
@@ -64,7 +64,7 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
             ClampInt(static_cast<int>(engine.adsr.perform_adsr_loop_release[i]),
                      static_cast<int>(kPerformAdsrReleaseMinMs),
                      static_cast<int>(kPerformAdsrAttackReleaseMaxMs)));
-        const uint8_t clamped_decay = static_cast<uint8_t>(
+        const uint16_t clamped_decay = static_cast<uint16_t>(
             ClampInt(static_cast<int>(engine.adsr.perform_adsr_loop_decay[i]), 1, static_cast<int>(kPerformAdsrDecayMaxMs)));
         const uint8_t clamped_sustain = static_cast<uint8_t>(
             ClampInt(static_cast<int>(engine.adsr.perform_adsr_loop_sustain[i]), 0, static_cast<int>(kPerformAdsrSustainMax)));
@@ -85,6 +85,15 @@ void PublishEngineLayerParams(UiScreenCtx& ctx)
         t.engine_loop_release_curve[i] = engine.adsr.perform_adsr_release_curve[i] & 1u;
         t.engine_loop_crossfade_amount[i] = engine.adsr.perform_adsr_loop_crossfade[i];
         t.engine_loop_crossfade_shape[i] = engine.adsr.perform_adsr_loop_crossfade_shape[i];
+        // ADSR playback mode: active when the layer's playback type is `adsr`
+        // (perform_adsr_row == 2). The handle positions + sustain-loop flag drive
+        // the positional amplitude envelope in the voice engine.
+        t.engine_adsr_mode[i] = (engine.adsr.perform_adsr_row[i] == 2u);
+        t.engine_adsr_env_a_x[i] = engine.adsr.perform_adsr_env_a_x[i];
+        t.engine_adsr_env_d_x[i] = engine.adsr.perform_adsr_env_d_x[i];
+        t.engine_adsr_env_r_x[i] = engine.adsr.perform_adsr_env_r_x[i];
+        t.engine_adsr_env_s_level[i] = engine.adsr.perform_adsr_env_s_level[i];
+        t.engine_adsr_sustain_loop[i] = (engine.adsr.perform_adsr_sustain_loop[i] != 0u);
         for(uint8_t row = 0; row < kExpressRowCount; ++row)
         {
             t.express_target[i][row] = engine.express.target[i][row];

@@ -222,6 +222,16 @@ class AudioEngine
     float          eq_tilt_cached_        = 1e30f;
     float          eq_center_norm_cached_ = -1.0f;
     float          eq_q_cached_           = -1.0f;
+    bool           eq_tilt_bell_cached_   = false;
+    // Cached lo/hi shelf-band controls (same control-rate skip as the tilt).
+    float          eq_lo_gain_cached_     = 1e30f;
+    float          eq_lo_cut_cached_      = -1.0f;
+    float          eq_lo_q_cached_        = -1.0f;
+    bool           eq_lo_filt_cached_     = false;
+    float          eq_hi_gain_cached_     = 1e30f;
+    float          eq_hi_cut_cached_      = -1.0f;
+    float          eq_hi_q_cached_        = -1.0f;
+    bool           eq_hi_filt_cached_     = false;
 
     // FX-order swap declick: a brief 0->1 cosine ramp on the post-FX bus when
     // fx_order changes between blocks. Kills the boundary click from swapping

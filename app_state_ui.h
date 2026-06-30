@@ -163,7 +163,7 @@ struct AppUiState
     // bounds by that many octaves (RShift+REnc). Display value is
     // formatted on the fly from these two values; the bake driver uses
     // them to set hdr.lo_note/hi_note for the .bk file written to SD.
-    uint8_t bake_range_width_idx       = 0;
+    uint8_t bake_range_width_idx       = 3; // default widest span C1-C8
     int8_t  bake_range_position_offset = 0;
     // STAGE 2 TEMPORARY: bake-in-progress overlay. When `bake_progress_active`
     // is true the bake screen draws a centered modal showing "X/2" (slices
@@ -185,6 +185,22 @@ struct AppUiState
     bool    bake_rename_active = false;
     char    bake_save_stem[8]  = {};  // 7-char stem + NUL
     char    bake_save_status[16] = {}; // "NAME EXISTS" etc.
+    // After a successful bake save (/_bake.tmp renamed to /<stem>.bk) the bake
+    // screen confirms with "created bake file:" + the stem (bake_save_stem) until
+    // the next interaction, and main.cpp double-flashes the LEDs green.
+    // bake_created_flash_pending is a one-shot consumed by the main-loop LED code.
+    bool    bake_created_show          = false;
+    bool    bake_created_flash_pending = false;
+    // Transient "saved" confirmation banner shown until
+    // preset_saved_overlay_until_ms with the text in saved_overlay_text, plus a
+    // one-shot green LED flash (preset_saved_flash_pending). Used by preset save
+    // ("PRESET SAVED") and bake save ("BAKE FILE SAVED"). saved_overlay_pending is
+    // a one-shot for callers without a timestamp (the bake save path): the UI tick
+    // converts it into preset_saved_overlay_until_ms using now_ms.
+    uint32_t preset_saved_overlay_until_ms = 0;
+    bool     preset_saved_flash_pending    = false;
+    char     saved_overlay_text[20]        = {};
+    bool     saved_overlay_pending         = false;
     // Engine layer A/B load reuses the SD Manager screen for sortable
     // browsing. engine_load_browser_open routes REnc Click directly to
     // the load action (skipping the action overlay) and changes the

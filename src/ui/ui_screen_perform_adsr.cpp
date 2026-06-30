@@ -217,6 +217,21 @@ bool PerformAdsr_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.ui_dirty = true;
             return true;
         }
+        // ADSR playback mode: REnc-click on the focused S toggles sustain-loop
+        // (one-shot vs. loop the d_x..r_x sustain section while held).
+        const bool adsr_mode = (adsr_row % static_cast<uint8_t>(kAdsrRowCount))
+                               == static_cast<uint8_t>(kAdsrRowAdsr);
+        const uint8_t stage_focus
+            = engine.adsr.perform_adsr_stage_focus % static_cast<uint8_t>(kAdsrStageCount);
+        if(adsr_mode && !engine.adsr.perform_adsr_type_focus
+           && !engine.adsr.perform_adsr_wave_focus && stage_focus == 2u)
+        {
+            engine.adsr.perform_adsr_sustain_loop[layer]
+                = engine.adsr.perform_adsr_sustain_loop[layer] ? 0u : 1u;
+            PublishEngineLayerParams(ctx);
+            ui.ui_dirty = true;
+            return true;
+        }
     }
 
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0 && ctx.rshift)
@@ -268,8 +283,13 @@ void PerformAdsr_OnScreenEnter(UiScreenCtx& ctx)
     engine.adsr.perform_adsr_wave_focus = false;
     const uint8_t layer = engine.perform_nav.perform_layer & 1u;
     uint8_t& adsr_row = PerformAdsrRow(engine, layer);
-    if(adsr_row >= static_cast<uint8_t>(kAdsrRowCount))
-        adsr_row = (engine.layer.engine_play_mode[layer] & 1u) ? kAdsrRowLoop : kAdsrRowOneShot;
+    // One-shot was removed; only loop (1) and adsr (2) are valid. Coerce any other
+    // stored value (a migrated one-shot, or out-of-range) from the play mode.
+    if(adsr_row != static_cast<uint8_t>(kAdsrRowLoop)
+       && adsr_row != static_cast<uint8_t>(kAdsrRowAdsr))
+        adsr_row = (engine.layer.engine_play_mode[layer] & 1u)
+                       ? static_cast<uint8_t>(kAdsrRowLoop)
+                       : static_cast<uint8_t>(kAdsrRowAdsr);
     PerformAdsrEnsureValidFocus(engine, shared, layer);
     ui.ui_dirty = true;
 }

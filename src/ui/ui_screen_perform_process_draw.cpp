@@ -58,6 +58,32 @@ void DrawProcessFilterKnob(OledPager& d,
     DrawProcessKnobLabel(d, label, cx - (lw / 2), cy + radius + kKnobLabelGap, focused);
 }
 
+// Like DrawProcessFilterKnob, but the focused label uses an inverted look (filled
+// box, dark glyphs) instead of the corner-frame focus. Used by the combined
+// cut/res knob so its focus reads distinctly (and hints at the click-to-swap).
+void DrawProcessFilterKnobInvertFocus(OledPager& d,
+                                      int cx,
+                                      int cy,
+                                      int radius,
+                                      const char* label,
+                                      float angle_rad,
+                                      bool focused)
+{
+    DrawProcessKnobBody(d, cx, cy, radius, angle_rad);
+    const int lw = MicroStringWidth(label);
+    const int lx = cx - (lw / 2);
+    const int ly = cy + radius + kKnobLabelGap;
+    if(focused)
+    {
+        d.DrawRect(lx - 1, ly - 1, lx + lw, ly + kMicroH, true, true);
+        DrawMicroString(d, label, lx, ly, false);
+    }
+    else
+    {
+        DrawMicroString(d, label, lx, ly, true);
+    }
+}
+
 static void DrawProcessReorderLeftArrow(OledPager& d, int tip_x, int cy)
 {
     d.DrawPixel(tip_x, cy, true);
@@ -92,7 +118,7 @@ void DrawProcessFxReorderOverlay(OledPager& d,
                                  int32_t selected_index,
                                  bool rshift_held)
 {
-    if(selected_index < 0 || selected_index >= 3 || !rshift_held)
+    if(selected_index < 0 || selected_index >= 4 || !rshift_held)
         return;
 
     const int line_top = fader_y + 2;
@@ -109,7 +135,7 @@ void DrawProcessFxReorderOverlay(OledPager& d,
     const int cy = line_top + ((line_bottom - line_top) / 2);
     if(selected_index > 0)
         DrawProcessReorderLeftArrow(d, line_x - 7, cy);
-    if(selected_index < 2)
+    if(selected_index < 3)
         DrawProcessReorderRightArrow(d, line_x + 7, cy);
 }
 
@@ -119,101 +145,31 @@ static void DrawProcessSatDetail(OledPager& d,
 {
     constexpr int kDisplayW = 128;
     constexpr int kDisplayH = 64;
-    constexpr int kBitResoStepCount = 3;
-    static const char* kBitResoLabels[kBitResoStepCount] = {"CRUSH", "STATIC", "HISS"};
-    auto bit_reso_index = [](float value) -> int
-    {
-        if(value < 0.0f) value = 0.0f;
-        if(value > 1.0f) value = 1.0f;
-        int idx = static_cast<int>(value * static_cast<float>(kBitResoStepCount - 1) + 0.5f);
-        if(idx < 0) idx = 0;
-        if(idx >= kBitResoStepCount) idx = kBitResoStepCount - 1;
-        return idx;
-    };
-
     constexpr int kMargin = 2;
-    constexpr int kGap = 2;
-    const int block_x = kMargin;
-    const int block_w = kDisplayW / 4;
+
     const int block_y = Font5x7::H + 4;
     int block_h = kDisplayH - block_y - kMargin;
     if(block_h < 3) block_h = 3;
-    const int box_h = (block_h - kGap) / 2;
-    const bool tape_selected = (t.sat_mode == 0);
-    const bool bit_selected = (t.sat_mode == 1);
-    // Mode toggle is the last detail param: index 4 in TAPE (4 faders), 2 in BIT
-    // (2 faders). Must match ProcessEditSatDetail / ProcessDetailParamCount.
-    const int  mode_pidx = bit_selected ? 2 : 4;
-    const bool mode_select_active = (selected_param == mode_pidx);
-    d.DrawRect(block_x, block_y, block_x + block_w - 1, block_y + box_h - 1, true, false);
-    d.DrawRect(block_x,
-               block_y + box_h + kGap,
-               block_x + block_w - 1,
-               block_y + (box_h * 2) + kGap - 1,
-               true,
-               false);
-    const int label_w1 = TinyStringWidth("TAPE");
-    const int label_w2 = TinyStringWidth("BIT");
-    const int label_y1 = block_y + (box_h - Font5x7::H) / 2;
-    const int label_y2 = block_y + box_h + kGap + (box_h - Font5x7::H) / 2;
-    int label_x1 = block_x + (block_w - label_w1) / 2;
-    int label_x2 = block_x + (block_w - label_w2) / 2;
-    if(label_x1 < block_x + 1) label_x1 = block_x + 1;
-    if(label_x2 < block_x + 1) label_x2 = block_x + 1;
-    if(mode_select_active && tape_selected)
-    {
-        d.DrawRect(label_x1 - 2, label_y1 - 2, label_x1 + label_w1 + 1, label_y1 + Font5x7::H + 1, true, false);
-        DrawTinyString(d, "TAPE", label_x1, label_y1, true);
-    }
-    else
-        DrawTinyString(d, "TAPE", label_x1, label_y1, true);
-    if(mode_select_active && bit_selected)
-    {
-        d.DrawRect(label_x2 - 2, label_y2 - 2, label_x2 + label_w2 + 1, label_y2 + Font5x7::H + 1, true, false);
-        DrawTinyString(d, "BIT", label_x2, label_y2, true);
-    }
-    else
-        DrawTinyString(d, "BIT", label_x2, label_y2, true);
 
-    const int fader_offset = 8;
-    const int fader_x = block_x + block_w + kGap + fader_offset;
+    // Tape saturation only (bit mode removed): SAT BUMP TONE BIAS. BIAS is bipolar
+    // (-1..1) shown as 0..1. The four faders span the full width.
+    const int fader_x = kMargin;
     const int fader_w = kDisplayW - fader_x - kMargin;
     if(fader_w <= 4)
         return;
 
-    constexpr int kSatFaderMax = 4;
-    // BIT: RESO SMPL (RESO drawn as discrete labels, fader rail/handle hidden).
-    // TAPE: SAT BUMP TONE BIAS. BIAS is bipolar (-1..1) shown as 0..1.
-    const int   sat_fader_count = (t.sat_mode == 1) ? 2 : 4;
-    const char* fader_labels[kSatFaderMax];
-    float       fader_values[kSatFaderMax];
-    int         fader_offsets[kSatFaderMax]  = {0, 0, 0, 0};
-    bool        circle_handles[kSatFaderMax] = {false, false, false, false};
-    bool        hide_rails[kSatFaderMax]     = {false, false, false, false};
-    bool        hide_handles[kSatFaderMax]   = {false, false, false, false};
-    if(t.sat_mode == 1)
-    {
-        fader_labels[0] = "RESO";
-        fader_labels[1] = "SMPL";
-        fader_values[0] = t.sat_bit_reso;
-        fader_values[1] = t.sat_bit_smpl;
-        hide_rails[0]   = true;
-        hide_handles[0] = true;
-    }
-    else
-    {
-        fader_labels[0] = "SAT";
-        fader_labels[1] = "BUMP";
-        fader_labels[2] = "TONE";
-        fader_labels[3] = "BIAS";
-        fader_values[0] = t.sat_drive;
-        fader_values[1] = t.sat_bump;
-        fader_values[2] = t.sat_tone;
-        fader_values[3] = 0.5f + 0.5f * t.sat_bias;
-    }
+    constexpr int kSatFaderCount = 4;
+    const char* fader_labels[kSatFaderCount] = {"SAT", "BUMP", "TONE", "BIAS"};
+    float       fader_values[kSatFaderCount]
+        = {t.sat_drive, t.sat_bump, t.sat_tone, 0.5f + 0.5f * t.sat_bias};
+    int  fader_offsets[kSatFaderCount]  = {0, 0, 0, 0};
+    bool circle_handles[kSatFaderCount] = {false, false, false, false};
+    bool hide_rails[kSatFaderCount]     = {false, false, false, false};
+    bool hide_handles[kSatFaderCount]   = {false, false, false, false};
+
     int param_index = selected_param;
-    const bool fader_select_active = (param_index >= 0 && param_index < sat_fader_count);
-    if(!fader_select_active && !mode_select_active) param_index = 0;
+    const bool fader_select_active = (param_index >= 0 && param_index < kSatFaderCount);
+    if(!fader_select_active) param_index = 0;
     const int selected_label_style = 3;
     DrawVerticalFadersInRect(d,
                              fader_x,
@@ -222,7 +178,7 @@ static void DrawProcessSatDetail(OledPager& d,
                              block_h,
                              fader_labels,
                              fader_values,
-                             sat_fader_count,
+                             kSatFaderCount,
                              fader_select_active,
                              param_index,
                              fader_offsets,
@@ -233,48 +189,6 @@ static void DrawProcessSatDetail(OledPager& d,
                              0,
                              0,
                              selected_label_style);
-    if(t.sat_mode != 1)
-        return;
-
-    const int label_y = block_y + block_h - Font5x7::H - 1;
-    int line_top = block_y + 2;
-    int line_bottom = label_y - 2;
-    if(line_bottom <= line_top)
-        return;
-
-    int fader_left = fader_x + 2;
-    int line_x = fader_left;
-    const char* lbl = "RESO";
-    const int lbl_w = TinyStringWidth(lbl);
-    int lbl_x = line_x - (lbl_w / 2);
-    if(lbl_x < fader_x + 1) lbl_x = fader_x + 1;
-    if(lbl_x + lbl_w > fader_x + fader_w - 2)
-        lbl_x = fader_x + fader_w - 2 - lbl_w;
-    line_x = lbl_x + (lbl_w / 2);
-    const int cur_idx = bit_reso_index(t.sat_bit_reso);
-    const int label_top = line_top + 1;
-    const int label_gap = 3;
-    int label_y0 = label_top;
-    for(int i = 0; i < kBitResoStepCount; ++i)
-    {
-        const char* bits_label = kBitResoLabels[i];
-        const int bits_w = TinyStringWidth(bits_label);
-        const int bits_x = line_x - (bits_w / 2);
-        const int bits_y = label_y0 + (i * (Font5x7::H + label_gap));
-        if(bits_y >= line_top && bits_y <= line_bottom - Font5x7::H)
-        {
-            const bool is_selected = (i == cur_idx);
-            if(is_selected)
-            {
-                d.DrawRect(bits_x - 2, bits_y - 2, bits_x + bits_w + 1, bits_y + Font5x7::H + 1, true, false);
-                DrawTinyString(d, bits_label, bits_x, bits_y, true);
-            }
-            else
-            {
-                DrawTinyString(d, bits_label, bits_x, bits_y, true);
-            }
-        }
-    }
 }
 
 static void DrawProcessEqDetailPlaceholder(OledPager& d)

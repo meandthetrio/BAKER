@@ -692,6 +692,10 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 }
                 if(rename_project_active)
                     ui.ui_dirty = true;
+                // Process EQ: the focused band's border changes (solid) while
+                // RShift is held, so refresh immediately on press.
+                if(UiNav_Active(ui.ui_nav) == UiScreenId::PerformProcess)
+                    ui.ui_dirty = true;
             }
             else if(e.id == kUiBtnPod1)
                 ui.ui_btn1_held = true;
@@ -714,6 +718,8 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
                 ui.ui_rshift_held = false;
                 if(rename_project_active)
                     ui.ui_dirty = true;
+                if(UiNav_Active(ui.ui_nav) == UiScreenId::PerformProcess)
+                    ui.ui_dirty = true; // restore the non-RShift border on release
             }
             else if(e.id == kUiBtnPod1)
                 ui.ui_btn1_held = false;
@@ -1197,6 +1203,13 @@ void UILogic::UiTick(AppState& app, Params& params, EventQueueSPSC& evtq, uint32
         {
             if(UiNav_Active(ui.ui_nav) != UiScreenId::ProjectStatus)
                 UiNav_Push(ui.ui_nav, UiScreenId::ProjectStatus);
+        }
+        else
+        {
+            // Success: show the transient "PRESET SAVED" banner + green LED flash.
+            std::snprintf(ui.saved_overlay_text, sizeof(ui.saved_overlay_text), "PRESET SAVED");
+            ui.preset_saved_overlay_until_ms = now_ms + 1000u;
+            ui.preset_saved_flash_pending    = true;
         }
         ui.ui_dirty = true;
     }

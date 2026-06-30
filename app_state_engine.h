@@ -97,7 +97,7 @@ struct AppEngineState
         bool    perform_adsr_wave_focus = false;
         uint8_t perform_adsr_stage_focus = 0;
         uint16_t perform_adsr_loop_attack[2] = {5u, 5u};
-        uint8_t perform_adsr_loop_decay[2] = {20u, 20u};
+        uint16_t perform_adsr_loop_decay[2] = {20u, 20u}; // 1..1000 ms
         uint8_t perform_adsr_loop_sustain[2] = {100u, 100u};
         uint16_t perform_adsr_loop_release[2] = {50u, 50u};
         // Attack/Release curve per layer: 0 = exponential (default), 1 = logarithmic.
@@ -114,6 +114,12 @@ struct AppEngineState
         uint8_t perform_adsr_env_d_x[2] = {38u, 38u};
         uint8_t perform_adsr_env_r_x[2] = {89u, 89u};
         uint8_t perform_adsr_env_s_level[2] = {50u, 50u};
+        // ADSR playback mode sustain behaviour per layer: 0 = one-shot (play the
+        // region once with the positional A/D/S/R amplitude shape, note-off
+        // ignored), 1 = sustain-loop (loop the d_x..r_x section while the key is
+        // held; note-off exits the loop and plays the r_x..end release tail).
+        // Toggled by REnc-click on the focused S in adsr mode.
+        uint8_t perform_adsr_sustain_loop[2] = {0u, 0u};
     } adsr{};
 
     struct PerformExpressState
@@ -146,7 +152,17 @@ struct AppEngineState
     {
         uint8_t perform_process_fx_cursor = 0;
         uint8_t perform_process_fx_order[4] = {0, 2, 3, 1};
-        uint8_t perform_process_main_cursor = 2;
+        // 6-slot main cursor: 0=vol, 1=cut/res (combined), 2..5 = the four FX.
+        uint8_t perform_process_main_cursor = 1;
+        // Combined cut/res knob selection: 0 = cutoff (default), 1 = resonance.
+        // REnc-click on the cut/res slot toggles this.
+        uint8_t perform_process_cutres_sel = 0;
+        // EQ graph screen focused band: 0 = tilt, 1 = hi shelf, 2 = lo shelf.
+        // Button2 cycles tilt -> hi -> lo -> tilt.
+        uint8_t perform_process_eq_band = 0;
+        // Timestamp (ms) of the last Button2 press on the EQ screen; the main-loop
+        // LED code blinks LED2 off briefly after it.
+        uint32_t perform_process_eq_blink_ms = 0;
         uint16_t perform_process_vol_pct[2] = {100u, 100u};
         bool    perform_process_vol_muted[2] = {false, false};
         float   perform_process_vol_unmuted_level[2] = {1.0f, 1.0f};

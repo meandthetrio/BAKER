@@ -43,7 +43,22 @@ struct PerformParamsTargets
     float eq_mix          = 1.0f;
     float eq_center_norm  = 0.5f;
     float eq_tilt_db      = 0.0f;
-    float eq_q            = 1.2f; // peaking Q both bells, UI range 0.5..1.7
+    float eq_q            = 0.6f; // peaking Q both bells, UI range 0.4..0.8
+    // Tilt band sub-mode: false = tilt see-saw (low +, high -), true = a single
+    // peaking bell at center_hz (same gain/center/Q controls). REnc-click toggles.
+    bool  eq_tilt_is_bell = false;
+    // Independent low/high shelf bands (Process->EQ). Each is a shelf at its gain,
+    // or a filter (lo -> high-pass, hi -> low-pass) when *_is_filter, where the
+    // gain control becomes resonance (*_q). gain ±12 dB; lo cutoff 20..500 Hz;
+    // hi cutoff 2000..20000 Hz.
+    float eq_lo_gain_db   = 0.0f;
+    float eq_lo_cutoff_hz = 120.0f;
+    bool  eq_lo_is_filter = false;
+    float eq_lo_q         = 0.707f;
+    float eq_hi_gain_db   = 0.0f;
+    float eq_hi_cutoff_hz = 6000.0f;
+    bool  eq_hi_is_filter = false;
+    float eq_hi_q         = 0.707f;
     float delay_time_l   = 0.5f;
     float delay_time_r   = 0.5f;
     float delay_feedback = 0.5f;
@@ -73,6 +88,17 @@ struct PerformParamsTargets
     uint8_t engine_loop_release_curve[kLayerCount] = {0u, 0u}; // 0=exp, 1=log
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
+    // ADSR playback mode (perform_adsr type, perform_adsr_row==2): a positional
+    // amplitude envelope across the trimmed region. engine_adsr_mode gates it on;
+    // a_x/d_x/r_x/s_level are 0..100 fractions; sustain_loop parks playback in the
+    // d_x..r_x section while the key is held (else one-shot). The A/R ramp curves
+    // reuse engine_loop_attack_curve / engine_loop_release_curve.
+    bool    engine_adsr_mode[kLayerCount] = {false, false};
+    uint8_t engine_adsr_env_a_x[kLayerCount] = {13u, 13u};
+    uint8_t engine_adsr_env_d_x[kLayerCount] = {38u, 38u};
+    uint8_t engine_adsr_env_r_x[kLayerCount] = {89u, 89u};
+    uint8_t engine_adsr_env_s_level[kLayerCount] = {50u, 50u};
+    bool    engine_adsr_sustain_loop[kLayerCount] = {false, false};
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]
@@ -148,7 +174,22 @@ struct PerformParamsCurrent
     float eq_mix          = 1.0f;
     float eq_center_norm  = 0.5f;
     float eq_tilt_db      = 0.0f;
-    float eq_q            = 1.2f; // peaking Q both bells, UI range 0.5..1.7
+    float eq_q            = 0.6f; // peaking Q both bells, UI range 0.4..0.8
+    // Tilt band sub-mode: false = tilt see-saw (low +, high -), true = a single
+    // peaking bell at center_hz (same gain/center/Q controls). REnc-click toggles.
+    bool  eq_tilt_is_bell = false;
+    // Independent low/high shelf bands (Process->EQ). Each is a shelf at its gain,
+    // or a filter (lo -> high-pass, hi -> low-pass) when *_is_filter, where the
+    // gain control becomes resonance (*_q). gain ±12 dB; lo cutoff 20..500 Hz;
+    // hi cutoff 2000..20000 Hz.
+    float eq_lo_gain_db   = 0.0f;
+    float eq_lo_cutoff_hz = 120.0f;
+    bool  eq_lo_is_filter = false;
+    float eq_lo_q         = 0.707f;
+    float eq_hi_gain_db   = 0.0f;
+    float eq_hi_cutoff_hz = 6000.0f;
+    bool  eq_hi_is_filter = false;
+    float eq_hi_q         = 0.707f;
     float delay_time_l   = 0.5f;
     float delay_time_r   = 0.5f;
     float delay_feedback = 0.5f;
@@ -178,6 +219,13 @@ struct PerformParamsCurrent
     uint8_t engine_loop_release_curve[kLayerCount] = {0u, 0u}; // 0=exp, 1=log
     float engine_loop_crossfade_amount[kLayerCount] = {0.0625f, 0.0625f}; // 0..0.5 of selected length
     float engine_loop_crossfade_shape[kLayerCount] = {0.0f, 0.0f}; // 0=linear, 1=equal-power-like
+    // ADSR playback mode (see PerformParamsTargets for field meanings). Discrete.
+    bool    engine_adsr_mode[kLayerCount] = {false, false};
+    uint8_t engine_adsr_env_a_x[kLayerCount] = {13u, 13u};
+    uint8_t engine_adsr_env_d_x[kLayerCount] = {38u, 38u};
+    uint8_t engine_adsr_env_r_x[kLayerCount] = {89u, 89u};
+    uint8_t engine_adsr_env_s_level[kLayerCount] = {50u, 50u};
+    bool    engine_adsr_sustain_loop[kLayerCount] = {false, false};
     uint8_t perform_keyzone_lo_note[kLayerCount] = {48u, 48u}; // C3
     uint8_t perform_keyzone_hi_note[kLayerCount] = {60u, 60u}; // C4
     uint8_t express_target[kLayerCount][kExpressRowCount]

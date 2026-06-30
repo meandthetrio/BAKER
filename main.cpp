@@ -432,6 +432,12 @@ int main(void)
             t.engine_loop_release_curve[layer] = g_app.engine.adsr.perform_adsr_release_curve[layer] & 1u;
             t.engine_loop_crossfade_amount[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade[layer];
             t.engine_loop_crossfade_shape[layer] = g_app.engine.adsr.perform_adsr_loop_crossfade_shape[layer];
+            t.engine_adsr_mode[layer] = (g_app.engine.adsr.perform_adsr_row[layer] == 2u);
+            t.engine_adsr_env_a_x[layer] = g_app.engine.adsr.perform_adsr_env_a_x[layer];
+            t.engine_adsr_env_d_x[layer] = g_app.engine.adsr.perform_adsr_env_d_x[layer];
+            t.engine_adsr_env_r_x[layer] = g_app.engine.adsr.perform_adsr_env_r_x[layer];
+            t.engine_adsr_env_s_level[layer] = g_app.engine.adsr.perform_adsr_env_s_level[layer];
+            t.engine_adsr_sustain_loop[layer] = (g_app.engine.adsr.perform_adsr_sustain_loop[layer] != 0u);
             t.perform_keyzone_lo_note[layer] = g_app.engine.keyzone.perform_keyzone_lo_note[layer];
             t.perform_keyzone_hi_note[layer] = g_app.engine.keyzone.perform_keyzone_hi_note[layer];
             for(uint8_t row = 0; row < kExpressRowCount; ++row)
@@ -599,6 +605,18 @@ int main(void)
             load_success_flash_until_ms = now_ms + 1000u;
         }
         prev_sd_manage_trim_save_busy = sd_manage_trim_save_busy;
+        // Bake save completed: reuse the green double-flash for the confirmation.
+        if(g_app.ui.bake_created_flash_pending)
+        {
+            load_success_flash_until_ms = now_ms + 1500u;
+            g_app.ui.bake_created_flash_pending = false;
+        }
+        // Preset/project save completed: same green confirmation flash (~1 s).
+        if(g_app.ui.preset_saved_flash_pending)
+        {
+            load_success_flash_until_ms = now_ms + 1000u;
+            g_app.ui.preset_saved_flash_pending = false;
+        }
         const bool load_success_flash_active = (now_ms < load_success_flash_until_ms);
 
         // CRAFT page render-then-play indicator: green = preview matches the
@@ -681,6 +699,16 @@ int main(void)
             const float g = on ? 1.0f : 0.0f;
             hw.led1.Set(0.0f, 0.0f, g);
             hw.led2.Set(0.0f, 0.0f, g);
+        }
+        else if(g_app.ui.ui_active_screen == UiScreenId::PerformProcess
+                && g_app.engine.process.perform_process_eq_graph_active)
+        {
+            // Process->EQ: LED2 steady blue (channel order is red,blue,green here),
+            // blinking off briefly on each Button2 band-cycle press.
+            const bool blink_off
+                = (now_ms - g_app.engine.process.perform_process_eq_blink_ms) < 80u;
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
+            hw.led2.Set(0.0f, blink_off ? 0.0f : 1.0f, 0.0f);
         }
         else if(sd_browse_active || record_render_preview_active)
         {

@@ -25,7 +25,7 @@ static constexpr float kPerformLoopCrossfadeShapeStep = 1.0f / 64.0f;
 static constexpr uint16_t kPerformAdsrAttackMinMs  = 2u;
 static constexpr uint16_t kPerformAdsrReleaseMinMs = 1u;
 static constexpr uint16_t kPerformAdsrAttackReleaseMaxMs = 4000u;
-static constexpr uint16_t kPerformAdsrDecayMaxMs = 100u;
+static constexpr uint16_t kPerformAdsrDecayMaxMs = 1000u;
 static constexpr uint16_t kPerformAdsrSustainMax = 100u;
 
 static int ClampInt(int v, int lo, int hi)
@@ -91,7 +91,7 @@ static void SetPerformAdsrStageValue(AppEngineState& engine, uint8_t layer, uint
             engine.adsr.perform_adsr_loop_attack[safe_layer] = value;
             return;
         case 1:
-            engine.adsr.perform_adsr_loop_decay[safe_layer] = static_cast<uint8_t>(value);
+            engine.adsr.perform_adsr_loop_decay[safe_layer] = value;
             return;
         case 2:
             engine.adsr.perform_adsr_loop_sustain[safe_layer] = static_cast<uint8_t>(value);
@@ -153,38 +153,21 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
     uint8_t& adsr_row = PerformAdsrRow(engine, layer);
     if(engine.adsr.perform_adsr_type_focus)
     {
-        int row = static_cast<int>(adsr_row % static_cast<uint8_t>(kAdsrRowCount));
-        row += e.value;
-        while(row < 0)
-            row += kAdsrRowCount;
-        while(row >= kAdsrRowCount)
-            row -= kAdsrRowCount;
-        adsr_row = static_cast<uint8_t>(row);
-
-        uint8_t next_mode = engine.layer.engine_play_mode[layer] & 1u;
-        bool changed = false;
-        if(row == static_cast<int>(kAdsrRowOneShot))
-        {
-            if(next_mode != 0u)
-            {
-                next_mode = 0u;
-                changed = true;
-            }
-        }
-        else if(row == static_cast<int>(kAdsrRowLoop))
-        {
-            if(next_mode != 1u)
-            {
-                next_mode = 1u;
-                changed = true;
-            }
-        }
-
-        if(changed)
-        {
-            engine.layer.engine_play_mode[layer] = next_mode;
-            PublishEngineLayerParams(ctx);
-        }
+        // Only two playback types remain: loop and adsr (one-shot was removed —
+        // adsr with sustain-loop off reproduces it). Any encoder turn toggles
+        // between the two; a stale value (e.g. a migrated one-shot) snaps to adsr.
+        uint8_t cur = (adsr_row == static_cast<uint8_t>(kAdsrRowLoop))
+                          ? static_cast<uint8_t>(kAdsrRowLoop)
+                          : static_cast<uint8_t>(kAdsrRowAdsr);
+        if(e.value != 0)
+            cur = (cur == static_cast<uint8_t>(kAdsrRowLoop))
+                      ? static_cast<uint8_t>(kAdsrRowAdsr)
+                      : static_cast<uint8_t>(kAdsrRowLoop);
+        adsr_row = cur;
+        // loop -> SDRAM loop on; adsr -> loop off (positional envelope owns it).
+        engine.layer.engine_play_mode[layer]
+            = (cur == static_cast<uint8_t>(kAdsrRowLoop)) ? 1u : 0u;
+        PublishEngineLayerParams(ctx);
         PerformAdsrEnsureValidFocus(engine, shared, layer);
         ui.ui_dirty = true;
         return true;
@@ -214,6 +197,9 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
             if(next_level == static_cast<int>(level))
                 return false;
             level = static_cast<uint8_t>(next_level);
+            // Push to the audio engine so the sustain level (and the rest of the
+            // positional ADSR-mode envelope) tracks the handle in real time.
+            PublishEngineLayerParams(ctx);
             ui.ui_dirty = true;
             return true;
         }
@@ -245,6 +231,9 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
         if(next_value == static_cast<int>(value))
             return false;
         value = static_cast<uint8_t>(next_value);
+        // Push handle moves (A/D/R positions) to the audio engine so the
+        // positional ADSR-mode envelope updates in real time.
+        PublishEngineLayerParams(ctx);
         ui.ui_dirty = true;
         return true;
     }
@@ -259,9 +248,9 @@ bool PerformAdsr_OnEventExtEncoder(UiScreenCtx& ctx, const UiInputEvent& e)
     const int min_value = PerformAdsrStageMin(stage);
     const int max_value = PerformAdsrStageMax(stage);
     const int tier = PerformAdsrAccelTier(e.t_ms);
-    // Attack (stage 0) and release (stage 3) span 0..4000 ms -> coarse 100 ms
-    // fast step; decay/sustain are 0..100 -> the gentler unit step.
-    const bool wide_stage = (stage == 0u || stage == 3u);
+    // Attack (0)/release (3) span 0..4000 ms and decay (1) spans 0..1000 ms ->
+    // all use the coarse 100 ms fast step; sustain (2) is 0..100 -> unit step.
+    const bool wide_stage = (stage == 0u || stage == 1u || stage == 3u);
     const int step = wide_stage ? PerformAdsrMsStepForTier(tier)
                                 : PerformAdsrUnitStepForTier(tier);
     const int next_value = ClampInt(

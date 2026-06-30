@@ -95,6 +95,12 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
     current.eq_center_norm = SmoothToward(current.eq_center_norm, t.eq_center_norm, coeff);
     current.eq_tilt_db     = SmoothToward(current.eq_tilt_db, t.eq_tilt_db, coeff);
     current.eq_q           = SmoothToward(current.eq_q, t.eq_q, coeff);
+    current.eq_lo_gain_db   = SmoothToward(current.eq_lo_gain_db, t.eq_lo_gain_db, coeff);
+    current.eq_lo_cutoff_hz = SmoothToward(current.eq_lo_cutoff_hz, t.eq_lo_cutoff_hz, coeff);
+    current.eq_lo_q         = SmoothToward(current.eq_lo_q, t.eq_lo_q, coeff);
+    current.eq_hi_gain_db   = SmoothToward(current.eq_hi_gain_db, t.eq_hi_gain_db, coeff);
+    current.eq_hi_cutoff_hz = SmoothToward(current.eq_hi_cutoff_hz, t.eq_hi_cutoff_hz, coeff);
+    current.eq_hi_q         = SmoothToward(current.eq_hi_q, t.eq_hi_q, coeff);
     current.delay_time_l   = SmoothToward(current.delay_time_l, t.delay_time_l, coeff);
     current.delay_time_r   = SmoothToward(current.delay_time_r, t.delay_time_r, coeff);
     current.delay_feedback = SmoothToward(current.delay_feedback, t.delay_feedback, coeff);
@@ -150,12 +156,21 @@ void Params::AudioBlockTick(float sample_rate, size_t block_size)
                                     : kReverbFaderModeSend;
     current.sat_on    = t.sat_on;
     current.eq_on     = t.eq_on;
+    current.eq_lo_is_filter = t.eq_lo_is_filter;
+    current.eq_hi_is_filter = t.eq_hi_is_filter;
+    current.eq_tilt_is_bell = t.eq_tilt_is_bell;
     current.sat_mode  = t.sat_mode;
     for(uint8_t i = 0; i < 4; ++i)
         current.fx_order[i] = t.fx_order[i];
     for(uint8_t layer = 0; layer < PerformParamsCurrent::kLayerCount; ++layer)
     {
         current.engine_loop_mode[layer] = t.engine_loop_mode[layer];
+        current.engine_adsr_mode[layer] = t.engine_adsr_mode[layer];
+        current.engine_adsr_env_a_x[layer] = t.engine_adsr_env_a_x[layer];
+        current.engine_adsr_env_d_x[layer] = t.engine_adsr_env_d_x[layer];
+        current.engine_adsr_env_r_x[layer] = t.engine_adsr_env_r_x[layer];
+        current.engine_adsr_env_s_level[layer] = t.engine_adsr_env_s_level[layer];
+        current.engine_adsr_sustain_loop[layer] = t.engine_adsr_sustain_loop[layer];
         current.engine_drive_mode[layer] = t.engine_drive_mode[layer];
         current.engine_filter_mode[layer] = t.engine_filter_mode[layer];
         current.perform_keyzone_lo_note[layer] = t.perform_keyzone_lo_note[layer];

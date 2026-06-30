@@ -33,7 +33,16 @@ static void PublishProjectPerformParams(Params& params,
                                         const float* emphasis_resonance,
                                         const float* output_master_level,
                                         float process_sat_tone,
-                                        float process_sat_bias)
+                                        float process_sat_bias,
+                                        float process_eq_lo_gain_db,
+                                        float process_eq_lo_cutoff_hz,
+                                        uint8_t process_eq_lo_is_filter,
+                                        float process_eq_lo_q,
+                                        float process_eq_hi_gain_db,
+                                        float process_eq_hi_cutoff_hz,
+                                        uint8_t process_eq_hi_is_filter,
+                                        float process_eq_hi_q,
+                                        uint8_t process_eq_tilt_is_bell)
 {
     PerformParamsTargets& t = params.EditTargets();
     if(output_master_level)
@@ -69,13 +78,25 @@ static void PublishProjectPerformParams(Params& params,
             t.eq_tilt_db = kTiltEqTiltMaxDb;
         else
             t.eq_tilt_db = process_eq_state->eq_tilt_db;
+        // Clamp to the widest (bell) range; tilt mode re-clamps to its own max at
+        // use, so a saved narrow bell Q survives a reload.
         if(process_eq_state->eq_q < kTiltEqQMin)
             t.eq_q = kTiltEqQMin;
-        else if(process_eq_state->eq_q > kTiltEqQMax)
-            t.eq_q = kTiltEqQMax;
+        else if(process_eq_state->eq_q > kEqBellQMax)
+            t.eq_q = kEqBellQMax;
         else
             t.eq_q = process_eq_state->eq_q;
     }
+    // Top-level low/high EQ shelf bands (v25), independent of the eq sub-struct.
+    t.eq_lo_gain_db   = ClampProjectFloat(process_eq_lo_gain_db, -kEqShelfGainMaxDb, kEqShelfGainMaxDb);
+    t.eq_lo_cutoff_hz = ClampProjectFloat(process_eq_lo_cutoff_hz, kEqLoCutMinHz, kEqLoCutMaxHz);
+    t.eq_lo_is_filter = (process_eq_lo_is_filter != 0u);
+    t.eq_lo_q         = ClampProjectFloat(process_eq_lo_q, kEqFilterQMin, kEqFilterQMax);
+    t.eq_hi_gain_db   = ClampProjectFloat(process_eq_hi_gain_db, -kEqShelfGainMaxDb, kEqShelfGainMaxDb);
+    t.eq_hi_cutoff_hz = ClampProjectFloat(process_eq_hi_cutoff_hz, kEqHiCutMinHz, kEqHiCutMaxHz);
+    t.eq_hi_is_filter = (process_eq_hi_is_filter != 0u);
+    t.eq_hi_q         = ClampProjectFloat(process_eq_hi_q, kEqFilterQMin, kEqFilterQMax);
+    t.eq_tilt_is_bell = (process_eq_tilt_is_bell != 0u);
     if(process_delay_state)
     {
         t.delay_on = (process_delay_state->delay_on != 0u);
@@ -146,6 +167,14 @@ static void PublishProjectPerformParams(Params& params,
         t.engine_loop_release_ms[layer] = static_cast<float>(engine.adsr.perform_adsr_loop_release[layer]);
         t.engine_loop_crossfade_amount[layer] = engine.adsr.perform_adsr_loop_crossfade[layer];
         t.engine_loop_crossfade_shape[layer] = engine.adsr.perform_adsr_loop_crossfade_shape[layer];
+        t.engine_loop_attack_curve[layer] = engine.adsr.perform_adsr_attack_curve[layer] & 1u;
+        t.engine_loop_release_curve[layer] = engine.adsr.perform_adsr_release_curve[layer] & 1u;
+        t.engine_adsr_mode[layer] = (engine.adsr.perform_adsr_row[layer] == 2u);
+        t.engine_adsr_env_a_x[layer] = engine.adsr.perform_adsr_env_a_x[layer];
+        t.engine_adsr_env_d_x[layer] = engine.adsr.perform_adsr_env_d_x[layer];
+        t.engine_adsr_env_r_x[layer] = engine.adsr.perform_adsr_env_r_x[layer];
+        t.engine_adsr_env_s_level[layer] = engine.adsr.perform_adsr_env_s_level[layer];
+        t.engine_adsr_sustain_loop[layer] = (engine.adsr.perform_adsr_sustain_loop[layer] != 0u);
     }
     // Velocity-mod lanes (global) → param snapshot so the loaded config reaches
     // the voice engine without needing a manual toggle on the velmod screen.
@@ -324,8 +353,8 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
         engine.adsr.perform_adsr_loop_decay[slot] = manifest.perform_adsr_loop_decay[slot];
         if(engine.adsr.perform_adsr_loop_decay[slot] < 1u)
             engine.adsr.perform_adsr_loop_decay[slot] = 1u;
-        if(engine.adsr.perform_adsr_loop_decay[slot] > 100u)
-            engine.adsr.perform_adsr_loop_decay[slot] = 100u;
+        if(engine.adsr.perform_adsr_loop_decay[slot] > 1000u)
+            engine.adsr.perform_adsr_loop_decay[slot] = 1000u;
         engine.adsr.perform_adsr_loop_sustain[slot] = manifest.perform_adsr_loop_sustain[slot];
         if(engine.adsr.perform_adsr_loop_sustain[slot] > 100u)
             engine.adsr.perform_adsr_loop_sustain[slot] = 100u;
@@ -339,6 +368,10 @@ static void ApplyProjectManifestLayerState(AppEngineState& engine, const Project
             = (manifest.adsr_curve_flags & static_cast<uint8_t>(1u << slot)) ? 1u : 0u;
         engine.adsr.perform_adsr_release_curve[slot]
             = (manifest.adsr_curve_flags & static_cast<uint8_t>(1u << (2u + slot))) ? 1u : 0u;
+        // bits 4/5 = ADSR-playback sustain-loop (0=one-shot; pre-existing projects
+        // have these bits clear, so they load as one-shot).
+        engine.adsr.perform_adsr_sustain_loop[slot]
+            = (manifest.adsr_curve_flags & static_cast<uint8_t>(1u << (4u + slot))) ? 1u : 0u;
         engine.adsr.perform_adsr_loop_crossfade[slot]
             = ClampProjectFloat(manifest.perform_adsr_loop_crossfade[slot], 0.0f, 0.5f);
         engine.adsr.perform_adsr_loop_crossfade_shape[slot]
@@ -384,7 +417,16 @@ void ApplyProjectLoadState(AppEngineState& engine,
                                 manifest.engine_filter_resonance,
                                 &manifest.master_level,
                                 manifest.sat_tone,
-                                manifest.sat_bias);
+                                manifest.sat_bias,
+                                manifest.eq_lo_gain_db,
+                                manifest.eq_lo_cutoff_hz,
+                                manifest.eq_lo_is_filter,
+                                manifest.eq_lo_q,
+                                manifest.eq_hi_gain_db,
+                                manifest.eq_hi_cutoff_hz,
+                                manifest.eq_hi_is_filter,
+                                manifest.eq_hi_q,
+                                static_cast<uint8_t>(manifest.reserved_v24 & 1u));
     SyncProjectProcessVolumeUiState(engine, manifest.engine_layer_master_level);
     SyncProjectProcessFxOrderUiState(engine, manifest.fx_order);
 }

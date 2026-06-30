@@ -325,6 +325,26 @@ void VoiceEngine::SetLoopEnvelopeCurves(uint8_t layer, bool attack_log, bool rel
     loop_env_release_log_[layer] = release_log;
 }
 
+void VoiceEngine::SetAdsrPlaybackParams(uint8_t layer,
+                                        bool    mode,
+                                        uint8_t a_x,
+                                        uint8_t d_x,
+                                        uint8_t r_x,
+                                        uint8_t s_level,
+                                        bool    sustain_loop)
+{
+    // Read live in RenderNormalVoice_ (not baked at note-on / not in the setup
+    // cache), so handle edits update a sounding note's envelope without retrigger
+    // and no cache-gen bump is needed.
+    layer &= 1u;
+    adsr_mode_[layer]         = mode;
+    adsr_a_x_[layer]          = a_x;
+    adsr_d_x_[layer]          = d_x;
+    adsr_r_x_[layer]          = r_x;
+    adsr_s_level_[layer]      = s_level;
+    adsr_sustain_loop_[layer] = sustain_loop;
+}
+
 void VoiceEngine::SetLoopCrossfadeAmount(uint8_t layer, float amount)
 {
     layer &= 1u;

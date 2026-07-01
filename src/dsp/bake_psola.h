@@ -57,6 +57,12 @@ bool RunPitchShiftChunked(const int16_t*  source,
                           int16_t*        dest,
                           PsolaProgressCb cb);
 
+// Enable/disable formant preservation for subsequent pitch-shifts. ON (default)
+// keeps the source's spectral envelope fixed while pitch moves (natural large
+// transpositions); OFF lets the envelope ride the pitch and is ~29% faster.
+// Applied on the next RunPitchShift call. Driven by the Settings/Shift toggle.
+void SetPreserveFormants(bool on);
+
 // Max source length we can pitch-shift in one call. Matches the existing
 // bake-preview SDRAM buffer (240000 frames = 5 s @ 48 kHz mono).
 static constexpr uint32_t kMaxFrames     = 240000u;

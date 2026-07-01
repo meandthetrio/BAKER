@@ -31,6 +31,11 @@ using Stretch = signalsmith::stretch::SignalsmithStretch<float>;
 Stretch s_stretch;
 bool    s_configured = false;
 
+// Formant preservation flag, driven by the Settings/Shift toggle via
+// SetPreserveFormants(). Re-applied on every RunPitchShift so a mid-session
+// toggle takes effect on the next bake. Default on.
+bool    s_preserve_formants = true;
+
 // Float scratch buffers live in SDRAM (overwritten before read; SDRAM is
 // initialized by the time the first RunPitchShift call happens, well after
 // main() has called hw.Init()).
@@ -63,7 +68,19 @@ void EnsureConfigured()
     // main.cpp; the AXI-SRAM-too-small constraint that originally forced
     // presetCheaper no longer applies.
     s_stretch.presetDefault(/*channels*/ 1, /*sampleRate*/ 48000.0f);
-    s_stretch.setFormantFactor(1.0f);
+
+    // Formant preservation. A plain phase-vocoder transposition drags the
+    // spectral envelope (the instrument's fixed body/formant resonances) along
+    // with the pitch, so large shifts sound "chipmunk" (up) or "dark/monster"
+    // (down). With compensatePitch=true the library measures the source's
+    // envelope and re-applies it AFTER the pitch map, so the harmonics move but
+    // the timbre stays put — the standard multisampler behaviour, and the
+    // single biggest naturalness win for the wide (multi-octave) bake slots.
+    // Only the transposed slices pay for it; the root slot is a straight copy.
+    // Runtime-controlled via the Settings/Shift toggle (s_preserve_formants);
+    // re-applied per-call in RunPitchShiftChunked so toggling takes effect.
+    s_stretch.setFormantFactor(1.0f, /*compensatePitch=*/s_preserve_formants);
+
     s_configured = true;
 }
 
@@ -88,6 +105,11 @@ void FloatToInt16(const float* src, int16_t* dst, uint32_t n)
 }
 
 } // namespace
+
+void SetPreserveFormants(bool on)
+{
+    s_preserve_formants = on;
+}
 
 bool RunPitchShift(const int16_t* source,
                    uint32_t       frames,
@@ -123,6 +145,9 @@ bool RunPitchShiftChunked(const int16_t*  source,
         return false;
 
     EnsureConfigured();
+    // Honour the current formant-preservation setting (cheap; lets a Settings
+    // toggle take effect without reconfiguring the engine).
+    s_stretch.setFormantFactor(1.0f, /*compensatePitch=*/s_preserve_formants);
     s_stretch.reset();
     s_stretch.setTransposeSemitones(static_cast<float>(semitones));
 

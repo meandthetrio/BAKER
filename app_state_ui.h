@@ -290,6 +290,10 @@ struct AppUiState
     // Auto-normalize loaded samples to -12 dBFS (peak, windowed). Default on.
     // Mirrored into shared.settings_normalize_enabled for the audio thread.
     bool settings_normalize_enabled = true;
+    // Preserve formants during PSOLA bake transposition. Default on (natural
+    // large pitch shifts); off reverts to envelope-rides-pitch + ~29% faster
+    // bake. Runtime only (not persisted), applied via bake::SetPreserveFormants.
+    bool settings_bake_formants_enabled = true;
     bool shift_menu_firmware_update_active = false;
     bool shift_menu_bootloader_armed = false;
     uint32_t shift_menu_bootloader_arm_start_ms = 0;

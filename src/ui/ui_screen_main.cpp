@@ -1483,6 +1483,9 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
     }
     ui.bake_progress_slice_total = static_cast<uint8_t>(psola_planned);
 
+    // Apply the Settings/Shift formant-preservation toggle for this bake.
+    bake::SetPreserveFormants(ui.settings_bake_formants_enabled);
+
     // Begin the progress overlay BEFORE stopping audio so the first frame
     // of the overlay is on screen by the time PSOLA crunches CPU.
     BakeProgress_SetMacro_(ui, 0u, 0u, "psola: setup");

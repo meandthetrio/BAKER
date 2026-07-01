@@ -28,6 +28,7 @@ enum ShiftMenuItem : uint8_t
     ShiftVolume,
     ShiftMicMonitor,
     ShiftNormalize,
+    ShiftBakeFormants,
     ShiftFirmwareUpdate,
     ShiftMidiPanic,
     ShiftCount
@@ -270,6 +271,12 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             ui.ui_dirty = true;
             return true;
         }
+        if(ui.shift_menu_cursor == ShiftBakeFormants)
+        {
+            ui.settings_bake_formants_enabled = !ui.settings_bake_formants_enabled;
+            ui.ui_dirty = true;
+            return true;
+        }
         if(ui.shift_menu_cursor == ShiftFirmwareUpdate)
         {
             ui.shift_menu_firmware_update_active = true;
@@ -460,6 +467,16 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
             else DrawTinyString(d, label, label_x, label_y, true);
 
             const char* value = ui.settings_normalize_enabled ? "ON" : "OFF";
+            const int val_w = TinyStringWidth(value);
+            DrawTinyString(d, value, screen_w - val_w - 1, label_y, true);
+        }
+        else if(i == ShiftBakeFormants)
+        {
+            const char* label = "BAKE FORMANT";
+            if(sel) DrawFillOnlyTinyString(d, label, label_x, label_y);
+            else DrawTinyString(d, label, label_x, label_y, true);
+
+            const char* value = ui.settings_bake_formants_enabled ? "ON" : "OFF";
             const int val_w = TinyStringWidth(value);
             DrawTinyString(d, value, screen_w - val_w - 1, label_y, true);
         }

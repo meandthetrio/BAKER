@@ -91,7 +91,7 @@ const UiScreen& GetScreen(UiScreenId id)
                                             PerformWaveEdit_OnEvent,
                                             PerformWaveEdit_Render,
                                             PerformWaveEdit_OnEnter};
-    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, nullptr, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render, PerformKeyzone_OnEnter};
+    static const UiScreen perform_keyzone{UiScreenId::PerformKeyzone, PerformKeyzone_OnScreenEnter, nullptr, PerformKeyzone_OnEvent, PerformKeyzone_Render, PerformKeyzone_OnEnter};
     static const UiScreen vel_mod{UiScreenId::VelocityMod, nullptr, nullptr, VelocityMod_OnEvent, VelocityMod_Render};
     static const UiScreen vel_mod2{UiScreenId::VelocityMod2, nullptr, nullptr, VelocityMod2_OnEvent, VelocityMod2_Render};
     static const UiScreen perform_keytrack{UiScreenId::PerformKeytrack,

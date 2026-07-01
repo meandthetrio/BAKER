@@ -710,6 +710,15 @@ int main(void)
             hw.led1.Set(0.0f, 0.0f, 0.0f);
             hw.led2.Set(0.0f, blink_off ? 0.0f : 1.0f, 0.0f);
         }
+        else if(g_app.ui.ui_active_screen == UiScreenId::VelocityMod
+                || g_app.ui.ui_active_screen == UiScreenId::VelocityMod2)
+        {
+            // Keymod lane a/b: LED2 steady blue (channel order red,blue,green),
+            // blinking off briefly on each Button2 lane-switch press.
+            const bool blink_off = (now_ms - g_app.ui.keymod_blink_ms) < 80u;
+            hw.led1.Set(0.0f, 0.0f, 0.0f);
+            hw.led2.Set(0.0f, blink_off ? 0.0f : 1.0f, 0.0f);
+        }
         else if(sd_browse_active || record_render_preview_active)
         {
             hw.led1.Set(0.0f, 0.0f, 0.0f);

@@ -260,12 +260,15 @@ struct AppUiState
     uint16_t sd_manage_edit_index = 0;
     uint8_t sd_manage_trim_choice_cursor = 0;
     char sd_manage_save_stem[kSdRenameStemMax + 1u] = {};
-    uint8_t perform_keyzone_focus = 0; // 0 = keytrack, 1 = lane A, 2 = lane B
+    uint8_t perform_keyzone_focus = 0; // 0 = split, 1 = lane A, 2 = lane B, 3 = keytrack
     // Keyzone keybed play-flash: the last struck note blinks on the keyboard
     // icon until keyzone_flash_until_ms (set by the UI tick on each note-on).
     uint8_t  keyzone_flash_note     = 0;
     uint32_t keyzone_flash_until_ms = 0;
-    uint8_t velmod_focus[2] = {2u, 2u}; // 1=threshold 2=amount 3=target 4=shape (default on amount)
+    uint8_t velmod_focus[2] = {3u, 3u}; // 2=amount 3=target (default on target)
+    // Keymod lane a/b LED2: steady blue on the lane editor, blinks off ~80 ms on
+    // each Button2 lane-switch press (timestamp set in the velmod event handler).
+    uint32_t keymod_blink_ms = 0;
     // PerformKeytrack subscreen focus: 0 = vol label, 1 = amount (dB), 2 = tilt
     // rectangle. Each shows a solid border when focused; REnc edits the focused
     // item. Reset to the rectangle on screen enter.

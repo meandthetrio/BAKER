@@ -127,59 +127,19 @@ static int VelModAmountHi(uint8_t /*target_idx*/)
     return 10;
 }
 
-// Shape: 0=knee, 1=gate. The label string is what appears in the value
-// column on the shape row.
-static const char* VelModShapeLabel(uint8_t shape)
+
+// Since a/b are now automatic pitch keyzones (source/threshold/shape are driven
+// by the keyzone split), the lane editor is trimmed to just target + amount.
+// Focus IDs keep their historical numbering (2=amount, 3=target); scroll walks
+// the visual top-to-bottom order (target over amount).
+static constexpr uint8_t kVelModFocusCount = 2u;
+static constexpr uint8_t kVelModFocusVisualOrder[kVelModFocusCount] = {3u, 2u};
+
+// Clamp a stale/legacy focus value into the trimmed {target, amount} set.
+static uint8_t VelModNormalizeFocus(uint8_t focus)
 {
-    return (shape == 0u) ? "knee" : "gate";
+    return (focus == 2u || focus == 3u) ? focus : 3u;
 }
-
-// Source: which value drives the gate + knee, and the trigger polarity.
-//   0=>vel  1=<vel  2=>note  3=<note   (default >vel = legacy behavior)
-static const char* const kVelModSourceLabels[] = {">vel", "<vel", ">note", "<note"};
-static constexpr uint8_t kVelModSourceCount = 4u;
-static constexpr int kVelModNoteLoUi      = 24;  // C1
-static constexpr int kVelModNoteHiUi      = 108; // C8
-static constexpr int kVelModNoteDefaultUi = 60;  // C4
-
-static bool VelModSourceIsNote(uint8_t source)
-{
-    return source >= 2u;
-}
-
-// Clamp a threshold to the valid range for its source domain: note = C1..C8,
-// velocity = 0..127.
-static uint8_t VelModClampThreshold(int v, uint8_t source)
-{
-    return VelModSourceIsNote(source)
-               ? static_cast<uint8_t>(ClampInt(v, kVelModNoteLoUi, kVelModNoteHiUi))
-               : static_cast<uint8_t>(ClampInt(v, 0, 127));
-}
-
-// Threshold display: note name (e.g. "C4") for note domain, raw number for vel.
-static void VelModFormatThreshold(char* out, size_t out_n, uint8_t threshold, uint8_t source)
-{
-    if(VelModSourceIsNote(source))
-        FormatMidiNoteName(threshold, out, out_n);
-    else
-        std::snprintf(out, out_n, "%u", threshold);
-}
-
-static void FormatVelocityMonitorString(char buf[4], const AppDiagnosticsState& diag)
-{
-    uint32_t v = diag.last_velocity.load(std::memory_order_relaxed);
-    if(v > 127u)
-        v = 127u;
-    std::snprintf(buf, 4u, "%u", static_cast<unsigned>(v));
-}
-
-// Top-to-bottom visual order for LEnc focus scroll on the velmod screens.
-// Focus IDs are 1=threshold, 2=amount, 3=target, 4=shape, 5=source (historical
-// numbering from the modblock screens that share the same focus field), but the
-// rows render in the order source → target → threshold → amount → shape. Scroll
-// walks this table so the highlight follows the user's eye, not the numeric order.
-static constexpr uint8_t kVelModFocusCount = 5u;
-static constexpr uint8_t kVelModFocusVisualOrder[kVelModFocusCount] = {5u, 3u, 1u, 2u, 4u};
 
 static uint8_t VelModStepFocusVisual(uint8_t cur, int dir)
 {
@@ -215,42 +175,10 @@ static uint8_t VelModNextTargetIdx(uint8_t cur, uint8_t other_lane_idx, int dir)
 
 static bool VelocityMod_HandleEvent(AppUiState& ui, AppEngineState& engine, int idx, const UiInputEvent& e)
 {
-    const uint8_t focus = ui.velmod_focus[idx];
+    const uint8_t focus = VelModNormalizeFocus(ui.velmod_focus[idx]);
     if(e.type == UiInputType::EncDelta && e.id == kUiEncExt && e.value != 0)
     {
         const int delta = e.value;
-        if(focus == 5)
-        {
-            // Source row: cycle >vel / <vel / >note / <note. Entering the note
-            // domain snaps an out-of-range threshold to C4 so the user lands on a
-            // sane musical default.
-            int s = static_cast<int>(engine.velmod.source[idx]) + delta;
-            while(s < 0) s += static_cast<int>(kVelModSourceCount);
-            while(s >= static_cast<int>(kVelModSourceCount)) s -= static_cast<int>(kVelModSourceCount);
-            const uint8_t prev = engine.velmod.source[idx];
-            const uint8_t next = static_cast<uint8_t>(s);
-            if(next != prev)
-            {
-                engine.velmod.source[idx] = next;
-                if(VelModSourceIsNote(next) && !VelModSourceIsNote(prev))
-                {
-                    const int t = static_cast<int>(engine.velmod.threshold[idx]);
-                    if(t < kVelModNoteLoUi || t > kVelModNoteHiUi)
-                        engine.velmod.threshold[idx] = static_cast<uint8_t>(kVelModNoteDefaultUi);
-                }
-                ui.ui_dirty = true;
-            }
-            return true;
-        }
-        if(focus == 1)
-        {
-            // Threshold edits the focused lane only (threshold-link was removed).
-            engine.velmod.threshold[idx] = VelModClampThreshold(
-                static_cast<int>(engine.velmod.threshold[idx]) + delta,
-                engine.velmod.source[idx]);
-            ui.ui_dirty = true;
-            return true;
-        }
         if(focus == 2)
         {
             const int lo = VelModAmountLo(engine.velmod.target_idx[idx]);
@@ -264,40 +192,21 @@ static bool VelocityMod_HandleEvent(AppUiState& ui, AppEngineState& engine, int 
         }
         if(focus == 3)
         {
-            // Both lanes (A/B) gate independently on their own source, and their
-            // contributions sum in the engine — so the two lanes may freely share
-            // a target (e.g. reverb on the low half and the high half). Pass an
-            // out-of-range "other" so the target scroll never skips an index.
+            // Both lanes may share a target (they gate on their own zone and sum
+            // in the engine), so pass an out-of-range "other" that's never skipped.
             const uint8_t other = 0xFFu;
             const uint8_t prev  = engine.velmod.target_idx[idx];
             const uint8_t next  = VelModNextTargetIdx(prev, other, delta);
             if(next != prev)
             {
                 engine.velmod.target_idx[idx] = next;
-                // Per spec: amount snaps to 0 whenever target changes so the
-                // user always sees a known-safe starting state on a new pick.
+                // Amount snaps to 0 on a target change so a new pick starts safe.
                 engine.velmod.amount[idx] = 0;
                 ui.ui_dirty = true;
             }
             return true;
         }
-        if(focus == 4)
-        {
-            // Shape toggles between knee (0) and gate (1) on encoder scroll.
-            // Direction doesn't matter — it's a 2-state switch.
-            engine.velmod.shape[idx] = (engine.velmod.shape[idx] == 0u) ? 1u : 0u;
-            ui.ui_dirty = true;
-            return true;
-        }
         return false;
-    }
-    if(e.type == UiInputType::BtnDown && e.id == kUiBtnExtEnc && focus == 4)
-    {
-        // REnc Click on the shape row also toggles knee/gate (matches the
-        // "click to flip" feel users get on other toggle-style rows).
-        engine.velmod.shape[idx] = (engine.velmod.shape[idx] == 0u) ? 1u : 0u;
-        ui.ui_dirty = true;
-        return true;
     }
     return false;
 }
@@ -312,84 +221,39 @@ static void VelocityMod_RenderCommon(OledPager& d,
                                      bool rshift)
 {
     SubScreen_RenderHeader(d, header, header2);
-    const uint8_t focus = ui.velmod_focus[idx];
+    const uint8_t focus = VelModNormalizeFocus(ui.velmod_focus[idx]);
+    (void)rshift;
+    (void)diag;
 
-    // Left-side parameter list: source / target / threshold / amount / shape.
-    // Row pitch = 12 px keeps a 1-px gap between focus borders. Five rows fill
-    // y=6..62 on the 0..63 screen. Labels live at the left edge in micro font;
-    // their value sits centered around kLeftValueCx so it can grow 1..3 chars
-    // wide without disturbing the label or the link badge.
-    constexpr int kLeftLabelX  = 2;
-    constexpr int kLeftValueCx = 59;
-    constexpr int kRow0Y       = 6;   // source label + value
-    constexpr int kRow1Y       = 18;  // target label + value
-    constexpr int kRow2Y       = 30;  // threshold + value + link
-    constexpr int kRow3Y       = 42;  // amount + value
-    constexpr int kRow4Y       = 54;  // shape + value
+    // Trimmed lane editor: just target + amount (a/b are pitch keyzones whose
+    // note coverage is set by the keyzone split). Each label sits centered above
+    // its value.
+    constexpr int kCx      = 64;  // horizontal centre for both stacks
+    constexpr int kTLblY   = 14;  // target label
+    constexpr int kTValY   = 24;  // target value
+    constexpr int kALblY   = 40;  // amount label
+    constexpr int kAValY   = 50;  // amount value
 
-    const uint8_t source = engine.velmod.source[idx];
+    auto draw_centered_label = [&](const char* s, int y)
+    {
+        const int w = MicroStringWidth(s);
+        DrawMicroString(d, s, kCx - w / 2, y, true);
+    };
 
-    DrawMicroString(d, "source",    kLeftLabelX, kRow0Y, true);
-    DrawMicroString(d, "target",    kLeftLabelX, kRow1Y, true);
-    DrawMicroString(d, "threshold", kLeftLabelX, kRow2Y, true);
-    DrawMicroString(d, "amount",    kLeftLabelX, kRow3Y, true);
-    DrawMicroString(d, "shape",     kLeftLabelX, kRow4Y, true);
-
-    // Source value (row 0) — micro-font label from the 4-way list.
-    DrawVelModItem(d, kVelModSourceLabels[source & 3u], kLeftValueCx, kRow0Y, focus == 5);
-
-    // Target value (row 1) — micro-font label string from shared list.
+    // Target: label above the value.
+    draw_centered_label("target", kTLblY);
     DrawVelModItem(d,
                    kVelModTargetList[engine.velmod.target_idx[idx]],
-                   kLeftValueCx,
-                   kRow1Y,
+                   kCx,
+                   kTValY,
                    focus == 3);
 
-    // Threshold value (row 2) — note name for note source, number for velocity.
-    // Solid focus border (matches the other value rows); threshold-link removed.
-    {
-        char buf[6] = {};
-        VelModFormatThreshold(buf, sizeof(buf), engine.velmod.threshold[idx], source);
-        DrawVelModNumeric(d, buf, kLeftValueCx, kRow2Y, focus == 1);
-    }
-
-    // Amount value (row 3). Signed format covers the bipolar -10..+10 case;
-    // unipolar targets only ever scroll into 0..+10 (clamped by the event
-    // handler) so the leading '-' just never appears.
+    // Amount: label above the value (signed; unipolar sends never show '-').
+    draw_centered_label("amount", kALblY);
     {
         char buf[6] = {};
         std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(engine.velmod.amount[idx]));
-        DrawVelModNumeric(d, buf, kLeftValueCx, kRow3Y, focus == 2);
-    }
-
-    // Shape value (row 4) — toggle between "knee" and "gate" on REnc Click.
-    DrawVelModItem(d,
-                   VelModShapeLabel(engine.velmod.shape[idx]),
-                   kLeftValueCx,
-                   kRow4Y,
-                   focus == 4);
-
-    // Right side: monitor in the right column (label y=30, value y=40). Shows the
-    // last note name when this lane's source is note domain, else the last
-    // velocity. Read-only — no focus border needed.
-    {
-        char mon[6] = {};
-        if(VelModSourceIsNote(source))
-        {
-            uint32_t n = diag.last_note.load(std::memory_order_relaxed);
-            if(n > 127u)
-                n = 127u;
-            FormatMidiNoteName(static_cast<uint8_t>(n), mon, sizeof(mon));
-        }
-        else
-        {
-            FormatVelocityMonitorString(mon, diag);
-        }
-        const char* lbl = "monitor";
-        const int   lw  = MicroStringWidth(lbl);
-        const int   lx  = ClampInt(112 - lw / 2, 1, 127 - lw);
-        DrawMicroString(d, lbl, lx, 30, true);
-        DrawVelModNumeric(d, mon, 112, 40, false);
+        DrawVelModNumeric(d, buf, kCx, kAValY, focus == 2);
     }
 }
 
@@ -428,6 +292,7 @@ bool VelocityMod_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     }
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
+        ui.keymod_blink_ms = e.t_ms; // LED2 blinks off on the lane switch
         UiNav_Pop(ui.ui_nav);
         UiNav_Push(ui.ui_nav, UiScreenId::VelocityMod2);
         ui.ui_dirty = true;
@@ -451,6 +316,7 @@ bool VelocityMod2_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
     }
     if(e.type == UiInputType::BtnDown && e.id == kUiBtnPod2)
     {
+        ui.keymod_blink_ms = e.t_ms; // LED2 blinks off on the lane switch
         UiNav_Pop(ui.ui_nav);
         UiNav_Push(ui.ui_nav, UiScreenId::VelocityMod);
         ui.ui_dirty = true;

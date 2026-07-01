@@ -147,6 +147,7 @@ bool PerformWaveEdit_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformWaveEdit_Render(UiScreenCtx& ctx);
 
 bool PerformKeyzone_OnEnter(UiScreenCtx& ctx);
+void PerformKeyzone_OnScreenEnter(UiScreenCtx& ctx);
 bool PerformKeyzone_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e);
 void PerformKeyzone_Render(UiScreenCtx& ctx);
 

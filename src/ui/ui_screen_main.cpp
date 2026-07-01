@@ -925,7 +925,7 @@ static void FormatCraftLoadText(const AppUiState& ui, char* out, size_t out_n)
     std::snprintf(out,
                   out_n,
                   "%s",
-                  (ui.craft_loaded_name[0] != '\0') ? ui.craft_loaded_name : "load");
+                  (ui.craft_loaded_name[0] != '\0') ? ui.craft_loaded_name : "load sample");
 
     constexpr int kMaxWidth = 92;
     size_t len = std::strlen(out);

@@ -54,13 +54,13 @@ static constexpr int kSdManageOverlayBottomActionY = kSdManageOverlayY0 + 32;
 static constexpr int kSdManageOverlayLeftActionX = kSdManageOverlayX0 + 8;
 static constexpr int kSdManageOverlayStyleX = kSdManageOverlayX0 + 55;
 static constexpr int kSdManageOverlayRightActionX = kSdManageOverlayX0 + 58;
-static const char kSdManageMaxStyleLabel[] = "Cold";
+static const char kSdManageMaxStyleLabel[] = "Pluck";
 static const char* kSdManageStyleFilterLabels[kSampleStyleOptionCount] = {
     "all",
-    "Hot",
-    "Dry",
-    "Wet",
-    "Cold",
+    "Pad",
+    "Pluck",
+    "Bass",
+    "Key",
 };
 
 int CenterTinyLabelXInBand(int x0, int x1, const char* label)
@@ -231,10 +231,10 @@ SampleStyle SampleStyleFromCursor(uint8_t cursor)
 {
     switch(cursor)
     {
-        case 1u: return SampleStyle::Hot;
-        case 2u: return SampleStyle::Dry;
-        case 3u: return SampleStyle::Wet;
-        case 4u: return SampleStyle::Cold;
+        case 1u: return SampleStyle::Pad;
+        case 2u: return SampleStyle::Pluck;
+        case 3u: return SampleStyle::Bass;
+        case 4u: return SampleStyle::Key;
         case 0u:
         default: return SampleStyle::None;
     }
@@ -244,10 +244,10 @@ uint8_t SampleStyleCursor(SampleStyle style)
 {
     switch(style)
     {
-        case SampleStyle::Hot: return 1u;
-        case SampleStyle::Dry: return 2u;
-        case SampleStyle::Wet: return 3u;
-        case SampleStyle::Cold: return 4u;
+        case SampleStyle::Pad: return 1u;
+        case SampleStyle::Pluck: return 2u;
+        case SampleStyle::Bass: return 3u;
+        case SampleStyle::Key: return 4u;
         case SampleStyle::None:
         default: return 0u;
     }

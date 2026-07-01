@@ -36,10 +36,10 @@ uint8_t ProcessDetailParamCount(uint8_t fx_id, uint8_t sat_mode)
 {
     switch(fx_id)
     {
-        // SAT is tape-only now (bit removed): SAT BUMP TONE BIAS (4), no toggle.
-        case 0: (void)sat_mode; return 4;
+        // SAT is tape-only (bit + bias removed): SAT BUMP TONE (3), no toggle.
+        case 0: (void)sat_mode; return 3;
         case 1: return 1; // EQ: graph only (no classic detail)
-        case 2: return 4; // DELAY: LTM RTM FBK + mode slot
+        case 2: return 3; // DELAY: LTM RTM FBK (send-only, no mode slot)
         case 3: return 5; // REVERB: Pre Dmp Dcy Mod + mode slot
         default: return 3;
     }
@@ -229,8 +229,7 @@ static bool ProcessEditSatDetail(PerformParamsTargets& t,
                                  float delta)
 {
     (void)e;
-    // Tape saturation only (bit mode removed): SAT(drive) BUMP TONE BIAS. BIAS is
-    // bipolar (-1..1); the fader shows it as 0..1, so traverse 2x per detent.
+    // Tape saturation only (bit + bias removed): SAT(drive) BUMP TONE.
     t.sat_mode = 0u; // keep the vestigial field pinned to tape
     if(pidx == 0)
         t.sat_drive = Clamp01(t.sat_drive + delta);
@@ -238,13 +237,6 @@ static bool ProcessEditSatDetail(PerformParamsTargets& t,
         t.sat_bump = Clamp01(t.sat_bump + delta);
     else if(pidx == 2)
         t.sat_tone = Clamp01(t.sat_tone + delta);
-    else if(pidx == 3)
-    {
-        float b = t.sat_bias + delta * 2.0f;
-        if(b < -1.0f) b = -1.0f;
-        if(b > 1.0f) b = 1.0f;
-        t.sat_bias = b;
-    }
     else
         return false;
     return true;
@@ -256,6 +248,7 @@ static bool ProcessEditDelayDetail(UiScreenCtx& ctx,
                                    uint8_t pidx,
                                    float delta)
 {
+    (void)e; // delay is send-only; no mode-slot event to read
     if(pidx == 0)
     {
         if(ctx.rshift)
@@ -290,17 +283,7 @@ static bool ProcessEditDelayDetail(UiScreenCtx& ctx,
         return true;
     }
 
-    if(pidx == 3)
-    {
-        const int dir = (e.value > 0) ? 1 : -1;
-        int mode = static_cast<int>(t.delay_fader_mode & 0x01u);
-        int steps = (e.value > 0) ? e.value : -e.value;
-        while(steps-- > 0)
-            mode = (dir > 0) ? ((mode + 1) & 0x01) : ((mode == 0) ? 1 : 0);
-        t.delay_fader_mode = static_cast<uint8_t>(mode);
-        return true;
-    }
-
+    // Delay is send-only now; the SEND/MIX mode slot (pidx 3) was removed.
     return false;
 }
 

@@ -172,7 +172,7 @@ void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
     const float target_mix  = p.delay_on ? p.delay_mix : delay_tail_mix_;
     const float target_len_l_f = static_cast<float>(len_l);
     const float target_len_r_f = static_cast<float>(len_r);
-    const bool  mix_mode    = (p.delay_fader_mode == kDelayFaderModeMix);
+    const bool  mix_mode    = false; // delay is send-only (MIX mode removed)
     float       peak        = wet_peak;
 
     // Hoist write index and smoother state into locals for the duration of

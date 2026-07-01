@@ -72,20 +72,20 @@ static constexpr const char* kBakeRenameSuffix = ".bk";
 static constexpr const char* kBakeTempPathInternal = "/_bake.tmp";
 static const char kSaveProjectNoneLabel[] = "none";
 static const char kProjectStylePlaceholder[] = "----";
-static const char kProjectMaxStyleLabel[] = "Water";
+static const char kProjectMaxStyleLabel[] = "Pluck";
 static const char* kProjectStyleLabels[kProjectStyleCount] = {
     "----",
-    "Fire",
-    "Earth",
-    "Wind",
-    "Water",
+    "Pad",
+    "Pluck",
+    "Bass",
+    "Key",
 };
 static const char* kProjectStyleFilterLabels[kProjectStyleCount] = {
     "all",
-    "Fire",
-    "Earth",
-    "Wind",
-    "Water",
+    "Pad",
+    "Pluck",
+    "Bass",
+    "Key",
 };
 
 void DrawCenteredRenameSaveOverlay(OledPager& d)

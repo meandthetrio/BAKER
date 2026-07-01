@@ -300,9 +300,9 @@ class TapeSaturator
         // the tanh stay driven, so harmonics bloom relative to the fundamental.
         c_comp_     = 0.18f * drive_;
         const float drive_boost = (1.0f + drive_) * (1.0f + drive_);
-        // Drive gain up (4.0, was 2.5) for more harmonic generation per the
-        // "hit harder" request.
-        c_drive_num_ = drive_ * 4.0f * drive_boost;
+        // Drive gain (5.2, was 4.0 / originally 2.5): +30% top end for hotter
+        // saturation. Scales the whole drive numerator uniformly (0 stays clean).
+        c_drive_num_ = drive_ * 5.2f * drive_boost;
         // Bias = odd->even morph (applied in Process as odd + c_even_*odd^2).
         // bias_ is stored bipolar (-1..1); (0.5 + 0.5*bias_) is the 0..1 fader
         // position. 0 at min = pure odd; kEvenDepth sets how even-rich max gets.

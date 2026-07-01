@@ -18,10 +18,10 @@ static constexpr uint8_t kProjectNameMax = 13;
 enum class ProjectStyleId : uint8_t
 {
     None = 0,
-    Fire,
-    Earth,
-    Wind,
-    Water,
+    Pad,
+    Pluck,
+    Bass,
+    Key,
     COUNT,
 };
 

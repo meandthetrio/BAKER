@@ -154,10 +154,10 @@ const char* SampleStyleLabel(SampleStyle style)
 {
     switch(style)
     {
-        case SampleStyle::Hot: return "Hot";
-        case SampleStyle::Dry: return "Dry";
-        case SampleStyle::Wet: return "Wet";
-        case SampleStyle::Cold: return "Cold";
+        case SampleStyle::Pad: return "Pad";
+        case SampleStyle::Pluck: return "Pluck";
+        case SampleStyle::Bass: return "Bass";
+        case SampleStyle::Key: return "Key";
         case SampleStyle::None:
         default: return "----";
     }
@@ -167,10 +167,10 @@ char SampleStyleCode(SampleStyle style)
 {
     switch(style)
     {
-        case SampleStyle::Hot: return 'H';
-        case SampleStyle::Dry: return 'D';
-        case SampleStyle::Wet: return 'W';
-        case SampleStyle::Cold: return 'C';
+        case SampleStyle::Pad: return 'P';
+        case SampleStyle::Pluck: return 'L';
+        case SampleStyle::Bass: return 'B';
+        case SampleStyle::Key: return 'K';
         case SampleStyle::None:
         default: return '\0';
     }
@@ -180,10 +180,10 @@ SampleStyle SampleStyleFromCode(char c)
 {
     switch(ToAsciiUpper(c))
     {
-        case 'H': return SampleStyle::Hot;
-        case 'D': return SampleStyle::Dry;
-        case 'W': return SampleStyle::Wet;
-        case 'C': return SampleStyle::Cold;
+        case 'P': return SampleStyle::Pad;
+        case 'L': return SampleStyle::Pluck;
+        case 'B': return SampleStyle::Bass;
+        case 'K': return SampleStyle::Key;
         default: return SampleStyle::None;
     }
 }

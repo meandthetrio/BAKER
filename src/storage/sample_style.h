@@ -6,10 +6,10 @@
 enum class SampleStyle : uint8_t
 {
     None = 0,
-    Hot,
-    Dry,
-    Wet,
-    Cold,
+    Pad,
+    Pluck,
+    Bass,
+    Key,
 };
 
 static constexpr uint8_t kSampleStyleOptionCount = 5u;

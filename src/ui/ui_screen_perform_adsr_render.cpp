@@ -143,7 +143,7 @@ void PerformAdsr_DrawMainContent(OledPager& d, UiScreenCtx& ctx)
     const SampleEdit* edit = sample_loaded ? &shared.sample.edit.sd_edit_slots[layer] : nullptr;
 
     char header_label[16] = {};
-    std::snprintf(header_label, sizeof(header_label), "adsr %c", layer == 0 ? 'a' : 'b');
+    std::snprintf(header_label, sizeof(header_label), "adsr"); // single layer: no a/b suffix
     const int header_w = MicroStringWidth(header_label);
     const int box_w = header_w + 4;
     const int box_h = kMicroH + 4;

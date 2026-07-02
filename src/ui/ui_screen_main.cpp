@@ -9,6 +9,7 @@
 #include "app_state_shared.h"
 #include "app_state_worker.h"
 #include "bake_psola.h"
+#include "sample_edit.h" // SampleEdit_ComputeNormGain for per-slice bake leveling
 #include "craft/craft_chain.h"
 #include "ui_worker_craft.h"
 #include "bk_file_format.h"
@@ -640,6 +641,11 @@ bool SamplesMenu_OnEnter(UiScreenCtx& ctx)
         case 3:
         default:
             ResetSdManageEntryState(*ctx.ui);
+            // Plain SD manager lists .wav AND .bk multisamples. Re-scan if the
+            // filter changed from a prior WAV-only context (craft/bake picker).
+            if(ctx.ui->sd_scan_filter != AppUiState::SdScanFilter::WavAndBk)
+                ctx.ui->sd.scan_done = false;
+            ctx.ui->sd_scan_filter = AppUiState::SdScanFilter::WavAndBk;
             return UiNav_Push(ctx.ui->ui_nav, UiScreenId::SdManageMenu);
     }
 }
@@ -1558,6 +1564,29 @@ static int BakeMenu_RunPsolaTestBake_(AppUiState& ui, AppSharedState& shared)
                 ui.bake_progress_active = false;
                 return 3;
             }
+            // Per-slice loudness normalization. Formant preservation pins the
+            // shifted harmonics under the source's fixed spectral envelope, so
+            // up-shifted slices come out quieter (their harmonics land in the
+            // envelope's low high-frequency tail). Normalize each rendered slice
+            // to the same -12 dBFS peak as the (already-normalized) source so the
+            // baked level is even across the keyboard. Harmless when the gain is
+            // ~1 (e.g. formants off / down-shifts); +18 dB boost cap avoids
+            // blowing up near-silent extreme shifts.
+            const float slice_gain
+                = SampleEdit_ComputeNormGain(s_bake_slice_scratch, 0u, source_frames);
+            if(slice_gain != 1.0f)
+            {
+                for(uint32_t i = 0u; i < source_frames; ++i)
+                {
+                    float v = static_cast<float>(s_bake_slice_scratch[i]) * slice_gain;
+                    if(v > 32767.0f)
+                        v = 32767.0f;
+                    else if(v < -32768.0f)
+                        v = -32768.0f;
+                    s_bake_slice_scratch[i]
+                        = static_cast<int16_t>(v >= 0.0f ? (v + 0.5f) : (v - 0.5f));
+                }
+            }
             src = s_bake_slice_scratch;
         }
         // else: src stays nullptr → silence slot.
@@ -1665,6 +1694,11 @@ bool BakeMenu_OnEnter(UiScreenCtx& ctx)
             // of pushing the SdManageActionMenu overlay (no load/rename/delete
             // in bake mode). Initial state matches a fresh samples-menu entry.
             ResetSdManageEntryState(ui);
+            // Bake sources are .wav only (can't bake a .bk); re-scan if switching
+            // away from a .bk-inclusive context.
+            if(ui.sd_scan_filter != AppUiState::SdScanFilter::WavOnly)
+                ui.sd.scan_done = false;
+            ui.sd_scan_filter = AppUiState::SdScanFilter::WavOnly;
             ui.bake_browser_open = true;
             if(UiNav_Push(ui.ui_nav, UiScreenId::SdManageMenu))
             {

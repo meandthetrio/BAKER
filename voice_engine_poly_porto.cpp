@@ -314,7 +314,7 @@ bool VoiceEngine::TryStartPolyPortoVoice_(const Sample* sample,
         v.new_pos_frame = 0u;
         v.new_pos_frac = 0.0f;
         SampleEdit e{};
-        if(LookupSampleEdit_(sample, e))
+        if(LookupSampleEdit_(sample, e) || LookupBkSliceEdit_(sample, e))
         {
             SampleEdit_Clamp(e, sample->length);
             v.new_pos_frame = e.start_frame;

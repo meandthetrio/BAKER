@@ -191,7 +191,7 @@ void VoiceEngine::HandleNoteOnEvent_(const Event& e)
             v.new_pos_frame = 0u;
             v.new_pos_frac  = 0.0f;
             SampleEdit ed{};
-            if(LookupSampleEdit_(sample, ed))
+            if(LookupSampleEdit_(sample, ed) || LookupBkSliceEdit_(sample, ed))
             {
                 SampleEdit_Clamp(ed, sample->length);
                 v.new_pos_frame = ed.start_frame;

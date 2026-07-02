@@ -130,7 +130,7 @@ struct Voice
 class VoiceEngine
 {
   public:
-    static constexpr size_t kMaxVoices = 8;
+    static constexpr size_t kMaxVoices = 5; // polyphony cap (was 8); pool == per-layer cap below
     static constexpr uint8_t kMaxSampleBank = 8;
 
     void Init(float sample_rate, size_t block_size);
@@ -342,7 +342,7 @@ class VoiceEngine
     float env_decay_ms_  = 120.0f;
     float env_amount_    = 0.5f;
     static constexpr uint8_t kEngineLayerCount = 1;
-    static constexpr uint8_t kMaxVoicesPerLayer = 8;
+    static constexpr uint8_t kMaxVoicesPerLayer = 5; // was 8; matches kMaxVoices (single layer)
     float engine_tune_semitones_[kEngineLayerCount] = {0.0f};
     // Cache of pow(2, semitones/12) per layer; populated lazily from inside
     // PrepareRenderScalars_ (const) when the dirty flag is set.
@@ -761,6 +761,10 @@ class VoiceEngine
                                uint32_t& sum_cycles);
     int  FindSampleBankSlot_(const Sample* sample) const;
     bool LookupSampleEdit_(const Sample* sample, SampleEdit& edit) const;
+    // .bk multisample slices are not in the pointer-keyed sample bank, so the
+    // normal edit lookup misses them. All slices share one length, so the single
+    // slot-0 trim (sd_edit_slots[0]) applies to every baked note.
+    bool LookupBkSliceEdit_(const Sample* sample, SampleEdit& edit) const;
 
     static uint32_t PackVoiceDebug_(uint8_t idx, uint8_t note, uint8_t vel);
 };

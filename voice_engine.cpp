@@ -1,6 +1,7 @@
 #include "voice_engine_internal.h"
 #include "voice_engine_render_internal.h"
 
+#include "app_state_shared.h" // complete AppSharedState + bk::kSliceCount for LookupBkSliceEdit_
 #include "build_config.h"
 #include "mem_regions.h"
 #include "macros.h"
@@ -101,6 +102,20 @@ bool VoiceEngine::LookupSampleEdit_(const Sample* sample, SampleEdit& edit) cons
         return false;
 
     edit = sample_edit_bank_[slot];
+    return true;
+}
+
+bool VoiceEngine::LookupBkSliceEdit_(const Sample* sample, SampleEdit& edit) const
+{
+    if(sample == nullptr || shared_ == nullptr || !shared_->bk_layer_b.loaded)
+        return false;
+    // Is this pointer one of the per-note .bk slices? (They live in a contiguous
+    // array, so a range check identifies them without a scan.)
+    const Sample* base = &shared_->bk_layer_b.slice_sample[0];
+    if(sample < base || sample >= base + bk::kSliceCount)
+        return false;
+    // Every slice is source_duration_samples long, so the slot-0 trim maps 1:1.
+    edit = shared_->sample.edit.sd_edit_slots[0];
     return true;
 }
 

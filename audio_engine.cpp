@@ -404,6 +404,20 @@ void AudioEngine::Init(float sample_rate, size_t block_size)
     eq_run_prev_ = false;
 }
 
+// Block-rate one-pole slew toward target with a snap-to-target deadband. The
+// snap lets a settling value reach the target exactly so the coeff dirty-check
+// stops recomputing (a one-pole only approaches asymptotically).
+static inline void EqSlew_(float& sm, float target, float coef, float snap)
+{
+    const float d = target - sm;
+    if(std::fabs(d) <= snap)
+    {
+        sm = target;
+        return;
+    }
+    sm += d * coef;
+}
+
 void AudioEngine::ProcessBlock(const float* inL,
                                const float* inR,
                                float* outL,
@@ -568,9 +582,55 @@ void AudioEngine::ProcessBlock(const float* inL,
     // eq_run_prev_ Reset just below, and the crossover happens at ~0 tilt where
     // the stage is already inaudible, so re-engaging is click-safe.
     constexpr float kEqNeutralTiltDb = 0.05f; // below this, the tilt is inaudible
-    const bool tilt_active = std::fabs(p.eq_tilt_db) >= kEqNeutralTiltDb;
-    const bool lo_active   = p.eq_lo_is_filter || std::fabs(p.eq_lo_gain_db) >= kEqShelfNeutralDb;
-    const bool hi_active   = p.eq_hi_is_filter || std::fabs(p.eq_hi_gain_db) >= kEqShelfNeutralDb;
+
+    // Slew the continuous EQ controls toward their targets (block-rate one-pole,
+    // ~50 ms) BEFORE deriving active/coeffs. The coeffs are computed from these
+    // smoothed values, so a knob move ramps the biquad response over many blocks
+    // instead of stepping the coeffs in a single block — a hard coeff swap while
+    // z1/z2 still hold the previous filter's state produces an output step
+    // (click). The discrete bell/filter flags can't be interpolated and stay
+    // instant (a mode switch, not a live sweep).
+    float tilt_tgt = p.eq_tilt_db;
+    if(tilt_tgt < -kTiltEqTiltMaxDb)
+        tilt_tgt = -kTiltEqTiltMaxDb;
+    else if(tilt_tgt > kTiltEqTiltMaxDb)
+        tilt_tgt = kTiltEqTiltMaxDb;
+    if(!eq_sm_init_)
+    {
+        // First block: snap so a project/preset load doesn't audibly ramp in.
+        eq_sm_init_    = true;
+        eq_tilt_sm_    = tilt_tgt;
+        eq_center_sm_  = p.eq_center_norm;
+        eq_q_sm_       = p.eq_q;
+        eq_lo_gain_sm_ = p.eq_lo_gain_db;
+        eq_lo_cut_sm_  = p.eq_lo_cutoff_hz;
+        eq_lo_q_sm_    = p.eq_lo_q;
+        eq_hi_gain_sm_ = p.eq_hi_gain_db;
+        eq_hi_cut_sm_  = p.eq_hi_cutoff_hz;
+        eq_hi_q_sm_    = p.eq_hi_q;
+    }
+    else
+    {
+        float sc = kDelayFxSmoothCoeff * static_cast<float>(size);
+        if(sc > 1.0f)
+            sc = 1.0f;
+        EqSlew_(eq_tilt_sm_, tilt_tgt, sc, 0.01f);
+        EqSlew_(eq_center_sm_, p.eq_center_norm, sc, 1e-4f);
+        EqSlew_(eq_q_sm_, p.eq_q, sc, 1e-3f);
+        EqSlew_(eq_lo_gain_sm_, p.eq_lo_gain_db, sc, 0.01f);
+        EqSlew_(eq_lo_cut_sm_, p.eq_lo_cutoff_hz, sc, 0.5f);
+        EqSlew_(eq_lo_q_sm_, p.eq_lo_q, sc, 1e-3f);
+        EqSlew_(eq_hi_gain_sm_, p.eq_hi_gain_db, sc, 0.01f);
+        EqSlew_(eq_hi_cut_sm_, p.eq_hi_cutoff_hz, sc, 0.5f);
+        EqSlew_(eq_hi_q_sm_, p.eq_hi_q, sc, 1e-3f);
+    }
+
+    // Active detection uses the SMOOTHED gains so the stage keeps running while a
+    // fade-to-neutral finishes and disengages exactly at the inaudible 0 dB point
+    // (click-safe); the filter flags mark always-active topologies.
+    const bool tilt_active = std::fabs(eq_tilt_sm_) >= kEqNeutralTiltDb;
+    const bool lo_active   = p.eq_lo_is_filter || std::fabs(eq_lo_gain_sm_) >= kEqShelfNeutralDb;
+    const bool hi_active   = p.eq_hi_is_filter || std::fabs(eq_hi_gain_sm_) >= kEqShelfNeutralDb;
     const bool eq_run = p.eq_on && (tilt_active || lo_active || hi_active);
     const bool eq_edge = (eq_run && !eq_run_prev_);
     if(eq_edge)
@@ -578,46 +638,44 @@ void AudioEngine::ProcessBlock(const float* inL,
     eq_run_prev_ = eq_run;
     if(eq_run)
     {
-        float tilt = p.eq_tilt_db;
-        if(tilt < -kTiltEqTiltMaxDb)
-            tilt = -kTiltEqTiltMaxDb;
-        else if(tilt > kTiltEqTiltMaxDb)
-            tilt = kTiltEqTiltMaxDb;
         // Control-rate coeff recompute (per band): the coeff math is a pure
-        // function of the controls, so only redo a band when one of its controls
-        // moves. Forced on the re-engage edge. Peaking/shelf at 0 dB is an exact
-        // identity, so neutral bands cost only a transparent biquad in the loop.
-        if(eq_edge || tilt != eq_tilt_cached_
-           || p.eq_center_norm != eq_center_norm_cached_ || p.eq_q != eq_q_cached_
+        // function of the SMOOTHED controls, so only redo a band when one of its
+        // controls moves — i.e. every block while slewing, then never once it has
+        // settled (snap deadband above ensures the compare goes false). Forced on
+        // the re-engage edge. Peaking/shelf at 0 dB is an exact identity, so
+        // neutral bands cost only a transparent biquad in the loop.
+        if(eq_edge || eq_tilt_sm_ != eq_tilt_cached_
+           || eq_center_sm_ != eq_center_norm_cached_ || eq_q_sm_ != eq_q_cached_
            || p.eq_tilt_is_bell != eq_tilt_bell_cached_)
         {
-            const float center_hz = TiltEq_CenterNormToHz(p.eq_center_norm);
-            tilt_eq_.SetFromParams(center_hz, tilt, sample_rate_, p.eq_q, p.eq_tilt_is_bell);
-            eq_tilt_cached_        = tilt;
-            eq_center_norm_cached_ = p.eq_center_norm;
-            eq_q_cached_           = p.eq_q;
+            const float center_hz = TiltEq_CenterNormToHz(eq_center_sm_);
+            tilt_eq_.SetFromParams(center_hz, eq_tilt_sm_, sample_rate_, eq_q_sm_,
+                                   p.eq_tilt_is_bell);
+            eq_tilt_cached_        = eq_tilt_sm_;
+            eq_center_norm_cached_ = eq_center_sm_;
+            eq_q_cached_           = eq_q_sm_;
             eq_tilt_bell_cached_   = p.eq_tilt_is_bell;
         }
-        if(eq_edge || p.eq_lo_gain_db != eq_lo_gain_cached_
-           || p.eq_lo_cutoff_hz != eq_lo_cut_cached_ || p.eq_lo_q != eq_lo_q_cached_
+        if(eq_edge || eq_lo_gain_sm_ != eq_lo_gain_cached_
+           || eq_lo_cut_sm_ != eq_lo_cut_cached_ || eq_lo_q_sm_ != eq_lo_q_cached_
            || p.eq_lo_is_filter != eq_lo_filt_cached_)
         {
-            tilt_eq_.SetLoBand(p.eq_lo_cutoff_hz, p.eq_lo_gain_db, p.eq_lo_is_filter,
-                               p.eq_lo_q, sample_rate_);
-            eq_lo_gain_cached_ = p.eq_lo_gain_db;
-            eq_lo_cut_cached_  = p.eq_lo_cutoff_hz;
-            eq_lo_q_cached_    = p.eq_lo_q;
+            tilt_eq_.SetLoBand(eq_lo_cut_sm_, eq_lo_gain_sm_, p.eq_lo_is_filter,
+                               eq_lo_q_sm_, sample_rate_);
+            eq_lo_gain_cached_ = eq_lo_gain_sm_;
+            eq_lo_cut_cached_  = eq_lo_cut_sm_;
+            eq_lo_q_cached_    = eq_lo_q_sm_;
             eq_lo_filt_cached_ = p.eq_lo_is_filter;
         }
-        if(eq_edge || p.eq_hi_gain_db != eq_hi_gain_cached_
-           || p.eq_hi_cutoff_hz != eq_hi_cut_cached_ || p.eq_hi_q != eq_hi_q_cached_
+        if(eq_edge || eq_hi_gain_sm_ != eq_hi_gain_cached_
+           || eq_hi_cut_sm_ != eq_hi_cut_cached_ || eq_hi_q_sm_ != eq_hi_q_cached_
            || p.eq_hi_is_filter != eq_hi_filt_cached_)
         {
-            tilt_eq_.SetHiBand(p.eq_hi_cutoff_hz, p.eq_hi_gain_db, p.eq_hi_is_filter,
-                               p.eq_hi_q, sample_rate_);
-            eq_hi_gain_cached_ = p.eq_hi_gain_db;
-            eq_hi_cut_cached_  = p.eq_hi_cutoff_hz;
-            eq_hi_q_cached_    = p.eq_hi_q;
+            tilt_eq_.SetHiBand(eq_hi_cut_sm_, eq_hi_gain_sm_, p.eq_hi_is_filter,
+                               eq_hi_q_sm_, sample_rate_);
+            eq_hi_gain_cached_ = eq_hi_gain_sm_;
+            eq_hi_cut_cached_  = eq_hi_cut_sm_;
+            eq_hi_q_cached_    = eq_hi_q_sm_;
             eq_hi_filt_cached_ = p.eq_hi_is_filter;
         }
     }

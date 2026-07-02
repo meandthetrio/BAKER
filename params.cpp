@@ -2,12 +2,75 @@
 
 #include "util/scopedirqblocker.h"
 #include <cmath>
+#include <cstring>
+
+namespace
+{
+// Zero out the FX-stage fields so the engine-change gate ignores them. These
+// params reach the FX every block via fx_params (they never go through the gated
+// engine setters), so an EQ/delay/reverb/sat/master/process-filter edit must NOT
+// arm the 64-block engine re-push. Anything NOT masked here is treated as an
+// engine param (a missed field only costs an extra arm, never a lost update — the
+// safe direction). Comparison is by memcmp; indeterminate struct padding can only
+// cause a spurious arm (harmless), never a missed one.
+void MaskFxForGate(PerformParamsTargets& t)
+{
+    t.master_level = 0.0f;
+    t.delay_on = false;
+    t.reverb_on = false;
+    t.sat_on = false;
+    t.eq_on = false;
+    t.delay_mix = 0.0f;
+    t.delay_fader_mode = 0u;
+    t.reverb_mix = 0.0f;
+    t.reverb_fader_mode = 0u;
+    t.sat_drive = 0.0f;
+    t.sat_mix = 0.0f;
+    t.sat_bump = 0.0f;
+    t.sat_tone = 0.0f;
+    t.sat_bias = 0.0f;
+    t.sat_bit_reso = 0.0f;
+    t.sat_bit_smpl = 0.0f;
+    t.sat_mode = 0u;
+    t.process_cutoff_hz = 0.0f;
+    t.process_resonance = 0.0f;
+    t.eq_mix = 0.0f;
+    t.eq_center_norm = 0.0f;
+    t.eq_tilt_db = 0.0f;
+    t.eq_q = 0.0f;
+    t.eq_tilt_is_bell = false;
+    t.eq_lo_gain_db = 0.0f;
+    t.eq_lo_cutoff_hz = 0.0f;
+    t.eq_lo_is_filter = false;
+    t.eq_lo_q = 0.0f;
+    t.eq_hi_gain_db = 0.0f;
+    t.eq_hi_cutoff_hz = 0.0f;
+    t.eq_hi_is_filter = false;
+    t.eq_hi_q = 0.0f;
+    t.delay_time_l = 0.0f;
+    t.delay_time_r = 0.0f;
+    t.delay_feedback = 0.0f;
+    t.reverb_pre = 0.0f;
+    t.reverb_damp = 0.0f;
+    t.reverb_decay = 0.0f;
+    t.reverb_mod = 0.0f;
+    t.lpf_cutoff_hz = 0.0f;
+    t.fx_order[0] = t.fx_order[1] = t.fx_order[2] = t.fx_order[3] = 0u;
+}
+} // namespace
 
 void Params::Init()
 {
     const PerformParamsTargets init_t{};
     targets_buf_[0] = init_t;
     targets_buf_[1] = init_t;
+
+    // Seed the engine-change gate with the masked initial targets so a first
+    // FX-only edit doesn't spuriously arm (engine_publish_gen_ already starts at 1
+    // to guarantee the boot engine push).
+    PerformParamsTargets gate_init = init_t;
+    MaskFxForGate(gate_init);
+    engine_gate_snapshot_ = gate_init;
 
     // Main writes to the buffer that is NOT published.
     published_idx_.store(0, std::memory_order_relaxed);
@@ -29,20 +92,36 @@ const PerformParamsTargets& Params::TargetsForUI() const
 
 void Params::PublishTargets()
 {
-    // Protect the swap + copy from being interrupted by the audio callback.
-    daisy::ScopedIrqBlocker irq;
+    uint8_t new_published;
+    {
+        // Protect the swap + copy from being interrupted by the audio callback.
+        daisy::ScopedIrqBlocker irq;
 
-    const uint8_t new_published = write_idx_ & 1;
-    published_idx_.store(new_published, std::memory_order_release);
+        new_published = write_idx_ & 1;
+        published_idx_.store(new_published, std::memory_order_release);
 
-    // Flip to the other buffer for subsequent edits.
-    write_idx_ ^= 1;
+        // Flip to the other buffer for subsequent edits.
+        write_idx_ ^= 1;
 
-    // Seed the new write buffer from the latest published values.
-    targets_buf_[write_idx_ & 1] = targets_buf_[new_published];
+        // Seed the new write buffer from the latest published values.
+        targets_buf_[write_idx_ & 1] = targets_buf_[new_published];
 
-    // Signal the audio thread that params changed so it re-pushes them.
-    publish_gen_.fetch_add(1, std::memory_order_release);
+        // Signal the audio thread that params changed so it re-pushes them.
+        publish_gen_.fetch_add(1, std::memory_order_release);
+    }
+
+    // Engine-change gate (outside the IRQ block to keep IRQ-disabled time minimal:
+    // the just-published buffer isn't touched by the UI until the next publish, and
+    // the audio thread only reads engine_publish_gen_). Bump the engine gen only
+    // when a non-FX (voice-engine) field actually changed, so FX/EQ knob edits do
+    // not arm the audio thread's 64-block full engine re-push.
+    PerformParamsTargets probe = targets_buf_[new_published];
+    MaskFxForGate(probe);
+    if(std::memcmp(&probe, &engine_gate_snapshot_, sizeof(probe)) != 0)
+    {
+        engine_gate_snapshot_ = probe;
+        engine_publish_gen_.fetch_add(1, std::memory_order_release);
+    }
 }
 
 float Params::SmoothToward(float current_v, float target_v, float coeff)

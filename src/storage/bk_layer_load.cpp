@@ -51,26 +51,27 @@ bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
     shared.bk_layer_b.hdr    = hdr;
     shared.bk_layer_b.loaded = true;
 
-    // Publish the root-note slice as layer B's "current sample" so the
-    // main-thread MIDI handler ([main.cpp HandleMidiNoteOn]) doesn't skip
-    // layer B for empty-pcm reasons, and the engine screen renders the
-    // loaded name instead of "no sample". The voice engine's bk_layer_b
-    // override fires first inside ProcessEvents, so this Sample is only a
-    // "is there something to play" signal — actual playback uses the
-    // per-note slice from `shared.bk_layer_b.slice_sample`, not this one.
+    // Publish the root-note slice as slot 0's "current sample". The single-layer
+    // engine sounds ONLY slot 0 ([main.cpp HandleMidiNoteOn] gates on
+    // sd_slots[0].pcm) and renders name/preview from slot 0, so the signal must
+    // land there — publishing to slot 1 (the old layer-B slot) left slot 0 empty,
+    // which is why a first-thing .bk load produced no sound / no name / no
+    // preview until a .wav had populated slot 0. The voice engine's bk_layer_b
+    // override fires first inside ProcessEvents, so this Sample is only an
+    // "is there something to play" signal — actual playback uses the per-note
+    // slice from `shared.bk_layer_b.slice_sample`, not this one.
     const uint32_t root_slice_idx
         = (hdr.root_midi_note >= hdr.lo_note && hdr.root_midi_note <= hdr.hi_note)
               ? static_cast<uint32_t>(hdr.root_midi_note - hdr.lo_note)
               : 0u;
-    shared.sample.publish.sd_slots[1] = shared.bk_layer_b.slice_sample[root_slice_idx];
+    shared.sample.publish.sd_slots[0] = shared.bk_layer_b.slice_sample[root_slice_idx];
 
-    // Initialize layer B's SampleEdit to full-length, exactly as the normal
-    // .wav worker load does (ui_worker_sample_load.cpp). The engine-screen
-    // waveform preview derives its draw range from sd_edit_slots[1]; without
-    // this, an empty layer B keeps end_frame==0 and DrawWaveformPreview bails
-    // (`end <= start + 1`), so the .bk renders no preview. Replacing an
-    // existing sample only "worked" because it left stale edit bounds behind.
-    shared.sample.edit.sd_edit_slots[1]
+    // Initialize slot 0's SampleEdit to full-length, exactly as the normal .wav
+    // worker load does (ui_worker_sample_load.cpp). The engine-screen waveform
+    // preview derives its draw range from sd_edit_slots[0]; without this an empty
+    // slot keeps end_frame==0 and DrawWaveformPreview bails (`end <= start + 1`),
+    // so the .bk renders no preview.
+    shared.sample.edit.sd_edit_slots[0]
         = SampleEdit_Default(hdr.source_duration_samples);
     return true;
 }

@@ -232,6 +232,23 @@ class AudioEngine
     float          eq_hi_cut_cached_      = -1.0f;
     float          eq_hi_q_cached_        = -1.0f;
     bool           eq_hi_filt_cached_     = false;
+    // Smoothed (block-rate slewed) EQ controls. The coeffs are recomputed from
+    // THESE, not the raw targets, so a knob move ramps the biquad response over
+    // ~50 ms instead of stepping the coeffs in one block. A hard coeff swap while
+    // z1/z2 hold the old filter's state produces an output discontinuity (click),
+    // which is what the user heard adjusting the EQ live. Continuous controls only;
+    // the discrete bell/filter flags stay instant. Same time constant as the
+    // delay/sat smoothers (kDelayFxSmoothCoeff). eq_sm_init_ snaps on first use.
+    bool           eq_sm_init_    = false;
+    float          eq_tilt_sm_    = 0.0f;
+    float          eq_center_sm_  = 0.0f;
+    float          eq_q_sm_       = 0.0f;
+    float          eq_lo_gain_sm_ = 0.0f;
+    float          eq_lo_cut_sm_  = 0.0f;
+    float          eq_lo_q_sm_    = 0.0f;
+    float          eq_hi_gain_sm_ = 0.0f;
+    float          eq_hi_cut_sm_  = 0.0f;
+    float          eq_hi_q_sm_    = 0.0f;
 
     // FX-order swap declick: a brief 0->1 cosine ramp on the post-FX bus when
     // fx_order changes between blocks. Kills the boundary click from swapping

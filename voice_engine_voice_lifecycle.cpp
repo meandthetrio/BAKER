@@ -106,7 +106,7 @@ void VoiceEngine::StartVoice_(Voice& v,
     v.sample = sample;
     uint32_t start_frame = 0u;
     SampleEdit e{};
-    if(LookupSampleEdit_(sample, e))
+    if(LookupSampleEdit_(sample, e) || LookupBkSliceEdit_(sample, e))
     {
         SampleEdit_Clamp(e, sample->length);
         start_frame = e.start_frame;

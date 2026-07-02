@@ -878,12 +878,18 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     // The "static" group (tune, drive mode, layer scale, loop enable, crossfade,
     // seam-baked, mod params) is pushed only on static_push; the "express" group is
     // pushed on either, so plain UI edits to its members are still covered.
-    static uint32_t s_applied_publish_gen = 0u;
+    static uint32_t s_applied_engine_gen = 0u;
     static uint32_t s_param_push_settle_blocks = 0u;
-    const uint32_t publish_gen = g_params.PublishGen();
-    if(publish_gen != s_applied_publish_gen)
+    // Arm the settle window only when a VOICE-ENGINE param actually changed
+    // (EnginePublishGen), not on every publish. FX/EQ knob edits publish on every
+    // detent but flow to the FX stage every block regardless, so they must not
+    // trigger the full engine batch re-push each block for 64 ms — that per-detent
+    // re-push was spiking audio CPU while adjusting the EQ. engine_publish_gen_
+    // starts at 1 vs this 0, so there is still one guaranteed engine push at boot.
+    const uint32_t engine_gen = g_params.EnginePublishGen();
+    if(engine_gen != s_applied_engine_gen)
     {
-        s_applied_publish_gen = publish_gen;
+        s_applied_engine_gen = engine_gen;
         s_param_push_settle_blocks = 64u; // ~64 ms; covers the 5 ms smoothing settle
     }
     const bool static_push = (s_param_push_settle_blocks > 0u);

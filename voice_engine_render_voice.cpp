@@ -215,6 +215,8 @@ void VoiceEngine::ResolveEffectivePlaybackRegion_(const Voice& v,
     out.use_edit = (out.slot >= 0) && sample_edit_valid_[out.slot];
     if(out.use_edit)
         e = sample_edit_bank_[out.slot];
+    else if(LookupBkSliceEdit_(v.sample, e)) // .bk slices: apply the slot-0 trim
+        out.use_edit = true;
     out.start = 0;
     out.end = v.sample->length;
     out.ls_i = v.sample->loop_start;

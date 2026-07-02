@@ -336,6 +336,154 @@ size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
     }
 
     // ------------------------------------------------------------------------
+    // Fast path: forward layer-loop voice with NO seam crossfade (seam_frames==0).
+    // This is the path ADSR-playback voices take (RenderNormalVoice_ forces
+    // seam_frames = crossfade_seam_frames = 0 and Forward), and it also covers a
+    // plain forward loop whose crossfade amount is 0. The general path below runs
+    // three cross-TU calls per sample (SampleAtLoopSeamCrossfade + the boundary
+    // fade + AdvancePos), which is why these voices — including every ADSR
+    // sub-region sustain loop and every ADSR release play-out — cost MORE than a
+    // seam'd loop (which takes the inlined fast path above). Here the region read,
+    // the 1 ms edge boundary fade, and the forward advance/wrap are all inlined.
+    //
+    // The read is identical for the whole batch regardless of loop state: a
+    // layer-loop voice always fetches through SampleAtLoopSeamCrossfade, which with
+    // seam_frames==0 collapses to SampleAtLinearRegion(loop_start=start,
+    // loop_end=end) — a single two-tap blend whose +1 tap wraps end->start (NOT
+    // le_i->ls_i; this matches the general path exactly, sub-region seam nuance
+    // included). Only the position advance differs, and it is fixed for the block:
+    //   - loop_active (sustain held): forward wrap le_i->ls_i, never ends.
+    //   - otherwise (attack/decay/sustain with no sustain-loop, or the gate-off
+    //     release play-out): plain forward advance, one-shot end-of-stream at end.
+    // Semantics match the general path exactly, including the post-eos clamp to
+    // (end-1) and the boundary-faded re-read for the rest of the batch.
+    // ------------------------------------------------------------------------
+    if(fs != nullptr && fs->pcm != nullptr && fs->length > 0u && p.layer_loop_voice
+       && p.voice_loop_mode == LoopMode::Forward && p.seam_frames == 0u
+       && p.crossfade_seam_frames == 0u && p.end > p.start && p.end <= fs->length)
+    {
+        const int16_t* const pcm     = fs->pcm;
+        const uint32_t       start   = p.start;
+        const uint32_t       end     = p.end;
+        const uint32_t       ls      = p.ls_i;
+        const uint32_t       le      = p.le_i;
+        const float          ratio   = p.ratio;
+        const float          gain    = p.gain;
+        const float          start_f = static_cast<float>(start);
+        const float          end_f   = static_cast<float>(end);
+        // AdvancePos loop-branch guard, constant for the block: a live forward loop
+        // wraps le->ls only while loop_enabled && gate && le>ls && le<=len. When
+        // false, AdvancePos falls through to plain forward advance ending at `end`.
+        const bool  loop_active = p.loop_enabled && gate && le > ls && le <= end;
+        const float loop_span_f = loop_active ? static_cast<float>(le - ls) : 0.0f;
+        // Boundary-fade window: recompute fade_frames exactly as
+        // ComputeLoopBoundaryFade does (sr * 1 ms, clamped to region*0.5) so the
+        // edge fade is bit-identical. The interior skip uses the same thresholds
+        // ApplyBoundaryFadeNoSeam does (start+ff .. end-ff), passed through p.
+        float ff = p.sample_rate * 0.001f * 1.0f; // kLoopBoundaryFadeMs
+        const float region = end_f - start_f;
+        if(ff < 1.0f)
+            ff = 1.0f;
+        if(ff > region * 0.5f)
+            ff = region * 0.5f;
+        const float fss = p.fade_start_threshold; // start + ff
+        const float fse = p.fade_end_threshold;   // end   - ff
+        uint32_t pf    = pos_frame;
+        float    pfrac = pos_frac;
+        for(size_t i = 0; i < count; ++i)
+        {
+            // Region read: two-tap blend, +1 tap wraps end->start (loop_enabled
+            // is hardcoded true inside SampleAtLoopSeamCrossfade for a layer-loop
+            // voice, so the wrap fires regardless of the actual loop state).
+            const int16_t a   = pcm[pf];
+            uint32_t      nxt = pf + 1u;
+            if(nxt >= end)
+                nxt = start;
+            const int16_t b  = pcm[nxt];
+            const float   fa = static_cast<float>(a) * (1.0f / 32768.0f);
+            const float   fb = static_cast<float>(b) * (1.0f / 32768.0f);
+            // Apply gain first, exactly as the general path does (the region read
+            // returns read*gain, then the boundary fade multiplies that) — float
+            // multiply is not associative, so the (read*gain)*fade order must match
+            // to stay bit-identical.
+            float sv = (fa + pfrac * (fb - fa)) * gain;
+
+            // Boundary fade: no-op in the interior (skip), 1 ms linear ramp at each
+            // region edge. Matches ComputeLoopBoundaryFade term-for-term.
+            const float pos = static_cast<float>(pf) + pfrac;
+            if(!(pos >= fss && pos <= fse))
+            {
+                float fade = 1.0f;
+                if(pos < fss)
+                    fade = (pos - start_f) / ff;
+                else if(pos > fse)
+                    fade = (end_f - pos) / ff;
+                if(fade < 0.0f)
+                    fade = 0.0f;
+                if(fade > 1.0f)
+                    fade = 1.0f;
+                sv *= fade;
+            }
+            out_buf[i] = sv;
+
+            // Forward advance (inlined AdvanceFrameFrac; ratio > 0 so the frame
+            // index only increases).
+            const float    total = pfrac + ratio;
+            const uint32_t whole = static_cast<uint32_t>(total); // floor (total >= 0)
+            pfrac = total - static_cast<float>(whole);
+            pf += whole;
+            if(loop_active)
+            {
+                // Wrap le->ls (seam offset is 0). Mirrors AdvancePos: fmod the
+                // non-negative overshoot by the loop span, then re-seat from ls.
+                if(pf >= le)
+                {
+                    float overshoot
+                        = (static_cast<float>(pf - le) + pfrac);
+                    overshoot = std::fmod(overshoot, loop_span_f);
+                    if(overshoot < 0.0f)
+                        overshoot += loop_span_f;
+                    const uint32_t w = static_cast<uint32_t>(overshoot);
+                    pf    = ls + w;
+                    pfrac = overshoot - static_cast<float>(w);
+                }
+            }
+            else if(pf >= end)
+            {
+                // One-shot end-of-stream. Clamp pos to end-1, drop the gate, and
+                // refill the rest of the batch from the boundary frame with the
+                // same edge boundary fade the general path applies at (end-1).
+                pos_frame = end - 1u;
+                pos_frac  = 0.0f;
+                gate      = false;
+                const int16_t ea  = pcm[end - 1u];
+                // (read*gain) first, then fade — same order as the general path.
+                float         eos_val = static_cast<float>(ea) * (1.0f / 32768.0f) * gain;
+                const float   epos = static_cast<float>(end - 1u);
+                if(!(epos >= fss && epos <= fse))
+                {
+                    float efade = 1.0f;
+                    if(epos < fss)
+                        efade = (epos - start_f) / ff;
+                    else if(epos > fse)
+                        efade = (end_f - epos) / ff;
+                    if(efade < 0.0f)
+                        efade = 0.0f;
+                    if(efade > 1.0f)
+                        efade = 1.0f;
+                    eos_val *= efade;
+                }
+                for(size_t k = i + 1u; k < count; ++k)
+                    out_buf[k] = eos_val;
+                return i;
+            }
+        }
+        pos_frame = pf;
+        pos_frac  = pfrac;
+        return count;
+    }
+
+    // ------------------------------------------------------------------------
     // Fast path: one-shot forward (non-loop) playback. The general path below
     // calls AdvancePos and ApplyBoundaryFadeNoSeam per sample; both live in
     // voice_engine_render_loop.cpp, so without LTO they are real per-sample

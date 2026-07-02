@@ -282,12 +282,25 @@ class Params
     // params into the voice engine when nothing has changed. AUDIO THREAD: read.
     uint32_t PublishGen() const { return publish_gen_.load(std::memory_order_acquire); }
 
+    // Like PublishGen, but only bumped when a VOICE-ENGINE param actually changed
+    // (tune/gain/filter/loop-env/adsr/mod/express/velmod/keyzone...). FX-stage
+    // params (master/delay/reverb/sat/eq/process-filter/lpf/fx_order) flow to the
+    // FX every block and do NOT bump this, so turning an EQ/FX knob no longer arms
+    // the audio thread's 64-block full engine re-push (a per-detent CPU spike).
+    // Starts at 1 so the audio thread (which starts its applied-gen at 0) does one
+    // guaranteed engine push at boot. AUDIO THREAD: read.
+    uint32_t EnginePublishGen() const { return engine_publish_gen_.load(std::memory_order_acquire); }
+
     PerformParamsCurrent current;
 
   private:
     PerformParamsTargets targets_buf_[2];
     std::atomic<uint8_t> published_idx_{0};
     std::atomic<uint32_t> publish_gen_{0};
+    std::atomic<uint32_t> engine_publish_gen_{1};
+    // Last engine-relevant view seen by PublishTargets (FX fields masked out), for
+    // change detection. Compared with memcmp; see MaskFxForGate in params.cpp.
+    PerformParamsTargets  engine_gate_snapshot_{};
     uint8_t              write_idx_ = 1;
 
     // Cached one-pole smoothing coefficient. AudioBlockTick recomputes only

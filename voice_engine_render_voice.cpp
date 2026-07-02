@@ -1028,7 +1028,7 @@ ADSR2_ITCM_TEXT void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
     st.stop_fade.remaining = sf_remaining;
 }
 
-void VoiceEngine::RenderNormalVoice_(Voice& v,
+ADSR2_ITCM_TEXT void VoiceEngine::RenderNormalVoice_(Voice& v,
                                      const RenderVoiceContext& ctx,
                                      float pitch_scale,
                                      StopFadeState& stop_fade)

@@ -338,7 +338,7 @@ void AudioEngine::ProcessReverbBlock_(float* L, float* R, size_t n,
     wet_peak = peak;
 }
 
-void AudioEngine::ApplyMasterBlock_(float* L, float* R, size_t n,
+ADSR2_ITCM_TEXT void AudioEngine::ApplyMasterBlock_(float* L, float* R, size_t n,
                                     float level, float bypass_comp)
 {
     const float g       = level * bypass_comp;

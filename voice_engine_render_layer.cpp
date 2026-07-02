@@ -1,4 +1,5 @@
 #include "voice_engine_render_internal.h"
+#include "mem_regions.h" // ADSR2_ITCM_TEXT
 
 #include "app_state_diagnostics.h"
 
@@ -15,7 +16,7 @@ static inline float LayerBusSoftClip_(float x)
     return x * (27.0f + x2) / (27.0f + 9.0f * x2);
 }
 
-void VoiceEngine::RenderBlockMixLayers_(float* outL,
+ADSR2_ITCM_TEXT void VoiceEngine::RenderBlockMixLayers_(float* outL,
                                         float* outR,
                                         size_t size,
                                         float mix_scale,

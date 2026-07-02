@@ -1,4 +1,5 @@
 #include "tilt_eq.h"
+#include "mem_regions.h" // ADSR2_ITCM_TEXT
 
 #include <cmath>
 
@@ -318,7 +319,7 @@ void TiltEqStereo::SetFromParams(float center_hz, float tilt_db, float sample_ra
     high_r_.SetPeaking(fh, qq, -tilt_db, sample_rate);
 }
 
-void TiltEqStereo::ProcessSample(float& l, float& r, float dry_wet)
+ADSR2_ITCM_TEXT void TiltEqStereo::ProcessSample(float& l, float& r, float dry_wet)
 {
     float w = dry_wet;
     if(w < 0.0f)
@@ -334,7 +335,7 @@ void TiltEqStereo::ProcessSample(float& l, float& r, float dry_wet)
     r               = inR + w * (eqR - inR);
 }
 
-void TiltEqStereo::ProcessBlock(float* L, float* R, size_t n, float dry_wet)
+ADSR2_ITCM_TEXT void TiltEqStereo::ProcessBlock(float* L, float* R, size_t n, float dry_wet)
 {
     float w = dry_wet;
     if(w < 0.0f)

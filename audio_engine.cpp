@@ -92,7 +92,7 @@ void AudioEngine::ReverbUpdateParamsDattorro_(const PerformParamsCurrent& p)
 // (switch on fx_order[stage]) from the old ProcessBlock is now paid once per
 // stage per block instead of once per sample per stage. DSP is identical.
 
-void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
+ADSR2_ITCM_TEXT void AudioEngine::ProcessSatBlock_(float* L, float* R, size_t n,
                                    const PerformParamsCurrent& p,
                                    float target_wet,
                                    float target_pre, float target_makeup,
@@ -157,7 +157,7 @@ void AudioEngine::ProcessEqBlock_(float* L, float* R, size_t n, float eq_mix)
     tilt_eq_.ProcessBlock(L, R, n, eq_mix);
 }
 
-void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
+ADSR2_ITCM_TEXT void AudioEngine::ProcessDelayBlock_(float* L, float* R, size_t n,
                                      const PerformParamsCurrent& p,
                                      size_t len_l, size_t len_r, float fb,
                                      float& wet_peak,

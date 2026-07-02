@@ -1,4 +1,5 @@
 #include "voice_engine_render_internal.h"
+#include "mem_regions.h" // ADSR2_ITCM_TEXT
 
 #include <cmath>
 
@@ -130,7 +131,7 @@ float SampleAtLoopSeamCrossfade(const Sample* s,
     return tail * tail_weight + head * head_weight;
 }
 
-float VoiceRenderFetch_VoiceStream(const Sample* sample,
+ADSR2_ITCM_TEXT float VoiceRenderFetch_VoiceStream(const Sample* sample,
                                    uint32_t pos_frame,
                                    float pos_frac,
                                    float gain,
@@ -173,7 +174,7 @@ float VoiceRenderFetch_VoiceStream(const Sample* sample,
     return SampleAtLinear(sample, pos_frame, pos_frac, wrap_end) * gain;
 }
 
-size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
+ADSR2_ITCM_TEXT size_t VoiceRenderFetch_VoiceStreamBatch(const VoiceBatchFetchParams& p,
                                          uint32_t& pos_frame,
                                          float& pos_frac,
                                          int8_t& dir,

@@ -1,5 +1,6 @@
 #include "voice_engine_render_internal.h"
 #include "storage_limits.h"
+#include "mem_regions.h" // ADSR2_ITCM_TEXT
 
 #include <cmath>
 
@@ -500,7 +501,7 @@ void VoiceEngine::RenderStealFadeOutVoice_(Voice& v,
     }
 }
 
-bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
+ADSR2_ITCM_TEXT bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
                                                       const RenderVoiceContext& ctx,
                                                       const RenderNormalVoicePerBlockSetup& setup,
                                                       size_t i,
@@ -646,7 +647,7 @@ bool VoiceEngine::RenderNormalVoice_ProcessOneSample_(Voice& v,
     return false;
 }
 
-void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
+ADSR2_ITCM_TEXT void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
                                              const RenderVoiceContext& ctx,
                                              const RenderNormalVoicePerBlockSetup& setup,
                                              RenderNormalVoiceLoopState& st)
@@ -815,7 +816,7 @@ void VoiceEngine::RenderNormalVoice_Batched_(Voice& v,
     st.stop_fade.remaining = sf_remaining;
 }
 
-void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
+ADSR2_ITCM_TEXT void VoiceEngine::RenderNormalVoice_BatchedFastEnv_(Voice& v,
                                                     const RenderVoiceContext& ctx,
                                                     const RenderNormalVoicePerBlockSetup& setup,
                                                     RenderNormalVoiceLoopState& st)

@@ -386,6 +386,22 @@ int main(void)
     __DSB();
     __ISB();
 
+    // Copy the ITCM code section from its QSPI load address into ITCM before any
+    // ITCM-placed function runs (the reverb, only called from the audio callback
+    // started far below). ITCM and QSPI (we run XIP from it) are both readable
+    // here — no dependency on hw.Init/SDRAM. Size-based: when ADSR2_ITCM_ENABLED
+    // is 0 the section is empty and this is a no-op. ITCM bypasses the L1 caches,
+    // so the writes are visible to instruction fetch after a barrier.
+    {
+        extern uint32_t _sitcm_text, _eitcm_text, _siitcm_text;
+        uint32_t*       dst = &_sitcm_text;
+        const uint32_t* src = &_siitcm_text;
+        while(dst < &_eitcm_text)
+            *dst++ = *src++;
+        __DSB();
+        __ISB();
+    }
+
     hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
     hw.SetAudioBlockSize(48);
     g_sample_rate_hz = hw.AudioSampleRate();

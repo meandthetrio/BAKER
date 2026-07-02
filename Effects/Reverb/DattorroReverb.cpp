@@ -155,7 +155,7 @@ void DattorroReverb::Allpass::SetFeedback(float value)
     feedback = value;
 }
 
-float DattorroReverb::Allpass::Process(float input)
+ADSR2_ITCM_TEXT float DattorroReverb::Allpass::Process(float input)
 {
     const float bufout = buf[idx];
     const float temp   = input * -feedback;
@@ -206,7 +206,7 @@ void DattorroReverb::StaticAllpassFourTap::SetIndex(size_t i1,
     idx4 = len > 0 ? (i4 % len) : 0;
 }
 
-float DattorroReverb::StaticAllpassFourTap::Process(float input)
+ADSR2_ITCM_TEXT float DattorroReverb::StaticAllpassFourTap::Process(float input)
 {
     const float bufout = buf[idx1];
     const float temp   = input * -feedback;
@@ -269,7 +269,7 @@ void DattorroReverb::StaticDelayLineFourTap::SetIndex(size_t i1,
     idx4 = len > 0 ? (i4 % len) : 0;
 }
 
-float DattorroReverb::StaticDelayLineFourTap::Process(float input)
+ADSR2_ITCM_TEXT float DattorroReverb::StaticDelayLineFourTap::Process(float input)
 {
     const float output = buf[idx1];
     buf[idx1++] = input;
@@ -338,7 +338,7 @@ void DattorroReverb::StaticDelayLineEightTap::SetIndex(size_t i1,
     idx8 = len > 0 ? (i8 % len) : 0;
 }
 
-float DattorroReverb::StaticDelayLineEightTap::Process(float input)
+ADSR2_ITCM_TEXT float DattorroReverb::StaticDelayLineEightTap::Process(float input)
 {
     const float output = buf[idx1];
     buf[idx1++] = input;
@@ -408,7 +408,7 @@ void DattorroReverb::StateVariable::Type(FilterType value)
     type = value;
 }
 
-float DattorroReverb::StateVariable::Process(float input)
+ADSR2_ITCM_TEXT float DattorroReverb::StateVariable::Process(float input)
 {
     // Internal oversampling factor (paired with SetSampleRate multiplier).
     for(int i = 0; i < 2; ++i)
@@ -597,7 +597,7 @@ void DattorroReverb::Clear_()
         current_density2_ = 0.25f;
 }
 
-float DattorroReverb::ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line,
+ADSR2_ITCM_TEXT float DattorroReverb::ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMax>& line,
                                            float                            input)
 {
     const float output = line.Read();
@@ -605,7 +605,7 @@ float DattorroReverb::ProcessPredelayLine_(daisysp::DelayLine<float, kPredelayMa
     return output;
 }
 
-void DattorroReverb::ApplyChorus_(float& wetL, float& wetR, float mix, float makeup)
+ADSR2_ITCM_TEXT void DattorroReverb::ApplyChorus_(float& wetL, float& wetR, float mix, float makeup)
 {
     // Always write so the delay lines keep fresh history (cheap), but skip the
     // read + cross-couple + blend when the chorus is effectively off (mod ~ 0)
@@ -756,7 +756,7 @@ void DattorroReverb::SetMod(float value)
     mod_ = Clamp01_(value);
 }
 
-void DattorroReverb::Process(const float inL,
+ADSR2_ITCM_TEXT void DattorroReverb::Process(const float inL,
                              const float inR,
                              float&      outL,
                              float&      outR)
@@ -896,7 +896,7 @@ void DattorroReverb::Process(const float inL,
     outR = inR + wetR * out_gain_;
 }
 
-void DattorroReverb::RenderWet_(const float* inL,
+ADSR2_ITCM_TEXT void DattorroReverb::RenderWet_(const float* inL,
                                 const float* inR,
                                 size_t       n,
                                 float*       wetOutL,
@@ -1144,7 +1144,7 @@ void DattorroReverb::RenderWet_(const float* inL,
     bw_yr_                = bw_yr;
 }
 
-void DattorroReverb::ProcessBlock(const float* inL,
+ADSR2_ITCM_TEXT void DattorroReverb::ProcessBlock(const float* inL,
                                   const float* inR,
                                   float*       outL,
                                   float*       outR,

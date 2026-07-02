@@ -124,6 +124,22 @@ SECTIONS
 
 	_sidata = LOADADDR(.data);
 
+	/* Hot code placed in ITCM (64K, zero-wait, no cache miss). Loaded from QSPI
+	   and copied to ITCM by main() at boot (size-based, so empty == no-op when
+	   ADSR2_ITCM_ENABLED is 0 and nothing lands here). */
+	.itcm_text :
+	{
+		. = ALIGN(4);
+		_sitcm_text = .;
+		PROVIDE(__itcm_text_start = _sitcm_text);
+		*(.itcm_text)
+		*(.itcm_text*)
+		. = ALIGN(4);
+		_eitcm_text = .;
+		PROVIDE(__itcm_text_end = _eitcm_text);
+	} > ITCMRAM AT > QSPIFLASH
+	_siitcm_text = LOADADDR(.itcm_text);
+
 	.bss (NOLOAD) :
 	{
 		. = ALIGN(4);

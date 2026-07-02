@@ -27,3 +27,16 @@
 #define ADSR2_SECTION(name) __attribute__((section(name)))
 #define ADSR2_SRAM ADSR2_SECTION(".sram")
 #define ADSR2_ALIGN32 __attribute__((aligned(32)))
+
+// Place a function in ITCM (fast, zero-wait, never cache-misses). The linker
+// puts .itcm_text in ITCMRAM with a QSPI load copy; main() copies it at boot.
+// Gated by ADSR2_ITCM_ENABLED so the placement is a build-time A/B toggle; when
+// off it expands to nothing and the function stays in QSPI .text. No `noinline`
+// on purpose — within the TU, inlining a tagged helper into another ITCM
+// function keeps it in ITCM, and we don't want to block beneficial inlining.
+#include "build_config.h"
+#if ADSR2_ITCM_ENABLED
+#define ADSR2_ITCM_TEXT ADSR2_SECTION(".itcm_text")
+#else
+#define ADSR2_ITCM_TEXT
+#endif

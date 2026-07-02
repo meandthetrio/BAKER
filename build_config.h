@@ -18,3 +18,12 @@
 // ~12 kHz across the reverb — inaudible on dark settings. Build-time A/B:
 // 0 = full-rate (current), 1 = half-rate.
 #define REVERB_HALF_RATE 1
+
+// Place the Dattorro reverb's hot per-sample code in ITCM (64 KB zero-wait,
+// never cache-misses). This app runs from QSPI XIP, so an I-cache miss on the
+// reverb inner loop stalls out to slow QSPI; ITCM removes that entirely. The
+// reverb is the single biggest DSP block (~20% of the callback). Build-time A/B:
+// 0 = run from QSPI/I-cache (current), 1 = run the reverb from ITCM.
+// Toggle, rebuild, flash, and compare `callback pk` / `reverb pk` on the diag
+// pages (reset peaks with the ext-encoder button between runs).
+#define ADSR2_ITCM_ENABLED 1

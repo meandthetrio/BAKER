@@ -4,13 +4,60 @@ A running record of audio-callback CPU measurements, anchored to the build that
 produced them. Append a new entry per build of interest; never edit old entries
 (they are point-in-time facts).
 
-## ⭐ Most reliable way to reduce CPU — START HERE
+## ⭐⭐⭐ BIGGEST WIN EVER FOUND — HOT CODE IN ITCM (QSPI-XIP I-CACHE FIX) ⭐⭐⭐
 
-> **Single most beneficial CPU optimization found on this project.** Applying it to
-> just three stages (process filter, tilt EQ, reverb damping) moved the **limit-test
-> callback peak from 97 → 91 (~6%)** and `fx_total` peak **48 → 40** — with every
-> effect still fully engaged. Nothing else tried this session came close; most
-> delivered ~0. When asked to cut audio CPU, **start here, every time.**
+> ***THE single biggest CPU reduction in this project's history.*** Moving the audio
+> DSP **code** into ITCM took the **callback peak 84 → 69** (full-FX arp test) and the
+> **reverb stage alone 20 → 11 (~45%)** — done in a few HOURS after *days* of other
+> attempts that moved ~nothing. **If you need to cut audio CPU, DO THIS FIRST.**
+> _Validated on hardware, 2026-07-02. Shipped: `90d1634`, `849c79f`, `ce9c7b9`, `dcb1abb`._
+
+**__Why it works here__ (and why generic "memory placement doesn't help" advice is
+WRONG for this board):** this app **executes from QSPI flash via XIP**. So an I-cache
+miss on a hot audio function does **not** refetch from fast internal flash — it
+**stalls all the way out to slow QSPI, inside the audio callback**, worst during dense
+note-ons that evict audio code from the I-cache. **ITCM is 64 KB of zero-wait memory
+that sits in front of the caches and can never miss.** Put the hot DSP code there and
+those stalls disappear entirely.
+
+**This is CODE placement — categorically different from DATA placement**, which *did*
+flop (see the "What did NOT help" note below). Data in AXI SRAM is absorbed by the
+D-cache; **code fetched from QSPI is not**, because a miss goes to a genuinely slow bus.
+That one distinction is the whole game on this board.
+
+**Measured, stage by stage (hardware, full-FX playing):**
+
+| Stage moved to ITCM | Bucket effect | Commit |
+|---|---|---|
+| Dattorro reverb hot path | **reverb pk 20 → 11** | `90d1634` |
+| Voice render (fetch + batched loops + dispatcher + mix) | **voice pk 25 → 17** | `849c79f`, `dcb1abb` |
+| FX chain (EQ + delay + sat) + master | **fx total pk 47 → 33** | `ce9c7b9`, `dcb1abb` |
+| **CUMULATIVE** | **callback pk 84 → 69** | — |
+
+**How it's wired (build-time A/B via `ADSR2_ITCM_ENABLED` in `build_config.h`):**
+- `.lds`: `.itcm_text` section — VMA in `ITCMRAM`, load image in QSPI (`> ITCMRAM AT > QSPIFLASH`).
+- `main()`: size-based boot copy QSPI → ITCM **before `StartAudio`** (no-op when the flag is 0).
+- `mem_regions.h`: tag hot functions with **`ADSR2_ITCM_TEXT`** at the definition.
+- ITCM usage after the campaign: **~16.8 KB / 64 KB** — ~47 KB still free for more hot code.
+- Benign gotcha: QSPI→ITCM calls exceed a direct-branch range, so the linker inserts one
+  **veneer** per cross-call — once per block, negligible.
+
+**What to move (the pattern):** tight **per-sample DSP loops** win biggest
+(reverb ≫ voice render > FX). Cold/branchy control code (note-on/event handling) is a
+weaker, still-unproven candidate. **Do NOT** bother promoting DATA to DTCM — `g_voice`
+was tried and measured flat/noise (17 → 19), then reverted; the D-cache already covers it.
+
+---
+
+## ⭐ Most reliable *steady-state* cut — control-rate coeff caching
+
+> **The most beneficial *steady-state* optimization — second only to ITCM code
+> placement (above); the two are complementary (ITCM kills I-cache-miss stalls,
+> this kills redundant per-block recompute).** Applying it to just three stages
+> (process filter, tilt EQ, reverb damping) moved the **limit-test callback peak from
+> 97 → 91 (~6%)** and `fx_total` peak **48 → 40** — with every effect still fully
+> engaged. Nothing else *before ITCM* came close. When asked to cut audio CPU, do
+> ITCM first, then **start here**.
 
 **Control-rate coefficient caching.** Effects derive DSP coefficients from control
 knobs using expensive math (`tanf`/`expf`/`powf`/`sin`/`cos`) and re-run it **every
@@ -37,10 +84,11 @@ Audit checklist: grep FX/voice setup for per-block `tanf`/`expf`/`powf`/`sin`/`c
 the **un-bucketed `fx_total` remainder**, not the effect's own sub-bucket — so measure
 `fx_total`/`callback` `now` with the control held **static**.
 
-What did NOT reliably help (this project): moving data to RAM_D2/DTCM (already in fast
-AXI SRAM; cache absorbs the rest), float-vs-fixed (FPU makes float free), and chasing
-per-bucket *peaks* (latched on the worst block, contaminated by stalls/preemption —
-trust `callback` total and bucket `now`).
+What did NOT reliably help (this project): moving **data** to RAM_D2/DTCM (already in
+fast AXI SRAM; cache absorbs the rest — NOTE: this is **data**; moving **code** to ITCM
+is the opposite — the biggest win ever, see the top section), float-vs-fixed (FPU makes
+float free), and chasing per-bucket *peaks* (latched on the worst block, contaminated by
+stalls/preemption — trust `callback` total and bucket `now`).
 
 ## How to read these
 
@@ -68,6 +116,38 @@ make the instrument click.
 ---
 
 ## Entries
+
+### 2026-07-02 — ITCM code campaign + polyphony 8→5 ⭐ (`dcb1abb`)
+
+- **Commits (in order):** `90d1634` (reverb → ITCM), `849c79f` (voice render →
+  ITCM), `ce9c7b9` (FX chain EQ/delay/sat → ITCM), `dcb1abb` (voice dispatcher +
+  layer mix + master → ITCM). Polyphony cut (`kMaxVoices`/`kMaxVoicesPerLayer`
+  8→5) landed in `54d94ac`.
+- **Measurement condition:** the user's real-world stress — a MIDI **arp with all
+  FX on**, at 5-voice polyphony. NOT the formal "limit test" above, so compare
+  these deltas to each other, not to the poly-8 limit-test rows below.
+
+| Metric | Before | After | How |
+|---|---|---|---|
+| callback pk | 96 | **84** | polyphony 8 → 5 |
+| callback pk | 84 | **69** | ITCM code campaign |
+| reverb pk | 20 | **11** | reverb hot path → ITCM (cleanest, patch-independent) |
+| voice pk | 25 | **17** | voice render → ITCM |
+| fx total pk | 47 | **33** | EQ/delay/sat/reverb/master → ITCM |
+
+Notes:
+- **This is the project's biggest CPU win to date** — see the ⭐⭐⭐ top section for
+  the full why/how. Root cause: app runs from QSPI XIP, so I-cache misses on hot
+  audio code stalled out to slow QSPI; ITCM never misses.
+- `reverb pk` is the flagship number: reverb cost is intrinsic (fixed per-block
+  math), so its bucket is patch-independent — 20→11 is unambiguously the ITCM
+  effect, not measurement variance.
+- ITCM usage ended at ~16.8 KB / 64 KB. DTCM/SRAM unchanged (code only).
+- **Tried and reverted:** promoting `g_voice` (DATA) to DTCM — `voice pk` went
+  17→19 (flat/noise), confirming data placement doesn't help on this board. Backed
+  out; the `ADSR2_DTCM_DATA` machinery is not in the tree.
+- Also this session (not CPU-peak but related): live-EQ-adjust clicks fixed via an
+  engine-only param-repush gate (`Params::EnginePublishGen`) + EQ coeff smoothing.
 
 ### 2026-06-20 — `3d0f258` (+ reverb damping coeff caching)
 

@@ -1,5 +1,6 @@
 #include "ui_worker.h"
 #include "ui_worker_internal.h"
+#include "ui_worker_bk_load.h"
 #include "ui_worker_craft.h"
 #include "ui_worker_sample_load.h"
 #include "ui_worker_sample_ops.h"
@@ -138,6 +139,15 @@ static void StartQueuedUiRequest(AppUiState& ui,
             break;
         case UiReqType::LoadWavIndex:
             if(!StartLoadInternal(ui.sd, shared, req.a))
+            {
+                ui.sd.load_in_progress = false;
+                ui.sd.load_progress = 0;
+                SdWavLoad_SetBusy(shared, ui.sd, false);
+                FailAndFinishUiRequest(worker, worker.project_restore);
+            }
+            break;
+        case UiReqType::LoadBkIndex:
+            if(!StartBkLoadInternal(ui.sd, shared, req.a))
             {
                 ui.sd.load_in_progress = false;
                 ui.sd.load_progress = 0;
@@ -333,6 +343,12 @@ static void StepActiveUiRequest(AppUiState& ui,
                                     shared,
                                     worker.project_restore,
                                     budget_us * 2u);
+            worker.ui_req_progress = ui.sd.load_progress;
+            if(done)
+                FinishRequest(worker, worker.project_restore);
+            break;
+        case UiReqType::LoadBkIndex:
+            done = BkLoadStepInternal(ui.sd, shared, budget_us * 2u);
             worker.ui_req_progress = ui.sd.load_progress;
             if(done)
                 FinishRequest(worker, worker.project_restore);

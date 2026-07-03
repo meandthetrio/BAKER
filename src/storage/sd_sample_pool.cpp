@@ -13,7 +13,12 @@ ADSR2_SECTION(".sdram_bss") static int16_t g_sd_manage_buf[kSdManageMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_bake_preview_buf[kSdSampleMaxFrames];
 // ~40 MB. Largest single SDRAM allocation in the project, but well within
 // budget (64 MB SDRAM total, ~14 MB already used).
-ADSR2_SECTION(".sdram_bss") static int16_t g_sd_bk_layer_b_buf[kBkLayerBMaxFrames];
+// ADSR2_ALIGN32: 32-byte aligned like every other SDMMC-DMA target. The SD
+// driver does SCB_Clean/InvalidateDCache_by_Addr on the read destination (32-byte
+// granularity); a non-32-aligned base makes those cache ops span into adjacent
+// SDRAM and can leave the SDMMC IDMA read failing (FR_DISK_ERR) after heavy prior
+// I/O (e.g. a project load). This was the ONLY pool buffer missing the alignment.
+ADSR2_SECTION(".sdram_bss") ADSR2_ALIGN32 static int16_t g_sd_bk_layer_b_buf[kBkLayerBMaxFrames];
 ADSR2_SECTION(".sdram_bss") static int16_t g_sd_baked_buf[kSdSampleSlots][kSdSampleMaxFrames];
 
 static inline uint8_t ClampSlot(uint8_t slot)

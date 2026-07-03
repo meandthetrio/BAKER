@@ -65,6 +65,7 @@ CPP_SOURCES += src/worker/ui_worker_sd_lifecycle.cpp
 CPP_SOURCES += src/worker/ui_worker.cpp
 CPP_SOURCES += src/worker/ui_worker_sd_scan.cpp
 CPP_SOURCES += src/worker/ui_worker_sample_load.cpp
+CPP_SOURCES += src/worker/ui_worker_bk_load.cpp
 CPP_SOURCES += src/worker/ui_worker_sample_ops.cpp
 CPP_SOURCES += src/worker/ui_worker_project.cpp
 CPP_SOURCES += src/worker/ui_worker_project_load.cpp

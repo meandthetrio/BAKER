@@ -1029,10 +1029,16 @@ bool SdManageMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ExtractBaseName(sd.paths[idx],
                                 ctx.engine->layer.engine_sample_name[target],
                                 sizeof(ctx.engine->layer.engine_sample_name[target]));
+                // Async .bk load via the worker (one DMA read per tick), mirroring
+                // the .wav path below: queue, mark loading, and pop back to the
+                // engine screen immediately — the load completes in the background.
+                // The synchronous read here used to hard-fail after a project load.
+                UiReq bk_req{UiReqType::LoadBkIndex, idx, 0};
+                UiReq_Push(ui, *ctx.worker, bk_req);
+                sd.load_in_progress = true;
+                sd.load_progress = 0;
                 SdBrowser_SetStatus(sd, "LOADING");
-                const bool ok = bk::BkLayer_LoadIntoLayerB(sd.paths[idx], *ctx.shared);
-                SdBrowser_SetStatus(sd, ok ? "" : "BK ERR");
-                if(ok && ctx.engine->layer.engine_load_from_perform)
+                if(ctx.engine->layer.engine_load_from_perform)
                     UiNav_Pop(ui.ui_nav);
                 ui.ui_dirty = true;
                 return true;
@@ -1496,13 +1502,16 @@ bool SdBrowse_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
                 ExtractBaseName(sd.paths[idx],
                                 ctx.engine->layer.engine_sample_name[target],
                                 sizeof(ctx.engine->layer.engine_sample_name[target]));
-                // Synchronous load — blocks the main loop for ~1-2 s while
-                // the multi-MB PCM blob hits SDRAM via SDMMC. Stage 3 will
-                // move this to the async worker.
+                // Async .bk load via the worker (one DMA read per tick) — see the
+                // matching engine-load path above. Queue, mark loading, pop back;
+                // the load finishes in the background. (The old synchronous read
+                // blocked ~1-2 s AND hard-failed after a project load.)
+                UiReq bk_req{UiReqType::LoadBkIndex, idx, 0};
+                UiReq_Push(*ctx.ui, *ctx.worker, bk_req);
+                sd.load_in_progress = true;
+                sd.load_progress = 0;
                 SdBrowser_SetStatus(sd, "LOADING");
-                const bool ok = bk::BkLayer_LoadIntoLayerB(sd.paths[idx], *ctx.shared);
-                SdBrowser_SetStatus(sd, ok ? "" : "BK ERR");
-                if(ok && ctx.engine->layer.engine_load_from_perform)
+                if(ctx.engine->layer.engine_load_from_perform)
                     UiNav_Pop(ctx.ui->ui_nav);
                 ctx.ui->ui_dirty = true;
                 return true;

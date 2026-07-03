@@ -10,22 +10,15 @@
 
 namespace bk {
 
-bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
+bool BkLayer_FinalizeLayerB(AppSharedState& shared, const BkFileHeader& hdr, uint32_t pcm_offset_frames)
 {
-    // Clear first so a partial / failed load leaves the slot empty rather
-    // than half-populated.
-    shared.bk_layer_b.loaded = false;
-
-    BkFileHeader hdr{};
-    int16_t* const pcm_buf = SdBkLayerBBuffer();
-    if(!BkRead_LoadIntoBuffer(path, pcm_buf, kBkLayerBMaxFrames, hdr))
-        return false;
-
     // Defensive: the reader already validated lo/hi and per-slice frame
     // count, but double-check the slice count matches the layout we expect.
     const uint32_t slice_count = static_cast<uint32_t>(hdr.hi_note - hdr.lo_note + 1u);
     if(slice_count == 0u || slice_count > bk::kSliceCount)
         return false;
+
+    int16_t* const pcm_buf = SdBkLayerBBuffer() + pcm_offset_frames;
 
     // Pre-build kSliceCount Sample handles, one per semitone in [lo_note, hi_note].
     // Each Sample's root_key == its MIDI note so the voice engine computes
@@ -74,6 +67,20 @@ bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
     shared.sample.edit.sd_edit_slots[0]
         = SampleEdit_Default(hdr.source_duration_samples);
     return true;
+}
+
+bool BkLayer_LoadIntoLayerB(const char* path, AppSharedState& shared)
+{
+    // Synchronous whole-blob read (kept for non-engine callers / fallback). The
+    // engine-load UI now uses the async worker path (UiReqType::LoadBkIndex) to
+    // avoid the back-to-back-SDMMC-DMA failure this tight read hit after a project
+    // load. PCM lands at buffer[0] here, so finalize with offset 0.
+    shared.bk_layer_b.loaded = false;
+    BkFileHeader hdr{};
+    int16_t* const pcm_buf = SdBkLayerBBuffer();
+    if(!BkRead_LoadIntoBuffer(path, pcm_buf, kBkLayerBMaxFrames, hdr))
+        return false;
+    return BkLayer_FinalizeLayerB(shared, hdr, 0u);
 }
 
 void BkLayer_ClearLayerB(AppSharedState& shared)

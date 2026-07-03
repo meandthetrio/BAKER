@@ -16,6 +16,11 @@ enum class UiReqType : uint8_t
     LoadWavIndex,
     LoadWavIndexSdManage,
     LoadWavToBakePreview,
+    // Async .bk multisample load into layer B. Streamed one DMA read per worker
+    // tick (like the WAV loaders) so it never issues back-to-back SDMMC DMA in a
+    // tight blocking loop — the synchronous read did, and hard-failed (FR_DISK_ERR)
+    // after a project load. `a` = sd.paths[] index of the focused .bk.
+    LoadBkIndex,
     DeleteWavIndex,
     NormalizeCurrent,
     LoopFindCurrent,

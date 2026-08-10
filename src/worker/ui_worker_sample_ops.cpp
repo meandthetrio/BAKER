@@ -11,6 +11,7 @@
 #include "fatfs.h"
 #include "ff.h"
 #include "mem_regions.h"
+#include "sys/system.h"
 
 #include <cstdio>
 #include <cstring>
@@ -117,6 +118,14 @@ bool RenameSampleAtIndexToPath(SdBrowserState& sd, uint16_t idx, const char* new
         SdBrowser_SetStatus(sd, "REN ERR");
         return false;
     }
+
+    // f_stat() above and f_rename() below are two back-to-back SDMMC
+    // transfers with no gap — the same shape of controller quirk documented
+    // for the old synchronous .bk loader (2nd transfer errors, FR_DISK_ERR).
+    // This delay gives the controller settling time between them; part of
+    // the tested-working combination on this board along with the BITS_1 SD
+    // config in ui_worker_sd_lifecycle.cpp.
+    daisy::System::Delay(2);
 
     if(f_rename(old_path_copy, new_path) != FR_OK)
     {

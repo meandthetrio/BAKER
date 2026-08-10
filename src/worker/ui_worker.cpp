@@ -103,10 +103,32 @@ static void CancelForPendingLoad(AppUiState& ui, AppWorkerState& worker, AppShar
     }
 }
 
+// Names the blocking request types so a stuck worker is visible on-screen
+// (via sd.status) instead of a pending load silently no-op'ing with no
+// feedback — see PendingLoadBlockedByActiveRequest below.
+static const char* BlockingReqName(UiReqType t)
+{
+    switch(t)
+    {
+        case UiReqType::SaveRenderedWavCurrent:      return "BUSY:SaveWavCur";
+        case UiReqType::SaveRenderedWavNamed:        return "BUSY:SaveWavNm";
+        case UiReqType::SaveSdManageTrimNamed:        return "BUSY:SaveTrim";
+        case UiReqType::ReplaceSdManageTrimCurrent:   return "BUSY:ReplTrim";
+        case UiReqType::CraftRenderToWav:             return "BUSY:CraftRnd";
+        case UiReqType::LoadProject:                  return "BUSY:LoadProj";
+        default:                                       return "BUSY:?";
+    }
+}
+
 static void MaybeHandlePendingLoad(AppUiState& ui, AppWorkerState& worker, AppSharedState& shared)
 {
-    if(!ui.sd.load_pending || PendingLoadBlockedByActiveRequest(worker))
+    if(!ui.sd.load_pending)
         return;
+    if(PendingLoadBlockedByActiveRequest(worker))
+    {
+        SdBrowser_SetStatus(ui.sd, BlockingReqName(worker.ui_req_active));
+        return;
+    }
 
     const uint16_t idx = ui.sd.load_pending_index;
     ui.sd.load_pending = false;

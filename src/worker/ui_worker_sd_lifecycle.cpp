@@ -20,6 +20,14 @@ bool EnsureSdMountedInternal(SdBrowserState& sd)
     {
         SdmmcHandler::Config sd_cfg;
         sd_cfg.Defaults();
+        // BusWidth::BITS_4 is unreliable on this carrier board's SD connector
+        // (D0-D3 crosstalk) at Speed::FAST — confirmed on both the original
+        // Daisy Seed and a Seed V3, even with 47pF snubber caps on CMD/D0-D3.
+        // BusWidth::BITS_1 removes D0-D3 from the active bus (only CLK/CMD/D0
+        // toggle), which lets every SD operation run reliably at the full
+        // default 50MHz on a narrower bus. Revisit once the SD connector is
+        // moved closer to the Seed on a future PCB revision.
+        sd_cfg.width = SdmmcHandler::BusWidth::BITS_1;
         s_sd.sdmmc.Init(sd_cfg);
         FatFSInterface::Config fsi_cfg;
         fsi_cfg.media = FatFSInterface::Config::MEDIA_SD;

@@ -25,8 +25,10 @@ static void DrawSavedBanner(OledPager& d, const char* msg)
 
 static constexpr uint16_t kRenderBudgetMs = 4;
 static constexpr uint16_t kCooldownMs = 50;
-static constexpr uint32_t kBootRetroDurationMs = 900;
-static constexpr uint32_t kBootLogoDurationMs = 900;
+static constexpr uint32_t kBootRetroDurationMs = 3500;
+// Dithered fade-in completes within the first slice of the total splash
+// duration; the logo then holds fully revealed for the remainder.
+static constexpr uint32_t kBootRetroFadeInMs = 1800;
 
 void UIRender::Init(PodDisplay* display, DaisyPod& hw)
 {
@@ -123,37 +125,29 @@ void UIRender::Tick(AppState& app, const Params& params)
     {
         if(now_ms >= boot_logo_until_ms_)
         {
-            if(boot_splash_phase_ == BootSplashPhase::Retro)
-            {
-                boot_splash_phase_ = BootSplashPhase::InvertedLogo;
-                boot_logo_until_ms_ = now_ms + kBootLogoDurationMs;
-                boot_logo_drawn_ = false;
-                // Clear once between splash phases so the two bitmaps never overlap.
-                oled_pager_.Fill(false);
-            }
-            else
-            {
-                boot_splash_phase_ = BootSplashPhase::Done;
-                boot_logo_drawn_ = false;
-                ui.ui_dirty = true;
-            }
+            // Single-phase splash: just the Retro logo, then straight to Done.
+            boot_splash_phase_ = BootSplashPhase::Done;
+            boot_logo_drawn_ = false;
+            ui.ui_dirty = true;
         }
 
         if(boot_splash_phase_ != BootSplashPhase::Done)
         {
+            // boot_logo_drawn_ here means "the fully-revealed frame has been
+            // drawn" — once true, the dither animation is done and we hold
+            // the static logo for the rest of the splash without redrawing.
             if(boot_logo_drawn_ || oled_pager_.IsTransferring())
                 return;
 
-            if(boot_splash_phase_ == BootSplashPhase::Retro)
-            {
-                UiBootLogo::DrawRetro(oled_pager_);
-            }
-            else
-            {
-                UiBootLogo::Draw(oled_pager_);
-            }
+            const uint32_t phase_start_ms = boot_logo_until_ms_ - kBootRetroDurationMs;
+            const uint32_t elapsed_ms = now_ms - phase_start_ms;
+            const float progress = static_cast<float>(elapsed_ms)
+                                    / static_cast<float>(kBootRetroFadeInMs);
+
+            oled_pager_.Fill(false);
+            UiBootLogo::DrawRetro(oled_pager_, progress);
             oled_pager_.BeginFrameTransfer();
-            boot_logo_drawn_ = true;
+            boot_logo_drawn_ = (progress >= 1.0f);
             return;
         }
     }

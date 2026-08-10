@@ -31,7 +31,6 @@ class UIRender
     enum class BootSplashPhase : uint8_t
     {
         Retro = 0,
-        InvertedLogo,
         Done
     };
 

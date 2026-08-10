@@ -374,6 +374,17 @@ int main(void)
     // allocations route to the 8 MB SDRAM arena (pre-main ctors used SRAM).
     g_heap_sdram_ready = true;
 
+    // ENC L CLICK: this device's custom encoder click is wired to D10 (A/B
+    // unchanged, D26/D25). D13 (Pod stock default) and D22 (already used by
+    // the external/right encoder's click, see controls.cpp) are both wrong
+    // for this build.
+    hw.encoder.Init(hw.seed.GetPin(26), hw.seed.GetPin(25), hw.seed.GetPin(10));
+
+    // No LED init override needed: this device's LEDs are sourced-from-9V/
+    // sunk-by-pin, same drive direction as the Pod default (invert=true in
+    // daisy_pod.cpp). The earlier "stuck on" symptom was the 9V supply
+    // exceeding what a 3.3V GPIO can block, not a polarity mismatch.
+
     // Flush-to-zero. Denormal FP operands stall the Cortex-M7 FPU for tens of
     // cycles each. Decaying tails (long reverb feedback, emphasis ladder/DC
     // blocker) pass through the denormal range for thousands of samples and,

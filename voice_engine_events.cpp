@@ -2,7 +2,11 @@
 
 #include "app_state_shared.h"
 
-static constexpr float kVoiceAmpScale      = 0.15f; // keep headroom for 10 voices + FX
+// TEMP: was 0.15f ("keep headroom for 10 voices + FX") — removed to restore
+// full-scale line out now that headphone level is handled by an analog pot.
+// Dense polyphony can now sum past 0dBFS and clip; revisit with a master
+// limiter if that turns out to be a real problem in practice.
+static constexpr float kVoiceAmpScale      = 1.0f;
 static constexpr float kStealFadeOutMs     = 1.25f; // full fade for a full-level victim
 static constexpr float kStealFadeOutMinMs  = 0.25f; // floor for a near-silent victim
 static constexpr float kLoopBoundaryFadeMs = 1.0f;

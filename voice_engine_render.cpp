@@ -258,7 +258,12 @@ void VoiceEngine::RenderBlock(float* outL, float* outR, size_t size)
     uint32_t active = 0;
     uint32_t clip_block = 0;
     float max_env = 0.0f;
-    const float mix_scale = 0.7f;
+    // TEMP: was 0.7f (~1/sqrt(2), headroom for summing two independent layer
+    // signals) — a leftover from the pre-ONE_LAYER_PIVOT dual-layer engine.
+    // Single-layer mode only mono-dups one bus to stereo (see comment above),
+    // so there's nothing left to combine; removed to restore full-scale
+    // output per current priority (polyphony headroom not a concern right now).
+    const float mix_scale = 1.0f;
     uint32_t playhead_frame[2] = {0u, 0u};
     uint32_t playhead_active[2] = {0u, 0u};
     float playhead_metric[2] = {-1.0f, -1.0f};

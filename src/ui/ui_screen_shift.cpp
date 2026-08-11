@@ -186,8 +186,10 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             if(!ctx.params)
                 return true;
             auto& t = ctx.params->EditTargets();
-            // Option B: allow master boost up to 200% (2.0)
-            static constexpr float kMasterLevelMax = 2.0f;
+            // Allow master boost up to 400% (4.0) — see audio_engine.cpp for
+            // the resulting gain curve (level_gain keeps climbing linearly
+            // past the point bypass_comp itself saturates at 2.0).
+            static constexpr float kMasterLevelMax = 4.0f;
 
             // Cuz-like feel: time-based acceleration.
             // Fast turns -> bigger jumps.
@@ -395,19 +397,19 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     }
     else
     {
-    // Compute volume percent for display (0..200 with boost).
+    // Compute volume percent for display (0..400 with boost).
     uint32_t vol_pct = 0;
     if(ctx.params)
     {
-        static constexpr float kMasterLevelMax = 2.0f;
+        static constexpr float kMasterLevelMax = 4.0f;
         float v = ctx.params->TargetsForUI().master_level;
 
         if(v < 0.0f) v = 0.0f;
         if(v > kMasterLevelMax) v = kMasterLevelMax;
 
         vol_pct = (uint32_t)(v * 100.0f + 0.5f);
-        if(vol_pct > 200u)
-            vol_pct = 200u;
+        if(vol_pct > 400u)
+            vol_pct = 400u;
     }
 
     static constexpr int kRowPitch = Font5x7::H + 2;

@@ -977,24 +977,19 @@ void AudioCallback(AudioHandle::InputBuffer  in,
         {
             // Static group: only changes on a UI edit.
             g_voice.SetEngineTuneSemitones(layer, voice_params.engine_tune_semitones[layer]);
+            // Plain linear gain — knob position maps directly to gain, no
+            // compounding boost curve. This used to also cancel the 0.15x
+            // per-voice headroom cut (removed elsewhere), which made pushing
+            // past unity compound into heavy soft-clip almost immediately.
+            // Now it's just clean gain; the layer-bus soft-clip stays as an
+            // automatic backstop (see LayerBusSoftClip_) but is not something
+            // this control is designed to lean into.
             float layer_level = voice_params.engine_layer_master_level[layer];
             if(layer_level < 0.0f)
                 layer_level = 0.0f;
             if(layer_level > 2.0f)
                 layer_level = 2.0f;
-            static constexpr float kPolyHeadroomScale = 0.15f;
-            static constexpr float kBypassGain = 1.0f / kPolyHeadroomScale;
-            float t_boost = 0.0f;
-            if(layer_level > 1.0f)
-            {
-                t_boost = layer_level - 1.0f;
-                if(t_boost < 0.0f)
-                    t_boost = 0.0f;
-                if(t_boost > 1.0f)
-                    t_boost = 1.0f;
-            }
-            const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
-            g_voice.SetEngineLayerScale(layer, layer_level * bypass_comp);
+            g_voice.SetEngineLayerScale(layer, layer_level);
             g_voice.SetLoopCrossfadeAmount(layer, voice_params.engine_loop_crossfade_amount[layer]);
             g_voice.SetLoopCrossfadeShape(layer, voice_params.engine_loop_crossfade_shape[layer]);
         }

@@ -2,7 +2,11 @@
 
 namespace
 {
-static constexpr float kVoiceAmpScale = 0.15f; // keep headroom for 10 voices + FX
+// TEMP: was 0.15f ("keep headroom for 10 voices + FX") — removed to restore
+// full-scale line out now that headphone level is handled by an analog pot.
+// Dense polyphony can now sum past 0dBFS and clip; revisit with a master
+// limiter if that turns out to be a real problem in practice.
+static constexpr float kVoiceAmpScale = 1.0f;
 }
 
 void VoiceEngine::SetPolyPortoEnabled(uint8_t layer, bool enabled)

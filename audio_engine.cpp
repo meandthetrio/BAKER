@@ -439,7 +439,7 @@ void AudioEngine::ProcessBlock(const float* inL,
     // Clamp here as a last line of defense (UI/params should also clamp).
     float level = p.master_level;
     if(level < 0.0f) level = 0.0f;
-    if(level > 2.0f) level = 2.0f;
+    if(level > 4.0f) level = 4.0f;
 
     // BOOST-bypass ramp: from UNITY (<=1.0) to "bypass poly headroom" at 2.0
     // This cancels the conservative per-voice gain used for safe polyphony, so single-sample preview can get loud.

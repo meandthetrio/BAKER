@@ -46,7 +46,7 @@ static void PublishProjectPerformParams(Params& params,
 {
     PerformParamsTargets& t = params.EditTargets();
     if(output_master_level)
-        t.master_level = ClampProjectFloat(*output_master_level, 0.0f, 2.0f);
+        t.master_level = ClampProjectFloat(*output_master_level, 0.0f, 4.0f);
     if(process_fx_order)
     {
         for(uint8_t i = 0; i < 4; ++i)

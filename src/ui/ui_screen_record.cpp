@@ -162,8 +162,13 @@ void Record_ApplyMonitorState(const AppUiState& ui,
     const bool line_source = !mic_source;
     const RecordUiState st = recording.record_state;
 
-    // Mic monitoring (settings-gated) runs only during the active capture run.
-    const bool mic_active_state = (st == RecordUiState::Countdown)
+    // Mic monitoring (settings-gated) runs across the whole ready/record flow,
+    // same as line-in below: Ready (Armed) — so the user can hear themselves
+    // during the READY animation before hitting record — the countdown, and
+    // the recording itself. The Settings > MIC MONITOR toggle is what lets the
+    // user turn this off (e.g. to avoid feedback with open mic + speakers).
+    const bool mic_active_state = (st == RecordUiState::Armed)
+                                  || (st == RecordUiState::Countdown)
                                   || (st == RecordUiState::Recording);
     const bool mic_on = ui.settings_mic_monitor_enabled && mic_source && mic_active_state;
 
@@ -751,15 +756,8 @@ void Record_Render(UiScreenCtx& ctx)
 
         case RecordUiState::Recording:
         {
-            // TEMP: blank the OLED while the mic is actually recording. The
-            // live-capture UI is intentionally suppressed for now — flip this
-            // back to the call below to restore it.
-#if 0
             const float mic_boost = (recording.record_source_index == 1) ? 1.5f : 1.0f;
             Record_RenderLiveCaptureStyle(ctx, "RECORDING - 5 SEC MAX", mic_boost);
-#else
-            d.Fill(false);
-#endif
         }
         break;
 

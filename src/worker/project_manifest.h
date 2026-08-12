@@ -654,7 +654,7 @@ struct ProjectManifestV11
     char     project_name[13] = {};
     uint8_t  project_style = 0;
     uint8_t  project_style_pad[2] = {};
-    float    master_level = 0.70f; // OUTPUT VOL (Settings/Shift page). 0..2 (UNITY=1); default 70.
+    float    master_level = 1.0f; // OUTPUT VOL (Settings/Shift page). 0..2 (UNITY=1); default unity (0dB).
     // Velocity-mod lanes (appended at v20). Global (per-lane 0/1, not per-layer).
     // target indexes kVelModTargetList; amount -10..+10; threshold 0..127;
     // shape 0=knee/1=gate; threshold_linked applies threshold edits to both.

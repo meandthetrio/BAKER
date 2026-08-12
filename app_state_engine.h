@@ -152,20 +152,17 @@ struct AppEngineState
     {
         uint8_t perform_process_fx_cursor = 0;
         uint8_t perform_process_fx_order[4] = {0, 2, 3, 1};
-        // 6-slot main cursor: 0=vol, 1=cut/res (combined), 2..5 = the four FX.
+        // 6-slot main cursor: 0=resonance, 1=cutoff, 2..5 = the four FX. Each
+        // now has its own dedicated knob (the old combined cut/res knob and its
+        // R-Enc-click toggle are gone; resonance took over the slot vacated by
+        // the since-removed Process Volume control, which is fixed at unity).
         uint8_t perform_process_main_cursor = 1;
-        // Combined cut/res knob selection: 0 = cutoff (default), 1 = resonance.
-        // REnc-click on the cut/res slot toggles this.
-        uint8_t perform_process_cutres_sel = 0;
         // EQ graph screen focused band: 0 = tilt, 1 = hi shelf, 2 = lo shelf.
         // Button2 cycles tilt -> hi -> lo -> tilt.
         uint8_t perform_process_eq_band = 0;
         // Timestamp (ms) of the last Button2 press on the EQ screen; the main-loop
         // LED code blinks LED2 off briefly after it.
         uint32_t perform_process_eq_blink_ms = 0;
-        uint16_t perform_process_vol_pct[2] = {100u, 100u};
-        bool    perform_process_vol_muted[2] = {false, false};
-        float   perform_process_vol_unmuted_level[2] = {1.0f, 1.0f};
         bool    perform_process_detail_active = false;
         bool    perform_process_eq_graph_active = false;
         uint8_t perform_process_detail_param[4] = {0, 0, 0, 0};

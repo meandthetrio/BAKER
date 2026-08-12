@@ -1,5 +1,6 @@
 #include "ui_screens_internal.h"
 
+#include <cmath>
 #include <cstdio>
 
 #include "app_state_ui.h"
@@ -69,6 +70,58 @@ static void DrawOutlineTinyString(OledPager& d, const char* str, int x, int y)
     if(y1 > 63) y1 = 63;
     d.DrawRect(x0, y0, x1, y1, true, false);
     DrawTinyString(d, str, x, y, true);
+}
+
+// Mirrors AudioEngine::ProcessBlock's master-level gain curve (audio_engine.cpp)
+// so this readout always matches the dB the engine actually applies. Keep the
+// three constants below in sync if that curve ever changes.
+static float MasterLevelAppliedGain(float level)
+{
+    if(level < 0.0f) level = 0.0f;
+    if(level > 2.0f) level = 2.0f;
+
+    static constexpr float kPolyHeadroomScale = 0.15f;
+    static constexpr float kBypassGain        = 1.0f / kPolyHeadroomScale;
+    static constexpr float kVolTaperDb        = 60.0f;
+
+    float t_boost = 0.0f;
+    if(level > 1.0f)
+    {
+        t_boost = level - 1.0f;
+        if(t_boost > 1.0f) t_boost = 1.0f;
+    }
+    const float bypass_comp = 1.0f + t_boost * (kBypassGain - 1.0f);
+
+    float level_gain;
+    if(level <= 0.0f)
+        level_gain = 0.0f;
+    else if(level >= 1.0f)
+        level_gain = level;
+    else
+        level_gain = std::pow(10.0f, (level - 1.0f) * (kVolTaperDb / 20.0f));
+
+    return level_gain * bypass_comp;
+}
+
+// Formats the real applied dB (not the raw 0..200% knob position) so the
+// readout matches what's actually happening to the signal: "0DB" at unity,
+// "+N DB" / "-N DB" elsewhere, "-INF DB" at true silence.
+static void FormatMasterLevelDb(float level, char* out, size_t out_n)
+{
+    const float gain = MasterLevelAppliedGain(level);
+    if(gain <= 0.00001f)
+    {
+        std::snprintf(out, out_n, "-INF DB");
+        return;
+    }
+
+    const float db = 20.0f * std::log10(gain);
+    if(db > 0.49f)
+        std::snprintf(out, out_n, "+%ldDB", std::lround(static_cast<double>(db)));
+    else if(db < -0.49f)
+        std::snprintf(out, out_n, "%ldDB", std::lround(static_cast<double>(db)));
+    else
+        std::snprintf(out, out_n, "0DB");
 }
 
 static void ClearShiftBootloaderState(AppUiState& ui)
@@ -186,10 +239,10 @@ bool ShiftMenu_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
             if(!ctx.params)
                 return true;
             auto& t = ctx.params->EditTargets();
-            // Allow master boost up to 400% (4.0) — see audio_engine.cpp for
-            // the resulting gain curve (level_gain keeps climbing linearly
-            // past the point bypass_comp itself saturates at 2.0).
-            static constexpr float kMasterLevelMax = 4.0f;
+            // Allow master boost up to 200% (2.0) — see audio_engine.cpp for
+            // the resulting gain curve (bypass_comp itself saturates at 2.0,
+            // matching this ceiling).
+            static constexpr float kMasterLevelMax = 2.0f;
 
             // Cuz-like feel: time-based acceleration.
             // Fast turns -> bigger jumps.
@@ -397,20 +450,11 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
     }
     else
     {
-    // Compute volume percent for display (0..400 with boost).
-    uint32_t vol_pct = 0;
+    // Output Vol reads as the real applied dB (see FormatMasterLevelDb), not
+    // the raw 0..200% knob position — "UNITY", "+6DB", "-12DB", etc.
+    char master_level_buf[12] = "0DB";
     if(ctx.params)
-    {
-        static constexpr float kMasterLevelMax = 4.0f;
-        float v = ctx.params->TargetsForUI().master_level;
-
-        if(v < 0.0f) v = 0.0f;
-        if(v > kMasterLevelMax) v = kMasterLevelMax;
-
-        vol_pct = (uint32_t)(v * 100.0f + 0.5f);
-        if(vol_pct > 400u)
-            vol_pct = 400u;
-    }
+        FormatMasterLevelDb(ctx.params->TargetsForUI().master_level, master_level_buf, sizeof(master_level_buf));
 
     static constexpr int kRowPitch = Font5x7::H + 2;
     const int total_h = static_cast<int>(ShiftCount) * Font5x7::H
@@ -435,22 +479,8 @@ void ShiftMenu_Render(UiScreenCtx& ctx)
             else DrawTinyString(d, label, volume_label_x, label_y, true);
 
             // Right-aligned value.
-            char buf[8];
-            if(vol_pct == 100u)
-            {
-                std::snprintf(buf, sizeof(buf), "UNITY");
-            }
-            else if(vol_pct > 100u)
-            {
-                std::snprintf(buf, sizeof(buf), "+%3lu", (unsigned long)vol_pct);
-            }
-            else
-            {
-                std::snprintf(buf, sizeof(buf), "%3lu", (unsigned long)vol_pct);
-            }
-
-            const int val_w = TinyStringWidth(buf);
-            DrawTinyString(d, buf, screen_w - val_w - 1, label_y, true);
+            const int val_w = TinyStringWidth(master_level_buf);
+            DrawTinyString(d, master_level_buf, screen_w - val_w - 1, label_y, true);
         }
         else if(i == ShiftMicMonitor)
         {

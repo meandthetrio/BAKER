@@ -29,15 +29,15 @@ static void DrawProcessKnobLabel(OledPager& d, const char* label, int x, int y, 
 // Gap (px) between a knob's circle and its label.
 static constexpr int kKnobLabelGap = 4;
 
-// Volume knob (top of the process left-pane triangle): micro label centred
+// Top knob (of the process left-pane's two stacked knobs): micro label centred
 // ABOVE the knob, no value readout.
-void DrawProcessVolumeKnob(OledPager& d,
-                           int cx,
-                           int cy,
-                           int radius,
-                           const char* label,
-                           float angle_rad,
-                           bool focused)
+void DrawProcessTopKnob(OledPager& d,
+                        int cx,
+                        int cy,
+                        int radius,
+                        const char* label,
+                        float angle_rad,
+                        bool focused)
 {
     DrawProcessKnobBody(d, cx, cy, radius, angle_rad);
     const int lw = MicroStringWidth(label);
@@ -56,32 +56,6 @@ void DrawProcessFilterKnob(OledPager& d,
     DrawProcessKnobBody(d, cx, cy, radius, angle_rad);
     const int lw = MicroStringWidth(label);
     DrawProcessKnobLabel(d, label, cx - (lw / 2), cy + radius + kKnobLabelGap, focused);
-}
-
-// Like DrawProcessFilterKnob, but the focused label uses an inverted look (filled
-// box, dark glyphs) instead of the corner-frame focus. Used by the combined
-// cut/res knob so its focus reads distinctly (and hints at the click-to-swap).
-void DrawProcessFilterKnobInvertFocus(OledPager& d,
-                                      int cx,
-                                      int cy,
-                                      int radius,
-                                      const char* label,
-                                      float angle_rad,
-                                      bool focused)
-{
-    DrawProcessKnobBody(d, cx, cy, radius, angle_rad);
-    const int lw = MicroStringWidth(label);
-    const int lx = cx - (lw / 2);
-    const int ly = cy + radius + kKnobLabelGap;
-    if(focused)
-    {
-        d.DrawRect(lx - 1, ly - 1, lx + lw, ly + kMicroH, true, true);
-        DrawMicroString(d, label, lx, ly, false);
-    }
-    else
-    {
-        DrawMicroString(d, label, lx, ly, true);
-    }
 }
 
 static void DrawProcessReorderLeftArrow(OledPager& d, int tip_x, int cy)

@@ -8,15 +8,14 @@
 #include "tilt_eq.h"
 
 #include <cmath>
-#include <cstdio>
 
-void DrawProcessVolumeKnob(OledPager& d,
-                           int cx,
-                           int cy,
-                           int radius,
-                           const char* label,
-                           float angle_rad,
-                           bool focused);
+void DrawProcessTopKnob(OledPager& d,
+                        int cx,
+                        int cy,
+                        int radius,
+                        const char* label,
+                        float angle_rad,
+                        bool focused);
 void DrawProcessFilterKnob(OledPager& d,
                            int cx,
                            int cy,
@@ -24,13 +23,6 @@ void DrawProcessFilterKnob(OledPager& d,
                            const char* label,
                            float angle_rad,
                            bool focused);
-void DrawProcessFilterKnobInvertFocus(OledPager& d,
-                                      int cx,
-                                      int cy,
-                                      int radius,
-                                      const char* label,
-                                      float angle_rad,
-                                      bool focused);
 
 float Clamp01(float x)
 {
@@ -75,59 +67,9 @@ float ClampEqFilterQ(float x)
     return x;
 }
 
-void FormatProcessLevelDb(float level, char* out, size_t out_n)
-{
-    if(out == nullptr || out_n == 0)
-        return;
-
-    if(level <= 0.00001f)
-    {
-        std::snprintf(out, out_n, "-infdb");
-        return;
-    }
-
-    const float db = 20.0f * std::log10(level);
-    if(db > 0.049f)
-        std::snprintf(out, out_n, "+%.1fdb", static_cast<double>(db));
-    else if(db < -0.049f)
-        std::snprintf(out, out_n, "%.1fdb", static_cast<double>(db));
-    else
-        std::snprintf(out, out_n, "0.0db");
-}
-
-float ProcessLevelToKnobNorm(float level)
-{
-    if(level <= 0.00001f)
-        return 0.0f;
-    if(level <= 1.0f)
-    {
-        float db = 20.0f * std::log10(level);
-        if(db < -60.0f)
-            db = -60.0f;
-        return ((db + 60.0f) / 60.0f) * 0.5f;
-    }
-
-    float db = 20.0f * std::log10(level);
-    const float max_db = 20.0f * std::log10(kProcessLayerLevelUiMax);
-    if(db > max_db)
-        db = max_db;
-    if(max_db <= 0.0f)
-        return 0.5f;
-    return 0.5f + (db / max_db) * 0.5f;
-}
-
-ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(AppEngineState& engine,
-                                                       const PerformParamsTargets& t)
+ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(const PerformParamsTargets& t)
 {
     ProcessLayerVolumeUiState ui = {};
-    for(int i = 0; i < 2; ++i)
-    {
-        engine.process.perform_process_vol_pct[i]
-            = static_cast<uint16_t>(t.engine_layer_master_level[i] * 100.0f + 0.5f);
-        FormatProcessLevelDb(t.engine_layer_master_level[i], ui.value_text[i], sizeof(ui.value_text[i]));
-        const float norm = ProcessLevelToKnobNorm(t.engine_layer_master_level[i]);
-        ui.angle_rad[i] = 2.0943951f + (norm * 5.2359878f);
-    }
 
     // Global process filter knob angles (log cutoff 20 Hz..20 kHz; linear res).
     float fc = t.process_cutoff_hz;
@@ -147,7 +89,6 @@ ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(AppEngineState& engine,
 void DrawProcessLayerVolumePane(OledPager& d,
                                 const ProcessLayerVolumeUiState& ui,
                                 uint8_t main_cursor,
-                                uint8_t cutres_sel,
                                 int left_y,
                                 int left_h)
 {
@@ -155,24 +96,17 @@ void DrawProcessLayerVolumePane(OledPager& d,
     constexpr int kLeftW = 60;
     const int cx_mid = kLeftX + (kLeftW / 2) - 1; // 29
 
-    // Two knobs stacked vertically: volume on top, the combined cut/res knob below.
-    // Cursor: 0=vol, 1=cut/res. The cut/res knob shows whichever param is selected
-    // (cutres_sel: 0=cut, 1=res); REnc-click swaps. Its focus uses the inverted
-    // label look. Knob hands track the live global-filter params.
-    constexpr int kVolRadius  = 7;
-    constexpr int kFiltRadius = 6;
-    const int vol_cy = left_y + 13;
-    const int filt_cy = left_y + left_h - 16;
+    // Two independent knobs stacked vertically: resonance on top (the slot
+    // formerly used by the since-removed Process Volume control, now fixed at
+    // unity), cutoff on the bottom. Each has its own dedicated knob and its own
+    // main-cursor slot — no more R-Enc-click toggle between them.
+    constexpr int kResRadius = 7;
+    constexpr int kCutRadius = 6;
+    const int res_cy = left_y + 13;
+    const int cut_cy = left_y + left_h - 16;
 
-    DrawProcessVolumeKnob(d, cx_mid, vol_cy, kVolRadius, "vol", ui.angle_rad[0], main_cursor == 0u);
-    const bool res_sel = (cutres_sel != 0u);
-    DrawProcessFilterKnobInvertFocus(d,
-                                     cx_mid,
-                                     filt_cy,
-                                     kFiltRadius,
-                                     res_sel ? "res" : "cut",
-                                     res_sel ? ui.res_angle : ui.cutoff_angle,
-                                     main_cursor == 1u);
+    DrawProcessTopKnob(d, cx_mid, res_cy, kResRadius, "res", ui.res_angle, main_cursor == 0u);
+    DrawProcessFilterKnob(d, cx_mid, cut_cy, kCutRadius, "cut", ui.cutoff_angle, main_cursor == 1u);
 }
 
 

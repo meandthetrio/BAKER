@@ -29,7 +29,7 @@ static bool ProcessMainCursorLocked(const AppSharedState& shared,
     (void)engine;
     (void)layer;
     (void)main_cursor;
-    // 6-slot model: 0=vol, 1=cut/res (combined), 2-5 = the four FX. Nothing is
+    // 6-slot model: 0=resonance, 1=cutoff, 2-5 = the four FX. Nothing is
     // locked (layer B's volume slot was removed when the engine went single-layer).
     return false;
 }
@@ -165,14 +165,9 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
         {
             if(!main_selects_fx)
             {
-                if(main_cursor == 0u) // vol: R-click toggles mute.
-                    ProcessHandleLayerMuteToggle(ctx, 0u);
-                else if(main_cursor == 1u) // cut/res: R-click toggles cut<->res.
-                {
-                    engine.process.perform_process_cutres_sel
-                        = engine.process.perform_process_cutres_sel ? 0u : 1u;
-                    ui.ui_dirty = true;
-                }
+                // Resonance and cutoff each have their own dedicated knob now;
+                // R-click has no action on either slot (only the FX slots
+                // below open a detail view).
                 return true;
             }
             {
@@ -303,15 +298,10 @@ bool PerformProcess_OnEvent(UiScreenCtx& ctx, const UiInputEvent& e)
 
         if(!main_selects_fx)
         {
-            if(main_cursor == 0u)
-                ProcessHandleLayerVolumeEdit(ctx, e, 0u);
-            else // main_cursor == 1u: combined cut/res knob (selection picks which)
-            {
-                if(engine.process.perform_process_cutres_sel != 0u)
-                    ProcessHandleProcessResonanceEdit(ctx, e);
-                else
-                    ProcessHandleProcessCutoffEdit(ctx, e);
-            }
+            if(main_cursor == 0u) // resonance (slot formerly used by Process Volume)
+                ProcessHandleProcessResonanceEdit(ctx, e);
+            else // main_cursor == 1u: cutoff
+                ProcessHandleProcessCutoffEdit(ctx, e);
             return true;
         }
 
@@ -423,9 +413,8 @@ void PerformProcess_Render(UiScreenCtx& ctx)
 
     if(box_h > 24)
     {
-        const ProcessLayerVolumeUiState layer_volume_ui = ProcessSyncLayerVolumeUiState(engine, t);
-        DrawProcessLayerVolumePane(d, layer_volume_ui, main_cursor,
-                                   engine.process.perform_process_cutres_sel, box_y, box_h);
+        const ProcessLayerVolumeUiState layer_volume_ui = ProcessSyncLayerVolumeUiState(t);
+        DrawProcessLayerVolumePane(d, layer_volume_ui, main_cursor, box_y, box_h);
     }
 
     // Keep right half for FX faders.

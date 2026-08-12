@@ -17,7 +17,7 @@ struct PerformParamsTargets
 {
     static constexpr uint8_t kLayerCount = 2;
 
-    float master_level = 0.70f; // OUTPUT VOL default 70 (UNITY=1.0)
+    float master_level = 1.0f; // OUTPUT VOL default: unity (0dB)
 
     bool  delay_on  = false;
     bool  reverb_on = false;
@@ -148,7 +148,7 @@ struct PerformParamsCurrent
 {
     static constexpr uint8_t kLayerCount = 2;
 
-    float master_level = 0.70f; // OUTPUT VOL default 70 (UNITY=1.0)
+    float master_level = 1.0f; // OUTPUT VOL default: unity (0dB)
 
     bool  delay_on  = false;
     bool  reverb_on = false;

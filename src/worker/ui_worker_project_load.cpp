@@ -46,7 +46,7 @@ static void PublishProjectPerformParams(Params& params,
 {
     PerformParamsTargets& t = params.EditTargets();
     if(output_master_level)
-        t.master_level = ClampProjectFloat(*output_master_level, 0.0f, 4.0f);
+        t.master_level = ClampProjectFloat(*output_master_level, 0.0f, 2.0f);
     if(process_fx_order)
     {
         for(uint8_t i = 0; i < 4; ++i)
@@ -191,20 +191,6 @@ static void PublishProjectPerformParams(Params& params,
     t.perform_keytrack_amount_db = engine.keyzone.perform_keytrack_amount_db;
     t.perform_keytrack_mid_note = engine.keyzone.perform_keytrack_mid_note;
     params.PublishTargets();
-}
-
-static void SyncProjectProcessVolumeUiState(AppEngineState& engine, const float* process_layer_master_level)
-{
-    if(!process_layer_master_level)
-        return;
-
-    for(uint8_t layer = 0; layer < kProjectSampleLayerCount; ++layer)
-    {
-        const float level = ClampProjectFloat(process_layer_master_level[layer], 0.0f, 2.0f);
-        engine.process.perform_process_vol_muted[layer] = false;
-        engine.process.perform_process_vol_unmuted_level[layer] = level;
-        engine.process.perform_process_vol_pct[layer] = static_cast<uint16_t>(level * 100.0f + 0.5f);
-    }
 }
 
 static void SyncProjectProcessFxOrderUiState(AppEngineState& engine, const uint8_t* process_fx_order)
@@ -427,7 +413,6 @@ void ApplyProjectLoadState(AppEngineState& engine,
                                 manifest.eq_hi_is_filter,
                                 manifest.eq_hi_q,
                                 static_cast<uint8_t>(manifest.reserved_v24 & 1u));
-    SyncProjectProcessVolumeUiState(engine, manifest.engine_layer_master_level);
     SyncProjectProcessFxOrderUiState(engine, manifest.fx_order);
 }
 

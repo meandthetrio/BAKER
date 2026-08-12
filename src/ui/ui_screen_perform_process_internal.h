@@ -4,17 +4,12 @@
 #include <cstdint>
 
 class OledPager;
-struct AppEngineState;
 struct PerformParamsTargets;
 struct UiScreenCtx;
 struct UiInputEvent;
 
-constexpr float kProcessLayerLevelUiMax = 2.0f;
-
 struct ProcessLayerVolumeUiState
 {
-    char  value_text[2][12];
-    float angle_rad[2];
     float cutoff_angle; // global process LPF cutoff knob angle
     float res_angle;    // global process LPF resonance knob angle
 };
@@ -25,16 +20,11 @@ float ClampEqQ(float x);
 float ClampEqShelfGain(float x);
 float ClampEqFilterQ(float x);
 
-void FormatProcessLevelDb(float level, char* out, size_t out_n);
-float ProcessLevelToKnobNorm(float level);
-
-ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(AppEngineState& engine,
-                                                         const PerformParamsTargets& t);
+ProcessLayerVolumeUiState ProcessSyncLayerVolumeUiState(const PerformParamsTargets& t);
 
 void DrawProcessLayerVolumePane(OledPager& d,
                                 const ProcessLayerVolumeUiState& ui,
                                 uint8_t main_cursor,
-                                uint8_t cutres_sel,
                                 int left_y,
                                 int left_h);
 
@@ -59,8 +49,6 @@ void DrawFxDetailScreen(OledPager& d,
 float UiDeltaNormAccelerated(int enc_delta, uint32_t t_ms, uint32_t& last_t_ms, float base_step);
 uint8_t ProcessDetailParamCount(uint8_t fx_id, uint8_t sat_mode = 0);
 void ProcessHandleLayerToggle(UiScreenCtx& ctx);
-void ProcessHandleLayerMuteToggle(UiScreenCtx& ctx, uint8_t layer);
-void ProcessHandleLayerVolumeEdit(UiScreenCtx& ctx, const UiInputEvent& e, uint8_t layer);
 void ProcessHandleProcessCutoffEdit(UiScreenCtx& ctx, const UiInputEvent& e);
 void ProcessHandleProcessResonanceEdit(UiScreenCtx& ctx, const UiInputEvent& e);
 void ProcessEditEqGraph(UiScreenCtx& ctx, float delta);
